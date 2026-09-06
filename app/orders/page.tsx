@@ -105,7 +105,7 @@ export default function OrdersPage() {
           <h1 className="text-3xl font-bold">Pedidos</h1>
 
           <p className="mt-2 text-sm text-muted-foreground">
-            {data?.count ?? 0} pedidos
+            {activeOrders.length} pedidos activos
           </p>
         </div>
 
