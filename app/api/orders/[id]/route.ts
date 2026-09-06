@@ -42,15 +42,48 @@ export async function PATCH(
     );
   }
 
-  const { data: order, error: orderError } = await supabase
+  const { data: currentOrder, error: currentOrderError } = await supabase
     .from("orders")
-    .update({
-      status_id: status.id,
-      updated_at: new Date().toISOString(),
-    })
+    .select("id, ready_at, delivered_at")
     .eq("id", id)
     .eq("tenant_id", context.tenant.id)
-    .select("id, reference, status_id")
+    .single();
+
+  if (currentOrderError || !currentOrder) {
+    return NextResponse.json(
+      {
+        error: "Could not update order",
+        detail: currentOrderError?.message ?? null,
+      },
+      { status: 500 }
+    );
+  }
+
+  const now = new Date().toISOString();
+  const updates: {
+    status_id: string;
+    updated_at: string;
+    ready_at?: string;
+    delivered_at?: string;
+  } = {
+    status_id: status.id,
+    updated_at: now,
+  };
+
+  if (status.code === "ready" && !currentOrder.ready_at) {
+    updates.ready_at = now;
+  }
+
+  if (status.code === "delivered" && !currentOrder.delivered_at) {
+    updates.delivered_at = now;
+  }
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .update(updates)
+    .eq("id", id)
+    .eq("tenant_id", context.tenant.id)
+    .select("id, reference, status_id, ready_at, delivered_at")
     .single();
 
   if (orderError || !order) {
