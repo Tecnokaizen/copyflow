@@ -168,6 +168,8 @@ type DetailField =
   | "order_context_id"
   | "due_at";
 
+type ContentField = "title" | "description" | "notes";
+
 type OrderOption = {
   id: string;
   name: string;
@@ -231,6 +233,31 @@ function toDateTimeLocalValue(value: string | null) {
   const local = new Date(date.getTime() - offset * 60_000);
 
   return local.toISOString().slice(0, 16);
+}
+
+function formatContentField(value: string | undefined) {
+  switch (value) {
+    case "title":
+      return "Título";
+    case "description":
+      return "Descripción";
+    case "notes":
+      return "Notas";
+    default:
+      return "Contenido";
+  }
+}
+
+function summarizeActivityValue(value: string | null | undefined) {
+  if (!value) return "Sin definir";
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (normalized.length <= 80) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 77)}...`;
 }
 
 function formatDetailField(value: string | undefined) {
@@ -327,6 +354,15 @@ function formatActivityText(item: ActivityItem) {
     return `${label}: ${from} → ${to}`;
   }
 
+  if (item.action === "order.content_changed") {
+    const field = item.metadata.field;
+
+    const from = summarizeActivityValue(item.previous_values?.value);
+    const to = summarizeActivityValue(item.new_values?.value);
+
+    return `${formatContentField(field)}: ${from} → ${to}`;
+  }
+
   return item.action;
 }
 
@@ -393,6 +429,12 @@ function OrderDetailContent() {
   const [updatingDetail, setUpdatingDetail] = useState<DetailField | null>(
     null
   );
+  const [updatingContent, setUpdatingContent] = useState<ContentField | null>(
+    null
+  );
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [draftNotes, setDraftNotes] = useState("");
 
   async function loadActivity() {
     try {
@@ -527,6 +569,12 @@ useEffect(() => {
 useEffect(() => {
   loadActivity();
 }, [params.id]);
+
+useEffect(() => {
+  setDraftTitle(order?.title ?? "");
+  setDraftDescription(order?.description ?? "");
+  setDraftNotes(order?.notes ?? "");
+}, [order?.title, order?.description, order?.notes]);
 
   async function updateStatus(statusId: string) {
   if (!order || updatingStatus) return;
@@ -786,6 +834,77 @@ useEffect(() => {
     }
   }
 
+  async function updateContent(field: ContentField, value: string | null) {
+    if (!order || updatingContent !== null) return;
+
+    setUpdatingContent(field);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/content`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          field,
+          value,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudo actualizar el contenido del pedido"
+        );
+      }
+
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+
+        if (field === "title") {
+          return {
+            ...current,
+            title: result.order.title,
+          };
+        }
+
+        if (field === "description") {
+          return {
+            ...current,
+            description: result.order.description,
+          };
+        }
+
+        return {
+          ...current,
+          notes: result.order.notes,
+        };
+      });
+
+      if (field === "title") {
+        setDraftTitle(result.order.title);
+      } else if (field === "description") {
+        setDraftDescription(result.order.description ?? "");
+      } else {
+        setDraftNotes(result.order.notes ?? "");
+      }
+
+      await loadActivity();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al actualizar el contenido del pedido"
+      );
+    } finally {
+      setUpdatingContent(null);
+    }
+  }
+
   if (loading) {
     return (
       <main className="p-8">
@@ -816,11 +935,55 @@ useEffect(() => {
             {order.reference}
           </div>
 
-          <h1 className="mt-1 text-3xl font-bold">{order.title}</h1>
+          <input
+            type="text"
+            value={draftTitle}
+            disabled={updatingContent !== null}
+            onChange={(event) => {
+              setDraftTitle(event.target.value);
+            }}
+            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-3xl font-bold"
+          />
+          <button
+            type="button"
+            disabled={
+              updatingContent !== null ||
+              draftTitle.trim() === "" ||
+              draftTitle.trim() === order.title
+            }
+            onClick={() => {
+              updateContent("title", draftTitle);
+            }}
+            className="mt-2 rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          >
+            Guardar
+          </button>
 
-          {order.description && (
-            <p className="mt-2 text-muted-foreground">{order.description}</p>
-          )}
+          <textarea
+            rows={3}
+            value={draftDescription}
+            disabled={updatingContent !== null}
+            onChange={(event) => {
+              setDraftDescription(event.target.value);
+            }}
+            className="mt-4 w-full rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            disabled={
+              updatingContent !== null ||
+              draftDescription.trim() === (order.description ?? "").trim()
+            }
+            onClick={() => {
+              updateContent(
+                "description",
+                draftDescription.trim() ? draftDescription : null
+              );
+            }}
+            className="mt-2 rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          >
+            Guardar
+          </button>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -1180,12 +1343,31 @@ useEffect(() => {
           </section>
         </div>
 
-        {order.notes && (
-          <section className="mt-6 rounded-lg border bg-card p-6">
-            <h2 className="mb-3 text-lg font-semibold">Notas</h2>
-            <p className="text-sm">{order.notes}</p>
-          </section>
-        )}
+        <section className="mt-6 rounded-lg border bg-card p-6">
+          <h2 className="mb-3 text-lg font-semibold">Notas</h2>
+          <textarea
+            rows={4}
+            value={draftNotes}
+            disabled={updatingContent !== null}
+            onChange={(event) => {
+              setDraftNotes(event.target.value);
+            }}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            disabled={
+              updatingContent !== null ||
+              draftNotes.trim() === (order.notes ?? "").trim()
+            }
+            onClick={() => {
+              updateContent("notes", draftNotes.trim() ? draftNotes : null);
+            }}
+            className="mt-2 rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          >
+            Guardar
+          </button>
+        </section>
 
         <section className="mt-6 rounded-lg border bg-card p-6">
           <h2 className="mb-3 text-lg font-semibold">Historial de actividad</h2>
