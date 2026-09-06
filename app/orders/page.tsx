@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { CreateOrderForm } from "@/components/orders/create-order-form";
 
 type Order = {
   id: string;
@@ -50,6 +52,7 @@ export default function OrdersPage() {
   const [data, setData] = useState<OrdersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   useEffect(() => {
     async function loadOrders() {
@@ -102,13 +105,27 @@ export default function OrdersPage() {
   return (
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Pedidos</h1>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Pedidos</h1>
 
-          <p className="mt-2 text-sm text-muted-foreground">
-            {activeOrders.length} pedidos activos
-          </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {activeOrders.length} pedidos activos
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            onClick={() => setShowCreateForm(true)}
+            disabled={showCreateForm}
+          >
+            Nuevo pedido
+          </Button>
         </div>
+
+        {showCreateForm && (
+          <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
+        )}
 
         <div className="overflow-hidden rounded-lg border bg-card">
           <div className="overflow-x-auto">
