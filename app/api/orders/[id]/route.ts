@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
+function statusForRpcError(code: string | undefined) {
+  switch (code) {
+    case "28000":
+      return 401;
+    case "42501":
+      return 403;
+    case "22023":
+      return 400;
+    case "P0002":
+      return 404;
+    default:
+      return 500;
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,78 +43,26 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  const { data: status, error: statusError } = await supabase
-    .from("order_statuses")
-    .select("id, tenant_id, code, name")
-    .eq("id", status_id)
-    .eq("tenant_id", context.tenant.id)
-    .single();
+  const { data, error } = await supabase.rpc("change_order_status", {
+    p_order_id: id,
+    p_status_id: status_id,
+    p_tenant_id: context.tenant.id,
+  });
 
-  if (statusError || !status) {
-    return NextResponse.json(
-      { error: "Invalid order status" },
-      { status: 400 }
-    );
-  }
-
-  const { data: currentOrder, error: currentOrderError } = await supabase
-    .from("orders")
-    .select("id, ready_at, delivered_at")
-    .eq("id", id)
-    .eq("tenant_id", context.tenant.id)
-    .single();
-
-  if (currentOrderError || !currentOrder) {
+  if (error || !data) {
     return NextResponse.json(
       {
         error: "Could not update order",
-        detail: currentOrderError?.message ?? null,
+        detail: error?.message ?? null,
       },
-      { status: 500 }
-    );
-  }
-
-  const now = new Date().toISOString();
-  const updates: {
-    status_id: string;
-    updated_at: string;
-    ready_at?: string;
-    delivered_at?: string;
-  } = {
-    status_id: status.id,
-    updated_at: now,
-  };
-
-  if (status.code === "ready" && !currentOrder.ready_at) {
-    updates.ready_at = now;
-  }
-
-  if (status.code === "delivered" && !currentOrder.delivered_at) {
-    updates.delivered_at = now;
-  }
-
-  const { data: order, error: orderError } = await supabase
-    .from("orders")
-    .update(updates)
-    .eq("id", id)
-    .eq("tenant_id", context.tenant.id)
-    .select("id, reference, status_id, ready_at, delivered_at")
-    .single();
-
-  if (orderError || !order) {
-    return NextResponse.json(
-      {
-        error: "Could not update order",
-        detail: orderError?.message ?? null,
-      },
-      { status: 500 }
+      { status: statusForRpcError(error?.code) }
     );
   }
 
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
-    order,
-    status,
+    order: data.order,
+    status: data.status,
   });
 }
