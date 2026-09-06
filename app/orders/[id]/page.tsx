@@ -68,8 +68,9 @@ type OrderStatus = {
   name: string;
 };
 
-type OrdersResponse = {
-  orders: Order[];
+type OrderResponse = {
+  tenant: string;
+  order: Order;
 };
 
 type ActivityItem = {
@@ -200,20 +201,18 @@ function OrderDetailContent() {
   useEffect(() => {
   async function loadOrder() {
     try {
-      const response = await fetch("/api/orders");
+      const response = await fetch(`/api/orders/${params.id}`);
+      const result: OrderResponse = await response.json();
 
       if (!response.ok) {
         throw new Error("No se pudo cargar el pedido");
       }
 
-      const data: OrdersResponse = await response.json();
-      const foundOrder = data.orders.find((item) => item.id === params.id);
-
-      if (!foundOrder) {
+      if (!result.order) {
         throw new Error("Pedido no encontrado");
       }
 
-      setOrder(foundOrder);
+      setOrder(result.order);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Error al cargar el pedido"
