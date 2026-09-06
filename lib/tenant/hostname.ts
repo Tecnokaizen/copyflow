@@ -18,6 +18,21 @@ export function getSubdomainFromHostname(hostname: string) {
     return null;
   }
 
+  // Dominio temporal de pruebas:
+  // sur4.copyflow.tecnokaizen.link → sur4
+  if (host.endsWith(".copyflow.tecnokaizen.link")) {
+    const slug = host.slice(
+      0,
+      -".copyflow.tecnokaizen.link".length
+    );
+
+    if (!slug || slug === "app" || slug.includes(".")) {
+      return null;
+    }
+
+    return slug;
+  }
+
   // Arquitectura definitiva:
   // sur4.copyflow.com → sur4
   if (host.endsWith(".copyflow.com")) {
