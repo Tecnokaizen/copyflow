@@ -14,9 +14,10 @@ export async function GET() {
 
   const supabase = await createClient();
 
-  const { data: clients, error } = await supabase
-    .from("clients")
-    .select("*");
+const { data: clients, error } = await supabase
+  .from("clients")
+  .select("*")
+  .eq("tenant_id", context.tenant.id);
 
   if (error) {
     return NextResponse.json(
