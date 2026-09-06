@@ -200,6 +200,8 @@ useEffect(() => {
         ? {
             ...current,
             status: result.status,
+            ready_at: result.order?.ready_at ?? current.ready_at,
+            delivered_at: result.order?.delivered_at ?? current.delivered_at,
           }
         : current
     );
