@@ -16,7 +16,13 @@ export async function GET() {
 
 const { data: orders, error } = await supabase
   .from("orders")
-  .select("*")
+  .select(`
+    *,
+    client:clients(*),
+    service:services(*),
+    status:order_statuses(*),
+    entry_channel:entry_channels(*)
+  `)
   .eq("tenant_id", context.tenant.id);
 
   if (error) {
