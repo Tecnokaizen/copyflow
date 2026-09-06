@@ -119,18 +119,35 @@ export default function OrdersPage() {
               </thead>
 
               <tbody>
-                {data?.orders.map((order) => (
-                  <tr
-                    key={order.id}
-                    className="border-b last:border-b-0 hover:bg-muted/30"
-                  >
-                    <td className="px-4 py-4">
-                      <div className="font-medium">{order.title}</div>
+                <tbody>
+                  {data?.orders.map((order) => (
+                    <tr
+                      key={order.id}
+                      className="border-b last:border-b-0 hover:bg-muted/30"
+                    >
+                      <td className="px-4 py-4">
+                        <div className="font-medium">{order.title}</div>
 
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {order.reference} · {order.priority}
-                      </div>
-                    </td>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{order.reference}</span>
+
+                          <span
+                            className={
+                              order.priority === "urgent"
+                                ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+                                : order.priority === "high"
+                                  ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
+                                  : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                            }
+                          >
+                            {order.priority === "urgent"
+                              ? "Urgente"
+                              : order.priority === "high"
+                                ? "Alta"
+                                : "Normal"}
+                          </span>
+                        </div>
+                      </td>
 
                     <td className="px-4 py-4">
                       {order.client?.name ?? "Sin cliente"}
