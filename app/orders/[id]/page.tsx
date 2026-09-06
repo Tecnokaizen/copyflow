@@ -94,6 +94,10 @@ type ActivityItem = {
     [key: string]: unknown;
   };
   created_at: string;
+  actor: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 type ActivityResponse = {
@@ -447,6 +451,7 @@ useEffect(() => {
                 >
                   <div className="text-sm">{formatActivityText(item)}</div>
                   <div className="mt-1 text-sm text-muted-foreground">
+                    {item.actor?.name ?? "Usuario"} ·{" "}
                     {formatActivityDate(item.created_at)}
                   </div>
                 </li>

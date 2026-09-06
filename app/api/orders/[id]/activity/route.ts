@@ -53,6 +53,41 @@ export async function GET(
   }
 
   const rows = activity ?? [];
+  const userIds = [
+    ...new Set(
+      rows
+        .map((row) => row.user_id)
+        .filter((userId): userId is string => Boolean(userId))
+    ),
+  ];
+
+  const nameByUserId = new Map<string, string>();
+
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", userIds);
+
+    for (const profile of profiles ?? []) {
+      const fullName =
+        typeof profile.full_name === "string" ? profile.full_name.trim() : "";
+
+      if (profile.id && fullName) {
+        nameByUserId.set(profile.id, fullName);
+      }
+    }
+  }
+
+  const activityWithActor = rows.map((row) => ({
+    ...row,
+    actor: row.user_id
+      ? {
+          id: row.user_id,
+          name: nameByUserId.get(row.user_id) ?? "Usuario",
+        }
+      : null,
+  }));
 
   return NextResponse.json({
     tenant: context.tenant.slug,
@@ -60,7 +95,7 @@ export async function GET(
       id: order.id,
       reference: order.reference,
     },
-    count: rows.length,
-    activity: rows,
+    count: activityWithActor.length,
+    activity: activityWithActor,
   });
 }
