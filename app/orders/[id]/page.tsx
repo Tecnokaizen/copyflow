@@ -29,6 +29,11 @@ type Order = {
     name: string;
   } | null;
 
+  service_id: string | null;
+  entry_channel_id: string | null;
+  assigned_team_member_id: string | null;
+  order_context_id: string | null;
+
   entry_channel: {
     name: string;
   } | null;
@@ -103,6 +108,10 @@ type ActivityItem = {
     option_id?: string | null;
     option_code?: string | null;
     option_name?: string | null;
+    value?: string | null;
+    value_id?: string | null;
+    value_code?: string | null;
+    value_name?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
@@ -114,6 +123,10 @@ type ActivityItem = {
     option_id?: string | null;
     option_code?: string | null;
     option_name?: string | null;
+    value?: string | null;
+    value_id?: string | null;
+    value_code?: string | null;
+    value_name?: string | null;
   } | null;
   metadata: {
     reference?: string;
@@ -147,6 +160,33 @@ type ManagementField =
   | "payment_status_id"
   | "delivery_method_id";
 
+type DetailField =
+  | "priority"
+  | "service_id"
+  | "entry_channel_id"
+  | "assigned_team_member_id"
+  | "order_context_id"
+  | "due_at";
+
+type OrderOption = {
+  id: string;
+  name: string;
+};
+
+type CodedOrderOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+type OrderOptionsResponse = {
+  tenant: string;
+  services: OrderOption[];
+  entry_channels: CodedOrderOption[];
+  order_contexts: CodedOrderOption[];
+  team_members: OrderOption[];
+};
+
 type ActivityResponse = {
   tenant: string;
   order: {
@@ -176,6 +216,40 @@ function formatActivityDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function toDateTimeLocalValue(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+
+  return local.toISOString().slice(0, 16);
+}
+
+function formatDetailField(value: string | undefined) {
+  switch (value) {
+    case "priority":
+      return "Prioridad";
+    case "service_id":
+      return "Servicio";
+    case "entry_channel_id":
+      return "Canal de entrada";
+    case "assigned_team_member_id":
+      return "Responsable";
+    case "order_context_id":
+      return "Contexto";
+    case "due_at":
+      return "Fecha prevista";
+    default:
+      return "Pedido";
+  }
 }
 
 function formatManagementField(value: string | undefined) {
@@ -222,6 +296,35 @@ function formatActivityText(item: ActivityItem) {
     const to = item.new_values?.option_name ?? "Sin definir";
 
     return `${field}: ${from} → ${to}`;
+  }
+
+  if (item.action === "order.details_changed") {
+    const field = item.metadata.field;
+
+    if (field === "priority") {
+      const from = formatPriority(item.previous_values?.value ?? "");
+      const to = formatPriority(item.new_values?.value ?? "");
+
+      return `Prioridad: ${from} → ${to}`;
+    }
+
+    if (field === "due_at") {
+      const from = item.previous_values?.value
+        ? formatDate(item.previous_values.value)
+        : "Sin definir";
+
+      const to = item.new_values?.value
+        ? formatDate(item.new_values.value)
+        : "Sin definir";
+
+      return `Fecha prevista: ${from} → ${to}`;
+    }
+
+    const label = formatDetailField(field);
+    const from = item.previous_values?.value_name ?? "Sin definir";
+    const to = item.new_values?.value_name ?? "Sin definir";
+
+    return `${label}: ${from} → ${to}`;
   }
 
   return item.action;
@@ -284,6 +387,12 @@ function OrderDetailContent() {
     useState(true);
   const [updatingManagement, setUpdatingManagement] =
     useState<ManagementField | null>(null);
+  const [orderOptions, setOrderOptions] =
+    useState<OrderOptionsResponse | null>(null);
+  const [orderOptionsLoading, setOrderOptionsLoading] = useState(true);
+  const [updatingDetail, setUpdatingDetail] = useState<DetailField | null>(
+    null
+  );
 
   async function loadActivity() {
     try {
@@ -380,6 +489,39 @@ useEffect(() => {
   }
 
   loadManagementOptions();
+}, []);
+
+useEffect(() => {
+  async function loadOrderOptions() {
+    try {
+      const response = await fetch("/api/orders/options");
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudieron cargar las opciones del pedido"
+        );
+      }
+
+      setOrderOptions({
+        tenant: result.tenant,
+        services: result.services ?? [],
+        entry_channels: result.entry_channels ?? [],
+        order_contexts: result.order_contexts ?? [],
+        team_members: result.team_members ?? [],
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al cargar las opciones del pedido"
+      );
+    } finally {
+      setOrderOptionsLoading(false);
+    }
+  }
+
+  loadOrderOptions();
 }, []);
 
 useEffect(() => {
@@ -555,6 +697,95 @@ useEffect(() => {
     }
   }
 
+  async function updateDetail(field: DetailField, value: string | null) {
+    if (!order || updatingDetail !== null) return;
+
+    setUpdatingDetail(field);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/details`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          field,
+          value,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudieron actualizar los datos del pedido"
+        );
+      }
+
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextValue = result.value ?? null;
+
+        if (field === "priority") {
+          return {
+            ...current,
+            priority: result.order.priority,
+          };
+        }
+
+        if (field === "service_id") {
+          return {
+            ...current,
+            service_id: result.order.service_id,
+            service: nextValue,
+          };
+        }
+
+        if (field === "entry_channel_id") {
+          return {
+            ...current,
+            entry_channel_id: result.order.entry_channel_id,
+            entry_channel: nextValue,
+          };
+        }
+
+        if (field === "assigned_team_member_id") {
+          return {
+            ...current,
+            assigned_team_member_id: result.order.assigned_team_member_id,
+            assigned_team_member: nextValue,
+          };
+        }
+
+        if (field === "order_context_id") {
+          return {
+            ...current,
+            order_context_id: result.order.order_context_id,
+            order_context: nextValue,
+          };
+        }
+
+        return {
+          ...current,
+          due_at: result.order.due_at,
+        };
+      });
+      await loadActivity();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al actualizar los datos del pedido"
+      );
+    } finally {
+      setUpdatingDetail(null);
+    }
+  }
+
   if (loading) {
     return (
       <main className="p-8">
@@ -622,14 +853,139 @@ useEffect(() => {
     </select>
   </div>
 </div>
-            <DetailRow
-              label="Prioridad"
-              value={formatPriority(order.priority)}
-            />
-            <DetailRow label="Servicio" value={order.service?.name} />
-            <DetailRow label="Canal de entrada" value={order.entry_channel?.name} />
-            <DetailRow label="Responsable" value={order.assigned_team_member?.name} />
-            <DetailRow label="Contexto" value={order.order_context?.name} />
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Prioridad
+              </div>
+              <div>
+                <select
+                  value={order.priority}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    updateDetail("priority", event.target.value);
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="high">Alta</option>
+                  <option value="urgent">Urgente</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Servicio
+              </div>
+              <div>
+                <select
+                  value={order.service_id ?? ""}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    updateDetail(
+                      "service_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {orderOptions?.services.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Canal de entrada
+              </div>
+              <div>
+                <select
+                  value={order.entry_channel_id ?? ""}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    updateDetail(
+                      "entry_channel_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {orderOptions?.entry_channels.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Responsable
+              </div>
+              <div>
+                <select
+                  value={order.assigned_team_member_id ?? ""}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    updateDetail(
+                      "assigned_team_member_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {orderOptions?.team_members.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Contexto
+              </div>
+              <div>
+                <select
+                  value={order.order_context_id ?? ""}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    updateDetail(
+                      "order_context_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {orderOptions?.order_contexts.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-lg border bg-card p-6">
@@ -650,10 +1006,28 @@ useEffect(() => {
               value={formatDate(order.received_at)}
             />
 
-            <DetailRow
-              label="Entrega prevista"
-              value={formatDate(order.due_at)}
-            />
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Entrega prevista
+              </div>
+              <div>
+                <input
+                  type="datetime-local"
+                  value={toDateTimeLocalValue(order.due_at)}
+                  disabled={
+                    orderOptionsLoading || updatingDetail !== null
+                  }
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    updateDetail(
+                      "due_at",
+                      value ? new Date(value).toISOString() : null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
 
             <DetailRow
               label="Terminado"
