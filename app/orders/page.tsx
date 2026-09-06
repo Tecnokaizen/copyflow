@@ -161,7 +161,19 @@ export default function OrdersPage() {
                     </td>
 
                     <td className="px-4 py-4">
-                      {order.status?.name ?? "—"}
+                      <span
+                        className={
+                          order.status?.code === "delivered"
+                            ? "rounded-full bg-green-100 px-2 py-1 font-medium text-green-700"
+                            : order.status?.code === "ready"
+                              ? "rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700"
+                              : order.status?.code === "in_progress"
+                                ? "rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-700"
+                                : "rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700"
+                        }
+                      >
+                        {order.status?.name ?? "—"}
+                      </span>
                     </td>
 
                     <td className="px-4 py-4">
