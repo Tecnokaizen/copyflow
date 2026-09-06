@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 
 type Order = {
   id: string;
@@ -160,6 +161,12 @@ function OrderDetailContent() {
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
+          <Link
+            href="/orders"
+            className="mb-4 inline-block text-sm text-muted-foreground hover:underline"
+          >
+            ← Volver a pedidos
+          </Link>
           <div className="text-sm text-muted-foreground">
             {order.reference}
           </div>
