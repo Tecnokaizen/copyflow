@@ -46,19 +46,32 @@ type Order = {
     name: string;
   } | null;
 
+  file_status_id: string | null;
+  quote_status_id: string | null;
+  payment_status_id: string | null;
+  delivery_method_id: string | null;
+
   file_status: {
+    id: string;
+    code: string;
     name: string;
   } | null;
 
   quote_status: {
+    id: string;
+    code: string;
     name: string;
   } | null;
 
   payment_status: {
+    id: string;
+    code: string;
     name: string;
   } | null;
 
   delivery_method: {
+    id: string;
+    code: string;
     name: string;
   } | null;
 };
@@ -87,6 +100,9 @@ type ActivityItem = {
     customer_notification_status?: string | null;
     customer_notified_at?: string | null;
     customer_notified_by?: string | null;
+    option_id?: string | null;
+    option_code?: string | null;
+    option_name?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
@@ -95,9 +111,13 @@ type ActivityItem = {
     customer_notification_status?: string | null;
     customer_notified_at?: string | null;
     customer_notified_by?: string | null;
+    option_id?: string | null;
+    option_code?: string | null;
+    option_name?: string | null;
   } | null;
   metadata: {
     reference?: string;
+    field?: string;
     [key: string]: unknown;
   };
   created_at: string;
@@ -106,6 +126,26 @@ type ActivityItem = {
     name: string;
   } | null;
 };
+
+type ManagementOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+type ManagementOptionsResponse = {
+  tenant: string;
+  file_statuses: ManagementOption[];
+  quote_statuses: ManagementOption[];
+  payment_statuses: ManagementOption[];
+  delivery_methods: ManagementOption[];
+};
+
+type ManagementField =
+  | "file_status_id"
+  | "quote_status_id"
+  | "payment_status_id"
+  | "delivery_method_id";
 
 type ActivityResponse = {
   tenant: string;
@@ -138,6 +178,21 @@ function formatActivityDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatManagementField(value: string | undefined) {
+  switch (value) {
+    case "file_status_id":
+      return "Archivos";
+    case "quote_status_id":
+      return "Presupuesto";
+    case "payment_status_id":
+      return "Pago";
+    case "delivery_method_id":
+      return "Entrega";
+    default:
+      return "Gestión";
+  }
+}
+
 function formatActivityText(item: ActivityItem) {
   if (item.action === "order.status_changed") {
     const from = item.previous_values?.status_name ?? "—";
@@ -159,6 +214,14 @@ function formatActivityText(item: ActivityItem) {
 
   if (item.action === "order.created") {
     return "Pedido creado";
+  }
+
+  if (item.action === "order.management_changed") {
+    const field = formatManagementField(item.metadata.field);
+    const from = item.previous_values?.option_name ?? "Sin definir";
+    const to = item.new_values?.option_name ?? "Sin definir";
+
+    return `${field}: ${from} → ${to}`;
   }
 
   return item.action;
@@ -215,6 +278,12 @@ function OrderDetailContent() {
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [managementOptions, setManagementOptions] =
+    useState<ManagementOptionsResponse | null>(null);
+  const [managementOptionsLoading, setManagementOptionsLoading] =
+    useState(true);
+  const [updatingManagement, setUpdatingManagement] =
+    useState<ManagementField | null>(null);
 
   async function loadActivity() {
     try {
@@ -284,6 +353,33 @@ useEffect(() => {
   }
 
   loadStatuses();
+}, []);
+
+useEffect(() => {
+  async function loadManagementOptions() {
+    try {
+      const response = await fetch("/api/orders/management-options");
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudieron cargar las opciones de gestión"
+        );
+      }
+
+      setManagementOptions(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al cargar las opciones de gestión"
+      );
+    } finally {
+      setManagementOptionsLoading(false);
+    }
+  }
+
+  loadManagementOptions();
 }, []);
 
 useEffect(() => {
@@ -378,6 +474,84 @@ useEffect(() => {
       );
     } finally {
       setUpdatingNotification(false);
+    }
+  }
+
+  async function updateManagement(
+    field: ManagementField,
+    valueId: string | null
+  ) {
+    if (!order || updatingManagement !== null) return;
+
+    setUpdatingManagement(field);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/management`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          field,
+          value_id: valueId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudo actualizar la gestión del pedido"
+        );
+      }
+
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextValue = result.value ?? null;
+
+        if (field === "file_status_id") {
+          return {
+            ...current,
+            file_status_id: result.order.file_status_id,
+            file_status: nextValue,
+          };
+        }
+
+        if (field === "quote_status_id") {
+          return {
+            ...current,
+            quote_status_id: result.order.quote_status_id,
+            quote_status: nextValue,
+          };
+        }
+
+        if (field === "payment_status_id") {
+          return {
+            ...current,
+            payment_status_id: result.order.payment_status_id,
+            payment_status: nextValue,
+          };
+        }
+
+        return {
+          ...current,
+          delivery_method_id: result.order.delivery_method_id,
+          delivery_method: nextValue,
+        };
+      });
+      await loadActivity();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al actualizar la gestión del pedido"
+      );
+    } finally {
+      setUpdatingManagement(null);
     }
   }
 
@@ -495,10 +669,118 @@ useEffect(() => {
           <section className="rounded-lg border bg-card p-6">
             <h2 className="mb-2 text-lg font-semibold">Gestión</h2>
 
-            <DetailRow label="Archivos" value={order.file_status?.name} />
-            <DetailRow label="Presupuesto" value={order.quote_status?.name} />
-            <DetailRow label="Pago" value={order.payment_status?.name} />
-            <DetailRow label="Entrega" value={order.delivery_method?.name} />
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Archivos
+              </div>
+              <div>
+                <select
+                  value={order.file_status_id ?? ""}
+                  disabled={
+                    managementOptionsLoading || updatingManagement !== null
+                  }
+                  onChange={(event) => {
+                    updateManagement(
+                      "file_status_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {managementOptions?.file_statuses.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Presupuesto
+              </div>
+              <div>
+                <select
+                  value={order.quote_status_id ?? ""}
+                  disabled={
+                    managementOptionsLoading || updatingManagement !== null
+                  }
+                  onChange={(event) => {
+                    updateManagement(
+                      "quote_status_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {managementOptions?.quote_statuses.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Pago
+              </div>
+              <div>
+                <select
+                  value={order.payment_status_id ?? ""}
+                  disabled={
+                    managementOptionsLoading || updatingManagement !== null
+                  }
+                  onChange={(event) => {
+                    updateManagement(
+                      "payment_status_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {managementOptions?.payment_statuses.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Entrega
+              </div>
+              <div>
+                <select
+                  value={order.delivery_method_id ?? ""}
+                  disabled={
+                    managementOptionsLoading || updatingManagement !== null
+                  }
+                  onChange={(event) => {
+                    updateManagement(
+                      "delivery_method_id",
+                      event.target.value || null
+                    );
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {managementOptions?.delivery_methods.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="grid gap-1 py-4 md:grid-cols-[220px_1fr]">
               <div className="text-sm font-medium text-muted-foreground">
                 Aviso al cliente
