@@ -165,7 +165,17 @@ export default function OrdersPage() {
                     </td>
 
                     <td className="px-4 py-4">
-                      {formatDate(order.due_at)}
+                      <div
+                        className={
+                          order.due_at &&
+                          new Date(order.due_at) < new Date() &&
+                          order.status?.code !== "delivered"
+                            ? "font-medium text-red-600"
+                            : ""
+                        }
+                      >
+                        {formatDate(order.due_at)}
+                      </div>
                     </td>
                   </tr>
                 ))}
