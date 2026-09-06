@@ -120,31 +120,35 @@ function OrderDetailContent() {
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
 
   useEffect(() => {
-    async function loadOrder() {
-      try {
-        const response = await fetch("/api/orders");
+  async function loadOrder() {
+    try {
+      const response = await fetch("/api/orders");
 
-        if (!response.ok) {
-          throw new Error("No se pudo cargar el pedido");
-        }
-
-        const data: OrdersResponse = await response.json();
-        const foundOrder = data.orders.find((item) => item.id === params.id);
-
-        if (!foundOrder) {
-          throw new Error("Pedido no encontrado");
-        }
-
-        setOrder(foundOrder);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Error al cargar el pedido"
-        );
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error("No se pudo cargar el pedido");
       }
+
+      const data: OrdersResponse = await response.json();
+      const foundOrder = data.orders.find((item) => item.id === params.id);
+
+      if (!foundOrder) {
+        throw new Error("Pedido no encontrado");
+      }
+
+      setOrder(foundOrder);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Error al cargar el pedido"
+      );
+    } finally {
+      setLoading(false);
     }
-    useEffect(() => {
+  }
+
+  loadOrder();
+}, [params.id]);
+
+useEffect(() => {
   async function loadStatuses() {
     try {
       const response = await fetch("/api/order-statuses");
@@ -168,9 +172,6 @@ function OrderDetailContent() {
 
   loadStatuses();
 }, []);
-
-    loadOrder();
-  }, [params.id]);
   async function updateStatus(statusId: string) {
   if (!order || updatingStatus) return;
 
