@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type Order = {
   id: string;
@@ -132,7 +133,12 @@ export default function OrdersPage() {
                       className="border-b last:border-b-0 hover:bg-muted/30"
                     >
                       <td className="px-4 py-4">
-                        <div className="font-medium">{order.title}</div>
+                        <Link
+                          href={`/orders/${order.id}`}
+                          className="font-medium hover:underline"
+                        >
+                          {order.title}
+                        </Link>
 
                         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{order.reference}</span>
