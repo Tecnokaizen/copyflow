@@ -119,7 +119,6 @@ export default function OrdersPage() {
               </thead>
 
               <tbody>
-                <tbody>
                   {data?.orders.map((order) => (
                     <tr
                       key={order.id}
