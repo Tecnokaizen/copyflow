@@ -22,7 +22,8 @@ export async function GET() {
       service:services(*),
       status:order_statuses(*),
       entry_channel:entry_channels(*),
-      assigned_team_member:team_members(*)
+      assigned_team_member:team_members(*),
+      order_context:order_contexts(*)
     `)
     .eq("tenant_id", context.tenant.id);
 
