@@ -25,7 +25,8 @@ export async function GET() {
       assigned_team_member:team_members(*),
       order_context:order_contexts(*),
       file_status:file_statuses(*),
-      quote_status:quote_statuses(*)
+      quote_status:quote_statuses(*),
+      payment_status:payment_statuses(*)
     `)
     .eq("tenant_id", context.tenant.id);
 
