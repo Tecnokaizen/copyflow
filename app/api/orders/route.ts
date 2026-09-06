@@ -14,16 +14,17 @@ export async function GET() {
 
   const supabase = await createClient();
 
-const { data: orders, error } = await supabase
-  .from("orders")
-  .select(`
-    *,
-    client:clients(*),
-    service:services(*),
-    status:order_statuses(*),
-    entry_channel:entry_channels(*)
-  `)
-  .eq("tenant_id", context.tenant.id);
+  const { data: orders, error } = await supabase
+    .from("orders")
+    .select(`
+      *,
+      client:clients(*),
+      service:services(*),
+      status:order_statuses(*),
+      entry_channel:entry_channels(*),
+      assigned_team_member:team_members(*)
+    `)
+    .eq("tenant_id", context.tenant.id);
 
   if (error) {
     return NextResponse.json(
