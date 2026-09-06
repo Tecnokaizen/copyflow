@@ -119,7 +119,7 @@ export default function OrdersPage() {
               </thead>
 
               <tbody>
-                  {data?.orders.map((order) => (
+                  {activeOrders.map((order) => (
                     <tr
                       key={order.id}
                       className="border-b last:border-b-0 hover:bg-muted/30"
