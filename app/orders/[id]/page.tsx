@@ -62,6 +62,11 @@ type Order = {
     name: string;
   } | null;
 };
+type OrderStatus = {
+  id: string;
+  code: string;
+  name: string;
+};
 
 type OrdersResponse = {
   orders: Order[];
@@ -112,6 +117,7 @@ function OrderDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statuses, setStatuses] = useState<OrderStatus[]>([]);
 
   useEffect(() => {
     async function loadOrder() {
@@ -138,6 +144,30 @@ function OrderDetailContent() {
         setLoading(false);
       }
     }
+    useEffect(() => {
+  async function loadStatuses() {
+    try {
+      const response = await fetch("/api/order-statuses");
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudieron cargar los estados"
+        );
+      }
+
+      setStatuses(result.statuses ?? []);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al cargar los estados"
+      );
+    }
+  }
+
+  loadStatuses();
+}, []);
 
     loadOrder();
   }, [params.id]);
@@ -232,25 +262,21 @@ function OrderDetailContent() {
       value={order.status?.code ?? ""}
       disabled={updatingStatus}
       onChange={(event) => {
-        const statusMap: Record<string, string> = {
-          pending: "71111111-1111-4111-8111-111111111001",
-          in_progress: "71111111-1111-4111-8111-111111111002",
-          ready: "71111111-1111-4111-8111-111111111003",
-          delivered: "71111111-1111-4111-8111-111111111004",
-        };
+        const status = statuses.find(
+          (item) => item.code === event.target.value
+        );
 
-        const statusId = statusMap[event.target.value];
-
-        if (statusId) {
-          updateStatus(statusId);
+        if (status) {
+          updateStatus(status.id);
         }
       }}
       className="rounded-md border bg-background px-3 py-2 text-sm"
     >
-      <option value="pending">Pendiente</option>
-      <option value="in_progress">En proceso</option>
-      <option value="ready">Terminado</option>
-      <option value="delivered">Entregado</option>
+      {statuses.map((status) => (
+        <option key={status.id} value={status.code}>
+          {status.name}
+        </option>
+      ))}
     </select>
   </div>
 </div>
