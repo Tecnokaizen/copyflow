@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -30,12 +29,6 @@ function emptyToNull(value: unknown): string | null {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function generateOrderReference(tenantSlug: string) {
-  const slug = tenantSlug.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() || "PED";
-  const token = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
-  return `${slug}-${token}`;
 }
 
 function parseDueAt(value: unknown): { ok: true; dueAt: string | null } | { ok: false } {
@@ -241,7 +234,6 @@ export async function POST(request: NextRequest) {
     .from("orders")
     .insert({
       tenant_id: tenantId,
-      reference: generateOrderReference(context.tenant.slug),
       title,
       description,
       client_id: clientId,
