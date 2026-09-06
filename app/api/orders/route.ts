@@ -23,7 +23,8 @@ export async function GET() {
       status:order_statuses(*),
       entry_channel:entry_channels(*),
       assigned_team_member:team_members(*),
-      order_context:order_contexts(*)
+      order_context:order_contexts(*),
+      file_status:file_statuses(*)
     `)
     .eq("tenant_id", context.tenant.id);
 
