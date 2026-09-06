@@ -219,26 +219,28 @@ function OrderDetailContent() {
           </section>
         </div>
 
-        {order.notes && (
+                {order.notes && (
           <section className="mt-6 rounded-lg border bg-card p-6">
             <h2 className="mb-3 text-lg font-semibold">Notas</h2>
             <p className="text-sm">{order.notes}</p>
           </section>
         )}
-        export default function OrderDetailPage() {
-          return (
-            <Suspense
-              fallback={
-                <main className="p-8">
-                  <p>Cargando pedido...</p>
-                </main>
-              }
-            >
-              <OrderDetailContent />
-            </Suspense>
-          );
-        }
       </div>
     </main>
   );
 }
+
+export default function OrderDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="p-8">
+          <p>Cargando pedido...</p>
+        </main>
+      }
+    >
+      <OrderDetailContent />
+    </Suspense>
+  );
+}
+    
