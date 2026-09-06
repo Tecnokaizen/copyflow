@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 type Order = {
@@ -93,7 +93,7 @@ function DetailRow({
   );
 }
 
-export default function OrderDetailPage() {
+function OrderDetailContent() {
   const params = useParams<{ id: string }>();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,6 +225,19 @@ export default function OrderDetailPage() {
             <p className="text-sm">{order.notes}</p>
           </section>
         )}
+        export default function OrderDetailPage() {
+          return (
+            <Suspense
+              fallback={
+                <main className="p-8">
+                  <p>Cargando pedido...</p>
+                </main>
+              }
+            >
+              <OrderDetailContent />
+            </Suspense>
+          );
+        }
       </div>
     </main>
   );
