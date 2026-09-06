@@ -142,6 +142,19 @@ function formatActivityText(item: ActivityItem) {
   return item.action;
 }
 
+function formatPriority(value: string) {
+  switch (value) {
+    case "normal":
+      return "Normal";
+    case "high":
+      return "Alta";
+    case "urgent":
+      return "Urgente";
+    default:
+      return value;
+  }
+}
+
 function formatCustomerNotificationStatus(value: string) {
   switch (value) {
     case "not_notified":
@@ -366,7 +379,10 @@ useEffect(() => {
     </select>
   </div>
 </div>
-            <DetailRow label="Prioridad" value={order.priority} />
+            <DetailRow
+              label="Prioridad"
+              value={formatPriority(order.priority)}
+            />
             <DetailRow label="Servicio" value={order.service?.name} />
             <DetailRow label="Canal de entrada" value={order.entry_channel?.name} />
             <DetailRow label="Responsable" value={order.assigned_team_member?.name} />
