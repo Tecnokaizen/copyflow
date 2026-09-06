@@ -16,13 +16,18 @@ type Order = {
   delivered_at: string | null;
   customer_notification_status: string;
   notes: string | null;
+  client_id: string | null;
 
   client: {
+    id: string;
+    customer_type_id: string | null;
     name: string;
-    company_name: string | null;
     contact_name: string | null;
+    company_name: string | null;
+    tax_id: string | null;
     email: string | null;
     phone: string | null;
+    notes: string | null;
   } | null;
 
   service: {
@@ -112,6 +117,8 @@ type ActivityItem = {
     value_id?: string | null;
     value_code?: string | null;
     value_name?: string | null;
+    client_id?: string | null;
+    client_name?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
@@ -127,6 +134,8 @@ type ActivityItem = {
     value_id?: string | null;
     value_code?: string | null;
     value_name?: string | null;
+    client_id?: string | null;
+    client_name?: string | null;
   } | null;
   metadata: {
     reference?: string;
@@ -169,6 +178,40 @@ type DetailField =
   | "due_at";
 
 type ContentField = "title" | "description" | "notes";
+
+type CustomerTypeOption = {
+  id: string;
+  name: string;
+};
+
+type ClientOptionsResponse = {
+  tenant: string;
+  customer_types: CustomerTypeOption[];
+};
+
+type ClientFormMode = "edit" | "create";
+
+type ClientFormData = {
+  customer_type_id: string;
+  name: string;
+  contact_name: string;
+  company_name: string;
+  tax_id: string;
+  email: string;
+  phone: string;
+  notes: string;
+};
+
+const EMPTY_CLIENT_FORM: ClientFormData = {
+  customer_type_id: "",
+  name: "",
+  contact_name: "",
+  company_name: "",
+  tax_id: "",
+  email: "",
+  phone: "",
+  notes: "",
+};
 
 type OrderOption = {
   id: string;
@@ -363,6 +406,13 @@ function formatActivityText(item: ActivityItem) {
     return `${formatContentField(field)}: ${from} → ${to}`;
   }
 
+  if (item.action === "order.client_changed") {
+    const from = item.previous_values?.client_name ?? "Sin cliente";
+    const to = item.new_values?.client_name ?? "Sin cliente";
+
+    return `Cliente: ${from} → ${to}`;
+  }
+
   return item.action;
 }
 
@@ -435,6 +485,14 @@ function OrderDetailContent() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
+  const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [clientFormMode, setClientFormMode] =
+    useState<ClientFormMode>("edit");
+  const [clientOptions, setClientOptions] =
+    useState<ClientOptionsResponse | null>(null);
+  const [clientOptionsLoading, setClientOptionsLoading] = useState(true);
+  const [savingClient, setSavingClient] = useState(false);
+  const [clientForm, setClientForm] = useState<ClientFormData>(EMPTY_CLIENT_FORM);
 
   async function loadActivity() {
     try {
@@ -564,6 +622,36 @@ useEffect(() => {
   }
 
   loadOrderOptions();
+}, []);
+
+useEffect(() => {
+  async function loadClientOptions() {
+    try {
+      const response = await fetch("/api/clients/options");
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudieron cargar los tipos de cliente"
+        );
+      }
+
+      setClientOptions({
+        tenant: result.tenant,
+        customer_types: result.customer_types ?? [],
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al cargar los tipos de cliente"
+      );
+    } finally {
+      setClientOptionsLoading(false);
+    }
+  }
+
+  loadClientOptions();
 }, []);
 
 useEffect(() => {
@@ -905,6 +993,121 @@ useEffect(() => {
     }
   }
 
+  function openEditClient() {
+    if (!order?.client) return;
+
+    setClientFormMode("edit");
+    setClientForm({
+      customer_type_id: order.client.customer_type_id ?? "",
+      name: order.client.name,
+      contact_name: order.client.contact_name ?? "",
+      company_name: order.client.company_name ?? "",
+      tax_id: order.client.tax_id ?? "",
+      email: order.client.email ?? "",
+      phone: order.client.phone ?? "",
+      notes: order.client.notes ?? "",
+    });
+    setClientModalOpen(true);
+  }
+
+  function openCreateClient() {
+    setClientFormMode("create");
+    setClientForm(EMPTY_CLIENT_FORM);
+    setClientModalOpen(true);
+  }
+
+  function closeClientModal() {
+    if (savingClient) return;
+    setClientModalOpen(false);
+  }
+
+  function toClientPayload(form: ClientFormData) {
+    return {
+      customer_type_id: form.customer_type_id.trim() || null,
+      name: form.name.trim(),
+      contact_name: form.contact_name.trim() || null,
+      company_name: form.company_name.trim() || null,
+      tax_id: form.tax_id.trim() || null,
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
+      notes: form.notes.trim() || null,
+    };
+  }
+
+  async function saveClient() {
+    if (!order || savingClient || clientForm.name.trim() === "") return;
+    if (clientFormMode === "edit" && !order.client?.id) return;
+
+    setSavingClient(true);
+    setError(null);
+
+    try {
+      if (clientFormMode === "edit") {
+        if (!order.client?.id) return;
+
+        const response = await fetch(`/api/clients/${order.client.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(toClientPayload(clientForm)),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ?? "No se pudo actualizar el cliente"
+          );
+        }
+
+        setOrder((current) =>
+          current
+            ? {
+                ...current,
+                client: result.client,
+              }
+            : current
+        );
+      } else {
+        const response = await fetch(`/api/orders/${order.id}/client`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(toClientPayload(clientForm)),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "No se pudo crear el cliente");
+        }
+
+        setOrder((current) =>
+          current
+            ? {
+                ...current,
+                client_id: result.order.client_id,
+                client: result.client,
+              }
+            : current
+        );
+      }
+
+      setClientModalOpen(false);
+      await loadActivity();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al guardar el cliente"
+      );
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="p-8">
@@ -1159,6 +1362,24 @@ useEffect(() => {
             <DetailRow label="Contacto" value={order.client?.contact_name} />
             <DetailRow label="Email" value={order.client?.email} />
             <DetailRow label="Teléfono" value={order.client?.phone} />
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!order.client}
+                onClick={openEditClient}
+                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Editar cliente
+              </button>
+              <button
+                type="button"
+                onClick={openCreateClient}
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                Crear cliente
+              </button>
+            </div>
           </section>
 
           <section className="rounded-lg border bg-card p-6">
@@ -1398,6 +1619,171 @@ useEffect(() => {
           )}
         </section>
       </div>
+
+      {clientModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-6">
+            <h2 className="mb-4 text-lg font-semibold">
+              {clientFormMode === "edit" ? "Editar cliente" : "Crear cliente"}
+            </h2>
+
+            <div className="grid gap-4">
+              <label className="grid gap-1 text-sm">
+                Tipo de cliente
+                <select
+                  value={clientForm.customer_type_id}
+                  disabled={savingClient || clientOptionsLoading}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      customer_type_id: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">— Sin definir —</option>
+                  {clientOptions?.customer_types.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Nombre *
+                <input
+                  type="text"
+                  value={clientForm.name}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Persona de contacto
+                <input
+                  type="text"
+                  value={clientForm.contact_name}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      contact_name: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Empresa / razón social
+                <input
+                  type="text"
+                  value={clientForm.company_name}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      company_name: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                NIF / CIF
+                <input
+                  type="text"
+                  value={clientForm.tax_id}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      tax_id: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Email
+                <input
+                  type="email"
+                  value={clientForm.email}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Teléfono
+                <input
+                  type="tel"
+                  value={clientForm.phone}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      phone: event.target.value,
+                    }));
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Notas
+                <textarea
+                  rows={4}
+                  value={clientForm.notes}
+                  disabled={savingClient}
+                  onChange={(event) => {
+                    setClientForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }));
+                  }}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={savingClient}
+                onClick={closeClientModal}
+                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingClient || clientForm.name.trim() === ""}
+                onClick={saveClient}
+                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
