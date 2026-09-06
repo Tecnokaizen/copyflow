@@ -77,6 +77,18 @@ function formatDate(value: string | null) {
     minute: "2-digit",
   }).format(new Date(value));
 }
+function formatCustomerNotificationStatus(value: string) {
+  switch (value) {
+    case "not_notified":
+      return "No avisado";
+    case "notified":
+      return "Avisado";
+    case "notified_no_pickup":
+      return "Avisado pero no viene";
+    default:
+      return value;
+  }
+}
 
 function DetailRow({
   label,
@@ -214,7 +226,9 @@ function OrderDetailContent() {
             <DetailRow label="Entrega" value={order.delivery_method?.name} />
             <DetailRow
               label="Aviso al cliente"
-              value={order.customer_notification_status}
+              value={formatCustomerNotificationStatus(
+                order.customer_notification_status
+              )}
             />
           </section>
         </div>
