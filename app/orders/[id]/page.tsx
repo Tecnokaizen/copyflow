@@ -72,6 +72,40 @@ type OrdersResponse = {
   orders: Order[];
 };
 
+type ActivityItem = {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  user_id: string | null;
+  team_member_id: string | null;
+  previous_values: {
+    status_id?: string | null;
+    status_code?: string | null;
+    status_name?: string | null;
+  } | null;
+  new_values: {
+    status_id?: string | null;
+    status_code?: string | null;
+    status_name?: string | null;
+  } | null;
+  metadata: {
+    reference?: string;
+    [key: string]: unknown;
+  };
+  created_at: string;
+};
+
+type ActivityResponse = {
+  tenant: string;
+  order: {
+    id: string;
+    reference: string;
+  };
+  count: number;
+  activity: ActivityItem[];
+};
+
 function formatDate(value: string | null) {
   if (!value) return "—";
 
@@ -83,6 +117,26 @@ function formatDate(value: string | null) {
     minute: "2-digit",
   }).format(new Date(value));
 }
+function formatActivityDate(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatActivityText(item: ActivityItem) {
+  if (item.action === "order.status_changed") {
+    const from = item.previous_values?.status_name ?? "—";
+    const to = item.new_values?.status_name ?? "—";
+    return `${from} → ${to}`;
+  }
+
+  return item.action;
+}
+
 function formatCustomerNotificationStatus(value: string) {
   switch (value) {
     case "not_notified":
@@ -118,6 +172,26 @@ function OrderDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+
+  async function loadActivity() {
+    try {
+      const response = await fetch(`/api/orders/${params.id}/activity`);
+
+      if (!response.ok) {
+        setActivity([]);
+        return;
+      }
+
+      const result: ActivityResponse = await response.json();
+      setActivity(result.activity ?? []);
+    } catch {
+      setActivity([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
 
   useEffect(() => {
   async function loadOrder() {
@@ -172,6 +246,11 @@ useEffect(() => {
 
   loadStatuses();
 }, []);
+
+useEffect(() => {
+  loadActivity();
+}, [params.id]);
+
   async function updateStatus(statusId: string) {
   if (!order || updatingStatus) return;
 
@@ -205,6 +284,7 @@ useEffect(() => {
           }
         : current
     );
+    await loadActivity();
   } catch (err) {
     setError(
       err instanceof Error
@@ -340,12 +420,40 @@ useEffect(() => {
           </section>
         </div>
 
-                {order.notes && (
+        {order.notes && (
           <section className="mt-6 rounded-lg border bg-card p-6">
             <h2 className="mb-3 text-lg font-semibold">Notas</h2>
             <p className="text-sm">{order.notes}</p>
           </section>
         )}
+
+        <section className="mt-6 rounded-lg border bg-card p-6">
+          <h2 className="mb-3 text-lg font-semibold">Historial de actividad</h2>
+
+          {activityLoading ? (
+            <p className="text-sm text-muted-foreground">
+              Cargando historial...
+            </p>
+          ) : activity.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Todavía no hay actividad registrada.
+            </p>
+          ) : (
+            <ul>
+              {activity.map((item) => (
+                <li
+                  key={item.id}
+                  className="border-b py-4 last:border-b-0"
+                >
+                  <div className="text-sm">{formatActivityText(item)}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {formatActivityDate(item.created_at)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </main>
   );
