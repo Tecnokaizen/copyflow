@@ -84,11 +84,17 @@ type ActivityItem = {
     status_id?: string | null;
     status_code?: string | null;
     status_name?: string | null;
+    customer_notification_status?: string | null;
+    customer_notified_at?: string | null;
+    customer_notified_by?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
     status_code?: string | null;
     status_name?: string | null;
+    customer_notification_status?: string | null;
+    customer_notified_at?: string | null;
+    customer_notified_by?: string | null;
   } | null;
   metadata: {
     reference?: string;
@@ -137,6 +143,18 @@ function formatActivityText(item: ActivityItem) {
     const from = item.previous_values?.status_name ?? "—";
     const to = item.new_values?.status_name ?? "—";
     return `${from} → ${to}`;
+  }
+
+  if (item.action === "order.notification_changed") {
+    const from = formatCustomerNotificationStatus(
+      item.previous_values?.customer_notification_status ?? "not_notified"
+    );
+
+    const to = formatCustomerNotificationStatus(
+      item.new_values?.customer_notification_status ?? "not_notified"
+    );
+
+    return `Aviso al cliente: ${from} → ${to}`;
   }
 
   return item.action;
@@ -189,6 +207,7 @@ function OrderDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingNotification, setUpdatingNotification] = useState(false);
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
@@ -312,6 +331,52 @@ useEffect(() => {
   }
 }
 
+  async function updateNotificationStatus(notificationStatus: string) {
+    if (!order || updatingNotification) return;
+
+    setUpdatingNotification(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/notification`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          notification_status: notificationStatus,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "No se pudo actualizar el aviso al cliente"
+        );
+      }
+
+      setOrder((current) =>
+        current
+          ? {
+              ...current,
+              customer_notification_status:
+                result.order.customer_notification_status,
+            }
+          : current
+      );
+      await loadActivity();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Error al actualizar el aviso al cliente"
+      );
+    } finally {
+      setUpdatingNotification(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="p-8">
@@ -430,12 +495,28 @@ useEffect(() => {
             <DetailRow label="Presupuesto" value={order.quote_status?.name} />
             <DetailRow label="Pago" value={order.payment_status?.name} />
             <DetailRow label="Entrega" value={order.delivery_method?.name} />
-            <DetailRow
-              label="Aviso al cliente"
-              value={formatCustomerNotificationStatus(
-                order.customer_notification_status
-              )}
-            />
+            <div className="grid gap-1 py-4 md:grid-cols-[220px_1fr]">
+              <div className="text-sm font-medium text-muted-foreground">
+                Aviso al cliente
+              </div>
+
+              <div>
+                <select
+                  value={order.customer_notification_status}
+                  disabled={updatingNotification}
+                  onChange={(event) => {
+                    updateNotificationStatus(event.target.value);
+                  }}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="not_notified">No avisado</option>
+                  <option value="notified">Avisado</option>
+                  <option value="notified_no_pickup">
+                    Avisado pero no viene
+                  </option>
+                </select>
+              </div>
+            </div>
           </section>
         </div>
 
