@@ -111,6 +111,7 @@ function OrderDetailContent() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     async function loadOrder() {
@@ -140,6 +141,47 @@ function OrderDetailContent() {
 
     loadOrder();
   }, [params.id]);
+  async function updateStatus(statusId: string) {
+  if (!order || updatingStatus) return;
+
+  setUpdatingStatus(true);
+  setError(null);
+
+  try {
+    const response = await fetch(`/api/orders/${order.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status_id: statusId,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error ?? "No se pudo actualizar el estado");
+    }
+
+    setOrder((current) =>
+      current
+        ? {
+            ...current,
+            status: result.status,
+          }
+        : current
+    );
+  } catch (err) {
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Error al actualizar el estado"
+    );
+  } finally {
+    setUpdatingStatus(false);
+  }
+}
 
   if (loading) {
     return (
@@ -182,7 +224,36 @@ function OrderDetailContent() {
           <section className="rounded-lg border bg-card p-6">
             <h2 className="mb-2 text-lg font-semibold">Pedido</h2>
 
-            <DetailRow label="Estado" value={order.status?.name} />
+            <div className="grid gap-1 border-b py-4 md:grid-cols-[220px_1fr]">
+  <div className="text-sm font-medium text-muted-foreground">Estado</div>
+
+  <div>
+    <select
+      value={order.status?.code ?? ""}
+      disabled={updatingStatus}
+      onChange={(event) => {
+        const statusMap: Record<string, string> = {
+          pending: "71111111-1111-4111-8111-111111111001",
+          in_progress: "71111111-1111-4111-8111-111111111002",
+          ready: "71111111-1111-4111-8111-111111111003",
+          delivered: "71111111-1111-4111-8111-111111111004",
+        };
+
+        const statusId = statusMap[event.target.value];
+
+        if (statusId) {
+          updateStatus(statusId);
+        }
+      }}
+      className="rounded-md border bg-background px-3 py-2 text-sm"
+    >
+      <option value="pending">Pendiente</option>
+      <option value="in_progress">En proceso</option>
+      <option value="ready">Terminado</option>
+      <option value="delivered">Entregado</option>
+    </select>
+  </div>
+</div>
             <DetailRow label="Prioridad" value={order.priority} />
             <DetailRow label="Servicio" value={order.service?.name} />
             <DetailRow label="Canal de entrada" value={order.entry_channel?.name} />
