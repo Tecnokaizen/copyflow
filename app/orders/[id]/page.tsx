@@ -157,6 +157,10 @@ function formatActivityText(item: ActivityItem) {
     return `Aviso al cliente: ${from} → ${to}`;
   }
 
+  if (item.action === "order.created") {
+    return "Pedido creado";
+  }
+
   return item.action;
 }
 
