@@ -1,3 +1,8 @@
+import {
+  LEGACY_TENANT_BASE_DOMAINS,
+  TENANT_BASE_DOMAIN,
+} from "./domains";
+
 export function normalizeHostname(hostname: string) {
   return hostname
     .toLowerCase()
@@ -5,45 +10,45 @@ export function normalizeHostname(hostname: string) {
     .replace(/\.$/, "");
 }
 
+function slugFromBaseDomain(host: string, baseDomain: string) {
+  if (host === baseDomain) {
+    return { matched: true as const, slug: null };
+  }
+
+  const suffix = `.${baseDomain}`;
+
+  if (!host.endsWith(suffix)) {
+    return { matched: false as const, slug: null };
+  }
+
+  const slug = host.slice(0, -suffix.length);
+
+  if (!slug || slug === "app" || slug.includes(".")) {
+    return { matched: true as const, slug: null };
+  }
+
+  return { matched: true as const, slug };
+}
+
 export function getSubdomainFromHostname(hostname: string) {
   const host = normalizeHostname(hostname);
 
-  // Desarrollo local
   if (host === "localhost" || host === "127.0.0.1") {
     return null;
   }
 
-  // Dominio temporal actual de Copyflow
-  if (host === "copyflow.tecnokaizen.link") {
-    return null;
+  const primary = slugFromBaseDomain(host, TENANT_BASE_DOMAIN);
+
+  if (primary.matched) {
+    return primary.slug;
   }
 
-  // Dominio temporal de pruebas:
-  // sur4.copyflow.tecnokaizen.link → sur4
-  if (host.endsWith(".copyflow.tecnokaizen.link")) {
-    const slug = host.slice(
-      0,
-      -".copyflow.tecnokaizen.link".length
-    );
+  for (const baseDomain of LEGACY_TENANT_BASE_DOMAINS) {
+    const legacy = slugFromBaseDomain(host, baseDomain);
 
-    if (!slug || slug === "app" || slug.includes(".")) {
-      return null;
+    if (legacy.matched) {
+      return legacy.slug;
     }
-
-    return slug;
-  }
-
-  // Arquitectura definitiva:
-  // sur4.copyflow.com → sur4
-  if (host.endsWith(".copyflow.com")) {
-    const slug = host.slice(0, -".copyflow.com".length);
-
-    // app.copyflow.com no representa un tenant
-    if (!slug || slug === "app" || slug.includes(".")) {
-      return null;
-    }
-
-    return slug;
   }
 
   return null;
