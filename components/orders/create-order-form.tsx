@@ -5,6 +5,18 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ClientSelector } from "@/components/clients/client-selector";
+import { ClientForm } from "@/components/clients/client-form";
+import { ClientModal } from "@/components/clients/client-modal";
+import {
+  EMPTY_CLIENT_FORM,
+  parseClientDuplicate,
+  summaryFromForm,
+  toClientPayload,
+  type ClientDuplicate,
+  type ClientFormData,
+  type ClientSummary,
+} from "@/lib/clients/types";
 
 type OptionItem = {
   id: string;
@@ -13,7 +25,6 @@ type OptionItem = {
 };
 
 type OrderOptionsResponse = {
-  clients: OptionItem[];
   services: OptionItem[];
   entry_channels: OptionItem[];
   order_contexts: OptionItem[];
@@ -53,7 +64,15 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
-  const [clientId, setClientId] = useState("");
+  const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(
+    null
+  );
+  const [pendingNewClient, setPendingNewClient] =
+    useState<ClientFormData | null>(null);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [clientFormInitial, setClientFormInitial] =
+    useState<ClientFormData>(EMPTY_CLIENT_FORM);
+
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
   const [dueAt, setDueAt] = useState("");
@@ -76,7 +95,6 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
         }
 
         setOptions({
-          clients: result.clients ?? [],
           services: result.services ?? [],
           entry_channels: result.entry_channels ?? [],
           order_contexts: result.order_contexts ?? [],
@@ -96,6 +114,106 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
     loadOptions();
   }, []);
 
+  function openCreateClient(query: string) {
+    setClientFormInitial({
+      ...EMPTY_CLIENT_FORM,
+      name: query,
+    });
+    setClientModalOpen(true);
+  }
+
+  function keepPendingClient(form: ClientFormData) {
+    setPendingNewClient(form);
+    setSelectedClient(summaryFromForm(form, null));
+    setClientModalOpen(false);
+  }
+
+  async function createOrder(clientId: string | null) {
+    const trimmedTitle = title.trim();
+    let dueAtIso: string | null = null;
+    if (dueAt.trim()) {
+      dueAtIso = datetimeLocalToIso(dueAt);
+      if (!dueAtIso) {
+        throw new Error("La fecha prevista no es válida");
+      }
+    }
+
+    const response = await fetch("/api/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: trimmedTitle,
+        client_id: clientId,
+        service_id: serviceId || null,
+        description: description.trim() || null,
+        due_at: dueAtIso,
+        entry_channel_id: entryChannelId || null,
+        order_context_id: orderContextId || null,
+        priority,
+        assigned_team_member_id: assignedTeamMemberId || null,
+        notes: notes.trim() || null,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error ?? "No se pudo crear el pedido");
+    }
+
+    if (!result.order?.id) {
+      throw new Error("No se pudo crear el pedido");
+    }
+
+    return result.order.id as string;
+  }
+
+  async function assignExistingClient(orderId: string, clientId: string) {
+    const response = await fetch(`/api/orders/${orderId}/client`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ client_id: clientId }),
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    return true;
+  }
+
+  async function createAndAssignClient(
+    orderId: string,
+    form: ClientFormData
+  ): Promise<{ ok: true } | { duplicate: ClientDuplicate } | { failed: true }> {
+    const response = await fetch(`/api/orders/${orderId}/client`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(toClientPayload(form)),
+    });
+
+    const result = await response.json();
+
+    if (response.status === 409 && result.code === "client_duplicate") {
+      const duplicate = parseClientDuplicate(result.duplicate);
+      if (duplicate) {
+        return { duplicate };
+      }
+    }
+
+    if (!response.ok) {
+      return { failed: true };
+    }
+
+    return { ok: true };
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -109,49 +227,31 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
       return;
     }
 
-    let dueAtIso: string | null = null;
-    if (dueAt.trim()) {
-      dueAtIso = datetimeLocalToIso(dueAt);
-      if (!dueAtIso) {
-        setError("La fecha prevista no es válida");
-        return;
-      }
+    if (dueAt.trim() && !datetimeLocalToIso(dueAt)) {
+      setError("La fecha prevista no es válida");
+      return;
     }
 
     setSubmitting(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: trimmedTitle,
-          client_id: clientId || null,
-          service_id: serviceId || null,
-          description: description.trim() || null,
-          due_at: dueAtIso,
-          entry_channel_id: entryChannelId || null,
-          order_context_id: orderContextId || null,
-          priority,
-          assigned_team_member_id: assignedTeamMemberId || null,
-          notes: notes.trim() || null,
-        }),
-      });
+      const existingClientId =
+        selectedClient && selectedClient.id !== "pending"
+          ? selectedClient.id
+          : null;
 
-      const result = await response.json();
+      const orderId = await createOrder(existingClientId);
 
-      if (!response.ok) {
-        throw new Error(result.error ?? "No se pudo crear el pedido");
+      if (pendingNewClient && !existingClientId) {
+        const created = await createAndAssignClient(orderId, pendingNewClient);
+
+        if ("duplicate" in created) {
+          await assignExistingClient(orderId, created.duplicate.client_id);
+        }
       }
 
-      if (!result.order?.id) {
-        throw new Error("No se pudo crear el pedido");
-      }
-
-      router.push(`/orders/${result.order.id}`);
+      router.push(`/orders/${orderId}`);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Error al crear el pedido"
@@ -188,22 +288,21 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
             />
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="order-client">Cliente</Label>
-            <select
-              id="order-client"
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
+          <div className="grid gap-2 md:col-span-2">
+            <Label>Cliente</Label>
+            <ClientSelector
+              value={selectedClient}
               disabled={submitting}
-              className={selectClassName}
-            >
-              <option value="">Sin cliente</option>
-              {options?.clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
+              allowNoClient
+              onChange={(client) => {
+                setSelectedClient(client);
+                setPendingNewClient(null);
+              }}
+              onCreateNew={openCreateClient}
+            />
+            <p className="text-xs text-muted-foreground">
+              Puedes registrar el pedido sin cliente y asignarlo después.
+            </p>
           </div>
 
           <div className="grid gap-2">
@@ -346,6 +445,19 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
             </Button>
           </div>
         </form>
+      )}
+
+      {clientModalOpen && (
+        <ClientModal>
+          <ClientForm
+            title="Crear cliente"
+            initialValues={clientFormInitial}
+            onCancel={() => {
+              setClientModalOpen(false);
+            }}
+            onSubmit={keepPendingClient}
+          />
+        </ClientModal>
       )}
     </section>
   );

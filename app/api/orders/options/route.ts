@@ -16,18 +16,11 @@ export async function GET() {
   const tenantId = context.tenant.id;
 
   const [
-    clientsResult,
     servicesResult,
     entryChannelsResult,
     orderContextsResult,
     teamMembersResult,
   ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("name", { ascending: true }),
     supabase
       .from("services")
       .select("id, name")
@@ -55,7 +48,6 @@ export async function GET() {
   ]);
 
   const firstError =
-    clientsResult.error ??
     servicesResult.error ??
     entryChannelsResult.error ??
     orderContextsResult.error ??
@@ -73,7 +65,6 @@ export async function GET() {
 
   return NextResponse.json({
     tenant: context.tenant.slug,
-    clients: clientsResult.data ?? [],
     services: servicesResult.data ?? [],
     entry_channels: entryChannelsResult.data ?? [],
     order_contexts: orderContextsResult.data ?? [],

@@ -3,6 +3,21 @@
 import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { ClientForm } from "@/components/clients/client-form";
+import { ClientModal } from "@/components/clients/client-modal";
+import { ClientSelector } from "@/components/clients/client-selector";
+import {
+  EMPTY_CLIENT_FORM,
+  clientToForm,
+  duplicateMatchLabels,
+  formatCreateDuplicateMessage,
+  mapClientSummary,
+  parseClientDuplicate,
+  toClientPayload,
+  type ClientDuplicate,
+  type ClientFormData,
+  type ClientSummary,
+} from "@/lib/clients/types";
 
 type Order = {
   id: string;
@@ -179,39 +194,7 @@ type DetailField =
 
 type ContentField = "title" | "description" | "notes";
 
-type CustomerTypeOption = {
-  id: string;
-  name: string;
-};
-
-type ClientOptionsResponse = {
-  tenant: string;
-  customer_types: CustomerTypeOption[];
-};
-
-type ClientFormMode = "edit" | "create";
-
-type ClientFormData = {
-  customer_type_id: string;
-  name: string;
-  contact_name: string;
-  company_name: string;
-  tax_id: string;
-  email: string;
-  phone: string;
-  notes: string;
-};
-
-const EMPTY_CLIENT_FORM: ClientFormData = {
-  customer_type_id: "",
-  name: "",
-  contact_name: "",
-  company_name: "",
-  tax_id: "",
-  email: "",
-  phone: "",
-  notes: "",
-};
+type ClientUiMode = "edit" | "create" | "assign" | "change";
 
 type OrderOption = {
   id: string;
@@ -485,14 +468,16 @@ function OrderDetailContent() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
-  const [clientModalOpen, setClientModalOpen] = useState(false);
-  const [clientFormMode, setClientFormMode] =
-    useState<ClientFormMode>("edit");
-  const [clientOptions, setClientOptions] =
-    useState<ClientOptionsResponse | null>(null);
-  const [clientOptionsLoading, setClientOptionsLoading] = useState(true);
+  const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
   const [savingClient, setSavingClient] = useState(false);
-  const [clientForm, setClientForm] = useState<ClientFormData>(EMPTY_CLIENT_FORM);
+  const [clientFormInitial, setClientFormInitial] =
+    useState<ClientFormData>(EMPTY_CLIENT_FORM);
+  const [clientActionError, setClientActionError] = useState<string | null>(
+    null
+  );
+  const [clientDuplicate, setClientDuplicate] =
+    useState<ClientDuplicate | null>(null);
+  const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
 
   async function loadActivity() {
     try {
@@ -526,7 +511,13 @@ function OrderDetailContent() {
         throw new Error("Pedido no encontrado");
       }
 
-      setOrder(result.order);
+      setOrder({
+        ...result.order,
+        client:
+          result.order.client_id && result.order.client?.id
+            ? result.order.client
+            : null,
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Error al cargar el pedido"
@@ -622,36 +613,6 @@ useEffect(() => {
   }
 
   loadOrderOptions();
-}, []);
-
-useEffect(() => {
-  async function loadClientOptions() {
-    try {
-      const response = await fetch("/api/clients/options");
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          result.error ?? "No se pudieron cargar los tipos de cliente"
-        );
-      }
-
-      setClientOptions({
-        tenant: result.tenant,
-        customer_types: result.customer_types ?? [],
-      });
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Error al cargar los tipos de cliente"
-      );
-    } finally {
-      setClientOptionsLoading(false);
-    }
-  }
-
-  loadClientOptions();
 }, []);
 
 useEffect(() => {
@@ -993,67 +954,157 @@ useEffect(() => {
     }
   }
 
-  function openEditClient() {
-    if (!order?.client) return;
-
-    setClientFormMode("edit");
-    setClientForm({
-      customer_type_id: order.client.customer_type_id ?? "",
-      name: order.client.name,
-      contact_name: order.client.contact_name ?? "",
-      company_name: order.client.company_name ?? "",
-      tax_id: order.client.tax_id ?? "",
-      email: order.client.email ?? "",
-      phone: order.client.phone ?? "",
-      notes: order.client.notes ?? "",
-    });
-    setClientModalOpen(true);
-  }
-
-  function openCreateClient() {
-    setClientFormMode("create");
-    setClientForm(EMPTY_CLIENT_FORM);
-    setClientModalOpen(true);
-  }
-
-  function closeClientModal() {
+  function closeClientUi() {
     if (savingClient) return;
-    setClientModalOpen(false);
+    setClientUiMode(null);
+    setClientActionError(null);
+    setClientDuplicate(null);
   }
 
-  function toClientPayload(form: ClientFormData) {
-    return {
-      customer_type_id: form.customer_type_id.trim() || null,
-      name: form.name.trim(),
-      contact_name: form.contact_name.trim() || null,
-      company_name: form.company_name.trim() || null,
-      tax_id: form.tax_id.trim() || null,
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
-      notes: form.notes.trim() || null,
-    };
+  function applyClientToOrder(
+    clientId: string | null,
+    client: ClientSummary | null
+  ) {
+    setOrder((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        client_id: clientId,
+        client:
+          client && client.id !== "pending"
+            ? {
+                id: client.id,
+                customer_type_id: client.customer_type_id,
+                name: client.name,
+                contact_name: client.contact_name,
+                company_name: client.company_name,
+                tax_id: client.tax_id,
+                email: client.email,
+                phone: client.phone,
+                notes: client.notes,
+              }
+            : null,
+      };
+    });
   }
 
-  async function saveClient() {
-    if (!order || savingClient || clientForm.name.trim() === "") return;
-    if (clientFormMode === "edit" && !order.client?.id) return;
+  function openEditClient() {
+    const client =
+      order?.client_id && order.client?.id ? order.client : null;
+    if (!client) return;
+
+    setClientFormInitial(clientToForm(client));
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("edit");
+  }
+
+  function openCreateClient(query = "") {
+    setClientFormInitial({
+      ...EMPTY_CLIENT_FORM,
+      name: query,
+    });
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("create");
+  }
+
+  function openAssignClient() {
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("assign");
+  }
+
+  function openChangeClient() {
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("change");
+  }
+
+  async function assignExistingClient(
+    clientId: string | null,
+    selected?: ClientSummary | null
+  ) {
+    if (!order || savingClient) return;
 
     setSavingClient(true);
-    setError(null);
+    setClientActionError(null);
 
     try {
-      if (clientFormMode === "edit") {
-        if (!order.client?.id) return;
+      const response = await fetch(`/api/orders/${order.id}/client`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ client_id: clientId }),
+      });
 
-        const response = await fetch(`/api/clients/${order.client.id}`, {
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo asignar el cliente");
+      }
+
+      applyClientToOrder(
+        result.order?.client_id ?? clientId,
+        mapClientSummary(result.client) ?? selected ?? null
+      );
+      setConfirmRemoveClient(false);
+      setClientUiMode(null);
+      setClientDuplicate(null);
+      await loadActivity();
+    } catch (err) {
+      setClientActionError(
+        err instanceof Error ? err.message : "Error al asignar el cliente"
+      );
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function saveClientForm(form: ClientFormData) {
+    if (!order || savingClient) return;
+
+    const editingClient =
+      order.client_id && order.client?.id ? order.client : null;
+
+    if (clientUiMode === "edit" && !editingClient) return;
+
+    setSavingClient(true);
+    setClientActionError(null);
+    setClientDuplicate(null);
+
+    try {
+      if (clientUiMode === "edit") {
+        if (!editingClient) return;
+
+        const response = await fetch(`/api/clients/${editingClient.id}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(toClientPayload(clientForm)),
+          body: JSON.stringify(toClientPayload(form)),
         });
 
         const result = await response.json();
+
+        if (response.status === 409 && result.code === "client_duplicate") {
+          const duplicate = parseClientDuplicate(result.duplicate);
+          setClientDuplicate(duplicate);
+          const matches = duplicate ? duplicateMatchLabels(duplicate) : [];
+          const who = duplicate?.client_name
+            ? ` (${duplicate.client_name})`
+            : "";
+          setClientActionError(
+            `Ya existe otro cliente con estos datos${who}.${
+              matches.length > 0 ? ` Coincidencia: ${matches.join(", ")}.` : ""
+            }`
+          );
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(
@@ -1061,44 +1112,57 @@ useEffect(() => {
           );
         }
 
-        setOrder((current) =>
-          current
-            ? {
-                ...current,
-                client: result.client,
-              }
-            : current
-        );
-      } else {
-        const response = await fetch(`/api/orders/${order.id}/client`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(toClientPayload(clientForm)),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error ?? "No se pudo crear el cliente");
+        const summary = mapClientSummary(result.client);
+        if (summary) {
+          applyClientToOrder(order.client_id, summary);
+        } else {
+          setOrder((current) =>
+            current
+              ? {
+                  ...current,
+                  client: result.client,
+                }
+              : current
+          );
         }
-
-        setOrder((current) =>
-          current
-            ? {
-                ...current,
-                client_id: result.order.client_id,
-                client: result.client,
-              }
-            : current
-        );
+        setClientUiMode(null);
+        await loadActivity();
+        return;
       }
 
-      setClientModalOpen(false);
+      const response = await fetch(`/api/orders/${order.id}/client`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(toClientPayload(form)),
+      });
+
+      const result = await response.json();
+
+      if (response.status === 409 && result.code === "client_duplicate") {
+        const duplicate = parseClientDuplicate(result.duplicate);
+        setClientDuplicate(duplicate);
+        setClientActionError(
+          duplicate
+            ? formatCreateDuplicateMessage(duplicate)
+            : "Ya existe un cliente con estos datos."
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo crear el cliente");
+      }
+
+      applyClientToOrder(
+        result.order?.client_id ?? null,
+        mapClientSummary(result.client)
+      );
+      setClientUiMode(null);
       await loadActivity();
     } catch (err) {
-      setError(
+      setClientActionError(
         err instanceof Error
           ? err.message
           : "Error al guardar el cliente"
@@ -1123,6 +1187,9 @@ useEffect(() => {
       </main>
     );
   }
+
+  const currentClient =
+    order.client_id && order.client?.id ? order.client : null;
 
   return (
     <main className="min-h-screen bg-background p-8">
@@ -1357,29 +1424,79 @@ useEffect(() => {
           <section className="rounded-lg border bg-card p-6">
             <h2 className="mb-2 text-lg font-semibold">Cliente</h2>
 
-            <DetailRow label="Cliente" value={order.client?.name} />
-            <DetailRow label="Empresa" value={order.client?.company_name} />
-            <DetailRow label="Contacto" value={order.client?.contact_name} />
-            <DetailRow label="Email" value={order.client?.email} />
-            <DetailRow label="Teléfono" value={order.client?.phone} />
+            {currentClient ? (
+              <>
+                <DetailRow label="Cliente" value={currentClient.name} />
+                <DetailRow
+                  label="Empresa"
+                  value={currentClient.company_name}
+                />
+                <DetailRow
+                  label="Contacto"
+                  value={currentClient.contact_name}
+                />
+                <DetailRow label="Email" value={currentClient.email} />
+                <DetailRow label="Teléfono" value={currentClient.phone} />
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={!order.client}
-                onClick={openEditClient}
-                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                Editar cliente
-              </button>
-              <button
-                type="button"
-                onClick={openCreateClient}
-                className="rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                Crear cliente
-              </button>
-            </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={openEditClient}
+                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                  >
+                    Editar cliente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openChangeClient}
+                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                  >
+                    Cambiar cliente
+                  </button>
+                  {confirmRemoveClient ? (
+                    <>
+                      <span className="self-center text-sm text-muted-foreground">
+                        ¿Quitar el cliente de este pedido?
+                      </span>
+                      <button
+                        type="button"
+                        disabled={savingClient}
+                        onClick={() => assignExistingClient(null)}
+                        className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+                      >
+                        Sí, quitar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemoveClient(false)}
+                        className="rounded-md border bg-background px-3 py-2 text-sm"
+                      >
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveClient(true)}
+                      className="rounded-md border bg-background px-3 py-2 text-sm"
+                    >
+                      Quitar cliente
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="py-4 text-sm">Sin cliente</p>
+                <button
+                  type="button"
+                  onClick={openAssignClient}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  Asignar cliente
+                </button>
+              </>
+            )}
           </section>
 
           <section className="rounded-lg border bg-card p-6">
@@ -1620,169 +1737,71 @@ useEffect(() => {
         </section>
       </div>
 
-      {clientModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-6">
-            <h2 className="mb-4 text-lg font-semibold">
-              {clientFormMode === "edit" ? "Editar cliente" : "Crear cliente"}
-            </h2>
-
-            <div className="grid gap-4">
-              <label className="grid gap-1 text-sm">
-                Tipo de cliente
-                <select
-                  value={clientForm.customer_type_id}
-                  disabled={savingClient || clientOptionsLoading}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      customer_type_id: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">— Sin definir —</option>
-                  {clientOptions?.customer_types.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Nombre *
-                <input
-                  type="text"
-                  value={clientForm.name}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Persona de contacto
-                <input
-                  type="text"
-                  value={clientForm.contact_name}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      contact_name: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Empresa / razón social
-                <input
-                  type="text"
-                  value={clientForm.company_name}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      company_name: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                NIF / CIF
-                <input
-                  type="text"
-                  value={clientForm.tax_id}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      tax_id: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Email
-                <input
-                  type="email"
-                  value={clientForm.email}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Teléfono
-                <input
-                  type="tel"
-                  value={clientForm.phone}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      phone: event.target.value,
-                    }));
-                  }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Notas
-                <textarea
-                  rows={4}
-                  value={clientForm.notes}
-                  disabled={savingClient}
-                  onChange={(event) => {
-                    setClientForm((current) => ({
-                      ...current,
-                      notes: event.target.value,
-                    }));
-                  }}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={savingClient}
-                onClick={closeClientModal}
-                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={savingClient || clientForm.name.trim() === ""}
-                onClick={saveClient}
-                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                Guardar
-              </button>
-            </div>
+      {(clientUiMode === "assign" || clientUiMode === "change") && (
+        <ClientModal>
+          <h2 className="mb-4 text-lg font-semibold">
+            {clientUiMode === "change" ? "Cambiar cliente" : "Asignar cliente"}
+          </h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Busca un cliente existente o crea uno nuevo para este pedido.
+          </p>
+          <ClientSelector
+            value={null}
+            disabled={savingClient}
+            initiallyOpen
+            onChange={(client) => {
+              if (client) {
+                assignExistingClient(client.id, client);
+              }
+            }}
+            onCreateNew={openCreateClient}
+          />
+          {clientActionError && (
+            <p className="mt-3 text-sm text-red-600">{clientActionError}</p>
+          )}
+          <div className="mt-4">
+            <button
+              type="button"
+              disabled={savingClient}
+              onClick={closeClientUi}
+              className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+            >
+              Cancelar
+            </button>
           </div>
-        </div>
+        </ClientModal>
+      )}
+
+      {(clientUiMode === "edit" || clientUiMode === "create") && (
+        <ClientModal>
+          <ClientForm
+            title={
+              clientUiMode === "edit" ? "Editar cliente" : "Crear cliente"
+            }
+            initialValues={clientFormInitial}
+            submitting={savingClient}
+            error={clientActionError}
+            duplicate={clientDuplicate}
+            onCancel={() => {
+              if (savingClient) return;
+              if (clientUiMode === "create") {
+                setClientActionError(null);
+                setClientDuplicate(null);
+                setClientUiMode(currentClient ? "change" : "assign");
+                return;
+              }
+              closeClientUi();
+            }}
+            onSubmit={saveClientForm}
+            onUseDuplicate={
+              clientUiMode === "create"
+                ? (clientId) => {
+                    assignExistingClient(clientId);
+                  }
+                : undefined
+            }
+          />
+        </ClientModal>
       )}
     </main>
   );
