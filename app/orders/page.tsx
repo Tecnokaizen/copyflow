@@ -26,6 +26,11 @@ type Order = {
     name: string;
   } | null;
 
+  service: {
+    id: string;
+    name: string;
+  } | null;
+
   status: {
     name: string;
     code: string;
@@ -44,7 +49,7 @@ type OrdersResponse = {
   orders: Order[];
 };
 
-type ViewMode = "list" | "calendar";
+type ViewMode = "list" | "calendar" | "service";
 
 function formatDate(value: string | null) {
   if (!value) return "Sin fecha";
@@ -107,6 +112,69 @@ function statusClassName(status: Order["status"]) {
   return "rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700";
 }
 
+function priorityClassName(priority: string) {
+  if (priority === "urgent") {
+    return "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700";
+  }
+
+  if (priority === "high") {
+    return "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700";
+  }
+
+  return "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground";
+}
+
+function priorityLabel(priority: string) {
+  if (priority === "urgent") return "Urgente";
+  if (priority === "high") return "Alta";
+  return "Normal";
+}
+
+type ServiceColumn = {
+  key: string;
+  name: string;
+  orders: Order[];
+};
+
+function groupOrdersByService(orders: Order[]) {
+  const columns = new Map<string, ServiceColumn>();
+  const withoutService: Order[] = [];
+
+  for (const order of orders) {
+    if (!order.service?.id) {
+      withoutService.push(order);
+      continue;
+    }
+
+    const current = columns.get(order.service.id);
+
+    if (current) {
+      current.orders.push(order);
+      continue;
+    }
+
+    columns.set(order.service.id, {
+      key: order.service.id,
+      name: order.service.name || "Servicio",
+      orders: [order],
+    });
+  }
+
+  const grouped = [...columns.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "es")
+  );
+
+  if (withoutService.length > 0) {
+    grouped.push({
+      key: "none",
+      name: "Sin servicio",
+      orders: withoutService,
+    });
+  }
+
+  return grouped;
+}
+
 export default function OrdersPage() {
   const pathname = usePathname();
   const listRef = useRef<HTMLDivElement>(null);
@@ -123,6 +191,11 @@ export default function OrdersPage() {
   );
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [byServiceData, setByServiceData] = useState<OrdersResponse | null>(
+    null
+  );
+  const [byServiceLoading, setByServiceLoading] = useState(false);
+  const [byServiceError, setByServiceError] = useState<string | null>(null);
   const pageSize = 50;
 
   useEffect(() => {
@@ -217,6 +290,39 @@ export default function OrdersPage() {
   }, [view, weekStart]);
 
   useEffect(() => {
+    if (view !== "service") {
+      return;
+    }
+
+    async function loadByService() {
+      setByServiceLoading(true);
+      setByServiceError(null);
+
+      try {
+        const response = await fetch("/api/orders?active=true");
+
+        if (!response.ok) {
+          throw new Error("No se pudieron cargar los pedidos");
+        }
+
+        const result = (await response.json()) as OrdersResponse;
+        setByServiceData(result);
+      } catch (err) {
+        setByServiceData(null);
+        setByServiceError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los pedidos"
+        );
+      } finally {
+        setByServiceLoading(false);
+      }
+    }
+
+    loadByService();
+  }, [view]);
+
+  useEffect(() => {
     if (pathname === "/orders") {
       setShowCreateForm(false);
     }
@@ -278,6 +384,8 @@ export default function OrdersPage() {
     ordersByDay.set(key, current);
   }
 
+  const serviceColumns = groupOrdersByService(byServiceData?.orders ?? []);
+
   return (
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
@@ -293,8 +401,13 @@ export default function OrdersPage() {
                   {activeOrders.length} pedidos activos en esta página ·{" "}
                   {data?.total ?? 0} pedidos totales
                 </>
-              ) : (
+              ) : view === "calendar" ? (
                 <>Semana del {weekLabel}</>
+              ) : (
+                <>
+                  {byServiceData?.total ?? 0} pedidos activos · agrupados por
+                  servicio
+                </>
               )}
             </p>
           </div>
@@ -308,7 +421,7 @@ export default function OrdersPage() {
           </Button>
         </div>
 
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setView("list")}
@@ -330,6 +443,17 @@ export default function OrdersPage() {
             }
           >
             Calendario
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("service")}
+            className={
+              view === "service"
+                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                : "rounded-md border bg-background px-3 py-2 text-sm"
+            }
+          >
+            Por Servicio
           </button>
         </div>
 
@@ -575,6 +699,72 @@ export default function OrdersPage() {
                       </section>
                     );
                   })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "service" && (
+          <div className="grid gap-4">
+            {byServiceError && (
+              <p className="text-sm text-red-600">{byServiceError}</p>
+            )}
+
+            {byServiceLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Cargando pedidos por servicio...
+              </p>
+            ) : serviceColumns.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No hay pedidos activos
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="flex min-w-full gap-2">
+                  {serviceColumns.map((column) => (
+                    <section
+                      key={column.key}
+                      className="w-[240px] shrink-0 rounded-lg border bg-card p-3"
+                    >
+                      <h2 className="mb-3 text-sm font-medium">
+                        {column.name}{" "}
+                        <span className="text-muted-foreground">
+                          ({column.orders.length})
+                        </span>
+                      </h2>
+                      <div className="grid gap-2">
+                        {column.orders.map((order) => (
+                          <Link
+                            key={order.id}
+                            href={`/orders/${order.id}`}
+                            className="block rounded-md border bg-background p-2 text-xs hover:bg-muted/40"
+                          >
+                            <div className="text-muted-foreground">
+                              {order.reference}
+                            </div>
+                            <div className="mt-1 font-medium">{order.title}</div>
+                            <div className="mt-2">
+                              <span className={priorityClassName(order.priority)}>
+                                {priorityLabel(order.priority)}
+                              </span>
+                            </div>
+                            <div className="mt-2">
+                              <span className={statusClassName(order.status)}>
+                                {order.status?.name ?? "—"}
+                              </span>
+                            </div>
+                            <div className="mt-2 text-muted-foreground">
+                              {formatDate(order.due_at)}
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              {order.assigned_team_member?.name ?? "Sin asignar"}
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
                 </div>
               </div>
             )}

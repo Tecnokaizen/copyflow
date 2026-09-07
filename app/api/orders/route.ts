@@ -145,6 +145,60 @@ async function fetchOrdersByDueAtRange(
   };
 }
 
+const ORDER_SELECT_ACTIVE = ORDER_SELECT.replace(
+  "status:order_statuses(*)",
+  "status:order_statuses!inner(*)"
+);
+
+async function fetchActiveOrders(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+) {
+  const orders = [];
+  let total: number | null = null;
+  let offset = 0;
+
+  while (true) {
+    const { data, error, count } = await supabase
+      .from("orders")
+      .select(ORDER_SELECT_ACTIVE, { count: "exact" })
+      .eq("tenant_id", tenantId)
+      .eq("status.is_closed", false)
+      .eq("status.is_cancelled", false)
+      .order("service_id", { ascending: true, nullsFirst: false })
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + DUE_AT_RANGE_CHUNK - 1);
+
+    if (error) {
+      return { error };
+    }
+
+    if (offset === 0 && count != null) {
+      total = count;
+    }
+
+    const rows = data ?? [];
+    orders.push(...rows);
+
+    if (rows.length < DUE_AT_RANGE_CHUNK) {
+      break;
+    }
+
+    if (total != null && orders.length >= total) {
+      break;
+    }
+
+    offset += DUE_AT_RANGE_CHUNK;
+  }
+
+  return {
+    error: null,
+    orders,
+    total: total ?? orders.length,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
@@ -194,6 +248,7 @@ export async function GET(request: NextRequest) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
   const dateFiltered = Boolean(fromDate.value || toDate.value);
+  const activeOnly = searchParams.get("active") === "true";
 
   const supabase = await createClient();
 
@@ -204,6 +259,31 @@ export async function GET(request: NextRequest) {
       fromDate.value,
       toDate.value
     );
+
+    if (result.error) {
+      console.error("[GET /api/orders] Could not load orders", {
+        tenantId: context.tenant.id,
+        error: result.error,
+      });
+
+      return NextResponse.json(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      tenant: context.tenant.slug,
+      count: result.orders.length,
+      total: result.total,
+      page: 1,
+      page_size: result.orders.length,
+      orders: result.orders,
+    });
+  }
+
+  if (activeOnly) {
+    const result = await fetchActiveOrders(supabase, context.tenant.id);
 
     if (result.error) {
       console.error("[GET /api/orders] Could not load orders", {
