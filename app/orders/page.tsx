@@ -116,15 +116,20 @@ export default function OrdersPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [page, setPage] = useState(1);
   const [view, setView] = useState<ViewMode>("list");
-  const [weekStart, setWeekStart] = useState(() =>
-    startOfWeekMonday(new Date())
-  );
+  const [weekStart, setWeekStart] = useState<Date | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
   const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
     null
   );
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const pageSize = 50;
+
+  useEffect(() => {
+    const current = new Date();
+    setNow(current);
+    setWeekStart(startOfWeekMonday(current));
+  }, []);
 
   useEffect(() => {
     async function loadOrders() {
@@ -172,16 +177,18 @@ export default function OrdersPage() {
   }, [page]);
 
   useEffect(() => {
-    if (view !== "calendar") {
+    if (view !== "calendar" || !weekStart) {
       return;
     }
+
+    const rangeStart = weekStart;
 
     async function loadWeek() {
       setCalendarLoading(true);
       setCalendarError(null);
 
-      const from = weekStart.toISOString();
-      const to = addDays(weekStart, 7).toISOString();
+      const from = rangeStart.toISOString();
+      const to = addDays(rangeStart, 7).toISOString();
 
       try {
         const response = await fetch(
@@ -242,19 +249,22 @@ export default function OrdersPage() {
     ? Math.max(1, Math.ceil(data.total / data.page_size))
     : 1;
 
-  const weekDays = Array.from({ length: 7 }, (_, index) =>
-    addDays(weekStart, index)
-  );
-  const todayKey = dayKey(new Date());
-  const weekEnd = addDays(weekStart, 6);
-  const weekLabel = `${weekStart.toLocaleDateString("es-ES", {
-    day: "numeric",
-    month: "short",
-  })} – ${weekEnd.toLocaleDateString("es-ES", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })}`;
+  const weekDays = weekStart
+    ? Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+    : [];
+  const todayKey = now ? dayKey(now) : null;
+  const weekEnd = weekStart ? addDays(weekStart, 6) : null;
+  const weekLabel =
+    weekStart && weekEnd
+      ? `${weekStart.toLocaleDateString("es-ES", {
+          day: "numeric",
+          month: "short",
+        })} – ${weekEnd.toLocaleDateString("es-ES", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}`
+      : "";
   const ordersByDay = new Map<string, Order[]>();
 
   for (const order of calendarData?.orders ?? []) {
@@ -414,8 +424,9 @@ export default function OrdersPage() {
                     <td className="px-4 py-4">
                       <div
                         className={
+                          now &&
                           order.due_at &&
-                          new Date(order.due_at) < new Date() &&
+                          new Date(order.due_at) < now &&
                           order.status?.is_closed !== true &&
                           order.status?.is_cancelled !== true
                             ? "font-medium text-red-600"
@@ -471,7 +482,10 @@ export default function OrdersPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setWeekStart(addDays(weekStart, -7))}
+                  onClick={() => {
+                    if (!weekStart) return;
+                    setWeekStart(addDays(weekStart, -7));
+                  }}
                   className="rounded-md border bg-background px-3 py-2 text-sm"
                 >
                   Semana anterior
@@ -485,7 +499,10 @@ export default function OrdersPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWeekStart(addDays(weekStart, 7))}
+                  onClick={() => {
+                    if (!weekStart) return;
+                    setWeekStart(addDays(weekStart, 7));
+                  }}
                   className="rounded-md border bg-background px-3 py-2 text-sm"
                 >
                   Semana siguiente
@@ -497,7 +514,7 @@ export default function OrdersPage() {
               <p className="text-sm text-red-600">{calendarError}</p>
             )}
 
-            {calendarLoading ? (
+            {calendarLoading || !weekStart ? (
               <p className="text-sm text-muted-foreground">
                 Cargando calendario...
               </p>
