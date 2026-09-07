@@ -15,6 +15,12 @@ export function AppNav() {
       >
         Clientes
       </Link>
+      <Link
+        href="/services"
+        className="text-muted-foreground hover:underline"
+      >
+        Servicios
+      </Link>
     </nav>
   );
 }
