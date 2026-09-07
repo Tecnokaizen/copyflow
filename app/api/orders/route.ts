@@ -69,6 +69,82 @@ async function belongsToTenant(
   return !error && Boolean(data);
 }
 
+function parseTimestamp(
+  raw: string | null
+): { ok: true; value: string | null } | { ok: false } {
+  if (!raw || !raw.trim()) {
+    return { ok: true, value: null };
+  }
+
+  const date = new Date(raw.trim());
+  if (Number.isNaN(date.getTime())) {
+    return { ok: false };
+  }
+
+  return { ok: true, value: date.toISOString() };
+}
+
+const DUE_AT_RANGE_CHUNK = 500;
+
+async function fetchOrdersByDueAtRange(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  fromValue: string | null,
+  toValue: string | null
+) {
+  const orders = [];
+  let total: number | null = null;
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from("orders")
+      .select(ORDER_SELECT, { count: "exact" })
+      .eq("tenant_id", tenantId)
+      .not("due_at", "is", null);
+
+    if (fromValue) {
+      query = query.gte("due_at", fromValue);
+    }
+
+    if (toValue) {
+      query = query.lt("due_at", toValue);
+    }
+
+    const { data, error, count } = await query
+      .order("due_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + DUE_AT_RANGE_CHUNK - 1);
+
+    if (error) {
+      return { error };
+    }
+
+    if (offset === 0 && count != null) {
+      total = count;
+    }
+
+    const rows = data ?? [];
+    orders.push(...rows);
+
+    if (rows.length < DUE_AT_RANGE_CHUNK) {
+      break;
+    }
+
+    if (total != null && orders.length >= total) {
+      break;
+    }
+
+    offset += DUE_AT_RANGE_CHUNK;
+  }
+
+  return {
+    error: null,
+    orders,
+    total: total ?? orders.length,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
@@ -80,6 +156,27 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
+
+  const fromDate = parseTimestamp(searchParams.get("from"));
+  const toDate = parseTimestamp(searchParams.get("to"));
+
+  if (!fromDate.ok || !toDate.ok) {
+    return NextResponse.json(
+      { error: "Invalid value" },
+      { status: 400 }
+    );
+  }
+
+  if (
+    fromDate.value &&
+    toDate.value &&
+    fromDate.value > toDate.value
+  ) {
+    return NextResponse.json(
+      { error: "Invalid value" },
+      { status: 400 }
+    );
+  }
 
   const rawPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
   const rawPageSize = Number.parseInt(
@@ -96,8 +193,39 @@ export async function GET(request: NextRequest) {
 
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const dateFiltered = Boolean(fromDate.value || toDate.value);
 
   const supabase = await createClient();
+
+  if (dateFiltered) {
+    const result = await fetchOrdersByDueAtRange(
+      supabase,
+      context.tenant.id,
+      fromDate.value,
+      toDate.value
+    );
+
+    if (result.error) {
+      console.error("[GET /api/orders] Could not load orders", {
+        tenantId: context.tenant.id,
+        error: result.error,
+      });
+
+      return NextResponse.json(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      tenant: context.tenant.slug,
+      count: result.orders.length,
+      total: result.total,
+      page: 1,
+      page_size: result.orders.length,
+      orders: result.orders,
+    });
+  }
 
   const {
     data: orders,

@@ -44,6 +44,8 @@ type OrdersResponse = {
   orders: Order[];
 };
 
+type ViewMode = "list" | "calendar";
+
 function formatDate(value: string | null) {
   if (!value) return "Sin fecha";
 
@@ -56,6 +58,55 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function startOfWeekMonday(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const day = start.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + offset);
+  return start;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function dayKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dueAtDayKey(value: string) {
+  return dayKey(new Date(value));
+}
+
+function statusClassName(status: Order["status"]) {
+  if (status?.is_closed) {
+    return "rounded-full bg-green-100 px-2 py-1 font-medium text-green-700";
+  }
+
+  if (status?.is_ready || status?.code === "ready") {
+    return "rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700";
+  }
+
+  if (status?.code === "in_progress") {
+    return "rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-700";
+  }
+
+  return "rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700";
+}
+
 export default function OrdersPage() {
   const pathname = usePathname();
   const listRef = useRef<HTMLDivElement>(null);
@@ -64,6 +115,15 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<ViewMode>("list");
+  const [weekStart, setWeekStart] = useState(() =>
+    startOfWeekMonday(new Date())
+  );
+  const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
+    null
+  );
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const pageSize = 50;
 
   useEffect(() => {
@@ -112,6 +172,44 @@ export default function OrdersPage() {
   }, [page]);
 
   useEffect(() => {
+    if (view !== "calendar") {
+      return;
+    }
+
+    async function loadWeek() {
+      setCalendarLoading(true);
+      setCalendarError(null);
+
+      const from = weekStart.toISOString();
+      const to = addDays(weekStart, 7).toISOString();
+
+      try {
+        const response = await fetch(
+          `/api/orders?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        );
+
+        if (!response.ok) {
+          throw new Error("No se pudieron cargar los pedidos");
+        }
+
+        const result = (await response.json()) as OrdersResponse;
+        setCalendarData(result);
+      } catch (err) {
+        setCalendarData(null);
+        setCalendarError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los pedidos"
+        );
+      } finally {
+        setCalendarLoading(false);
+      }
+    }
+
+    loadWeek();
+  }, [view, weekStart]);
+
+  useEffect(() => {
     if (pathname === "/orders") {
       setShowCreateForm(false);
     }
@@ -144,6 +242,32 @@ export default function OrdersPage() {
     ? Math.max(1, Math.ceil(data.total / data.page_size))
     : 1;
 
+  const weekDays = Array.from({ length: 7 }, (_, index) =>
+    addDays(weekStart, index)
+  );
+  const todayKey = dayKey(new Date());
+  const weekEnd = addDays(weekStart, 6);
+  const weekLabel = `${weekStart.toLocaleDateString("es-ES", {
+    day: "numeric",
+    month: "short",
+  })} – ${weekEnd.toLocaleDateString("es-ES", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })}`;
+  const ordersByDay = new Map<string, Order[]>();
+
+  for (const order of calendarData?.orders ?? []) {
+    if (!order.due_at) {
+      continue;
+    }
+
+    const key = dueAtDayKey(order.due_at);
+    const current = ordersByDay.get(key) ?? [];
+    current.push(order);
+    ordersByDay.set(key, current);
+  }
+
   return (
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
@@ -154,8 +278,14 @@ export default function OrdersPage() {
             <h1 className="text-3xl font-bold">Pedidos</h1>
 
             <p className="mt-2 text-sm text-muted-foreground">
-              {activeOrders.length} pedidos activos en esta página ·{" "}
-              {data?.total ?? 0} pedidos totales
+              {view === "list" ? (
+                <>
+                  {activeOrders.length} pedidos activos en esta página ·{" "}
+                  {data?.total ?? 0} pedidos totales
+                </>
+              ) : (
+                <>Semana del {weekLabel}</>
+              )}
             </p>
           </div>
 
@@ -168,10 +298,37 @@ export default function OrdersPage() {
           </Button>
         </div>
 
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={
+              view === "list"
+                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                : "rounded-md border bg-background px-3 py-2 text-sm"
+            }
+          >
+            Lista
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("calendar")}
+            className={
+              view === "calendar"
+                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                : "rounded-md border bg-background px-3 py-2 text-sm"
+            }
+          >
+            Calendario
+          </button>
+        </div>
+
         {showCreateForm && (
           <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
         )}
 
+        {view === "list" && (
+          <>
         <div
           ref={listRef}
           className="overflow-hidden rounded-lg border bg-card"
@@ -249,17 +406,7 @@ export default function OrdersPage() {
                     </td>
 
                     <td className="px-4 py-4">
-                      <span
-                        className={
-                          order.status?.is_closed
-                            ? "rounded-full bg-green-100 px-2 py-1 font-medium text-green-700"
-                            : order.status?.code === "ready"
-                              ? "rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700"
-                              : order.status?.code === "in_progress"
-                                ? "rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-700"
-                                : "rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700"
-                        }
-                      >
+                      <span className={statusClassName(order.status)}>
                         {order.status?.name ?? "—"}
                       </span>
                     </td>
@@ -313,6 +460,107 @@ export default function OrdersPage() {
                 Siguiente
               </button>
             </div>
+          </div>
+        )}
+          </>
+        )}
+
+        {view === "calendar" && (
+          <div className="grid gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWeekStart(addDays(weekStart, -7))}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  Semana anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeekStart(startOfWeekMonday(new Date()))}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeekStart(addDays(weekStart, 7))}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                >
+                  Semana siguiente
+                </button>
+              </div>
+            </div>
+
+            {calendarError && (
+              <p className="text-sm text-red-600">{calendarError}</p>
+            )}
+
+            {calendarLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Cargando calendario...
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="grid min-w-[840px] grid-cols-7 gap-2">
+                  {weekDays.map((day) => {
+                    const key = dayKey(day);
+                    const dayOrders = ordersByDay.get(key) ?? [];
+                    const isToday = key === todayKey;
+
+                    return (
+                      <section
+                        key={key}
+                        className={
+                          isToday
+                            ? "rounded-lg border border-foreground/30 bg-card p-3"
+                            : "rounded-lg border bg-card p-3"
+                        }
+                      >
+                        <h2 className="mb-3 text-sm font-medium">
+                          {day.toLocaleDateString("es-ES", {
+                            weekday: "short",
+                            day: "numeric",
+                          })}
+                        </h2>
+                        <div className="grid gap-2">
+                          {dayOrders.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">—</p>
+                          ) : (
+                            dayOrders.map((order) => (
+                              <Link
+                                key={order.id}
+                                href={`/orders/${order.id}`}
+                                className="block rounded-md border bg-background p-2 text-xs hover:bg-muted/40"
+                              >
+                                <div className="font-medium">
+                                  {formatTime(order.due_at ?? "")}
+                                </div>
+                                <div className="mt-1 text-muted-foreground">
+                                  {order.reference}
+                                </div>
+                                <div className="mt-1 font-medium">
+                                  {order.title}
+                                </div>
+                                <div className="mt-1 text-muted-foreground">
+                                  {order.client?.name ?? "Sin cliente"}
+                                </div>
+                                <div className="mt-2">
+                                  <span className={statusClassName(order.status)}>
+                                    {order.status?.name ?? "—"}
+                                  </span>
+                                </div>
+                              </Link>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
