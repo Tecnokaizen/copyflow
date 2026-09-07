@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
@@ -56,6 +57,7 @@ function formatDate(value: string | null) {
 }
 
 export default function OrdersPage() {
+  const pathname = usePathname();
   const [data, setData] = useState<OrdersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,24 +89,10 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => {
-    function closeCreateForm() {
+    if (pathname === "/orders") {
       setShowCreateForm(false);
     }
-
-    function handlePageShow(event: PageTransitionEvent) {
-      if (event.persisted) {
-        closeCreateForm();
-      }
-    }
-
-    window.addEventListener("pageshow", handlePageShow);
-    window.addEventListener("popstate", closeCreateForm);
-
-    return () => {
-      window.removeEventListener("pageshow", handlePageShow);
-      window.removeEventListener("popstate", closeCreateForm);
-    };
-  }, []);
+  }, [pathname]);
 
   if (loading) {
     return (
