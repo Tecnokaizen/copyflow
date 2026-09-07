@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { TenantDashboard } from "@/components/dashboard/tenant-dashboard";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
 
@@ -59,5 +60,5 @@ export default async function Home() {
     );
   }
 
-  redirect("/orders");
+  return <TenantDashboard />;
 }

@@ -163,6 +163,7 @@ async function fetchActiveOrders(
       .from("orders")
       .select(ORDER_SELECT_ACTIVE, { count: "exact" })
       .eq("tenant_id", tenantId)
+      .is("archived_at", null)
       .eq("status.is_closed", false)
       .eq("status.is_cancelled", false)
       .order("service_id", { ascending: true, nullsFirst: false })

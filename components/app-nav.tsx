@@ -2,7 +2,10 @@ import Link from "next/link";
 
 export function AppNav() {
   return (
-    <nav className="mb-6 flex gap-4 text-sm">
+    <nav className="mb-6 flex flex-wrap gap-4 text-sm">
+      <Link href="/" className="text-muted-foreground hover:underline">
+        Inicio
+      </Link>
       <Link
         href="/orders"
         className="text-muted-foreground hover:underline"
