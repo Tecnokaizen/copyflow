@@ -69,7 +69,7 @@ async function belongsToTenant(
   return !error && Boolean(data);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
   if (!context) {
@@ -79,27 +79,57 @@ export async function GET() {
     );
   }
 
+  const { searchParams } = new URL(request.url);
+
+  const rawPage = Number.parseInt(searchParams.get("page") ?? "1", 10);
+  const rawPageSize = Number.parseInt(
+    searchParams.get("page_size") ?? "50",
+    10
+  );
+
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+
+  const pageSize =
+    Number.isFinite(rawPageSize) && rawPageSize > 0
+      ? Math.min(rawPageSize, 100)
+      : 50;
+
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
   const supabase = await createClient();
 
-  const { data: orders, error } = await supabase
+  const {
+    data: orders,
+    error,
+    count: total,
+  } = await supabase
     .from("orders")
-    .select(ORDER_SELECT)
-    .eq("tenant_id", context.tenant.id);
+    .select(ORDER_SELECT, { count: "exact" })
+    .eq("tenant_id", context.tenant.id)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(from, to);
 
   if (error) {
+    console.error("[GET /api/orders] Could not load orders", {
+      tenantId: context.tenant.id,
+      error,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load orders",
-        detail: error.message,
-      },
+      { error: "Could not load orders" },
       { status: 500 }
     );
   }
 
   return NextResponse.json({
     tenant: context.tenant.slug,
-    count: orders.length,
-    orders,
+    count: orders?.length ?? 0,
+    total: total ?? 0,
+    page,
+    page_size: pageSize,
+    orders: orders ?? [],
   });
 }
 

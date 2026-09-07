@@ -28,12 +28,18 @@ type Order = {
   status: {
     name: string;
     code: string;
+    is_ready: boolean;
+    is_closed: boolean;
+    is_cancelled: boolean;
   } | null;
 };
 
 type OrdersResponse = {
   tenant: string;
   count: number;
+  total: number;
+  page: number;
+  page_size: number;
   orders: Order[];
 };
 
@@ -80,6 +86,26 @@ export default function OrdersPage() {
     loadOrders();
   }, []);
 
+  useEffect(() => {
+    function closeCreateForm() {
+      setShowCreateForm(false);
+    }
+
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) {
+        closeCreateForm();
+      }
+    }
+
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("popstate", closeCreateForm);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("popstate", closeCreateForm);
+    };
+  }, []);
+
   if (loading) {
     return (
       <main className="p-8">
@@ -97,11 +123,11 @@ export default function OrdersPage() {
   }
 
   const activeOrders =
-  data?.orders.filter(
-    (order) =>
-      order.status?.code !== "delivered" &&
-      order.status?.code !== "cancelled"
-  ) ?? [];
+    data?.orders.filter(
+      (order) =>
+        order.status?.is_closed !== true &&
+        order.status?.is_cancelled !== true
+    ) ?? [];
 
   return (
     <main className="min-h-screen bg-background p-8">
@@ -113,7 +139,8 @@ export default function OrdersPage() {
             <h1 className="text-3xl font-bold">Pedidos</h1>
 
             <p className="mt-2 text-sm text-muted-foreground">
-              {activeOrders.length} pedidos activos
+              {activeOrders.length} pedidos activos en esta página ·{" "}
+              {data?.total ?? 0} pedidos totales
             </p>
           </div>
 
@@ -196,7 +223,7 @@ export default function OrdersPage() {
                     <td className="px-4 py-4">
                       <span
                         className={
-                          order.status?.code === "delivered"
+                          order.status?.is_closed
                             ? "rounded-full bg-green-100 px-2 py-1 font-medium text-green-700"
                             : order.status?.code === "ready"
                               ? "rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700"
@@ -214,7 +241,8 @@ export default function OrdersPage() {
                         className={
                           order.due_at &&
                           new Date(order.due_at) < new Date() &&
-                          order.status?.code !== "delivered"
+                          order.status?.is_closed !== true &&
+                          order.status?.is_cancelled !== true
                             ? "font-medium text-red-600"
                             : ""
                         }
