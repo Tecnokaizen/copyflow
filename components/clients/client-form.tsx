@@ -23,6 +23,7 @@ type ClientFormProps = {
   onSubmit: (data: ClientFormData) => void;
   onCancel: () => void;
   onUseDuplicate?: (clientId: string) => void;
+  duplicateActionLabel?: string;
 };
 
 const fieldClassName =
@@ -38,6 +39,7 @@ export function ClientForm({
   onSubmit,
   onCancel,
   onUseDuplicate,
+  duplicateActionLabel = "Usar este cliente",
 }: ClientFormProps) {
   const [form, setForm] = useState<ClientFormData>(
     initialValues ?? EMPTY_CLIENT_FORM
@@ -207,7 +209,7 @@ export function ClientForm({
           onClick={() => onUseDuplicate(duplicate.client_id)}
           className="justify-self-start rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
         >
-          Usar este cliente
+          {duplicateActionLabel}
         </button>
       )}
 

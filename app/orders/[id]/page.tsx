@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
@@ -1194,6 +1195,7 @@ useEffect(() => {
   return (
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-5xl">
+        <AppNav />
         <div className="mb-8">
           <Link
             href="/orders"

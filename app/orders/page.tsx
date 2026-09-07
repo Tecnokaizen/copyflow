@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AppNav } from "@/components/app-nav";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 
 type Order = {
@@ -105,6 +106,8 @@ export default function OrdersPage() {
   return (
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-7xl">
+        <AppNav />
+
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Pedidos</h1>

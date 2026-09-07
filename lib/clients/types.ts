@@ -11,6 +11,50 @@ export type ClientSummary = {
   notes: string | null;
 };
 
+export type ClientListItem = ClientSummary & {
+  active: boolean;
+  created_at: string;
+  orders_count: number;
+  last_order_at: string | null;
+};
+
+export type ClientListResponse = {
+  tenant: string;
+  clients: ClientListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_more: boolean;
+};
+
+export type ClientDetail = ClientSummary & {
+  active: boolean;
+  created_at: string | null;
+};
+
+export type ClientOrderSummary = {
+  id: string;
+  reference: string;
+  title: string;
+  priority: string;
+  due_at: string | null;
+  created_at: string;
+  status: {
+    id: string;
+    name: string;
+    code: string;
+  } | null;
+};
+
+export type ClientDetailResponse = {
+  tenant: string;
+  client: ClientDetail;
+  orders_count: number;
+  last_order_at: string | null;
+  orders: ClientOrderSummary[];
+};
+
 export type ClientFormData = {
   customer_type_id: string;
   name: string;
@@ -70,9 +114,12 @@ export function mapClientSummary(row: unknown): ClientSummary | null {
     return null;
   }
 
+  const nestedTypeRaw = Array.isArray(record.customer_type)
+    ? record.customer_type[0]
+    : record.customer_type;
   const nestedType =
-    record.customer_type && typeof record.customer_type === "object"
-      ? (record.customer_type as Record<string, unknown>)
+    nestedTypeRaw && typeof nestedTypeRaw === "object"
+      ? (nestedTypeRaw as Record<string, unknown>)
       : null;
 
   return {
@@ -103,6 +150,40 @@ export function mapClientSummaries(data: unknown): ClientSummary[] {
   return rows
     .map((row) => mapClientSummary(row))
     .filter((row): row is ClientSummary => row !== null);
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+export function mapClientListItem(row: unknown): ClientListItem | null {
+  const summary = mapClientSummary(row);
+  if (!summary || !row || typeof row !== "object") {
+    return null;
+  }
+
+  const record = row as Record<string, unknown>;
+  const createdAt =
+    typeof record.created_at === "string" ? record.created_at : "";
+
+  return {
+    ...summary,
+    active: record.active === undefined ? true : asBoolean(record.active),
+    created_at: createdAt,
+    orders_count: asNumber(record.orders_count, 0),
+    last_order_at: asNullableString(record.last_order_at),
+  };
 }
 
 export function parseClientDuplicate(raw: unknown): ClientDuplicate | null {
