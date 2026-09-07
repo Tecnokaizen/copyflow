@@ -27,6 +27,12 @@ export function AppNav() {
       >
         Equipo
       </Link>
+      <Link
+        href="/activity"
+        className="text-muted-foreground hover:underline"
+      >
+        Actividad
+      </Link>
     </nav>
   );
 }
