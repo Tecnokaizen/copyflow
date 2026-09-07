@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -58,22 +58,45 @@ function formatDate(value: string | null) {
 
 export default function OrdersPage() {
   const pathname = usePathname();
+  const listRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<OrdersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
 
   useEffect(() => {
     async function loadOrders() {
+      setLoading(true);
+      setError(null);
+
       try {
-        const response = await fetch("/api/orders");
+        const response = await fetch(
+          `/api/orders?page=${page}&page_size=${pageSize}`
+        );
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
         }
 
-        const result = await response.json();
+        const result = (await response.json()) as OrdersResponse;
         setData(result);
+
+        const receivedSize = result.page_size || pageSize;
+        const receivedTotal = result.total ?? 0;
+        const lastPage = Math.max(
+          1,
+          Math.ceil(receivedTotal / receivedSize) || 1
+        );
+
+        if (page > lastPage) {
+          setPage(lastPage);
+        }
+
+        if (page > 1) {
+          listRef.current?.scrollIntoView({ block: "start" });
+        }
       } catch (err) {
         setError(
           err instanceof Error
@@ -86,7 +109,7 @@ export default function OrdersPage() {
     }
 
     loadOrders();
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     if (pathname === "/orders") {
@@ -94,7 +117,7 @@ export default function OrdersPage() {
     }
   }, [pathname]);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <main className="p-8">
         <p>Cargando pedidos...</p>
@@ -102,7 +125,7 @@ export default function OrdersPage() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <main className="p-8">
         <p className="text-red-600">{error}</p>
@@ -116,6 +139,10 @@ export default function OrdersPage() {
         order.status?.is_closed !== true &&
         order.status?.is_cancelled !== true
     ) ?? [];
+
+  const totalPages = data
+    ? Math.max(1, Math.ceil(data.total / data.page_size))
+    : 1;
 
   return (
     <main className="min-h-screen bg-background p-8">
@@ -145,7 +172,10 @@ export default function OrdersPage() {
           <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
         )}
 
-        <div className="overflow-hidden rounded-lg border bg-card">
+        <div
+          ref={listRef}
+          className="overflow-hidden rounded-lg border bg-card"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/50">
@@ -162,7 +192,17 @@ export default function OrdersPage() {
               </thead>
 
               <tbody>
-                  {activeOrders.map((order) => (
+                {loading ? (
+                  <tr>
+                    <td
+                      className="px-4 py-4 text-muted-foreground"
+                      colSpan={6}
+                    >
+                      Cargando pedidos...
+                    </td>
+                  </tr>
+                ) : (
+                  activeOrders.map((order) => (
                     <tr
                       key={order.id}
                       className="border-b last:border-b-0 hover:bg-muted/30"
@@ -239,11 +279,42 @@ export default function OrdersPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
+
+        {error && (
+          <p className="mt-3 text-sm text-red-600">{error}</p>
+        )}
+
+        {(data?.total ?? 0) > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <p className="text-muted-foreground">
+              Página {page} de {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={loading || page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                disabled={loading || page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
