@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
+import { isUuid } from "@/lib/team/payload";
 
 type Order = {
   id: string;
@@ -23,6 +24,7 @@ type Order = {
   } | null;
 
   assigned_team_member: {
+    id: string;
     name: string;
   } | null;
 
@@ -50,6 +52,86 @@ type OrdersResponse = {
 };
 
 type ViewMode = "list" | "calendar" | "service";
+type ListFilter = "active" | "urgent" | "overdue" | "attention" | "upcoming";
+
+function parseViewMode(raw: string | null): ViewMode | null {
+  if (raw === "list" || raw === "calendar" || raw === "service") {
+    return raw;
+  }
+
+  return null;
+}
+
+function parseListFilter(raw: string | null): ListFilter | null {
+  if (
+    raw === "active" ||
+    raw === "urgent" ||
+    raw === "overdue" ||
+    raw === "attention" ||
+    raw === "upcoming"
+  ) {
+    return raw;
+  }
+
+  return null;
+}
+
+function parseAssignedTeamMemberId(raw: string | null): string | null {
+  if (!raw) {
+    return null;
+  }
+
+  const value = raw.trim();
+  return isUuid(value) ? value : null;
+}
+
+function isOperativeActive(order: Order) {
+  return (
+    order.status?.is_closed !== true &&
+    order.status?.is_cancelled !== true
+  );
+}
+
+function matchesDashboardFilter(
+  order: Order,
+  filter: ListFilter | null,
+  assignedId: string | null,
+  now: Date | null
+) {
+  if (!isOperativeActive(order)) {
+    return false;
+  }
+
+  if (assignedId && order.assigned_team_member?.id !== assignedId) {
+    return false;
+  }
+
+  if (filter === "urgent") {
+    return order.priority === "urgent";
+  }
+
+  if (filter === "overdue") {
+    return Boolean(order.due_at && now && new Date(order.due_at) < now);
+  }
+
+  if (filter === "attention") {
+    return order.status?.is_ready === true;
+  }
+
+  if (filter === "upcoming") {
+    if (!order.due_at || !now) {
+      return false;
+    }
+
+    const nextDay = new Date(now);
+    nextDay.setHours(0, 0, 0, 0);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    return new Date(order.due_at) >= nextDay;
+  }
+
+  return true;
+}
 
 function formatDate(value: string | null) {
   if (!value) return "Sin fecha";
@@ -176,14 +258,36 @@ function groupOrdersByService(orders: Order[]) {
 }
 
 export default function OrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="p-8">
+          <p>Cargando pedidos...</p>
+        </main>
+      }
+    >
+      <OrdersPageContent />
+    </Suspense>
+  );
+}
+
+function OrdersPageContent() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<OrdersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [page, setPage] = useState(1);
-  const [view, setView] = useState<ViewMode>("list");
+  const urlView = parseViewMode(searchParams.get("view"));
+  const listFilter = parseListFilter(searchParams.get("filter"));
+  const assignedMemberId = parseAssignedTeamMemberId(
+    searchParams.get("assigned_team_member_id")
+  );
+  const scopeToday = searchParams.get("scope") === "today";
+  const hasDashboardListFilter = Boolean(listFilter || assignedMemberId);
+  const [view, setView] = useState<ViewMode>(urlView ?? "list");
   const [weekStart, setWeekStart] = useState<Date | null>(null);
   const [now, setNow] = useState<Date | null>(null);
   const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
@@ -205,13 +309,29 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => {
+    if (urlView) {
+      setView(urlView);
+    }
+  }, [urlView]);
+
+  useEffect(() => {
+    if (!scopeToday || !now) {
+      return;
+    }
+
+    setWeekStart(startOfWeekMonday(now));
+  }, [scopeToday, now]);
+
+  useEffect(() => {
     async function loadOrders() {
       setLoading(true);
       setError(null);
 
       try {
         const response = await fetch(
-          `/api/orders?page=${page}&page_size=${pageSize}`
+          hasDashboardListFilter
+            ? "/api/orders?active=true"
+            : `/api/orders?page=${page}&page_size=${pageSize}`
         );
 
         if (!response.ok) {
@@ -220,6 +340,10 @@ export default function OrdersPage() {
 
         const result = (await response.json()) as OrdersResponse;
         setData(result);
+
+        if (hasDashboardListFilter) {
+          return;
+        }
 
         const receivedSize = result.page_size || pageSize;
         const receivedTotal = result.total ?? 0;
@@ -247,7 +371,7 @@ export default function OrdersPage() {
     }
 
     loadOrders();
-  }, [page]);
+  }, [page, hasDashboardListFilter]);
 
   useEffect(() => {
     if (view !== "calendar" || !weekStart) {
@@ -345,10 +469,15 @@ export default function OrdersPage() {
   }
 
   const activeOrders =
-    data?.orders.filter(
-      (order) =>
-        order.status?.is_closed !== true &&
-        order.status?.is_cancelled !== true
+    data?.orders.filter((order) =>
+      hasDashboardListFilter
+        ? matchesDashboardFilter(
+            order,
+            listFilter,
+            assignedMemberId,
+            now
+          )
+        : isOperativeActive(order)
     ) ?? [];
 
   const totalPages = data
@@ -397,10 +526,14 @@ export default function OrdersPage() {
 
             <p className="mt-2 text-sm text-muted-foreground">
               {view === "list" ? (
-                <>
-                  {activeOrders.length} pedidos activos en esta página ·{" "}
-                  {data?.total ?? 0} pedidos totales
-                </>
+                hasDashboardListFilter ? (
+                  <>{activeOrders.length} pedidos</>
+                ) : (
+                  <>
+                    {activeOrders.length} pedidos activos en esta página ·{" "}
+                    {data?.total ?? 0} pedidos totales
+                  </>
+                )
               ) : view === "calendar" ? (
                 <>Semana del {weekLabel}</>
               ) : (
@@ -572,7 +705,7 @@ export default function OrdersPage() {
           <p className="mt-3 text-sm text-red-600">{error}</p>
         )}
 
-        {(data?.total ?? 0) > 0 && (
+        {(data?.total ?? 0) > 0 && !hasDashboardListFilter && (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
             <p className="text-muted-foreground">
               Página {page} de {totalPages}

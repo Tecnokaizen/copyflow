@@ -21,20 +21,35 @@ function KpiCard({
   label,
   value,
   hint,
+  href,
 }: {
   label: string;
   value: number;
   hint?: string;
+  href?: string;
 }) {
-  return (
-    <section className="rounded-lg border bg-card p-4">
+  const content = (
+    <>
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
       {hint ? (
         <p className="mt-2 text-xs text-muted-foreground">{hint}</p>
       ) : null}
-    </section>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="rounded-lg border bg-card p-4 hover:bg-muted/40"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return <section className="rounded-lg border bg-card p-4">{content}</section>;
 }
 
 export function TenantDashboard() {
@@ -102,15 +117,36 @@ export function TenantDashboard() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <KpiCard label="Pedidos activos" value={counts?.active ?? 0} />
-          <KpiCard label="Urgentes" value={counts?.urgent ?? 0} />
-          <KpiCard label="Retrasados" value={counts?.overdue ?? 0} />
-          <KpiCard label="Entregas de hoy" value={counts?.due_today ?? 0} />
-          <KpiCard label="Próximas entregas" value={counts?.upcoming ?? 0} />
+          <KpiCard
+            label="Pedidos activos"
+            value={counts?.active ?? 0}
+            href="/orders?view=list&filter=active"
+          />
+          <KpiCard
+            label="Urgentes"
+            value={counts?.urgent ?? 0}
+            href="/orders?view=list&filter=urgent"
+          />
+          <KpiCard
+            label="Retrasados"
+            value={counts?.overdue ?? 0}
+            href="/orders?view=list&filter=overdue"
+          />
+          <KpiCard
+            label="Entregas de hoy"
+            value={counts?.due_today ?? 0}
+            href="/orders?view=calendar&scope=today"
+          />
+          <KpiCard
+            label="Próximas entregas"
+            value={counts?.upcoming ?? 0}
+            href="/orders?view=list&filter=upcoming"
+          />
           <KpiCard
             label="Necesitan atención"
             value={counts?.needs_attention ?? 0}
             hint="Pedidos listos pendientes de cierre. Archivos, presupuesto y bloqueos no entran todavía."
+            href="/orders?view=list&filter=attention"
           />
         </div>
 
@@ -155,9 +191,10 @@ export function TenantDashboard() {
             ) : (
               <div className="mt-3 grid gap-2">
                 {members.map((member) => (
-                  <div
+                  <Link
                     key={member.id}
-                    className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
+                    href={`/orders?view=list&assigned_team_member_id=${member.id}`}
+                    className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted/40"
                   >
                     <div>
                       <div className="font-medium">{member.name}</div>
@@ -168,7 +205,7 @@ export function TenantDashboard() {
                     <span className="text-sm font-medium">
                       {member.active_orders_count}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
