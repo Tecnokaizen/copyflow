@@ -22,11 +22,13 @@ export async function GET() {
     .order("sort_order", { ascending: true });
 
   if (error) {
+    console.error("[GET /api/clients/options] Could not load client options", {
+      tenantId: context.tenant.id,
+      error,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load client options",
-        detail: error.message,
-      },
+      { error: "Could not load client options" },
       { status: 500 }
     );
   }

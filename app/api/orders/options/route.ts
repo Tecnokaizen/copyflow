@@ -54,11 +54,13 @@ export async function GET() {
     teamMembersResult.error;
 
   if (firstError) {
+    console.error("[GET /api/orders/options] Could not load order options", {
+      tenantId,
+      error: firstError,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load order options",
-        detail: firstError.message,
-      },
+      { error: "Could not load order options" },
       { status: 500 }
     );
   }

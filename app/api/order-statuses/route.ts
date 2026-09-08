@@ -21,11 +21,13 @@ export async function GET() {
     .order("sort_order", { ascending: true });
 
   if (error) {
+    console.error("[GET /api/order-statuses] Could not load order statuses", {
+      tenantId: context.tenant.id,
+      error,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load order statuses",
-        detail: error.message,
-      },
+      { error: "Could not load order statuses" },
       { status: 500 }
     );
   }

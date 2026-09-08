@@ -54,11 +54,13 @@ export async function GET() {
     deliveryMethodsResult.error;
 
   if (firstError) {
+    console.error("[GET /api/orders/management-options] Could not load management options", {
+      tenantId,
+      error: firstError,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load management options",
-        detail: firstError.message,
-      },
+      { error: "Could not load management options" },
       { status: 500 }
     );
   }
