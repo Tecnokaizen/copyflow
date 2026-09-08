@@ -1,7 +1,4 @@
-import {
-  LEGACY_TENANT_BASE_DOMAINS,
-  TENANT_BASE_DOMAIN,
-} from "./domains";
+import { TENANT_BASE_DOMAIN } from "./domains";
 
 export function normalizeHostname(hostname: string) {
   return hostname
@@ -41,14 +38,6 @@ export function getSubdomainFromHostname(hostname: string) {
 
   if (primary.matched) {
     return primary.slug;
-  }
-
-  for (const baseDomain of LEGACY_TENANT_BASE_DOMAINS) {
-    const legacy = slugFromBaseDomain(host, baseDomain);
-
-    if (legacy.matched) {
-      return legacy.slug;
-    }
   }
 
   return null;
