@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { LogoutButton } from "@/components/logout-button";
 import { TenantDashboard } from "@/components/dashboard/tenant-dashboard";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -42,6 +43,7 @@ export default async function Home() {
               <Button asChild>
                 <Link href="/onboarding">Crear organización</Link>
               </Button>
+              <LogoutButton variant="outline" />
             </div>
           ) : (
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -81,10 +83,11 @@ export default async function Home() {
           <p className="mt-3 text-muted-foreground">
             Tu usuario no tiene acceso a este espacio de Copyflow.
           </p>
-          <div className="mt-6">
+          <div className="mt-6 flex flex-col items-center gap-3">
             <Button asChild>
               <Link href="/onboarding">Crear mi organización</Link>
             </Button>
+            <LogoutButton variant="outline" />
           </div>
         </div>
       </main>

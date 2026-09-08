@@ -1,17 +1,56 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function LogoutButton() {
+import { createClient } from "@/lib/supabase/client";
+import { Button, type ButtonProps } from "@/components/ui/button";
+
+export function LogoutButton({
+  className,
+  variant = "ghost",
+  size = "sm",
+  ...props
+}: Omit<ButtonProps, "onClick" | "type">) {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const logout = async () => {
+  async function logout() {
+    if (isLoading) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
     const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/auth/login");
-  };
+    const { error: signOutError } = await supabase.auth.signOut();
 
-  return <Button onClick={logout}>Logout</Button>;
+    if (signOutError) {
+      setError("No se pudo cerrar la sesión.");
+      setIsLoading(false);
+      return;
+    }
+
+    router.push("/auth/login");
+    router.refresh();
+  }
+
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        variant={variant}
+        size={size}
+        className={className}
+        {...props}
+        disabled={isLoading || props.disabled}
+        onClick={logout}
+      >
+        {isLoading ? "Cerrando sesión..." : "Cerrar sesión"}
+      </Button>
+      {error ? <p className="text-sm text-red-500">{error}</p> : null}
+    </span>
+  );
 }

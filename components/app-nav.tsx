@@ -1,8 +1,10 @@
 import Link from "next/link";
 
+import { LogoutButton } from "@/components/logout-button";
+
 export function AppNav() {
   return (
-    <nav className="mb-6 flex flex-wrap gap-4 text-sm">
+    <nav className="mb-6 flex flex-wrap items-center gap-4 text-sm">
       <Link href="/" className="text-muted-foreground hover:underline">
         Inicio
       </Link>
@@ -36,6 +38,7 @@ export function AppNav() {
       >
         Actividad
       </Link>
+      <LogoutButton className="ml-auto text-muted-foreground" />
     </nav>
   );
 }
