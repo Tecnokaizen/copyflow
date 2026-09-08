@@ -1,7 +1,6 @@
 export const TENANT_BASE_DOMAIN = "app.gestcopy.com";
 
 export const LEGACY_TENANT_BASE_DOMAINS = [
-  "copyflow.tecnokaizen.link",
   "copyflow.com",
 ] as const;
 
