@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
+type OrderActivityRow = {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  user_id: string | null;
+  team_member_id: string | null;
+  previous_values: unknown;
+  new_values: unknown;
+  metadata: unknown;
+  created_at: string;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -32,27 +45,30 @@ export async function GET(
     );
   }
 
-  const { data: activity, error } = await supabase
-    .from("activity_log")
-    .select(
-      "id, action, entity_type, entity_id, user_id, team_member_id, previous_values, new_values, metadata, created_at"
-    )
-    .eq("tenant_id", context.tenant.id)
-    .eq("entity_type", "order")
-    .eq("entity_id", id)
-    .order("created_at", { ascending: true });
+  const { data: activity, error } = await supabase.rpc("list_order_activity", {
+    p_order_id: id,
+  });
 
   if (error) {
+    console.error("[GET /api/orders/:id/activity] Could not load order activity", {
+      orderId: id,
+      error,
+    });
+
+    if (error.code === "P0002") {
+      return NextResponse.json(
+        { error: "Order not found" },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json(
-      {
-        error: "Could not load order activity",
-        detail: error.message,
-      },
+      { error: "Could not load order activity" },
       { status: 500 }
     );
   }
 
-  const rows = activity ?? [];
+  const rows: OrderActivityRow[] = activity ?? [];
   const userIds = [
     ...new Set(
       rows
