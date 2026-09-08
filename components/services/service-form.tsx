@@ -34,12 +34,14 @@ export function ServiceForm({
   const [form, setForm] = useState<ServiceFormData>(
     initialValues ?? EMPTY_SERVICE_FORM
   );
+  const [prevInitialValues, setPrevInitialValues] = useState(initialValues);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
-  useEffect(() => {
+  if (initialValues !== prevInitialValues) {
+    setPrevInitialValues(initialValues);
     setForm(initialValues ?? EMPTY_SERVICE_FORM);
-  }, [initialValues]);
+  }
 
   useEffect(() => {
     async function loadCategories() {

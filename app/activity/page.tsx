@@ -45,9 +45,6 @@ export default function ActivityPage() {
 
   useEffect(() => {
     if (!roleReady || forbidden) {
-      if (roleReady) {
-        setLoading(false);
-      }
       return;
     }
 

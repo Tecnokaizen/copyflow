@@ -469,6 +469,11 @@ function OrderDetailContent() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
+  const [prevOrderTitle, setPrevOrderTitle] = useState(order?.title);
+  const [prevOrderDescription, setPrevOrderDescription] = useState(
+    order?.description
+  );
+  const [prevOrderNotes, setPrevOrderNotes] = useState(order?.notes);
   const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
   const [savingClient, setSavingClient] = useState(false);
   const [clientFormInitial, setClientFormInitial] =
@@ -479,6 +484,21 @@ function OrderDetailContent() {
   const [clientDuplicate, setClientDuplicate] =
     useState<ClientDuplicate | null>(null);
   const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
+
+  if (order?.title !== prevOrderTitle) {
+    setPrevOrderTitle(order?.title);
+    setDraftTitle(order?.title ?? "");
+  }
+
+  if (order?.description !== prevOrderDescription) {
+    setPrevOrderDescription(order?.description);
+    setDraftDescription(order?.description ?? "");
+  }
+
+  if (order?.notes !== prevOrderNotes) {
+    setPrevOrderNotes(order?.notes);
+    setDraftNotes(order?.notes ?? "");
+  }
 
   async function loadActivity() {
     try {
@@ -617,14 +637,26 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  loadActivity();
-}, [params.id]);
+  async function loadOrderActivity() {
+    try {
+      const response = await fetch(`/api/orders/${params.id}/activity`);
 
-useEffect(() => {
-  setDraftTitle(order?.title ?? "");
-  setDraftDescription(order?.description ?? "");
-  setDraftNotes(order?.notes ?? "");
-}, [order?.title, order?.description, order?.notes]);
+      if (!response.ok) {
+        setActivity([]);
+        return;
+      }
+
+      const result: ActivityResponse = await response.json();
+      setActivity(result.activity ?? []);
+    } catch {
+      setActivity([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
+  loadOrderActivity();
+}, [params.id]);
 
   async function updateStatus(statusId: string) {
   if (!order || updatingStatus) return;

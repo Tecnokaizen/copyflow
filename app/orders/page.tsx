@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -275,10 +275,16 @@ function OrdersPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement>(null);
+  const isClient = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const [data, setData] = useState<OrdersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
   const urlView = parseViewMode(searchParams.get("view"));
   const listFilter = parseListFilter(searchParams.get("filter"));
@@ -288,8 +294,11 @@ function OrdersPageContent() {
   const scopeToday = searchParams.get("scope") === "today";
   const hasDashboardListFilter = Boolean(listFilter || assignedMemberId);
   const [view, setView] = useState<ViewMode>(urlView ?? "list");
+  const [prevUrlView, setPrevUrlView] = useState(urlView);
   const [weekStart, setWeekStart] = useState<Date | null>(null);
   const [now, setNow] = useState<Date | null>(null);
+  const [prevScopeToday, setPrevScopeToday] = useState(scopeToday);
+  const [prevNow, setPrevNow] = useState<Date | null>(null);
   const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
     null
   );
@@ -302,25 +311,33 @@ function OrdersPageContent() {
   const [byServiceError, setByServiceError] = useState<string | null>(null);
   const pageSize = 50;
 
-  useEffect(() => {
-    const current = new Date();
-    setNow(current);
-    setWeekStart(startOfWeekMonday(current));
-  }, []);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    if (pathname === "/orders") {
+      setShowCreateForm(false);
+    }
+  }
 
-  useEffect(() => {
+  if (urlView !== prevUrlView) {
+    setPrevUrlView(urlView);
     if (urlView) {
       setView(urlView);
     }
-  }, [urlView]);
+  }
 
-  useEffect(() => {
-    if (!scopeToday || !now) {
-      return;
+  if (isClient && now === null) {
+    const current = new Date();
+    setNow(current);
+    setWeekStart(startOfWeekMonday(current));
+  }
+
+  if (scopeToday !== prevScopeToday || now !== prevNow) {
+    setPrevScopeToday(scopeToday);
+    setPrevNow(now);
+    if (scopeToday && now) {
+      setWeekStart(startOfWeekMonday(now));
     }
-
-    setWeekStart(startOfWeekMonday(now));
-  }, [scopeToday, now]);
+  }
 
   useEffect(() => {
     async function loadOrders() {
@@ -445,12 +462,6 @@ function OrdersPageContent() {
 
     loadByService();
   }, [view]);
-
-  useEffect(() => {
-    if (pathname === "/orders") {
-      setShowCreateForm(false);
-    }
-  }, [pathname]);
 
   if (loading && !data) {
     return (

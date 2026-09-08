@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import type { TeamMemberFormData } from "@/lib/team/types";
 
 type TeamMemberFormProps = {
@@ -26,10 +26,12 @@ export function TeamMemberForm({
   onCancel,
 }: TeamMemberFormProps) {
   const [form, setForm] = useState<TeamMemberFormData>(initialValues);
+  const [prevInitialValues, setPrevInitialValues] = useState(initialValues);
 
-  useEffect(() => {
+  if (initialValues !== prevInitialValues) {
+    setPrevInitialValues(initialValues);
     setForm(initialValues);
-  }, [initialValues]);
+  }
 
   function updateField<K extends keyof TeamMemberFormData>(
     field: K,

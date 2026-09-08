@@ -44,12 +44,14 @@ export function ClientForm({
   const [form, setForm] = useState<ClientFormData>(
     initialValues ?? EMPTY_CLIENT_FORM
   );
+  const [prevInitialValues, setPrevInitialValues] = useState(initialValues);
   const [customerTypes, setCustomerTypes] = useState<CustomerTypeOption[]>([]);
   const [typesLoading, setTypesLoading] = useState(true);
 
-  useEffect(() => {
+  if (initialValues !== prevInitialValues) {
+    setPrevInitialValues(initialValues);
     setForm(initialValues ?? EMPTY_CLIENT_FORM);
-  }, [initialValues]);
+  }
 
   useEffect(() => {
     async function loadTypes() {
