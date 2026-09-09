@@ -29,8 +29,26 @@ export const MANAGEMENT_ROLES = [
   "manager",
 ] as const satisfies readonly MembershipRole[];
 
+export const ACCESS_ADMIN_ROLES = [
+  "owner",
+  "admin",
+] as const satisfies readonly MembershipRole[];
+
+export const INVITABLE_ROLES = [
+  "admin",
+  "manager",
+  "staff",
+  "viewer",
+] as const satisfies readonly MembershipRole[];
+
+export type InvitableRole = (typeof INVITABLE_ROLES)[number];
+
 export function isMembershipRole(value: unknown): value is MembershipRole {
   return MEMBERSHIP_ROLES.includes(value as MembershipRole);
+}
+
+export function isInvitableRole(value: unknown): value is InvitableRole {
+  return INVITABLE_ROLES.includes(value as InvitableRole);
 }
 
 export function hasMembershipRole<
