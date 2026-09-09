@@ -122,13 +122,13 @@
     @apply bg-primary text-primary-foreground shadow-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
   }
   .gc-kpi {
-    @apply gc-card block p-5 transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply gc-card block border-border/80 bg-card p-5 transition-colors hover:bg-secondary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-6;
   }
   .gc-kpi-label {
-    @apply text-sm font-medium text-muted-foreground;
+    @apply text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground;
   }
   .gc-kpi-value {
-    @apply mt-3 text-4xl font-bold tracking-tight tabular-nums;
+    @apply mt-4 text-5xl font-extrabold tracking-tight tabular-nums text-foreground sm:text-[3.25rem] sm:leading-none;
   }
   .gc-kpi-value-urgent {
     color: hsl(var(--gc-urgent));
@@ -140,12 +140,21 @@
     color: hsl(var(--gc-info));
   }
   .gc-list-row {
-    @apply block rounded-[calc(var(--radius)-2px)] border border-border/60 bg-background/40 px-3.5 py-3 transition-colors hover:border-border hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply block rounded-[calc(var(--radius)-2px)] border border-border/50 bg-background/50 px-3.5 py-3.5 transition-colors hover:border-border/80 hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
   .gc-workload-track {
-    @apply mt-2 h-1.5 overflow-hidden rounded-full bg-secondary;
+    @apply mt-2.5 h-2 overflow-hidden rounded-full bg-secondary/80;
   }
   .gc-workload-fill {
-    @apply h-full rounded-full bg-primary/80;
+    @apply h-full rounded-full bg-primary;
+  }
+  .gc-dashboard .gc-page-inner {
+    @apply max-w-[90rem];
+  }
+  .gc-dashboard .gc-card {
+    @apply border-border/80 bg-card;
+  }
+  .gc-dashboard .gc-section-title {
+    @apply text-base font-semibold tracking-tight text-foreground md:text-lg;
   }
 }

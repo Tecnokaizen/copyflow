@@ -66,7 +66,7 @@ function priorityLabel(priority: string) {
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="dark gc-page">
+    <main className="dark gc-page gc-dashboard">
       <div className="gc-page-inner">{children}</div>
     </main>
   );
@@ -86,9 +86,7 @@ function KpiLink({
   return (
     <Link href={href} className="gc-kpi">
       <p className="gc-kpi-label">{label}</p>
-      <p className={cn("gc-kpi-value text-foreground", valueClassName)}>
-        {value}
-      </p>
+      <p className={cn("gc-kpi-value", valueClassName)}>{value}</p>
     </Link>
   );
 }
@@ -96,13 +94,15 @@ function KpiLink({
 function UpcomingRow({ order }: { order: DashboardUpcomingOrder }) {
   return (
     <Link href={`/orders/${order.id}`} className="gc-list-row">
-      <div className="flex items-start gap-3">
-        <div className="w-[5.5rem] shrink-0 text-sm font-semibold tabular-nums text-foreground">
+      <div className="flex items-start gap-3.5">
+        <div className="w-[6.25rem] shrink-0 text-[0.9375rem] font-bold tabular-nums leading-snug text-foreground">
           {formatDueTime(order.due_at)}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-foreground">{order.title}</p>
-          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+          <p className="truncate text-[0.975rem] font-semibold text-foreground">
+            {order.title}
+          </p>
+          <p className="mt-1 truncate text-[0.8125rem] text-muted-foreground">
             {order.reference}
             {order.assigned_team_member?.name
               ? ` · ${order.assigned_team_member.name}`
@@ -131,13 +131,13 @@ function AttentionRow({ order }: { order: DashboardAttentionOrder }) {
     <Link href={`/orders/${order.id}`} className="gc-list-row">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-muted-foreground">
+          <p className="text-[0.8125rem] font-medium text-muted-foreground">
             {order.reference}
           </p>
-          <p className="mt-0.5 truncate font-medium text-foreground">
+          <p className="mt-1 truncate text-[0.975rem] font-semibold text-foreground">
             {order.title}
           </p>
-          <p className="mt-1 truncate text-sm text-muted-foreground">
+          <p className="mt-1 truncate text-[0.8125rem] text-muted-foreground">
             {order.assigned_team_member?.name ?? "Sin asignar"}
             {order.due_at ? ` · ${formatDueTime(order.due_at)}` : ""}
           </p>
@@ -283,9 +283,10 @@ export function TenantDashboard() {
       <PageHeader
         title="GESTCOPY · Panel diario"
         description={dateLabel || undefined}
+        className="mb-7 sm:mb-8"
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiLink
           label="Pedidos activos"
           value={counts?.active ?? 0}
@@ -311,16 +312,16 @@ export function TenantDashboard() {
         />
       </div>
 
-      <div className="mt-8 grid gap-4 lg:grid-cols-3">
+      <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-3 lg:gap-5">
         <SectionCard
           title="Próximas entregas"
           description="Entregas posteriores a hoy."
-          bodyClassName="space-y-2 p-4 sm:p-5"
+          bodyClassName="space-y-2.5 p-4 sm:p-5"
         >
           {upcoming.length === 0 ? (
             <EmptyState
               title="No hay entregas próximas."
-              className="px-2 py-6"
+              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
             />
           ) : (
             upcoming.map((order) => (
@@ -342,12 +343,12 @@ export function TenantDashboard() {
               </Link>
             ) : null
           }
-          bodyClassName="space-y-2 p-4 sm:p-5"
+          bodyClassName="space-y-2.5 p-4 sm:p-5"
         >
           {attentionCount === 0 ? (
             <EmptyState
               title="No hay pedidos pendientes de atención."
-              className="px-2 py-6"
+              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
             />
           ) : (
             attentionOrders.map((order) => (
@@ -359,10 +360,13 @@ export function TenantDashboard() {
         <SectionCard
           title="Carga del equipo"
           description="Pedidos activos por persona"
-          bodyClassName="space-y-2 p-4 sm:p-5"
+          bodyClassName="space-y-2.5 p-4 sm:p-5"
         >
           {members.length === 0 ? (
-            <EmptyState title="No hay miembros activos." className="px-2 py-6" />
+            <EmptyState
+              title="No hay miembros activos."
+              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
+            />
           ) : (
             members.map((member) => (
               <WorkloadRow
