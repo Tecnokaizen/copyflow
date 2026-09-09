@@ -1,3 +1,8 @@
+import {
+  MANAGEMENT_ROLES,
+  hasMembershipRole,
+} from "@/lib/auth/membership-roles";
+
 export type ServiceItem = {
   id: string;
   category_id: string | null;
@@ -56,8 +61,6 @@ export type ServicePayload = {
   sort_order: number;
 };
 
-export const WRITE_SERVICE_ROLES = ["owner", "admin", "manager"] as const;
-
 export const EMPTY_SERVICE_FORM: ServiceFormData = {
   category_id: "",
   name: "",
@@ -104,9 +107,7 @@ function asNumber(value: unknown, fallback: number | null = null) {
 }
 
 export function canWriteServices(role: string | null | undefined) {
-  return WRITE_SERVICE_ROLES.includes(
-    role as (typeof WRITE_SERVICE_ROLES)[number]
-  );
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
 export function unwrapRpcPayload(data: unknown): Record<string, unknown> {

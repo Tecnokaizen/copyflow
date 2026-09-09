@@ -1,3 +1,8 @@
+import {
+  MANAGEMENT_ROLES,
+  hasMembershipRole,
+} from "@/lib/auth/membership-roles";
+
 export const ACTIVITY_ENTITY_TYPES = [
   "order",
   "client",
@@ -75,8 +80,6 @@ export type FormattedActivity = {
   href: string | null;
 };
 
-export const ACTIVITY_VIEW_ROLES = ["owner", "admin", "manager"] as const;
-
 export const ENTITY_TYPE_OPTIONS: { value: ActivityEntityType; label: string }[] =
   [
     { value: "order", label: "Pedidos" },
@@ -102,9 +105,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
 ];
 
 export function canViewActivity(role: string | null | undefined) {
-  return ACTIVITY_VIEW_ROLES.includes(
-    role as (typeof ACTIVITY_VIEW_ROLES)[number]
-  );
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
 function asNullableString(value: unknown): string | null {

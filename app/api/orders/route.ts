@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import {
+  OPERATIVE_ROLES,
+  hasMembershipRole,
+} from "@/lib/auth/membership-roles";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const OPERATIVE_ROLES = ["owner", "admin", "manager", "staff"] as const;
 const PRIORITIES = ["normal", "high", "urgent"] as const;
 
 type Priority = (typeof PRIORITIES)[number];
@@ -352,11 +355,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (
-    !OPERATIVE_ROLES.includes(
-      context.membership.role as (typeof OPERATIVE_ROLES)[number]
-    )
-  ) {
+  if (!hasMembershipRole(context.membership.role, OPERATIVE_ROLES)) {
     return NextResponse.json(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }

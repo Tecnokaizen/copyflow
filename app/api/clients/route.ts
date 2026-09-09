@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  OPERATIVE_ROLES,
+  hasMembershipRole,
+} from "@/lib/auth/membership-roles";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { parseClientPayload } from "@/lib/clients/payload";
@@ -7,8 +11,6 @@ import {
   clientDuplicateResponse,
   statusForClientRpcError,
 } from "@/lib/clients/rpc-error";
-
-const OPERATIVE_ROLES = ["owner", "admin", "manager", "staff"] as const;
 
 function parseLimit(raw: string | null) {
   if (!raw) {
@@ -75,11 +77,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (
-    !OPERATIVE_ROLES.includes(
-      context.membership.role as (typeof OPERATIVE_ROLES)[number]
-    )
-  ) {
+  if (!hasMembershipRole(context.membership.role, OPERATIVE_ROLES)) {
     return NextResponse.json(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }

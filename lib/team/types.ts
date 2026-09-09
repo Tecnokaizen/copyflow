@@ -1,3 +1,8 @@
+import {
+  MANAGEMENT_ROLES,
+  hasMembershipRole,
+} from "@/lib/auth/membership-roles";
+
 export type TeamMember = {
   id: string;
   name: string;
@@ -38,10 +43,8 @@ export type TeamMemberPayload = {
   can_receive_orders: boolean;
 };
 
-export const WRITE_TEAM_ROLES = ["owner", "admin", "manager"] as const;
-
 export function canWriteTeam(role: string | null | undefined) {
-  return WRITE_TEAM_ROLES.includes(role as (typeof WRITE_TEAM_ROLES)[number]);
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
 function asNullableString(value: unknown): string | null {
