@@ -47,13 +47,17 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
+  const isApiRoute = request.nextUrl.pathname.startsWith("/api/");
+
   if (
     request.nextUrl.pathname !== "/" &&
+    !isApiRoute &&
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/auth")
   ) {
     // no user, potentially respond by redirecting the user to the login page
+    // API routes are excluded: handlers return their own 401/403 JSON.
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     return NextResponse.redirect(url);
