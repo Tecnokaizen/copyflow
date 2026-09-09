@@ -58,8 +58,12 @@ export async function updateSession(request: NextRequest) {
   ) {
     // no user, potentially respond by redirecting the user to the login page
     // API routes are excluded: handlers return their own 401/403 JSON.
+    // Preserve the original path+query as `next` (encoded) so post-login can return.
+    const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
+    url.search = "";
+    url.searchParams.set("next", returnTo);
     return NextResponse.redirect(url);
   }
 
