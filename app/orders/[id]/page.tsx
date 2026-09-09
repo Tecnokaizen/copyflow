@@ -19,6 +19,7 @@ import {
   type ClientFormData,
   type ClientSummary,
 } from "@/lib/clients/types";
+import { canWriteOrders } from "@/lib/auth/membership-roles";
 
 type Order = {
   id: string;
@@ -484,6 +485,7 @@ function OrderDetailContent() {
   const [clientDuplicate, setClientDuplicate] =
     useState<ClientDuplicate | null>(null);
   const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
+  const [canWrite, setCanWrite] = useState(false);
 
   if (order?.title !== prevOrderTitle) {
     setPrevOrderTitle(order?.title);
@@ -548,7 +550,16 @@ function OrderDetailContent() {
     }
   }
 
+  async function loadContext() {
+    const response = await fetch("/api/context");
+    if (response.ok) {
+      const context = await response.json();
+      setCanWrite(canWriteOrders(context?.membership?.role));
+    }
+  }
+
   loadOrder();
+  void loadContext();
 }, [params.id]);
 
 useEffect(() => {
@@ -1228,6 +1239,12 @@ useEffect(() => {
     <main className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-5xl">
         <AppNav />
+        {!canWrite ? (
+          <div className="mb-4 rounded-[var(--radius)] border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+            Solo lectura: tu rol no permite modificar pedidos.
+          </div>
+        ) : null}
+        <fieldset disabled={!canWrite} className="min-w-0 border-0 p-0">
         <div className="mb-8">
           <Link
             href="/orders"
@@ -1769,9 +1786,10 @@ useEffect(() => {
             </ul>
           )}
         </section>
+        </fieldset>
       </div>
 
-      {(clientUiMode === "assign" || clientUiMode === "change") && (
+      {canWrite && (clientUiMode === "assign" || clientUiMode === "change") && (
         <ClientModal>
           <h2 className="mb-4 text-lg font-semibold">
             {clientUiMode === "change" ? "Cambiar cliente" : "Asignar cliente"}
@@ -1806,7 +1824,7 @@ useEffect(() => {
         </ClientModal>
       )}
 
-      {(clientUiMode === "edit" || clientUiMode === "create") && (
+      {canWrite && (clientUiMode === "edit" || clientUiMode === "create") && (
         <ClientModal>
           <ClientForm
             title={

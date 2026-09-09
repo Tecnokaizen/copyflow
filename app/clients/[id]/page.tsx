@@ -16,6 +16,7 @@ import {
   type ClientDuplicate,
   type ClientOrderSummary,
 } from "@/lib/clients/types";
+import { canWriteClients } from "@/lib/auth/membership-roles";
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -71,6 +72,7 @@ function ClientDetailContent() {
   const [data, setData] = useState<ClientDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canWrite, setCanWrite] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -96,7 +98,16 @@ function ClientDetailContent() {
       }
     }
 
-    load();
+    async function loadContext() {
+      const response = await fetch("/api/context");
+      if (response.ok) {
+        const context = await response.json();
+        setCanWrite(canWriteClients(context?.membership?.role));
+      }
+    }
+
+    void load();
+    void loadContext();
   }, [params.id]);
 
   async function handleEdit(form: Parameters<typeof toClientPayload>[0]) {
@@ -191,17 +202,19 @@ function ClientDetailContent() {
               {client.active ? "Activo" : "Inactivo"}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setEditError(null);
-              setDuplicate(null);
-              setEditOpen(true);
-            }}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
-          >
-            Editar cliente
-          </button>
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditError(null);
+                setDuplicate(null);
+                setEditOpen(true);
+              }}
+              className="rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              Editar cliente
+            </button>
+          ) : null}
         </div>
 
         <section className="rounded-lg border bg-card p-6">

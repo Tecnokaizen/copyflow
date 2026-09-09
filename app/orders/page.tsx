@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
+import { canWriteOrders } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
 
 type Order = {
@@ -284,6 +285,7 @@ function OrdersPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [canWrite, setCanWrite] = useState(false);
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
   const urlView = parseViewMode(searchParams.get("view"));
@@ -310,6 +312,17 @@ function OrdersPageContent() {
   const [byServiceLoading, setByServiceLoading] = useState(false);
   const [byServiceError, setByServiceError] = useState<string | null>(null);
   const pageSize = 50;
+
+  useEffect(() => {
+    async function loadContext() {
+      const response = await fetch("/api/context");
+      if (response.ok) {
+        const context = await response.json();
+        setCanWrite(canWriteOrders(context?.membership?.role));
+      }
+    }
+    void loadContext();
+  }, []);
 
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
@@ -556,13 +569,15 @@ function OrdersPageContent() {
             </p>
           </div>
 
-          <Button
-            type="button"
-            onClick={() => setShowCreateForm(true)}
-            disabled={showCreateForm}
-          >
-            Nuevo pedido
-          </Button>
+          {canWrite ? (
+            <Button
+              type="button"
+              onClick={() => setShowCreateForm(true)}
+              disabled={showCreateForm}
+            >
+              Nuevo pedido
+            </Button>
+          ) : null}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -601,7 +616,7 @@ function OrdersPageContent() {
           </button>
         </div>
 
-        {showCreateForm && (
+        {canWrite && showCreateForm && (
           <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
         )}
 

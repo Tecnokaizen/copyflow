@@ -4,57 +4,64 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
+    /* Gestcopy panel: light operational surface, brand indigo from gestcopy.com */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 239 84% 57%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 32% 95%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 32% 95%;
+    --muted-foreground: 215 18% 34%;
+    --accent: 214 32% 95%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
+    --border: 214 24% 88%;
+    --input: 214 24% 88%;
+    --ring: 239 84% 57%;
+    --chart-1: 239 84% 57%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+    --gc-success: 152 69% 36%;
+    --gc-warning: 32 95% 44%;
+    --gc-danger: 0 72% 51%;
   }
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 40% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 40% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 25% 16%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 25% 16%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 217 25% 16%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --border: 217 25% 18%;
+    --input: 217 25% 18%;
+    --ring: 239 84% 67%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --gc-success: 152 60% 45%;
+    --gc-warning: 32 95% 55%;
+    --gc-danger: 0 72% 55%;
   }
 }
 
@@ -63,6 +70,51 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer components {
+  .gc-page {
+    @apply min-h-screen bg-background p-6 md:p-8 lg:p-10;
+  }
+  .gc-page-inner {
+    @apply mx-auto w-full max-w-[88rem];
+  }
+  .gc-card {
+    @apply overflow-hidden rounded-[var(--radius)] border border-border/70 bg-card;
+  }
+  .gc-section-title {
+    @apply text-lg font-semibold tracking-tight text-foreground md:text-xl;
+  }
+  .gc-muted {
+    @apply text-[0.9375rem] leading-relaxed text-muted-foreground;
+  }
+  .gc-table {
+    @apply w-full text-[0.9375rem];
+  }
+  .gc-table thead {
+    @apply border-b border-border/80 bg-secondary/60;
+  }
+  .gc-table th {
+    @apply px-5 py-3.5 text-left text-[0.8125rem] font-semibold uppercase tracking-wide text-foreground/70;
+  }
+  .gc-table th:last-child {
+    @apply text-right;
+  }
+  .gc-table tbody tr {
+    @apply border-b border-border/60 transition-colors last:border-b-0 hover:bg-secondary/35;
+  }
+  .gc-table td {
+    @apply px-5 py-4 align-middle;
+  }
+  .gc-action {
+    @apply inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary disabled:opacity-50;
+  }
+  .gc-action-danger {
+    @apply inline-flex items-center justify-center rounded-md border border-red-200/80 bg-background px-3 py-2 text-sm font-medium text-red-700/90 transition-colors hover:bg-red-50 disabled:opacity-50;
+  }
+  .gc-cta {
+    @apply bg-primary text-primary-foreground shadow-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
   }
 }

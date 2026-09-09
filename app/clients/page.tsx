@@ -16,6 +16,7 @@ import {
   type ClientListItem,
   type ClientListResponse,
 } from "@/lib/clients/types";
+import { canWriteClients } from "@/lib/auth/membership-roles";
 
 type CustomerTypeOption = {
   id: string;
@@ -51,6 +52,7 @@ export default function ClientsPage() {
   const [data, setData] = useState<ClientListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canWrite, setCanWrite] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -74,7 +76,16 @@ export default function ClientsPage() {
       }
     }
 
-    loadTypes();
+    async function loadContext() {
+      const response = await fetch("/api/context");
+      if (response.ok) {
+        const context = await response.json();
+        setCanWrite(canWriteClients(context?.membership?.role));
+      }
+    }
+
+    void loadTypes();
+    void loadContext();
   }, []);
 
   useEffect(() => {
@@ -204,16 +215,18 @@ export default function ClientsPage() {
               {total} clientes
             </p>
           </div>
-          <Button
-            type="button"
-            onClick={() => {
-              setCreateError(null);
-              setDuplicate(null);
-              setCreateOpen(true);
-            }}
-          >
-            Nuevo cliente
-          </Button>
+          {canWrite ? (
+            <Button
+              type="button"
+              onClick={() => {
+                setCreateError(null);
+                setDuplicate(null);
+                setCreateOpen(true);
+              }}
+            >
+              Nuevo cliente
+            </Button>
+          ) : null}
         </div>
 
         <div className="mb-6 grid gap-3 md:grid-cols-3">
@@ -359,7 +372,7 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {createOpen && (
+      {canWrite && createOpen && (
         <ClientModal>
           <ClientForm
             title="Nuevo cliente"

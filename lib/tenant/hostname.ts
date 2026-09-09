@@ -40,5 +40,13 @@ export function getSubdomainFromHostname(hostname: string) {
     return primary.slug;
   }
 
+  // Local-only: {slug}.localhost (never in production).
+  if (process.env.NODE_ENV !== "production") {
+    const local = slugFromBaseDomain(host, "localhost");
+    if (local.matched) {
+      return local.slug;
+    }
+  }
+
   return null;
 }

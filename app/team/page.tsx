@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AppNav } from "@/components/app-nav";
 import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamModal } from "@/components/team/team-modal";
 import {
@@ -147,12 +146,14 @@ export default function TeamPage() {
   const members = data?.members ?? [];
 
   return (
-    <main className="min-h-screen bg-background p-8">
-      <div className="mx-auto max-w-7xl">
-        <AppNav />
-
+    <>
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">Equipo</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
+            Personal
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Equipo operativo del taller (no es la gestión de acceso SaaS).
+          </p>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
             <span>Miembros: {data?.total ?? 0}</span>
             <span>Disponibles: {data?.available_count ?? 0}</span>
@@ -288,7 +289,6 @@ export default function TeamPage() {
             </div>
           </div>
         )}
-      </div>
 
       {editing && (
         <TeamModal>
@@ -306,6 +306,6 @@ export default function TeamPage() {
           />
         </TeamModal>
       )}
-    </main>
+    </>
   );
 }
