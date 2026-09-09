@@ -13,6 +13,9 @@ export type DashboardUpcomingOrder = {
   } | null;
 };
 
+/** Same shape as upcoming; same active + is_ready rule as counts.needs_attention. */
+export type DashboardAttentionOrder = DashboardUpcomingOrder;
+
 export type DashboardWorkloadMember = {
   id: string;
   name: string;
@@ -41,6 +44,7 @@ export type DashboardResponse = {
     blocked: boolean;
   };
   upcoming_orders: DashboardUpcomingOrder[];
+  attention_orders: DashboardAttentionOrder[];
   workload: {
     active_orders_count: number;
     members: DashboardWorkloadMember[];

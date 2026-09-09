@@ -33,6 +33,8 @@
     --gc-success: 152 69% 36%;
     --gc-warning: 32 95% 44%;
     --gc-danger: 0 72% 51%;
+    --gc-info: 199 89% 42%;
+    --gc-urgent: 346 77% 50%;
   }
   .dark {
     --background: 222 47% 6%;
@@ -62,6 +64,8 @@
     --gc-success: 152 60% 45%;
     --gc-warning: 32 95% 55%;
     --gc-danger: 0 72% 55%;
+    --gc-info: 199 89% 55%;
+    --gc-urgent: 346 77% 62%;
   }
 }
 
@@ -116,5 +120,32 @@
   }
   .gc-cta {
     @apply bg-primary text-primary-foreground shadow-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+  .gc-kpi {
+    @apply gc-card block p-5 transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  .gc-kpi-label {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .gc-kpi-value {
+    @apply mt-3 text-4xl font-bold tracking-tight tabular-nums;
+  }
+  .gc-kpi-value-urgent {
+    color: hsl(var(--gc-urgent));
+  }
+  .gc-kpi-value-warning {
+    color: hsl(var(--gc-warning));
+  }
+  .gc-kpi-value-info {
+    color: hsl(var(--gc-info));
+  }
+  .gc-list-row {
+    @apply block rounded-[calc(var(--radius)-2px)] border border-border/60 bg-background/40 px-3.5 py-3 transition-colors hover:border-border hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  .gc-workload-track {
+    @apply mt-2 h-1.5 overflow-hidden rounded-full bg-secondary;
+  }
+  .gc-workload-fill {
+    @apply h-full rounded-full bg-primary/80;
   }
 }

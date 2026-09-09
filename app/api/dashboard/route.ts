@@ -4,14 +4,18 @@ import { getCurrentContext } from "@/lib/tenant/current-context";
 import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
 import { statusForTeamRpcError } from "@/lib/team/rpc-error";
 import { getZonedDayBounds, resolveTimeZone } from "@/lib/time/zoned-day";
-import type { DashboardUpcomingOrder } from "@/lib/dashboard/types";
+import type {
+  DashboardAttentionOrder,
+  DashboardUpcomingOrder,
+} from "@/lib/dashboard/types";
 
 const UPCOMING_LIMIT = 8;
+const ATTENTION_LIMIT = 8;
 
 const ACTIVE_COUNT_SELECT =
   "id, status:order_statuses!inner(is_closed,is_cancelled,is_ready)";
 
-const UPCOMING_SELECT = `
+const ORDER_PREVIEW_SELECT = `
   id,
   reference,
   title,
@@ -38,7 +42,7 @@ function activeOrdersQuery(
     .eq("status.is_cancelled", false);
 }
 
-function asUpcomingOrder(row: unknown): DashboardUpcomingOrder | null {
+function asPreviewOrder(row: unknown): DashboardUpcomingOrder | null {
   if (!row || typeof row !== "object") {
     return null;
   }
@@ -114,6 +118,7 @@ export async function GET() {
     upcomingCountResult,
     needsAttentionResult,
     upcomingListResult,
+    attentionListResult,
     teamResult,
   ] = await Promise.all([
     activeOrdersQuery(supabase, tenantId),
@@ -128,12 +133,20 @@ export async function GET() {
     activeOrdersQuery(supabase, tenantId).eq("status.is_ready", true),
     activeOrdersQuery(supabase, tenantId, {
       head: false,
-      select: UPCOMING_SELECT,
+      select: ORDER_PREVIEW_SELECT,
     })
       .gte("due_at", dayEndIso)
       .order("due_at", { ascending: true })
       .order("id", { ascending: true })
       .range(0, UPCOMING_LIMIT - 1),
+    activeOrdersQuery(supabase, tenantId, {
+      head: false,
+      select: ORDER_PREVIEW_SELECT,
+    })
+      .eq("status.is_ready", true)
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(0, ATTENTION_LIMIT - 1),
     supabase.rpc("list_team_members", {
       p_tenant_id: tenantId,
       p_query: null,
@@ -176,6 +189,18 @@ export async function GET() {
     );
   }
 
+  if (attentionListResult.error) {
+    console.error("[GET /api/dashboard] Could not load attention orders", {
+      tenantId,
+      error: attentionListResult.error,
+    });
+
+    return NextResponse.json(
+      { error: "Could not load dashboard" },
+      { status: 500 }
+    );
+  }
+
   if (teamResult.error || !teamResult.data) {
     console.error(
       "[GET /api/dashboard] list_team_members",
@@ -210,8 +235,12 @@ export async function GET() {
     });
 
   const upcomingOrders = (upcomingListResult.data ?? [])
-    .map((row) => asUpcomingOrder(row))
+    .map((row) => asPreviewOrder(row))
     .filter((row): row is DashboardUpcomingOrder => row !== null);
+
+  const attentionOrders = (attentionListResult.data ?? [])
+    .map((row) => asPreviewOrder(row))
+    .filter((row): row is DashboardAttentionOrder => row !== null);
 
   return NextResponse.json({
     tenant: context.tenant.slug,
@@ -232,6 +261,7 @@ export async function GET() {
       blocked: false,
     },
     upcoming_orders: upcomingOrders,
+    attention_orders: attentionOrders,
     workload: {
       active_orders_count: Number(teamRecord.active_orders_count ?? 0) || 0,
       members,
