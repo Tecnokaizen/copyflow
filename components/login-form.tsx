@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { authHrefWithNext, getSafeNextPath } from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,15 +17,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+type LoginFormProps = React.ComponentPropsWithoutRef<"div"> & {
+  nextPath?: string;
+};
+
 export function LoginForm({
   className,
+  nextPath,
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const safeNext = getSafeNextPath(nextPath);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,10 +44,10 @@ export function LoginForm({
         email,
         password,
       });
-      
+
       if (error) throw error;
-     
-      router.push("/");
+
+      router.push(safeNext);
       router.refresh();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
@@ -98,7 +105,7 @@ export function LoginForm({
             <div className="mt-4 text-center text-sm">
               Don&apos;t have an account?{" "}
               <Link
-                href="/auth/sign-up"
+                href={authHrefWithNext("/auth/sign-up", safeNext)}
                 className="underline underline-offset-4"
               >
                 Sign up

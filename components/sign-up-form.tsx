@@ -2,6 +2,11 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import {
+  authHrefWithNext,
+  buildAuthConfirmUrl,
+  getSafeNextPath,
+} from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,16 +21,26 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+type SignUpFormProps = React.ComponentPropsWithoutRef<"div"> & {
+  nextPath?: string;
+};
+
 export function SignUpForm({
   className,
+  nextPath,
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: SignUpFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const hasCustomNext =
+    typeof nextPath === "string" &&
+    nextPath.trim() !== "" &&
+    getSafeNextPath(nextPath) !== "/";
+  const safeNext = hasCustomNext ? getSafeNextPath(nextPath) : "/onboarding";
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,16 +59,19 @@ export function SignUpForm({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/onboarding`,
+          emailRedirectTo: buildAuthConfirmUrl(
+            window.location.origin,
+            safeNext
+          ),
         },
       });
       if (error) throw error;
       if (data.session) {
-        router.push("/onboarding");
+        router.push(safeNext);
         router.refresh();
         return;
       }
-      router.push("/auth/sign-up-success");
+      router.push(authHrefWithNext("/auth/sign-up-success", safeNext));
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -113,7 +131,10 @@ export function SignUpForm({
             </div>
             <div className="mt-4 text-center text-sm">
               Already have an account?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
+              <Link
+                href={authHrefWithNext("/auth/login", hasCustomNext ? safeNext : undefined)}
+                className="underline underline-offset-4"
+              >
                 Login
               </Link>
             </div>
