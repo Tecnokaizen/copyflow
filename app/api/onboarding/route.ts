@@ -50,26 +50,27 @@ function statusForOnboardingError(code: string | undefined) {
     case "23514":
       return 400;
     case "23505":
+    case "54000":
       return 409;
     default:
       return 500;
   }
 }
 
-function errorMessageForStatus(status: number) {
-  if (status === 401) {
-    return "Unauthorized";
+function errorMessageForOnboardingError(code: string | undefined) {
+  switch (code) {
+    case "28000":
+      return "Unauthorized";
+    case "22023":
+    case "23514":
+      return "Invalid value";
+    case "23505":
+      return "Slug already exists";
+    case "54000":
+      return "Organization limit reached";
+    default:
+      return "Could not create organization";
   }
-
-  if (status === 400) {
-    return "Invalid value";
-  }
-
-  if (status === 409) {
-    return "Slug already exists";
-  }
-
-  return "Could not create organization";
 }
 
 export async function POST(request: NextRequest) {
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { error: errorMessageForStatus(status) },
+      { error: errorMessageForOnboardingError(error?.code) },
       { status }
     );
   }
