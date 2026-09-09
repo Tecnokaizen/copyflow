@@ -5,12 +5,17 @@ import {
 } from "@/lib/auth/membership-roles";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import { invitationAcceptUrl } from "@/lib/tenant/app-origin";
+import { sendTenantInvitationEmail } from "@/lib/email/send-tenant-invitation";
 import { isUuid } from "@/lib/access/payload";
 import {
   publicMessageForAccessRpcError,
   statusForAccessRpcError,
 } from "@/lib/access/rpc-error";
-import { mapCreateInvitationResult } from "@/lib/access/types";
+import {
+  mapCreateInvitationResult,
+  toPublicCreatedInvitation,
+} from "@/lib/access/types";
 
 export async function POST(
   _request: NextRequest,
@@ -86,13 +91,45 @@ export async function POST(
     );
   }
 
-  // TODO(phase-2c-b / email transport):
-  // When email delivery exists, keep the plaintext token server-side only,
-  // send the invite link from the server, and stop returning `token` in this
-  // public API response.
-  return NextResponse.json({
-    invitation: mapped.invitation,
-    token: mapped.token,
-    tenant: mapped.tenant,
+  const invitationUrl = invitationAcceptUrl(mapped.token);
+  const publicBody = toPublicCreatedInvitation(mapped);
+
+  const sendResult = await sendTenantInvitationEmail({
+    email: mapped.invitation.email,
+    tenantName: mapped.tenant.name,
+    role: mapped.invitation.role,
+    invitationUrl,
+    expiresAt: mapped.invitation.expires_at ?? new Date().toISOString(),
   });
+
+  if (!sendResult.ok) {
+    console.error(
+      "[POST /api/team/invitations/:id/resend] email delivery failed",
+      {
+        invitationId: mapped.invitation.id,
+        tenantId: mapped.tenant.id,
+        email: mapped.invitation.email,
+        code: sendResult.code,
+        message: sendResult.message,
+      }
+    );
+
+    return NextResponse.json(
+      {
+        error: "Invitation email could not be sent",
+        code: "email_delivery_failed",
+        ...publicBody,
+      },
+      { status: 502 }
+    );
+  }
+
+  console.info("[POST /api/team/invitations/:id/resend] invitation emailed", {
+    invitationId: mapped.invitation.id,
+    tenantId: mapped.tenant.id,
+    email: mapped.invitation.email,
+    providerMessageId: sendResult.providerMessageId,
+  });
+
+  return NextResponse.json(publicBody);
 }

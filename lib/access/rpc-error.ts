@@ -5,6 +5,8 @@ type AccessErrorKind =
   | "conflict"
   | "gone"
   | "invalid"
+  | "rate_limited_cooldown"
+  | "rate_limited_max"
   | "generic";
 
 function normalizeMessage(message: string | undefined) {
@@ -27,6 +29,18 @@ export function classifyAccessRpcError(
 
   if (code === "P0002") {
     return "not_found";
+  }
+
+  if (code === "GTC01" || normalized.includes("resend too soon")) {
+    return "rate_limited_cooldown";
+  }
+
+  if (
+    code === "GTC02" ||
+    normalized.includes("resend limit reached") ||
+    normalized.includes("send attempts")
+  ) {
+    return "rate_limited_max";
   }
 
   if (code === "23505" || code === "54000") {
@@ -67,6 +81,9 @@ export function statusForAccessRpcError(
       return 410;
     case "invalid":
       return 400;
+    case "rate_limited_cooldown":
+    case "rate_limited_max":
+      return 429;
     default:
       return 500;
   }
@@ -90,6 +107,10 @@ export function publicMessageForAccessRpcError(
       return "Invitation no longer available";
     case "invalid":
       return "Invalid value";
+    case "rate_limited_cooldown":
+      return "Please wait before resending the invitation";
+    case "rate_limited_max":
+      return "Invitation resend limit reached";
     default:
       return fallback;
   }

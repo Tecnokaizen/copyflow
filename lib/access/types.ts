@@ -31,8 +31,8 @@ export type AccessListResponse = {
   invitations: AccessInvitation[];
 };
 
-export type CreatedInvitationResponse = {
-  // TODO(phase-2c): stop returning plaintext token to clients once email transport exists.
+/** Public HTTP body for create/resend — never includes plaintext token. */
+export type CreatedInvitationPublicResponse = {
   invitation: {
     id: string;
     email: string;
@@ -40,12 +40,16 @@ export type CreatedInvitationResponse = {
     expires_at: string | null;
     send_attempts: number;
   };
-  token: string;
   tenant: {
     id: string;
     name: string;
     slug: string;
   };
+};
+
+/** Server-only mapping of RPC create/resend payload (token stays in memory). */
+export type CreatedInvitationResult = CreatedInvitationPublicResponse & {
+  token: string;
 };
 
 export type AcceptInvitationResponse = {
@@ -156,7 +160,7 @@ export function mapAccessInvitation(row: unknown): AccessInvitation | null {
 
 export function mapCreateInvitationResult(
   data: unknown
-): CreatedInvitationResponse | null {
+): CreatedInvitationResult | null {
   const record = unwrapRpcPayload(data);
   const invitationId = asNullableString(record.invitation_id);
   const email = asNullableString(record.email);
@@ -192,6 +196,15 @@ export function mapCreateInvitationResult(
       name: tenantName,
       slug: tenantSlug,
     },
+  };
+}
+
+export function toPublicCreatedInvitation(
+  mapped: CreatedInvitationResult
+): CreatedInvitationPublicResponse {
+  return {
+    invitation: mapped.invitation,
+    tenant: mapped.tenant,
   };
 }
 
