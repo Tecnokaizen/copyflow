@@ -14,6 +14,10 @@ Reconstruye el dataset operativo de DEMO como una copistería generalista:
 - 200 pedidos (`150` Recogido + `8` Cancelado + `42` operativos)
 - ~60–67 eventos de `activity_log` con actores de equipo ficticios
 - payloads de activity **compatibles con los triggers reales** y con `lib/activity/format.ts`
+- Activity curada **alineada con el estado FINAL** de cada entidad (sin cadenas contradictorias)
+- clientes inactivos solo en histórico/cancelado; **0 operativos** con `client.active = false`
+- cronología coherente (`created_at`/`updated_at` y `activity_log.created_at` relativos a `now()`)
+- snapshot SUR4 pre/post (abort si cambia cualquier conteo clave)
 - catálogos de configuración (estados, canales, tipos, etc.)
 - fechas relativas a `now()` en TZ `Europe/Madrid`
 
@@ -58,7 +62,8 @@ Tras el seed se valida:
 - resuelve el tenant por `slug = 'demo'` (exactamente 1 fila)
 - aborta si `sur4` no existe o si `demo.id = sur4.id`
 - todas las escrituras van con `tenant_id = v_demo`
-- validaciones pre-`COMMIT`; cualquier fallo hace rollback
+- captura conteos SUR4 **antes** del reset DEMO y los revalida al final
+- validaciones pre-`COMMIT` (conteos, Activity↔estado final, cronología, SUR4 intacto); cualquier fallo hace rollback
 
 ### Actor técnico
 
@@ -111,9 +116,10 @@ Comprobar en tenant demo:
 
 - 200 pedidos, referencias distintas `DEMO-…`
 - 30 clientes / 7 equipo / 12 servicios / 5 categorías / 5 estados
-- 150 recogidos / 8 cancelados / 42 operativos
-- actividad reciente con actores de equipo
-- tenant `sur4` intacto
+- 150 recogidos / 8 cancelados / 42 operativos (16 Recibido / 14 Producción / 12 Listo)
+- actividad reciente con actores de equipo, coherente con el estado final
+- sin pedidos operativos ligados a clientes inactivos
+- tenant `sur4` intacto (mismos conteos que al inicio del script)
 
 ### Prohibido
 
