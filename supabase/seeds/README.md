@@ -12,7 +12,8 @@ Reconstruye el dataset operativo de DEMO como una copistería generalista:
 - 30 clientes
 - 7 `team_members` operativos (sin Auth)
 - 200 pedidos (`150` Recogido + `8` Cancelado + `42` operativos)
-- ~60 eventos de `activity_log` con actores de equipo ficticios
+- ~60–67 eventos de `activity_log` con actores de equipo ficticios
+- payloads de activity **compatibles con los triggers reales** y con `lib/activity/format.ts`
 - catálogos de configuración (estados, canales, tipos, etc.)
 - fechas relativas a `now()` en TZ `Europe/Madrid`
 
@@ -26,9 +27,21 @@ Dentro de una transacción, y **solo** con `tenant_id` del tenant demo:
 - `orders`
 - `clients`
 - `services` / `service_categories`
-- `team_members` con `user_id IS NULL`
+- `team_members` **solo si todos tienen** `user_id IS NULL`
 - catálogos configurables del tenant (estados, canales, contextos, etc.)
 - `order_number_counters` del tenant demo
+
+### Guard de `team_members`
+
+Antes de borrar/reconstruir el equipo operativo:
+
+- si existe **cualquier** `team_members.user_id IS NOT NULL` en DEMO → `RAISE EXCEPTION` y **rollback total**
+- no se borra, no se modifica, no se continúa en silencio
+
+Tras el seed se valida:
+
+- `count(*)` de `team_members` en demo = **7**
+- `count(*)` con `user_id IS NOT NULL` = **0**
 
 ### Qué preserva
 
@@ -59,6 +72,8 @@ El script:
 4. **no** crea/modifica Auth ni memberships
 
 La timeline comercial final usa `user_id = NULL` + `team_member_id` ficticio para que la UI muestre nombres como Laura Vega / Iván Delgado, no perfiles Owner reales.
+
+Los eventos curados replican el contrato de `tg_activity_log_*` (p. ej. `status_name`, `option_name`, `metadata.field`, `metadata.reference`) para que `formatActivityEvent()` renderice frases comerciales legibles.
 
 ### Referencias de pedido
 

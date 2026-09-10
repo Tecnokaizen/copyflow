@@ -220,6 +220,19 @@ BEGIN
   DELETE FROM public.services WHERE tenant_id = v_demo;
   DELETE FROM public.service_categories WHERE tenant_id = v_demo;
 
+  -- Guard: commercial DEMO expects only Auth-free workshop members.
+  -- If any team_member is linked to Auth, abort instead of touching it.
+  SELECT count(*) INTO n
+  FROM public.team_members
+  WHERE tenant_id = v_demo
+    AND user_id IS NOT NULL;
+
+  IF n > 0 THEN
+    RAISE EXCEPTION
+      'DEMO seed aborted: found % team_members with user_id IS NOT NULL in demo; refuse to delete/rebuild',
+      n;
+  END IF;
+
   DELETE FROM public.team_members
   WHERE tenant_id = v_demo
     AND user_id IS NULL;
@@ -682,87 +695,546 @@ BEGIN
   END LOOP;
 
   -- =========================================================================
-  -- 9) Replace activity with commercial timeline (fictitious team actors)
+  -- 9) Replace activity with commercial timeline (trigger-compatible shapes)
+  --    Triggers may have written temporary rows during inserts — wipe demo only.
+  --    Curated events use the SAME previous/new/metadata contracts as:
+  --    tg_activity_log_* + lib/activity/format.ts
+  --    Actor display: user_id NULL + team_member_id (fictitious names).
   -- =========================================================================
   DELETE FROM public.activity_log WHERE tenant_id = v_demo;
 
-  FOR a IN 1..60 LOOP
-    v_tm := pg_temp.demo_uuid(
-      c_seed || ':team:' || lpad((((a - 1) % 7) + 1)::text, 2, '0')
-    );
+  -- Helper locals reused below.
+  -- References follow insert order: order :NNN => DEMO-0NNN (4+ digits).
 
-    IF a <= 10 THEN
-      v_action := 'client.created';
-      v_entity_type := 'client';
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':client:' || lpad(a::text, 2, '0'));
-      v_event_at := now() - make_interval(days => 12, hours => -a);
-    ELSIF a <= 16 THEN
-      v_action := 'service.created';
-      v_entity_type := 'service';
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':svc:' || lpad((a - 10)::text, 2, '0'));
-      v_event_at := now() - make_interval(days => 11, hours => -(a - 10));
-    ELSIF a <= 20 THEN
-      v_action := 'team_member.created';
-      v_entity_type := 'team_member';
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':team:' || lpad((a - 16)::text, 2, '0'));
-      v_event_at := now() - make_interval(days => 10, hours => -(a - 16));
-    ELSIF a <= 35 THEN
-      v_action := 'order.created';
-      v_entity_type := 'order';
-      v_seq := 158 + (a - 20);
-      IF v_seq > 200 THEN
-        v_seq := 150 + (a % 40);
-      END IF;
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
-      v_event_at := now() - make_interval(days => greatest(1, 14 - (a - 20)), hours => (a % 5));
-    ELSIF a <= 45 THEN
-      v_action := 'order.status_changed';
-      v_entity_type := 'order';
-      v_seq := 159 + (a - 35);
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
-      v_event_at := now() - make_interval(days => greatest(1, 8 - (a - 35)), hours => 3);
-    ELSIF a <= 50 THEN
-      v_action := 'order.notification_changed';
-      v_entity_type := 'order';
-      v_seq := 189 + (a - 45);
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
-      v_event_at := now() - make_interval(days => greatest(0, 3 - (a - 45)), hours => 5);
-    ELSIF a <= 55 THEN
-      v_action := 'order.details_changed';
-      v_entity_type := 'order';
-      v_seq := 160 + (a - 50);
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
-      v_event_at := now() - make_interval(days => greatest(1, 6 - (a - 50)));
-    ELSE
-      v_action := CASE (a % 3)
-        WHEN 0 THEN 'order.management_changed'
-        WHEN 1 THEN 'order.content_changed'
-        ELSE 'order.client_changed'
-      END;
-      v_entity_type := 'order';
-      v_seq := 170 + (a - 55);
-      v_entity_id := pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
-      v_event_at := now() - make_interval(days => greatest(1, 4 - (a - 55)), hours => 2);
-    END IF;
-
+  -- --- client.created (8) ---
+  FOR a IN 1..8 LOOP
     INSERT INTO public.activity_log (
       id, tenant_id, user_id, team_member_id,
       action, entity_type, entity_id,
       previous_values, new_values, metadata, created_at
-    ) VALUES (
-      pg_temp.demo_uuid(c_seed || ':activity:' || lpad(a::text, 3, '0')),
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:client-created:' || lpad(a::text, 2, '0')),
       v_demo,
       NULL,
-      v_tm,
-      v_action,
-      v_entity_type,
-      v_entity_id,
+      pg_temp.demo_uuid(c_seed || ':team:' || lpad((((a - 1) % 7) + 1)::text, 2, '0')),
+      'client.created',
+      'client',
+      c.id,
       NULL,
-      jsonb_build_object('seed_event', a),
-      jsonb_build_object('seed', c_seed),
-      v_event_at
-    );
+      jsonb_build_object(
+        'name', c.name,
+        'customer_type_id', c.customer_type_id,
+        'customer_type_name', ct.name,
+        'contact_name', c.contact_name,
+        'company_name', c.company_name,
+        'tax_id', c.tax_id,
+        'email', c.email,
+        'phone', c.phone,
+        'notes', c.notes
+      ),
+      jsonb_build_object(
+        'client_name', c.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 12, hours => -a)
+    FROM public.clients c
+    LEFT JOIN public.customer_types ct
+      ON ct.id = c.customer_type_id AND ct.tenant_id = c.tenant_id
+    WHERE c.tenant_id = v_demo
+      AND c.id = pg_temp.demo_uuid(c_seed || ':client:' || lpad(a::text, 2, '0'));
   END LOOP;
+
+  -- --- client.updated (3) ---
+  FOR a IN 1..3 LOOP
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:client-updated:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:02'),
+      'client.updated',
+      'client',
+      c.id,
+      jsonb_build_object(
+        'name', c.name,
+        'customer_type_id', c.customer_type_id,
+        'customer_type_name', ct.name,
+        'contact_name', c.contact_name,
+        'company_name', c.company_name,
+        'tax_id', c.tax_id,
+        'email', 'old.' || c.email,
+        'phone', c.phone,
+        'notes', c.notes
+      ),
+      jsonb_build_object(
+        'name', c.name,
+        'customer_type_id', c.customer_type_id,
+        'customer_type_name', ct.name,
+        'contact_name', c.contact_name,
+        'company_name', c.company_name,
+        'tax_id', c.tax_id,
+        'email', c.email,
+        'phone', c.phone,
+        'notes', c.notes
+      ),
+      jsonb_build_object(
+        'client_name', c.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 5, hours => -a)
+    FROM public.clients c
+    LEFT JOIN public.customer_types ct
+      ON ct.id = c.customer_type_id AND ct.tenant_id = c.tenant_id
+    WHERE c.tenant_id = v_demo
+      AND c.id = pg_temp.demo_uuid(c_seed || ':client:' || lpad((10 + a)::text, 2, '0'));
+  END LOOP;
+
+  -- --- service.created (6) ---
+  FOR a IN 1..6 LOOP
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:service-created:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:01'),
+      'service.created',
+      'service',
+      s.id,
+      NULL,
+      jsonb_build_object(
+        'name', s.name,
+        'category_id', s.category_id,
+        'category_name', sc.name,
+        'description', s.description,
+        'standard_lead_time_minutes', s.standard_lead_time_minutes,
+        'requires_file', s.requires_file,
+        'requires_design', s.requires_design,
+        'requires_quote', s.requires_quote,
+        'active', s.active,
+        'sort_order', s.sort_order
+      ),
+      jsonb_build_object(
+        'service_name', s.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 11, hours => -a)
+    FROM public.services s
+    LEFT JOIN public.service_categories sc
+      ON sc.id = s.category_id AND sc.tenant_id = s.tenant_id
+    WHERE s.tenant_id = v_demo
+      AND s.id = pg_temp.demo_uuid(c_seed || ':svc:' || lpad(a::text, 2, '0'));
+  END LOOP;
+
+  -- --- service.updated (2) ---
+  FOR a IN 1..2 LOOP
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:service-updated:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:01'),
+      'service.updated',
+      'service',
+      s.id,
+      jsonb_build_object(
+        'name', s.name,
+        'category_id', s.category_id,
+        'category_name', sc.name,
+        'description', 'Descripción anterior',
+        'standard_lead_time_minutes', s.standard_lead_time_minutes,
+        'requires_file', s.requires_file,
+        'requires_design', s.requires_design,
+        'requires_quote', s.requires_quote,
+        'active', s.active,
+        'sort_order', s.sort_order
+      ),
+      jsonb_build_object(
+        'name', s.name,
+        'category_id', s.category_id,
+        'category_name', sc.name,
+        'description', s.description,
+        'standard_lead_time_minutes', s.standard_lead_time_minutes,
+        'requires_file', s.requires_file,
+        'requires_design', s.requires_design,
+        'requires_quote', s.requires_quote,
+        'active', s.active,
+        'sort_order', s.sort_order
+      ),
+      jsonb_build_object(
+        'service_name', s.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 4, hours => -a)
+    FROM public.services s
+    LEFT JOIN public.service_categories sc
+      ON sc.id = s.category_id AND sc.tenant_id = s.tenant_id
+    WHERE s.tenant_id = v_demo
+      AND s.id = pg_temp.demo_uuid(c_seed || ':svc:' || lpad((6 + a)::text, 2, '0'));
+  END LOOP;
+
+  -- --- team_member.created (7) ---
+  FOR a IN 1..7 LOOP
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:team-created:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:01'),
+      'team_member.created',
+      'team_member',
+      tm.id,
+      NULL,
+      jsonb_build_object(
+        'name', tm.name,
+        'job_title', tm.job_title,
+        'department', tm.department,
+        'active', tm.active,
+        'can_receive_orders', tm.can_receive_orders
+      ),
+      jsonb_build_object(
+        'team_member_name', tm.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 10, hours => -a)
+    FROM public.team_members tm
+    WHERE tm.tenant_id = v_demo
+      AND tm.id = pg_temp.demo_uuid(c_seed || ':team:' || lpad(a::text, 2, '0'));
+  END LOOP;
+
+  -- --- team_member.updated (2) ---
+  FOR a IN 1..2 LOOP
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:team-updated:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:01'),
+      'team_member.updated',
+      'team_member',
+      tm.id,
+      jsonb_build_object(
+        'name', tm.name,
+        'job_title', tm.job_title,
+        'department', tm.department,
+        'active', tm.active,
+        'can_receive_orders', false
+      ),
+      jsonb_build_object(
+        'name', tm.name,
+        'job_title', tm.job_title,
+        'department', tm.department,
+        'active', tm.active,
+        'can_receive_orders', tm.can_receive_orders
+      ),
+      jsonb_build_object(
+        'team_member_name', tm.name,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 3, hours => -a)
+    FROM public.team_members tm
+    WHERE tm.tenant_id = v_demo
+      AND tm.id = pg_temp.demo_uuid(c_seed || ':team:' || lpad((3 + a)::text, 2, '0'));
+  END LOOP;
+
+  -- --- order.created (10) operative ---
+  FOR a IN 1..10 LOOP
+    v_seq := 164 + a; -- 165..174
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-created:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:' || lpad((((a - 1) % 7) + 1)::text, 2, '0')),
+      'order.created',
+      'order',
+      o.id,
+      NULL,
+      jsonb_build_object(
+        'title', o.title,
+        'status_id', o.status_id,
+        'priority', o.priority,
+        'client_id', o.client_id,
+        'service_id', o.service_id,
+        'assigned_team_member_id', o.assigned_team_member_id,
+        'entry_channel_id', o.entry_channel_id,
+        'order_context_id', o.order_context_id,
+        'due_at', o.due_at
+      ),
+      jsonb_build_object(
+        'reference', o.reference,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => greatest(1, 9 - a), hours => (a % 4))
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.status_changed (8) ---
+  -- Conceptual journeys using real status catalog rows.
+  FOR a IN 1..8 LOOP
+    v_seq := 170 + a; -- 171..178
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-status:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:' || lpad((((a + 2) % 7) + 1)::text, 2, '0')),
+      'order.status_changed',
+      'order',
+      o.id,
+      CASE
+        WHEN a <= 4 THEN jsonb_build_object(
+          'status_id', v_status_received,
+          'status_code', 'received',
+          'status_name', 'Recibido'
+        )
+        ELSE jsonb_build_object(
+          'status_id', v_status_production,
+          'status_code', 'production',
+          'status_name', 'Producción'
+        )
+      END,
+      CASE
+        WHEN a <= 4 THEN jsonb_build_object(
+          'status_id', v_status_production,
+          'status_code', 'production',
+          'status_name', 'Producción'
+        )
+        ELSE jsonb_build_object(
+          'status_id', v_status_ready,
+          'status_code', 'ready',
+          'status_name', 'Listo'
+        )
+      END,
+      jsonb_build_object(
+        'reference', o.reference,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => greatest(1, 7 - a), hours => 2)
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.details_changed (6): priority / assignee ---
+  FOR a IN 1..6 LOOP
+    v_seq := 180 + a; -- 181..186
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-details:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:07'),
+      'order.details_changed',
+      'order',
+      o.id,
+      CASE
+        WHEN a <= 3 THEN jsonb_build_object('value', 'normal')
+        ELSE jsonb_build_object(
+          'value_id', pg_temp.demo_uuid(c_seed || ':team:02'),
+          'value_name', 'Hugo Martín'
+        )
+      END,
+      CASE
+        WHEN a <= 3 THEN jsonb_build_object('value', 'urgent')
+        ELSE jsonb_build_object(
+          'value_id', pg_temp.demo_uuid(c_seed || ':team:04'),
+          'value_name', 'Iván Delgado'
+        )
+      END,
+      CASE
+        WHEN a <= 3 THEN jsonb_build_object(
+          'reference', o.reference,
+          'field', 'priority',
+          'seed', c_seed
+        )
+        ELSE jsonb_build_object(
+          'reference', o.reference,
+          'field', 'assigned_team_member_id',
+          'seed', c_seed
+        )
+      END,
+      now() - make_interval(days => greatest(1, 6 - a), hours => 1)
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.management_changed (4): file_status_id ---
+  FOR a IN 1..4 LOOP
+    v_seq := 186 + a; -- 187..190
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-mgmt:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:06'),
+      'order.management_changed',
+      'order',
+      o.id,
+      jsonb_build_object(
+        'option_id', v_file_pending,
+        'option_code', 'pending',
+        'option_name', 'Pendiente'
+      ),
+      jsonb_build_object(
+        'option_id', v_file_received,
+        'option_code', 'received',
+        'option_name', 'Recibido'
+      ),
+      jsonb_build_object(
+        'reference', o.reference,
+        'field', 'file_status_id',
+        'seed', c_seed
+      ),
+      now() - make_interval(days => greatest(1, 5 - a), hours => 4)
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.notification_changed (5) ---
+  FOR a IN 1..5 LOOP
+    v_seq := 190 + a; -- 191..195
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-notif:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:02'),
+      'order.notification_changed',
+      'order',
+      o.id,
+      jsonb_build_object(
+        'customer_notification_status', 'not_notified',
+        'customer_notified_at', NULL,
+        'customer_notified_by', NULL
+      ),
+      jsonb_build_object(
+        'customer_notification_status',
+          CASE WHEN a <= 3 THEN 'notified' ELSE 'notified_no_pickup' END,
+        'customer_notified_at', o.customer_notified_at,
+        'customer_notified_by', NULL
+      ),
+      jsonb_build_object(
+        'reference', o.reference,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => greatest(0, 3 - a), hours => 5)
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.content_changed (3) ---
+  FOR a IN 1..3 LOOP
+    v_seq := 160 + a; -- 161..163
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-content:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:03'),
+      'order.content_changed',
+      'order',
+      o.id,
+      jsonb_build_object('value', 'Título provisional'),
+      jsonb_build_object('value', o.title),
+      jsonb_build_object(
+        'reference', o.reference,
+        'field', 'title',
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 2, hours => -a)
+    FROM public.orders o
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- --- order.client_changed (3) ---
+  FOR a IN 1..3 LOOP
+    v_seq := 196 + a; -- 197..199
+    INSERT INTO public.activity_log (
+      id, tenant_id, user_id, team_member_id,
+      action, entity_type, entity_id,
+      previous_values, new_values, metadata, created_at
+    )
+    SELECT
+      pg_temp.demo_uuid(c_seed || ':activity:order-client:' || lpad(a::text, 2, '0')),
+      v_demo,
+      NULL,
+      pg_temp.demo_uuid(c_seed || ':team:03'),
+      'order.client_changed',
+      'order',
+      o.id,
+      jsonb_build_object(
+        'client_id', pg_temp.demo_uuid(c_seed || ':client:01'),
+        'client_name', 'Lucía Navarro'
+      ),
+      jsonb_build_object(
+        'client_id', o.client_id,
+        'client_name', c.name
+      ),
+      jsonb_build_object(
+        'reference', o.reference,
+        'seed', c_seed
+      ),
+      now() - make_interval(days => 1, hours => -a)
+    FROM public.orders o
+    JOIN public.clients c
+      ON c.id = o.client_id AND c.tenant_id = o.tenant_id
+    WHERE o.tenant_id = v_demo
+      AND o.id = pg_temp.demo_uuid(c_seed || ':order:' || lpad(v_seq::text, 3, '0'));
+  END LOOP;
+
+  -- Total curated events:
+  -- 8+3+6+2+7+2+10+8+6+4+5+3+3 = 67
 
   -- =========================================================================
   -- 10) Pre-commit validations
@@ -779,8 +1251,15 @@ BEGIN
   SELECT count(*) INTO n FROM public.clients WHERE tenant_id = v_demo;
   IF n <> 30 THEN RAISE EXCEPTION 'VALIDATION: expected 30 clients, got %', n; END IF;
 
-  SELECT count(*) INTO n FROM public.team_members WHERE tenant_id = v_demo AND user_id IS NULL;
+  SELECT count(*) INTO n FROM public.team_members WHERE tenant_id = v_demo;
   IF n <> 7 THEN RAISE EXCEPTION 'VALIDATION: expected 7 team_members, got %', n; END IF;
+
+  SELECT count(*) INTO n
+  FROM public.team_members
+  WHERE tenant_id = v_demo AND user_id IS NOT NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: expected 0 Auth-linked team_members in demo, got %', n;
+  END IF;
 
   SELECT count(*) INTO n FROM public.services WHERE tenant_id = v_demo;
   IF n <> 12 THEN RAISE EXCEPTION 'VALIDATION: expected 12 services, got %', n; END IF;
@@ -882,6 +1361,133 @@ BEGIN
     RAISE EXCEPTION 'VALIDATION: activity commercial count expected 50-70, got %', n_activity;
   END IF;
 
+  -- Activity structure contracts (UI / trigger shapes)
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.entity_type = 'order'
+    AND nullif(al.metadata->>'reference', '') IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % order activity rows missing metadata.reference', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.action IN (
+      'order.details_changed',
+      'order.content_changed',
+      'order.management_changed'
+    )
+    AND nullif(al.metadata->>'field', '') IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % details/content/management rows missing metadata.field', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.action = 'order.status_changed'
+    AND (
+      nullif(al.previous_values->>'status_name', '') IS NULL
+      OR nullif(al.new_values->>'status_name', '') IS NULL
+    );
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % status_changed rows missing status_name', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.action = 'order.notification_changed'
+    AND (
+      nullif(al.previous_values->>'customer_notification_status', '') IS NULL
+      OR nullif(al.new_values->>'customer_notification_status', '') IS NULL
+    );
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % notification_changed rows missing status', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.action = 'order.management_changed'
+    AND (
+      nullif(al.previous_values->>'option_name', '') IS NULL
+      OR nullif(al.new_values->>'option_name', '') IS NULL
+    );
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % management_changed rows missing option_name', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.entity_type = 'client'
+    AND nullif(al.metadata->>'client_name', '') IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % client activity rows missing client_name', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.entity_type = 'service'
+    AND nullif(al.metadata->>'service_name', '') IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % service activity rows missing service_name', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND al.entity_type = 'team_member'
+    AND nullif(al.metadata->>'team_member_name', '') IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % team_member activity rows missing team_member_name', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  LEFT JOIN public.team_members tm
+    ON tm.id = al.team_member_id AND tm.tenant_id = al.tenant_id
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND (al.team_member_id IS NULL OR tm.id IS NULL);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % activity rows with invalid team_member_id', n;
+  END IF;
+
+  SELECT count(*) INTO n
+  FROM public.activity_log al
+  WHERE al.tenant_id = v_demo
+    AND al.metadata->>'seed' = c_seed
+    AND (
+      (al.entity_type = 'order' AND NOT EXISTS (
+        SELECT 1 FROM public.orders o WHERE o.id = al.entity_id AND o.tenant_id = v_demo
+      ))
+      OR (al.entity_type = 'client' AND NOT EXISTS (
+        SELECT 1 FROM public.clients c WHERE c.id = al.entity_id AND c.tenant_id = v_demo
+      ))
+      OR (al.entity_type = 'service' AND NOT EXISTS (
+        SELECT 1 FROM public.services s WHERE s.id = al.entity_id AND s.tenant_id = v_demo
+      ))
+      OR (al.entity_type = 'team_member' AND NOT EXISTS (
+        SELECT 1 FROM public.team_members tm WHERE tm.id = al.entity_id AND tm.tenant_id = v_demo
+      ))
+    );
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: % activity rows with entity_id not in demo tenant', n;
+  END IF;
+
   SELECT count(*) INTO n_foreign
   FROM public.orders o
   LEFT JOIN public.clients c ON c.id = o.client_id AND c.tenant_id = o.tenant_id
@@ -899,7 +1505,7 @@ BEGIN
     RAISE EXCEPTION 'VALIDATION: broken/cross-tenant FKs in demo orders=%', n_foreign;
   END IF;
 
-  RAISE NOTICE 'DEMO commercial seed OK: 200 orders / 30 clients / 7 team / 60 activity';
+  RAISE NOTICE 'DEMO commercial seed OK: 200 orders / 30 clients / 7 team / ~67 activity';
 END;
 $seed$;
 
