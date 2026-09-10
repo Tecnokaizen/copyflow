@@ -47,7 +47,7 @@ export function AppNav() {
 
   return (
     <nav className="mb-6 flex flex-wrap items-center gap-1 border-b border-border pb-4 text-sm">
-      {NAV_ITEMS.filter((item) => !ready || item.visible(role)).map((item) => (
+      {NAV_ITEMS.filter((item) => item.visible(ready ? role : null)).map((item) => (
         <Link
           key={item.href}
           href={item.href}
