@@ -133,8 +133,14 @@ export default function ClientsPage() {
 
   const total = data?.total ?? 0;
   const clients = data?.clients ?? [];
-  const hasListFilters =
-    Boolean(search) || Boolean(customerTypeId) || active !== "true";
+  const emptyClientsTitle =
+    search || customerTypeId
+      ? "No hay clientes con estos filtros"
+      : active === "true"
+        ? "No hay clientes activos"
+        : active === "false"
+          ? "No hay clientes inactivos"
+          : "No hay clientes todavía";
   const pageSize = data?.page_size ?? 25;
   const currentPage = data?.page ?? page;
   const from = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
@@ -279,13 +285,9 @@ export default function ClientsPage() {
         ) : clients.length === 0 ? (
           <div className="overflow-hidden rounded-lg border bg-card">
             <EmptyState
-              title={
-                hasListFilters
-                  ? "No hay clientes con estos filtros"
-                  : "No hay clientes todavía"
-              }
+              title={emptyClientsTitle}
               description={
-                hasListFilters
+                search || customerTypeId
                   ? "Prueba a cambiar la búsqueda o los filtros."
                   : undefined
               }

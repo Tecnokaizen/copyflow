@@ -614,141 +614,147 @@ function OrdersPageContent() {
                 title="No se pudieron cargar los pedidos"
                 onRetry={() => setListReloadToken((token) => token + 1)}
               />
-            ) : !loading && activeOrders.length === 0 ? (
-              <div
-                ref={listRef}
-                className="overflow-hidden rounded-lg border bg-card"
-              >
-                <EmptyState
-                  title={
-                    hasDashboardListFilter
-                      ? "No hay pedidos con estos filtros"
-                      : "No hay pedidos activos"
-                  }
-                  description={
-                    hasDashboardListFilter
-                      ? "Prueba a cambiar el filtro del dashboard."
-                      : undefined
-                  }
-                />
-              </div>
             ) : (
               <>
-                <div
-                  ref={listRef}
-                  className="overflow-hidden rounded-lg border bg-card"
-                >
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="border-b bg-muted/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Pedido
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Cliente
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Canal
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Responsable
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Estado
-                          </th>
-                          <th className="px-4 py-3 text-left font-medium">
-                            Entrega
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {loading ? (
+                {!loading && activeOrders.length === 0 ? (
+                  <div
+                    ref={listRef}
+                    className="overflow-hidden rounded-lg border bg-card"
+                  >
+                    <EmptyState
+                      title={
+                        hasDashboardListFilter
+                          ? "No hay pedidos con estos filtros"
+                          : (data?.total ?? 0) === 0
+                            ? "No hay pedidos todavía"
+                            : "No hay pedidos activos en esta página"
+                      }
+                      description={
+                        hasDashboardListFilter
+                          ? "Prueba a cambiar el filtro del dashboard."
+                          : undefined
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div
+                    ref={listRef}
+                    className="overflow-hidden rounded-lg border bg-card"
+                  >
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b bg-muted/50">
                           <tr>
-                            <td
-                              className="px-4 py-4 text-muted-foreground"
-                              colSpan={6}
-                            >
-                              Cargando pedidos...
-                            </td>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Pedido
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Cliente
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Canal
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Responsable
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Estado
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Entrega
+                            </th>
                           </tr>
-                        ) : (
-                          activeOrders.map((order) => (
-                            <tr
-                              key={order.id}
-                              className="border-b last:border-b-0 hover:bg-muted/30"
-                            >
-                              <td className="px-4 py-4">
-                                <Link
-                                  href={`/orders/${order.id}`}
-                                  className="font-medium hover:underline"
-                                >
-                                  {order.title}
-                                </Link>
+                        </thead>
 
-                                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span>{order.reference}</span>
-
-                                  <span
-                                    className={
-                                      order.priority === "urgent"
-                                        ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
-                                        : order.priority === "high"
-                                          ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
-                                          : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
-                                    }
-                                  >
-                                    {order.priority === "urgent"
-                                      ? "Urgente"
-                                      : order.priority === "high"
-                                        ? "Alta"
-                                        : "Normal"}
-                                  </span>
-                                </div>
-                              </td>
-
-                              <td className="px-4 py-4">
-                                {order.client?.name ?? "Sin cliente"}
-                              </td>
-
-                              <td className="px-4 py-4">
-                                {order.entry_channel?.name ?? "—"}
-                              </td>
-
-                              <td className="px-4 py-4">
-                                {order.assigned_team_member?.name ??
-                                  "Sin asignar"}
-                              </td>
-
-                              <td className="px-4 py-4">
-                                <span className={statusClassName(order.status)}>
-                                  {order.status?.name ?? "—"}
-                                </span>
-                              </td>
-
-                              <td className="px-4 py-4">
-                                <div
-                                  className={
-                                    now &&
-                                    order.due_at &&
-                                    new Date(order.due_at) < now &&
-                                    order.status?.is_closed !== true &&
-                                    order.status?.is_cancelled !== true
-                                      ? "font-medium text-red-600"
-                                      : ""
-                                  }
-                                >
-                                  {formatDate(order.due_at)}
-                                </div>
+                        <tbody>
+                          {loading ? (
+                            <tr>
+                              <td
+                                className="px-4 py-4 text-muted-foreground"
+                                colSpan={6}
+                              >
+                                Cargando pedidos...
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : (
+                            activeOrders.map((order) => (
+                              <tr
+                                key={order.id}
+                                className="border-b last:border-b-0 hover:bg-muted/30"
+                              >
+                                <td className="px-4 py-4">
+                                  <Link
+                                    href={`/orders/${order.id}`}
+                                    className="font-medium hover:underline"
+                                  >
+                                    {order.title}
+                                  </Link>
+
+                                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                    <span>{order.reference}</span>
+
+                                    <span
+                                      className={
+                                        order.priority === "urgent"
+                                          ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+                                          : order.priority === "high"
+                                            ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
+                                            : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                                      }
+                                    >
+                                      {order.priority === "urgent"
+                                        ? "Urgente"
+                                        : order.priority === "high"
+                                          ? "Alta"
+                                          : "Normal"}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  {order.client?.name ?? "Sin cliente"}
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  {order.entry_channel?.name ?? "—"}
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  {order.assigned_team_member?.name ??
+                                    "Sin asignar"}
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  <span
+                                    className={statusClassName(order.status)}
+                                  >
+                                    {order.status?.name ?? "—"}
+                                  </span>
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  <div
+                                    className={
+                                      now &&
+                                      order.due_at &&
+                                      new Date(order.due_at) < now &&
+                                      order.status?.is_closed !== true &&
+                                      order.status?.is_cancelled !== true
+                                        ? "font-medium text-red-600"
+                                        : ""
+                                    }
+                                  >
+                                    {formatDate(order.due_at)}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {error ? (
                   <ErrorState

@@ -146,7 +146,13 @@ export default function TeamPage() {
   }
 
   const members = data?.members ?? [];
-  const hasListFilters = Boolean(search) || active !== "true";
+  const emptyMembersTitle = search
+    ? "No hay miembros con estos filtros"
+    : active === "true"
+      ? "No hay miembros activos"
+      : active === "false"
+        ? "No hay miembros inactivos"
+        : "No hay miembros todavía";
 
   return (
     <>
@@ -195,13 +201,9 @@ export default function TeamPage() {
         ) : members.length === 0 ? (
           <div className="overflow-hidden rounded-lg border bg-card">
             <EmptyState
-              title={
-                hasListFilters
-                  ? "No hay miembros con estos filtros"
-                  : "No hay miembros todavía"
-              }
+              title={emptyMembersTitle}
               description={
-                hasListFilters
+                search
                   ? "Prueba a cambiar la búsqueda o los filtros."
                   : undefined
               }

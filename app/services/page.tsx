@@ -197,8 +197,14 @@ export default function ServicesPage() {
 
   const total = data?.total ?? 0;
   const services = data?.services ?? [];
-  const hasListFilters =
-    Boolean(search) || Boolean(categoryId) || active !== "true";
+  const emptyServicesTitle =
+    search || categoryId
+      ? "No hay servicios con estos filtros"
+      : active === "true"
+        ? "No hay servicios activos"
+        : active === "false"
+          ? "No hay servicios inactivos"
+          : "No hay servicios todavía";
 
   return (
     <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
@@ -275,13 +281,9 @@ export default function ServicesPage() {
         ) : services.length === 0 ? (
           <div className="overflow-hidden rounded-lg border bg-card">
             <EmptyState
-              title={
-                hasListFilters
-                  ? "No hay servicios con estos filtros"
-                  : "No hay servicios todavía"
-              }
+              title={emptyServicesTitle}
               description={
-                hasListFilters
+                search || categoryId
                   ? "Prueba a cambiar la búsqueda o los filtros."
                   : undefined
               }
