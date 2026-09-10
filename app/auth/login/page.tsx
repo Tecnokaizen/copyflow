@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { LoginForm } from "@/components/login-form";
 import { getSafeNextPath } from "@/lib/auth/safe-next-path";
+import { isTenantHostRequest } from "@/lib/tenant/request-host";
 
 async function LoginContent({
   searchParams,
@@ -9,7 +10,8 @@ async function LoginContent({
 }) {
   const params = await searchParams;
   const nextPath = getSafeNextPath(params.next);
-  return <LoginForm nextPath={nextPath} />;
+  const isTenantHost = await isTenantHostRequest();
+  return <LoginForm nextPath={nextPath} isTenantHost={isTenantHost} />;
 }
 
 export default function Page({

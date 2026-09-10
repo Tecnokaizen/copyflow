@@ -6,6 +6,7 @@ import {
   authHrefWithNext,
   buildAuthConfirmUrl,
   getSafeNextPath,
+  isInvitationAcceptNext,
 } from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,16 +19,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type SignUpFormProps = React.ComponentPropsWithoutRef<"div"> & {
   nextPath?: string;
+  /** Apex host may create a new organization via /onboarding. */
+  allowOwnerSignup?: boolean;
 };
 
 export function SignUpForm({
   className,
   nextPath,
+  allowOwnerSignup = false,
   ...props
 }: SignUpFormProps) {
   const [email, setEmail] = useState("");
@@ -35,12 +38,15 @@ export function SignUpForm({
   const [repeatPassword, setRepeatPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-  const hasCustomNext =
-    typeof nextPath === "string" &&
-    nextPath.trim() !== "" &&
-    getSafeNextPath(nextPath) !== "/";
-  const safeNext = hasCustomNext ? getSafeNextPath(nextPath) : "/onboarding";
+
+  const invitationNext = isInvitationAcceptNext(nextPath)
+    ? getSafeNextPath(nextPath)
+    : null;
+  const safeNext = invitationNext
+    ? invitationNext
+    : allowOwnerSignup
+      ? "/onboarding"
+      : "/";
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,14 +73,12 @@ export function SignUpForm({
       });
       if (error) throw error;
       if (data.session) {
-        router.push(safeNext);
-        router.refresh();
+        window.location.assign(safeNext);
         return;
       }
-      router.push(authHrefWithNext("/auth/sign-up-success", safeNext));
+      window.location.assign(authHrefWithNext("/auth/sign-up-success", safeNext));
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -83,8 +87,14 @@ export function SignUpForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Sign up</CardTitle>
-          <CardDescription>Create a new account</CardDescription>
+          <CardTitle className="text-2xl">
+            {invitationNext ? "Crear cuenta" : "Sign up"}
+          </CardTitle>
+          <CardDescription>
+            {invitationNext
+              ? "Usa el mismo correo de la invitación para continuar."
+              : "Create a new account"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp}>
@@ -132,7 +142,10 @@ export function SignUpForm({
             <div className="mt-4 text-center text-sm">
               Already have an account?{" "}
               <Link
-                href={authHrefWithNext("/auth/login", hasCustomNext ? safeNext : undefined)}
+                href={authHrefWithNext(
+                  "/auth/login",
+                  invitationNext ?? undefined
+                )}
                 className="underline underline-offset-4"
               >
                 Login

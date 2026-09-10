@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { authHrefWithNext } from "@/lib/auth/safe-next-path";
 import {
@@ -49,7 +49,6 @@ function publicAcceptError(status: number | undefined, fallback?: string) {
 }
 
 export function AcceptInvitationClient() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const token = (searchParams.get("token") ?? "").trim();
   const attempted = useRef(false);
@@ -135,13 +134,17 @@ export function AcceptInvitationClient() {
     }
 
     void run();
-  }, [token, router]);
+  }, [token]);
 
   if (state.kind === "loading" || state.kind === "accepting") {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Aceptando invitación</CardTitle>
+          <CardTitle className="text-2xl">
+            {state.kind === "accepting"
+              ? "Aceptando invitación"
+              : "Comprobando invitación"}
+          </CardTitle>
           <CardDescription>Un momento…</CardDescription>
         </CardHeader>
       </Card>
@@ -152,20 +155,21 @@ export function AcceptInvitationClient() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Aceptar invitación</CardTitle>
+          <CardTitle className="text-2xl">Has recibido una invitación</CardTitle>
           <CardDescription>
-            Inicia sesión o crea una cuenta con el email invitado.
+            Para acceder a esta organización necesitas una cuenta de Gestcopy
+            con el mismo correo que recibió la invitación.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Button asChild className="w-full">
-            <Link href={authHrefWithNext("/auth/login", state.returnTo)}>
-              Iniciar sesión
+            <Link href={authHrefWithNext("/auth/sign-up", state.returnTo)}>
+              Crear cuenta y continuar
             </Link>
           </Button>
           <Button asChild variant="outline" className="w-full">
-            <Link href={authHrefWithNext("/auth/sign-up", state.returnTo)}>
-              Crear cuenta
+            <Link href={authHrefWithNext("/auth/login", state.returnTo)}>
+              Ya tengo una cuenta
             </Link>
           </Button>
         </CardContent>

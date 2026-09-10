@@ -3,10 +3,15 @@ import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
 import { OnboardingForm } from "@/components/onboarding/onboarding-form";
 import { createClient } from "@/lib/supabase/server";
+import { isTenantHostRequest } from "@/lib/tenant/request-host";
 
 export const instant = false;
 
 export default async function OnboardingPage() {
+  if (await isTenantHostRequest()) {
+    redirect("/");
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

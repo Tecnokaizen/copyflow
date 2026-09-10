@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
 
 const DEFAULT_TIMEZONE = "Europe/Madrid";
 
@@ -73,7 +74,22 @@ function errorMessageForOnboardingError(code: string | undefined) {
   }
 }
 
+function isTenantHostFromRequest(request: NextRequest) {
+  const hostname =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    "";
+  return getSubdomainFromHostname(hostname) !== null;
+}
+
 export async function POST(request: NextRequest) {
+  if (isTenantHostFromRequest(request)) {
+    return NextResponse.json(
+      { error: "Onboarding is only available on the app host" },
+      { status: 403 }
+    );
+  }
+
   const supabase = await createClient();
 
   const {

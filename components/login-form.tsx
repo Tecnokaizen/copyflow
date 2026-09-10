@@ -2,7 +2,11 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { authHrefWithNext, getSafeNextPath } from "@/lib/auth/safe-next-path";
+import {
+  authHrefWithNext,
+  getSafeNextPath,
+  isInvitationAcceptNext,
+} from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,11 +22,14 @@ import { useState } from "react";
 
 type LoginFormProps = React.ComponentPropsWithoutRef<"div"> & {
   nextPath?: string;
+  /** Tenant hosts only offer account creation when continuing an invitation. */
+  isTenantHost?: boolean;
 };
 
 export function LoginForm({
   className,
   nextPath,
+  isTenantHost = false,
   ...props
 }: LoginFormProps) {
   const [email, setEmail] = useState("");
@@ -30,6 +37,8 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const safeNext = getSafeNextPath(nextPath);
+  const invitationNext = isInvitationAcceptNext(nextPath) ? safeNext : null;
+  const showSignUp = Boolean(invitationNext) || !isTenantHost;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,14 +109,25 @@ export function LoginForm({
                 {isLoading ? "Logging in..." : "Login"}
               </Button>
             </div>
-            <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
-              <Link
-                href={authHrefWithNext("/auth/sign-up", safeNext)}
-                className="underline underline-offset-4"
-              >
-                Sign up
-              </Link>
+            <div className="mt-4 text-center text-sm text-muted-foreground">
+              {showSignUp ? (
+                <>
+                  Don&apos;t have an account?{" "}
+                  <Link
+                    href={authHrefWithNext(
+                      "/auth/sign-up",
+                      invitationNext ?? undefined
+                    )}
+                    className="text-foreground underline underline-offset-4"
+                  >
+                    {invitationNext ? "Crear cuenta" : "Sign up"}
+                  </Link>
+                </>
+              ) : (
+                <>
+                  ¿No tienes acceso? Solicita una invitación al administrador.
+                </>
+              )}
             </div>
           </form>
         </CardContent>

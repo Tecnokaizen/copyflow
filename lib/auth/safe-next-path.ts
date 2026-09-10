@@ -87,3 +87,33 @@ export function buildAuthConfirmUrl(
   url.searchParams.set("next", destination);
   return url.toString();
 }
+
+const INVITATION_TOKEN_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * True when `next` is a safe invitation accept path with a hex token.
+ * Used to allow tenant-host signup only as continuation of an invitation.
+ */
+export function isInvitationAcceptNext(
+  next: string | null | undefined
+): boolean {
+  if (typeof next !== "string" || !next.trim()) {
+    return false;
+  }
+
+  const safe = getSafeNextPath(next, "");
+  if (!safe.startsWith("/invitations/accept")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(safe, "http://safe.local");
+    if (parsed.pathname !== "/invitations/accept") {
+      return false;
+    }
+    const token = (parsed.searchParams.get("token") ?? "").trim();
+    return INVITATION_TOKEN_RE.test(token);
+  } catch {
+    return false;
+  }
+}
