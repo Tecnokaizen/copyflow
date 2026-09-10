@@ -122,11 +122,18 @@ export async function PATCH(
   });
 
   if (error || !data) {
+    console.error("[PATCH /api/orders/:id/content] change_order_content failed", {
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      orderId: id,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not update order content",
-        detail: error?.message ?? null,
-      },
+      { error: "Could not update order content" },
       { status: statusForRpcError(error?.code) }
     );
   }

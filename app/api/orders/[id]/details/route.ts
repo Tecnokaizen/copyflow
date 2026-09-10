@@ -162,11 +162,18 @@ export async function PATCH(
   });
 
   if (error || !data) {
+    console.error("[PATCH /api/orders/:id/details] change_order_details failed", {
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      orderId: id,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not update order details",
-        detail: error?.message ?? null,
-      },
+      { error: "Could not update order details" },
       { status: statusForRpcError(error?.code) }
     );
   }

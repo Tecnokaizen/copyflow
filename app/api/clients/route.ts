@@ -49,11 +49,17 @@ export async function GET(request: NextRequest) {
   });
 
   if (error) {
+    console.error("[GET /api/clients] search_clients failed", {
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load clients",
-        detail: error.message,
-      },
+      { error: "Could not load clients" },
       { status: statusForClientRpcError(error.code) }
     );
   }

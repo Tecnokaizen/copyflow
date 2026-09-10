@@ -94,11 +94,21 @@ export async function POST(
       return duplicate;
     }
 
-    return NextResponse.json(
+    console.error(
+      "[POST /api/orders/:id/client] create_client_and_assign_order failed",
       {
-        error: "Could not create client",
-        detail: error?.message ?? null,
-      },
+        tenantId: context.tenant.id,
+        userId: context.user.id,
+        orderId: id,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+      }
+    );
+
+    return NextResponse.json(
+      { error: "Could not create client" },
       { status: statusForClientRpcError(error?.code) }
     );
   }
@@ -163,11 +173,21 @@ export async function PATCH(
   });
 
   if (error || !data) {
-    return NextResponse.json(
+    console.error(
+      "[PATCH /api/orders/:id/client] assign_order_client failed",
       {
-        error: "Could not assign client",
-        detail: error?.message ?? null,
-      },
+        tenantId: context.tenant.id,
+        userId: context.user.id,
+        orderId: id,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+      }
+    );
+
+    return NextResponse.json(
+      { error: "Could not assign client" },
       { status: statusForClientRpcError(error?.code) }
     );
   }

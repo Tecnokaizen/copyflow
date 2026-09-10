@@ -109,11 +109,21 @@ export async function PATCH(
   });
 
   if (error || !data) {
-    return NextResponse.json(
+    console.error(
+      "[PATCH /api/orders/:id/management] change_order_management failed",
       {
-        error: "Could not update order management",
-        detail: error?.message ?? null,
-      },
+        tenantId: context.tenant.id,
+        userId: context.user.id,
+        orderId: id,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+      }
+    );
+
+    return NextResponse.json(
+      { error: "Could not update order management" },
       { status: statusForRpcError(error?.code) }
     );
   }

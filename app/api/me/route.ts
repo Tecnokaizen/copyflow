@@ -32,11 +32,16 @@ export async function GET() {
     .eq("active", true);
 
   if (membershipsError) {
+    console.error("[GET /api/me] Could not load memberships", {
+      userId: user.id,
+      code: membershipsError.code,
+      message: membershipsError.message,
+      details: membershipsError.details,
+      hint: membershipsError.hint,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not load memberships",
-        detail: membershipsError.message,
-      },
+      { error: "Could not load memberships" },
       { status: 500 }
     );
   }

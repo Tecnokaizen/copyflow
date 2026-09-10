@@ -205,11 +205,18 @@ export async function PATCH(
       return duplicate;
     }
 
+    console.error("[PATCH /api/clients/:id] update_client failed", {
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      clientId: id,
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+    });
+
     return NextResponse.json(
-      {
-        error: "Could not update client",
-        detail: error?.message ?? null,
-      },
+      { error: "Could not update client" },
       { status: statusForClientRpcError(error?.code) }
     );
   }

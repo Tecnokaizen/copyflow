@@ -64,11 +64,21 @@ export async function PATCH(
   );
 
   if (error || !data) {
-    return NextResponse.json(
+    console.error(
+      "[PATCH /api/orders/:id/notification] change_order_notification_status failed",
       {
-        error: "Could not update customer notification status",
-        detail: error?.message ?? null,
-      },
+        tenantId: context.tenant.id,
+        userId: context.user.id,
+        orderId: id,
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+      }
+    );
+
+    return NextResponse.json(
+      { error: "Could not update customer notification status" },
       { status: statusForRpcError(error?.code) }
     );
   }
