@@ -157,3 +157,15 @@ export function canWriteOrders(role: string | null | undefined) {
 export function canWriteClients(role: string | null | undefined) {
   return hasMembershipRole(role, OPERATIVE_ROLES);
 }
+
+export function canWriteServices(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}
+
+export function canWriteTeam(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}
+
+export function canViewActivity(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}

@@ -1,7 +1,4 @@
-import {
-  MANAGEMENT_ROLES,
-  hasMembershipRole,
-} from "@/lib/auth/membership-roles";
+import { canWriteTeam } from "@/lib/auth/membership-roles";
 
 export type TeamMember = {
   id: string;
@@ -43,9 +40,7 @@ export type TeamMemberPayload = {
   can_receive_orders: boolean;
 };
 
-export function canWriteTeam(role: string | null | undefined) {
-  return hasMembershipRole(role, MANAGEMENT_ROLES);
-}
+export { canWriteTeam };
 
 function asNullableString(value: unknown): string | null {
   if (typeof value !== "string") {

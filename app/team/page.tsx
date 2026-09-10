@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamModal } from "@/components/team/team-modal";
+import { canWriteTeam } from "@/lib/auth/membership-roles";
 import {
-  canWriteTeam,
   formToTeamPayload,
   memberToForm,
   type TeamListResponse,

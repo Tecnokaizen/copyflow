@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { ServiceForm } from "@/components/services/service-form";
 import { ServiceModal } from "@/components/services/service-modal";
+import { canWriteServices } from "@/lib/auth/membership-roles";
 import {
   EMPTY_SERVICE_FORM,
-  canWriteServices,
   formToServicePayload,
   formatLeadTimeMinutes,
   serviceToForm,

@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AppNav } from "@/components/app-nav";
 import { ActivityEventCard } from "@/components/activity/activity-event-card";
 import { actionsForEntity } from "@/lib/activity/format";
+import { canViewActivity } from "@/lib/auth/membership-roles";
 import {
   ENTITY_TYPE_OPTIONS,
-  canViewActivity,
   type ActivityResponse,
 } from "@/lib/activity/types";
 

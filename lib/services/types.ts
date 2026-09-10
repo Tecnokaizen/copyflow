@@ -1,7 +1,4 @@
-import {
-  MANAGEMENT_ROLES,
-  hasMembershipRole,
-} from "@/lib/auth/membership-roles";
+import { canWriteServices } from "@/lib/auth/membership-roles";
 
 export type ServiceItem = {
   id: string;
@@ -106,9 +103,7 @@ function asNumber(value: unknown, fallback: number | null = null) {
   return fallback;
 }
 
-export function canWriteServices(role: string | null | undefined) {
-  return hasMembershipRole(role, MANAGEMENT_ROLES);
-}
+export { canWriteServices };
 
 export function unwrapRpcPayload(data: unknown): Record<string, unknown> {
   const payload = Array.isArray(data) ? data[0] : data;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
-import { canViewActivity } from "@/lib/activity/types";
+import { canViewActivity } from "@/lib/auth/membership-roles";
 import { cn } from "@/lib/utils";
 
 type NavItem = {

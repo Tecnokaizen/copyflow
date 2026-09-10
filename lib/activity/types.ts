@@ -1,7 +1,4 @@
-import {
-  MANAGEMENT_ROLES,
-  hasMembershipRole,
-} from "@/lib/auth/membership-roles";
+import { canViewActivity } from "@/lib/auth/membership-roles";
 
 export const ACTIVITY_ENTITY_TYPES = [
   "order",
@@ -104,9 +101,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "team_member.updated", label: "Miembro actualizado" },
 ];
 
-export function canViewActivity(role: string | null | undefined) {
-  return hasMembershipRole(role, MANAGEMENT_ROLES);
-}
+export { canViewActivity };
 
 function asNullableString(value: unknown): string | null {
   if (typeof value !== "string") {
