@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { EmptyState } from "@/components/gestcopy/empty-state";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { ServiceForm } from "@/components/services/service-form";
 import { ServiceModal } from "@/components/services/service-modal";
 import { canWriteServices } from "@/lib/auth/membership-roles";
@@ -51,6 +54,7 @@ export default function ServicesPage() {
   const [editing, setEditing] = useState<ServiceItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -103,24 +107,20 @@ export default function ServicesPage() {
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error ?? "No se pudieron cargar los servicios");
+          throw new Error("No se pudieron cargar los servicios");
         }
 
         setData(result);
-      } catch (err) {
+      } catch {
         setData(null);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No se pudieron cargar los servicios"
-        );
+        setError("No se pudieron cargar los servicios");
       } finally {
         setLoading(false);
       }
     }
 
     loadServices();
-  }, [search, categoryId, active]);
+  }, [search, categoryId, active, reloadToken]);
 
   async function refreshList() {
     const params = new URLSearchParams({
@@ -197,9 +197,11 @@ export default function ServicesPage() {
 
   const total = data?.total ?? 0;
   const services = data?.services ?? [];
+  const hasListFilters =
+    Boolean(search) || Boolean(categoryId) || active !== "true";
 
   return (
-    <main className="min-h-screen bg-background p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
         <AppNav />
 
@@ -264,11 +266,27 @@ export default function ServicesPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">
-            Cargando servicios...
-          </p>
+          <LoadingState label="Cargando servicios..." />
         ) : error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <ErrorState
+            title="No se pudieron cargar los servicios"
+            onRetry={() => setReloadToken((token) => token + 1)}
+          />
+        ) : services.length === 0 ? (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <EmptyState
+              title={
+                hasListFilters
+                  ? "No hay servicios con estos filtros"
+                  : "No hay servicios todavía"
+              }
+              description={
+                hasListFilters
+                  ? "Prueba a cambiar la búsqueda o los filtros."
+                  : undefined
+              }
+            />
+          </div>
         ) : (
           <div className="overflow-hidden rounded-lg border bg-card">
             <div className="overflow-x-auto">
@@ -301,79 +319,68 @@ export default function ServicesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {services.length === 0 ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-muted-foreground"
-                        colSpan={canWrite ? 7 : 6}
-                      >
-                        No hay servicios con estos filtros.
-                      </td>
-                    </tr>
-                  ) : (
-                    services.map((service) => {
-                      const requirements = requirementLabels(service);
+                  {services.map((service) => {
+                    const requirements = requirementLabels(service);
 
-                      return (
-                        <tr
-                          key={service.id}
-                          className="border-b last:border-b-0 hover:bg-muted/30"
-                        >
-                          <td className="px-4 py-4">
-                            <div className="font-medium">{service.name}</div>
-                            {service.description && (
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {service.description}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-4">
-                            {service.category_name ?? "Sin categoría"}
-                          </td>
-                          <td className="px-4 py-4">
-                            {formatLeadTimeMinutes(
-                              service.standard_lead_time_minutes
-                            )}
-                          </td>
-                          <td className="px-4 py-4">{service.orders_count}</td>
-                          <td className="px-4 py-4">
-                            {requirements.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {requirements.map((label) => (
-                                  <span
-                                    key={label}
-                                    className="rounded-md border px-2 py-0.5 text-xs"
-                                  >
-                                    {label}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-4">
-                            {service.active ? "Activo" : "Inactivo"}
-                          </td>
-                          {canWrite && (
-                            <td className="px-4 py-4">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFormError(null);
-                                  setCreateOpen(false);
-                                  setEditing(service);
-                                }}
-                                className="rounded-md border bg-background px-3 py-2 text-sm"
-                              >
-                                Editar
-                              </button>
-                            </td>
+                    return (
+                      <tr
+                        key={service.id}
+                        className="border-b last:border-b-0 hover:bg-muted/30"
+                      >
+                        <td className="px-4 py-4">
+                          <div className="font-medium">{service.name}</div>
+                          {service.description && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {service.description}
+                            </div>
                           )}
-                        </tr>
-                      );
-                    })
-                  )}
+                        </td>
+                        <td className="px-4 py-4">
+                          {service.category_name ?? "Sin categoría"}
+                        </td>
+                        <td className="px-4 py-4">
+                          {formatLeadTimeMinutes(
+                            service.standard_lead_time_minutes
+                          )}
+                        </td>
+                        <td className="px-4 py-4">{service.orders_count}</td>
+                        <td className="px-4 py-4">
+                          {requirements.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {requirements.map((label) => (
+                                <span
+                                  key={label}
+                                  className="rounded-md border px-2 py-0.5 text-xs"
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          {service.active ? "Activo" : "Inactivo"}
+                        </td>
+                        {canWrite && (
+                          <td className="px-4 py-4">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormError(null);
+                                setCreateOpen(false);
+                                setEditing(service);
+                              }}
+                              className="rounded-md border bg-background px-3 py-2 text-sm"
+                            >
+                              Editar
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

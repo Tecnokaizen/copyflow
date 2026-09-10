@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { EmptyState } from "@/components/gestcopy/empty-state";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
@@ -31,6 +34,7 @@ export default function TeamPage() {
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -70,22 +74,20 @@ export default function TeamPage() {
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error ?? "No se pudo cargar el equipo");
+          throw new Error("No se pudo cargar el equipo");
         }
 
         setData(result);
-      } catch (err) {
+      } catch {
         setData(null);
-        setError(
-          err instanceof Error ? err.message : "No se pudo cargar el equipo"
-        );
+        setError("No se pudo cargar el equipo");
       } finally {
         setLoading(false);
       }
     }
 
     loadTeam();
-  }, [search, active]);
+  }, [search, active, reloadToken]);
 
   async function refreshList() {
     const params = new URLSearchParams({
@@ -144,6 +146,7 @@ export default function TeamPage() {
   }
 
   const members = data?.members ?? [];
+  const hasListFilters = Boolean(search) || active !== "true";
 
   return (
     <>
@@ -183,9 +186,27 @@ export default function TeamPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Cargando equipo...</p>
+          <LoadingState label="Cargando equipo..." />
         ) : error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <ErrorState
+            title="No se pudo cargar el equipo"
+            onRetry={() => setReloadToken((token) => token + 1)}
+          />
+        ) : members.length === 0 ? (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <EmptyState
+              title={
+                hasListFilters
+                  ? "No hay miembros con estos filtros"
+                  : "No hay miembros todavía"
+              }
+              description={
+                hasListFilters
+                  ? "Prueba a cambiar la búsqueda o los filtros."
+                  : undefined
+              }
+            />
+          </div>
         ) : (
           <div className="overflow-hidden rounded-lg border bg-card">
             <div className="overflow-x-auto">
@@ -217,73 +238,62 @@ export default function TeamPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {members.length === 0 ? (
-                    <tr>
-                      <td
-                        className="px-4 py-4 text-muted-foreground"
-                        colSpan={canWrite ? 8 : 7}
-                      >
-                        No hay miembros con estos filtros.
-                      </td>
-                    </tr>
-                  ) : (
-                    members.map((member) => {
-                      const contact = contactLines(member);
+                  {members.map((member) => {
+                    const contact = contactLines(member);
 
-                      return (
-                        <tr
-                          key={member.id}
-                          className="border-b last:border-b-0 hover:bg-muted/30"
-                        >
+                    return (
+                      <tr
+                        key={member.id}
+                        className="border-b last:border-b-0 hover:bg-muted/30"
+                      >
+                        <td className="px-4 py-4">
+                          <div className="font-medium">{member.name}</div>
+                          {contact.map((line) => (
+                            <div
+                              key={line}
+                              className="mt-1 text-xs text-muted-foreground"
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.job_title ?? "—"}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.department ?? "—"}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.active_orders_count}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.total_orders_count}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.can_receive_orders
+                            ? "Disponible"
+                            : "No disponible"}
+                        </td>
+                        <td className="px-4 py-4">
+                          {member.active ? "Activo" : "Inactivo"}
+                        </td>
+                        {canWrite && (
                           <td className="px-4 py-4">
-                            <div className="font-medium">{member.name}</div>
-                            {contact.map((line) => (
-                              <div
-                                key={line}
-                                className="mt-1 text-xs text-muted-foreground"
-                              >
-                                {line}
-                              </div>
-                            ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormError(null);
+                                setEditing(member);
+                              }}
+                              className="rounded-md border bg-background px-3 py-2 text-sm"
+                            >
+                              Editar
+                            </button>
                           </td>
-                          <td className="px-4 py-4">
-                            {member.job_title ?? "—"}
-                          </td>
-                          <td className="px-4 py-4">
-                            {member.department ?? "—"}
-                          </td>
-                          <td className="px-4 py-4">
-                            {member.active_orders_count}
-                          </td>
-                          <td className="px-4 py-4">
-                            {member.total_orders_count}
-                          </td>
-                          <td className="px-4 py-4">
-                            {member.can_receive_orders
-                              ? "Disponible"
-                              : "No disponible"}
-                          </td>
-                          <td className="px-4 py-4">
-                            {member.active ? "Activo" : "Inactivo"}
-                          </td>
-                          {canWrite && (
-                            <td className="px-4 py-4">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFormError(null);
-                                  setEditing(member);
-                                }}
-                                className="rounded-md border bg-background px-3 py-2 text-sm"
-                              >
-                                Editar
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  )}
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

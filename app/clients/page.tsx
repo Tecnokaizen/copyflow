@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
+import { EmptyState } from "@/components/gestcopy/empty-state";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import {
   EMPTY_CLIENT_FORM,
   formatCreateDuplicateMessage,
@@ -52,6 +55,7 @@ export default function ClientsPage() {
   const [data, setData] = useState<ClientListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [canWrite, setCanWrite] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -112,26 +116,25 @@ export default function ClientsPage() {
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error ?? "No se pudieron cargar los clientes");
+          throw new Error("No se pudieron cargar los clientes");
         }
 
         setData(result);
-      } catch (err) {
+      } catch {
         setData(null);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No se pudieron cargar los clientes"
-        );
+        setError("No se pudieron cargar los clientes");
       } finally {
         setLoading(false);
       }
     }
 
     loadClients();
-  }, [search, customerTypeId, active, page]);
+  }, [search, customerTypeId, active, page, reloadToken]);
 
   const total = data?.total ?? 0;
+  const clients = data?.clients ?? [];
+  const hasListFilters =
+    Boolean(search) || Boolean(customerTypeId) || active !== "true";
   const pageSize = data?.page_size ?? 25;
   const currentPage = data?.page ?? page;
   const from = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
@@ -204,7 +207,7 @@ export default function ClientsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
         <AppNav />
 
@@ -267,9 +270,27 @@ export default function ClientsPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Cargando clientes...</p>
+          <LoadingState label="Cargando clientes..." />
         ) : error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <ErrorState
+            title="No se pudieron cargar los clientes"
+            onRetry={() => setReloadToken((token) => token + 1)}
+          />
+        ) : clients.length === 0 ? (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <EmptyState
+              title={
+                hasListFilters
+                  ? "No hay clientes con estos filtros"
+                  : "No hay clientes todavía"
+              }
+              description={
+                hasListFilters
+                  ? "Prueba a cambiar la búsqueda o los filtros."
+                  : undefined
+              }
+            />
+          </div>
         ) : (
           <>
             <div className="overflow-hidden rounded-lg border bg-card">
@@ -296,7 +317,7 @@ export default function ClientsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.clients ?? []).map((client) => {
+                    {clients.map((client) => {
                       const contact = contactLines(client);
 
                       return (

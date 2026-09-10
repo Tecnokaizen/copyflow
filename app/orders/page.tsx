@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { EmptyState } from "@/components/gestcopy/empty-state";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
@@ -262,8 +265,14 @@ export default function OrdersPage() {
   return (
     <Suspense
       fallback={
-        <main className="p-8">
-          <p>Cargando pedidos...</p>
+        <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
+          <div className="mx-auto max-w-7xl">
+            <AppNav />
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold">Pedidos</h1>
+            </div>
+            <LoadingState label="Cargando pedidos..." />
+          </div>
         </main>
       }
     >
@@ -311,6 +320,9 @@ function OrdersPageContent() {
   );
   const [byServiceLoading, setByServiceLoading] = useState(false);
   const [byServiceError, setByServiceError] = useState<string | null>(null);
+  const [listReloadToken, setListReloadToken] = useState(0);
+  const [calendarReloadToken, setCalendarReloadToken] = useState(0);
+  const [byServiceReloadToken, setByServiceReloadToken] = useState(0);
   const pageSize = 50;
 
   useEffect(() => {
@@ -389,19 +401,15 @@ function OrdersPageContent() {
         if (page > 1) {
           listRef.current?.scrollIntoView({ block: "start" });
         }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Error desconocido al cargar pedidos"
-        );
+      } catch {
+        setError("No se pudieron cargar los pedidos");
       } finally {
         setLoading(false);
       }
     }
 
     loadOrders();
-  }, [page, hasDashboardListFilter]);
+  }, [page, hasDashboardListFilter, listReloadToken]);
 
   useEffect(() => {
     if (view !== "calendar" || !weekStart) {
@@ -428,20 +436,16 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setCalendarData(result);
-      } catch (err) {
+      } catch {
         setCalendarData(null);
-        setCalendarError(
-          err instanceof Error
-            ? err.message
-            : "No se pudieron cargar los pedidos"
-        );
+        setCalendarError("No se pudieron cargar los pedidos");
       } finally {
         setCalendarLoading(false);
       }
     }
 
     loadWeek();
-  }, [view, weekStart]);
+  }, [view, weekStart, calendarReloadToken]);
 
   useEffect(() => {
     if (view !== "service") {
@@ -461,36 +465,16 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setByServiceData(result);
-      } catch (err) {
+      } catch {
         setByServiceData(null);
-        setByServiceError(
-          err instanceof Error
-            ? err.message
-            : "No se pudieron cargar los pedidos"
-        );
+        setByServiceError("No se pudieron cargar los pedidos");
       } finally {
         setByServiceLoading(false);
       }
     }
 
     loadByService();
-  }, [view]);
-
-  if (loading && !data) {
-    return (
-      <main className="p-8">
-        <p>Cargando pedidos...</p>
-      </main>
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <main className="p-8">
-        <p className="text-red-600">{error}</p>
-      </main>
-    );
-  }
+  }, [view, byServiceReloadToken]);
 
   const activeOrders =
     data?.orders.filter((order) =>
@@ -538,9 +522,10 @@ function OrdersPageContent() {
   }
 
   const serviceColumns = groupOrdersByService(byServiceData?.orders ?? []);
+  const calendarOrderCount = calendarData?.orders?.length ?? 0;
 
   return (
-    <main className="min-h-screen bg-background p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
         <AppNav />
 
@@ -622,140 +607,184 @@ function OrdersPageContent() {
 
         {view === "list" && (
           <>
-        <div
-          ref={listRef}
-          className="overflow-hidden rounded-lg border bg-card"
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">Pedido</th>
-                  <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                  <th className="px-4 py-3 text-left font-medium">Canal</th>
-                  <th className="px-4 py-3 text-left font-medium">
-                    Responsable
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium">Estado</th>
-                  <th className="px-4 py-3 text-left font-medium">Entrega</th>
-                </tr>
-              </thead>
+            {loading && !data ? (
+              <LoadingState label="Cargando pedidos..." />
+            ) : error && !data ? (
+              <ErrorState
+                title="No se pudieron cargar los pedidos"
+                onRetry={() => setListReloadToken((token) => token + 1)}
+              />
+            ) : !loading && activeOrders.length === 0 ? (
+              <div
+                ref={listRef}
+                className="overflow-hidden rounded-lg border bg-card"
+              >
+                <EmptyState
+                  title={
+                    hasDashboardListFilter
+                      ? "No hay pedidos con estos filtros"
+                      : "No hay pedidos activos"
+                  }
+                  description={
+                    hasDashboardListFilter
+                      ? "Prueba a cambiar el filtro del dashboard."
+                      : undefined
+                  }
+                />
+              </div>
+            ) : (
+              <>
+                <div
+                  ref={listRef}
+                  className="overflow-hidden rounded-lg border bg-card"
+                >
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-muted/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Pedido
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Cliente
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Canal
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Responsable
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Estado
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium">
+                            Entrega
+                          </th>
+                        </tr>
+                      </thead>
 
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td
-                      className="px-4 py-4 text-muted-foreground"
-                      colSpan={6}
-                    >
-                      Cargando pedidos...
-                    </td>
-                  </tr>
-                ) : (
-                  activeOrders.map((order) => (
-                    <tr
-                      key={order.id}
-                      className="border-b last:border-b-0 hover:bg-muted/30"
-                    >
-                      <td className="px-4 py-4">
-                        <Link
-                          href={`/orders/${order.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {order.title}
-                        </Link>
+                      <tbody>
+                        {loading ? (
+                          <tr>
+                            <td
+                              className="px-4 py-4 text-muted-foreground"
+                              colSpan={6}
+                            >
+                              Cargando pedidos...
+                            </td>
+                          </tr>
+                        ) : (
+                          activeOrders.map((order) => (
+                            <tr
+                              key={order.id}
+                              className="border-b last:border-b-0 hover:bg-muted/30"
+                            >
+                              <td className="px-4 py-4">
+                                <Link
+                                  href={`/orders/${order.id}`}
+                                  className="font-medium hover:underline"
+                                >
+                                  {order.title}
+                                </Link>
 
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{order.reference}</span>
+                                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>{order.reference}</span>
 
-                          <span
-                            className={
-                              order.priority === "urgent"
-                                ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
-                                : order.priority === "high"
-                                  ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
-                                  : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
-                            }
-                          >
-                            {order.priority === "urgent"
-                              ? "Urgente"
-                              : order.priority === "high"
-                                ? "Alta"
-                                : "Normal"}
-                          </span>
-                        </div>
-                      </td>
+                                  <span
+                                    className={
+                                      order.priority === "urgent"
+                                        ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
+                                        : order.priority === "high"
+                                          ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
+                                          : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                                    }
+                                  >
+                                    {order.priority === "urgent"
+                                      ? "Urgente"
+                                      : order.priority === "high"
+                                        ? "Alta"
+                                        : "Normal"}
+                                  </span>
+                                </div>
+                              </td>
 
-                    <td className="px-4 py-4">
-                      {order.client?.name ?? "Sin cliente"}
-                    </td>
+                              <td className="px-4 py-4">
+                                {order.client?.name ?? "Sin cliente"}
+                              </td>
 
-                    <td className="px-4 py-4">
-                      {order.entry_channel?.name ?? "—"}
-                    </td>
+                              <td className="px-4 py-4">
+                                {order.entry_channel?.name ?? "—"}
+                              </td>
 
-                    <td className="px-4 py-4">
-                      {order.assigned_team_member?.name ?? "Sin asignar"}
-                    </td>
+                              <td className="px-4 py-4">
+                                {order.assigned_team_member?.name ??
+                                  "Sin asignar"}
+                              </td>
 
-                    <td className="px-4 py-4">
-                      <span className={statusClassName(order.status)}>
-                        {order.status?.name ?? "—"}
-                      </span>
-                    </td>
+                              <td className="px-4 py-4">
+                                <span className={statusClassName(order.status)}>
+                                  {order.status?.name ?? "—"}
+                                </span>
+                              </td>
 
-                    <td className="px-4 py-4">
-                      <div
-                        className={
-                          now &&
-                          order.due_at &&
-                          new Date(order.due_at) < now &&
-                          order.status?.is_closed !== true &&
-                          order.status?.is_cancelled !== true
-                            ? "font-medium text-red-600"
-                            : ""
-                        }
+                              <td className="px-4 py-4">
+                                <div
+                                  className={
+                                    now &&
+                                    order.due_at &&
+                                    new Date(order.due_at) < now &&
+                                    order.status?.is_closed !== true &&
+                                    order.status?.is_cancelled !== true
+                                      ? "font-medium text-red-600"
+                                      : ""
+                                  }
+                                >
+                                  {formatDate(order.due_at)}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {error ? (
+                  <ErrorState
+                    className="mt-3"
+                    title="No se pudieron cargar los pedidos"
+                    onRetry={() => setListReloadToken((token) => token + 1)}
+                  />
+                ) : null}
+
+                {(data?.total ?? 0) > 0 && !hasDashboardListFilter && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <p className="text-muted-foreground">
+                      Página {page} de {totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={loading || page <= 1}
+                        onClick={() => setPage(page - 1)}
+                        className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
                       >
-                        {formatDate(order.due_at)}
-                      </div>
-                    </td>
-                  </tr>
-                  ))
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        disabled={loading || page >= totalPages}
+                        onClick={() => setPage(page + 1)}
+                        className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {error && (
-          <p className="mt-3 text-sm text-red-600">{error}</p>
-        )}
-
-        {(data?.total ?? 0) > 0 && !hasDashboardListFilter && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <p className="text-muted-foreground">
-              Página {page} de {totalPages}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={loading || page <= 1}
-                onClick={() => setPage(page - 1)}
-                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                Anterior
-              </button>
-              <button
-                type="button"
-                disabled={loading || page >= totalPages}
-                onClick={() => setPage(page + 1)}
-                className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
+              </>
+            )}
           </>
         )}
 
@@ -793,14 +822,17 @@ function OrdersPageContent() {
               </div>
             </div>
 
-            {calendarError && (
-              <p className="text-sm text-red-600">{calendarError}</p>
-            )}
-
             {calendarLoading || !weekStart ? (
-              <p className="text-sm text-muted-foreground">
-                Cargando calendario...
-              </p>
+              <LoadingState label="Cargando calendario..." />
+            ) : calendarError ? (
+              <ErrorState
+                title="No se pudieron cargar los pedidos"
+                onRetry={() => setCalendarReloadToken((token) => token + 1)}
+              />
+            ) : calendarOrderCount === 0 ? (
+              <div className="overflow-hidden rounded-lg border bg-card">
+                <EmptyState title="No hay pedidos esta semana" />
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <div className="grid min-w-[840px] grid-cols-7 gap-2">
@@ -866,18 +898,17 @@ function OrdersPageContent() {
 
         {view === "service" && (
           <div className="grid gap-4">
-            {byServiceError && (
-              <p className="text-sm text-red-600">{byServiceError}</p>
-            )}
-
             {byServiceLoading ? (
-              <p className="text-sm text-muted-foreground">
-                Cargando pedidos por servicio...
-              </p>
+              <LoadingState label="Cargando pedidos por servicio..." />
+            ) : byServiceError ? (
+              <ErrorState
+                title="No se pudieron cargar los pedidos"
+                onRetry={() => setByServiceReloadToken((token) => token + 1)}
+              />
             ) : serviceColumns.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No hay pedidos activos
-              </p>
+              <div className="overflow-hidden rounded-lg border bg-card">
+                <EmptyState title="No hay pedidos activos" />
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <div className="flex min-w-full gap-2">

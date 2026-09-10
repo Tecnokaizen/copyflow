@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppNav } from "@/components/app-nav";
 import { ActivityEventCard } from "@/components/activity/activity-event-card";
+import { EmptyState } from "@/components/gestcopy/empty-state";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { actionsForEntity } from "@/lib/activity/format";
 import { canViewActivity } from "@/lib/auth/membership-roles";
 import {
@@ -21,6 +24,7 @@ export default function ActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [roleReady, setRoleReady] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   const actionOptions = useMemo(
     () => actionsForEntity(entityType),
@@ -83,35 +87,31 @@ export default function ActivityPage() {
         }
 
         if (!response.ok) {
-          throw new Error(
-            result.error ?? "No se pudo cargar el registro de actividad"
-          );
+          throw new Error("No se pudo cargar el registro de actividad");
         }
 
         setData(result);
-      } catch (err) {
+      } catch {
         setData(null);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No se pudo cargar el registro de actividad"
-        );
+        setError("No se pudo cargar el registro de actividad");
       } finally {
         setLoading(false);
       }
     }
 
     loadActivity();
-  }, [roleReady, forbidden, entityType, action, from, to, page]);
+  }, [roleReady, forbidden, entityType, action, from, to, page, reloadToken]);
 
   const total = data?.total ?? 0;
+  const events = data?.events ?? [];
   const pageSize = data?.page_size ?? 25;
   const currentPage = data?.page ?? page;
   const fromItem = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const toItem = Math.min(currentPage * pageSize, total);
+  const hasListFilters = Boolean(entityType || action || from || to);
 
   return (
-    <main className="min-h-screen bg-background p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-5xl">
         <AppNav />
 
@@ -122,10 +122,12 @@ export default function ActivityPage() {
           </p>
         </div>
 
-        {forbidden ? (
-          <p className="text-sm text-muted-foreground">
-            No tienes permiso para ver el registro de actividad.
-          </p>
+        {!roleReady ? (
+          <LoadingState label="Cargando actividad..." />
+        ) : forbidden ? (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <EmptyState title="No tienes permiso para ver el registro de actividad." />
+          </div>
         ) : (
           <>
             <div className="mb-6 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -186,23 +188,33 @@ export default function ActivityPage() {
             </div>
 
             {loading ? (
-              <p className="text-sm text-muted-foreground">
-                Cargando actividad...
-              </p>
+              <LoadingState label="Cargando actividad..." />
             ) : error ? (
-              <p className="text-sm text-red-600">{error}</p>
+              <ErrorState
+                title="No se pudo cargar el registro de actividad"
+                onRetry={() => setReloadToken((token) => token + 1)}
+              />
+            ) : events.length === 0 ? (
+              <div className="overflow-hidden rounded-lg border bg-card">
+                <EmptyState
+                  title={
+                    hasListFilters
+                      ? "No hay eventos con estos filtros"
+                      : "No hay eventos todavía"
+                  }
+                  description={
+                    hasListFilters
+                      ? "Prueba a cambiar los filtros o el rango de fechas."
+                      : undefined
+                  }
+                />
+              </div>
             ) : (
               <>
                 <div className="overflow-hidden rounded-lg border bg-card">
-                  {(data?.events ?? []).length === 0 ? (
-                    <p className="px-4 py-6 text-sm text-muted-foreground">
-                      No hay eventos con estos filtros.
-                    </p>
-                  ) : (
-                    (data?.events ?? []).map((event) => (
-                      <ActivityEventCard key={event.id} event={event} />
-                    ))
-                  )}
+                  {events.map((event) => (
+                    <ActivityEventCard key={event.id} event={event} />
+                  ))}
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
