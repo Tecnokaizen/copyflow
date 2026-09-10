@@ -48,6 +48,7 @@ export function OrderHeader({
   editing,
   canWrite,
   saving,
+  clientSavedDuringEdit,
   statuses,
   orderOptions,
   onEdit,
@@ -59,6 +60,7 @@ export function OrderHeader({
   editing: boolean;
   canWrite: boolean;
   saving: boolean;
+  clientSavedDuringEdit: boolean;
   statuses: OrderStatus[];
   orderOptions: OrderOptionsResponse | null;
   onEdit: () => void;
@@ -103,25 +105,33 @@ export function OrderHeader({
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end sm:pt-1">
           {editing ? (
             <>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onCancel}
-                className="gc-action disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onSave}
-                className="gc-cta disabled:opacity-50"
-              >
-                {saving ? "Guardando…" : "Guardar cambios"}
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={onCancel}
+                  title="Descarta solo el borrador del pedido. Los cambios de cliente ya confirmados no se revierten."
+                  className="gc-action disabled:opacity-50"
+                >
+                  Descartar borrador
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={onSave}
+                  className="gc-cta disabled:opacity-50"
+                >
+                  {saving ? "Guardando…" : "Guardar cambios"}
+                </button>
+              </div>
+              {clientSavedDuringEdit ? (
+                <p className="max-w-xs text-right text-xs text-muted-foreground">
+                  Cliente ya guardado. Descartar borrador no lo revierte.
+                </p>
+              ) : null}
             </>
           ) : canWrite ? (
             <button type="button" onClick={onEdit} className="gc-cta">

@@ -72,6 +72,7 @@ export function OrderWorkspace() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<OrderDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [clientSavedDuringEdit, setClientSavedDuringEdit] = useState(false);
 
   const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
   const [savingClient, setSavingClient] = useState(false);
@@ -249,6 +250,7 @@ export function OrderWorkspace() {
     if (!order || !canWrite) return;
     setSaveMessage(null);
     setError(null);
+    setClientSavedDuringEdit(false);
     setDraft(createOrderDraft(order, statuses));
     setEditing(true);
   }
@@ -257,6 +259,7 @@ export function OrderWorkspace() {
     if (saving) return;
     setDraft(null);
     setEditing(false);
+    setClientSavedDuringEdit(false);
     setSaveMessage(null);
     setError(null);
     setConfirmRemoveClient(false);
@@ -466,6 +469,7 @@ export function OrderWorkspace() {
     if (failed.length === 0) {
       setEditing(false);
       setDraft(null);
+      setClientSavedDuringEdit(false);
       setSaveMessage(
         succeeded.length === 1
           ? "Cambios guardados"
@@ -573,6 +577,9 @@ export function OrderWorkspace() {
         result.order?.client_id ?? clientId,
         mapClientSummary(result.client) ?? selected ?? null
       );
+      if (editing) {
+        setClientSavedDuringEdit(true);
+      }
       setConfirmRemoveClient(false);
       setClientUiMode(null);
       setClientDuplicate(null);
@@ -636,6 +643,9 @@ export function OrderWorkspace() {
             current ? { ...current, client: result.client } : current
           );
         }
+        if (editing) {
+          setClientSavedDuringEdit(true);
+        }
         setClientUiMode(null);
         await loadActivity();
         return;
@@ -667,6 +677,9 @@ export function OrderWorkspace() {
         result.order?.client_id ?? null,
         mapClientSummary(result.client)
       );
+      if (editing) {
+        setClientSavedDuringEdit(true);
+      }
       setClientUiMode(null);
       await loadActivity();
     } catch (err) {
@@ -704,60 +717,70 @@ export function OrderWorkspace() {
     order.client_id && order.client?.id ? order.client : null;
 
   const clientActions = (
-    <>
-      {currentClient ? (
-        <>
-          <button
-            type="button"
-            onClick={openEditClient}
-            className="gc-action"
-          >
-            Editar cliente
-          </button>
-          <button
-            type="button"
-            onClick={openChangeClient}
-            className="gc-action"
-          >
-            Cambiar cliente
-          </button>
-          {confirmRemoveClient ? (
-            <>
-              <span className="self-center text-sm text-muted-foreground">
-                ¿Quitar el cliente de este pedido?
-              </span>
-              <button
-                type="button"
-                disabled={savingClient}
-                onClick={() => void assignExistingClient(null)}
-                className="gc-action-danger disabled:opacity-50"
-              >
-                Sí, quitar
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmRemoveClient(false)}
-                className="gc-action"
-              >
-                Cancelar
-              </button>
-            </>
-          ) : (
+    <div className="flex w-full flex-col gap-3">
+      <p className="text-xs text-muted-foreground">
+        Los cambios de cliente se guardan al confirmar; no forman parte del
+        borrador del pedido.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {currentClient ? (
+          <>
             <button
               type="button"
-              onClick={() => setConfirmRemoveClient(true)}
+              onClick={openEditClient}
               className="gc-action"
             >
-              Quitar cliente
+              Editar cliente
             </button>
-          )}
-        </>
-      ) : (
-        <button type="button" onClick={openAssignClient} className="gc-action">
-          Asignar cliente
-        </button>
-      )}
-    </>
+            <button
+              type="button"
+              onClick={openChangeClient}
+              className="gc-action"
+            >
+              Cambiar cliente
+            </button>
+            {confirmRemoveClient ? (
+              <>
+                <span className="self-center text-sm text-muted-foreground">
+                  ¿Quitar el cliente de este pedido? Se guarda al confirmar.
+                </span>
+                <button
+                  type="button"
+                  disabled={savingClient}
+                  onClick={() => void assignExistingClient(null)}
+                  className="gc-action-danger disabled:opacity-50"
+                >
+                  Sí, quitar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemoveClient(false)}
+                  className="gc-action"
+                >
+                  No quitar
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmRemoveClient(true)}
+                className="gc-action"
+              >
+                Quitar cliente
+              </button>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={openAssignClient}
+            className="gc-action"
+          >
+            Asignar cliente
+          </button>
+        )}
+      </div>
+    </div>
   );
 
   return (
@@ -787,6 +810,7 @@ export function OrderWorkspace() {
           editing={editing}
           canWrite={canWrite}
           saving={saving}
+          clientSavedDuringEdit={clientSavedDuringEdit}
           statuses={statuses}
           orderOptions={orderOptions}
           onEdit={startEditing}
@@ -842,7 +866,8 @@ export function OrderWorkspace() {
             {clientUiMode === "change" ? "Cambiar cliente" : "Asignar cliente"}
           </h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            Busca un cliente existente o crea uno nuevo para este pedido.
+            Al confirmar, el cliente se guarda de inmediato. No forma parte del
+            borrador del pedido.
           </p>
           <ClientSelector
             value={null}
@@ -875,6 +900,10 @@ export function OrderWorkspace() {
         editing &&
         (clientUiMode === "edit" || clientUiMode === "create") && (
           <ClientModal>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Al confirmar, el cliente se guarda de inmediato. No forma parte del
+              borrador del pedido.
+            </p>
             <ClientForm
               title={
                 clientUiMode === "edit" ? "Editar cliente" : "Crear cliente"

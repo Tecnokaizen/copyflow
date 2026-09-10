@@ -19,15 +19,12 @@ function isReadyForDelivery(order: Order) {
   return order.ready_at !== null && order.delivered_at === null;
 }
 
-/** Fixed-semantics attention chips only (no tenant catalog codes). */
+/**
+ * Fixed-semantics attention chips only (no tenant catalog codes).
+ * Priority is shown in the header badges — do not duplicate it here.
+ */
 export function getOrderAttentionSignals(order: Order): AttentionSignal[] {
   const signals: AttentionSignal[] = [];
-
-  if (order.priority === "urgent") {
-    signals.push({ id: "urgent", label: "Urgente", tone: "danger" });
-  } else if (order.priority === "high") {
-    signals.push({ id: "high", label: "Alta prioridad", tone: "warning" });
-  }
 
   if (order.due_at) {
     const due = new Date(order.due_at);

@@ -171,9 +171,7 @@ export function OrderSummary({
       </FactRow>
 
       {editing && clientActions ? (
-        <div className="flex flex-wrap gap-2 border-t border-border/60 py-4">
-          {clientActions}
-        </div>
+        <div className="border-t border-border/60 py-4">{clientActions}</div>
       ) : null}
     </SectionCard>
   );
