@@ -54,6 +54,9 @@ export async function GET() {
   return NextResponse.json({
     hostname,
     slug,
-    tenant: context.tenant,
+    tenant: {
+      name: context.tenant.name,
+      slug: context.tenant.slug,
+    },
   });
 }
