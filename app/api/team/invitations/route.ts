@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const invitationUrl = invitationAcceptUrl(mapped.token);
+  const invitationUrl = invitationAcceptUrl(mapped.tenant.slug, mapped.token);
   const publicBody = toPublicCreatedInvitation(mapped);
 
   const sendResult = await sendTenantInvitationEmail({

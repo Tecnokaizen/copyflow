@@ -1,11 +1,11 @@
 import "server-only";
 
-import { TENANT_BASE_DOMAIN } from "@/lib/tenant/domains";
+import { TENANT_BASE_DOMAIN, tenantOrigin } from "@/lib/tenant/domains";
 
 const DEFAULT_APP_ORIGIN = `https://${TENANT_BASE_DOMAIN}`;
 
 /**
- * Canonical origin for app-wide server links (invitations, etc.).
+ * Canonical origin for app-wide server links.
  * Prefer APP_BASE_URL in local/preview; default to production apex.
  * Server-only: keeps APP_BASE_URL and invitation URL builders out of client bundles.
  */
@@ -27,6 +27,7 @@ export function appOrigin() {
   }
 }
 
-export function invitationAcceptUrl(token: string) {
-  return `${appOrigin()}/invitations/accept?token=${encodeURIComponent(token)}`;
+/** Accept URL on the invited tenant host (e.g. https://demo.app.gestcopy.com/...). */
+export function invitationAcceptUrl(tenantSlug: string, token: string) {
+  return `${tenantOrigin(tenantSlug)}/invitations/accept?token=${encodeURIComponent(token)}`;
 }
