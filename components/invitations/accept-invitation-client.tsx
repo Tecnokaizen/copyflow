@@ -26,6 +26,7 @@ type AcceptState =
   | { kind: "loading" }
   | { kind: "need_auth"; returnTo: string }
   | { kind: "accepting" }
+  | { kind: "wrong_account"; returnTo: string; email: string | null }
   | { kind: "success"; tenantOrigin: string; tenantName: string }
   | { kind: "error"; message: string };
 
@@ -53,6 +54,7 @@ export function AcceptInvitationClient() {
   const token = (searchParams.get("token") ?? "").trim();
   const attempted = useRef(false);
   const [state, setState] = useState<AcceptState>({ kind: "loading" });
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (attempted.current) {
@@ -101,6 +103,15 @@ export function AcceptInvitationClient() {
       }
 
       if (!response.ok) {
+        if (response.status === 403) {
+          setState({
+            kind: "wrong_account",
+            returnTo,
+            email: user.email ?? null,
+          });
+          return;
+        }
+
         setState({
           kind: "error",
           message: publicAcceptError(response.status, payload.error),
@@ -135,6 +146,14 @@ export function AcceptInvitationClient() {
 
     void run();
   }, [token]);
+
+  async function signOutAndContinue(returnTo: string) {
+    if (signingOut) return;
+    setSigningOut(true);
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.assign(returnTo);
+  }
 
   if (state.kind === "loading" || state.kind === "accepting") {
     return (
@@ -171,6 +190,38 @@ export function AcceptInvitationClient() {
             <Link href={authHrefWithNext("/auth/login", state.returnTo)}>
               Ya tengo una cuenta
             </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state.kind === "wrong_account") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">
+            Esta invitación es para otra cuenta
+          </CardTitle>
+          <CardDescription>
+            Has iniciado sesión con una cuenta diferente de la que recibió esta
+            invitación. Cierra sesión y continúa con el correo invitado.
+            {state.email ? (
+              <>
+                <br />
+                Has iniciado sesión como {state.email}.
+              </>
+            ) : null}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={signingOut}
+            onClick={() => void signOutAndContinue(state.returnTo)}
+          >
+            {signingOut ? "Cerrando sesión…" : "Cerrar sesión y continuar"}
           </Button>
         </CardContent>
       </Card>
