@@ -661,6 +661,14 @@ BEGIN
         v_received := now() - interval '2 hours';
       END IF;
 
+      -- Ready orders: keep ready_at as chosen by the demo, but ensure
+      -- received_at always precedes it (execution-time invariant).
+      IF v_status_id = v_status_ready
+         AND v_ready_at IS NOT NULL
+         AND v_ready_at < v_received THEN
+        v_received := v_ready_at - interval '30 minutes';
+      END IF;
+
       IF v_req_file AND v_op IN (1, 2, 3, 4) THEN
         v_file_id := v_file_pending;
       ELSIF v_req_file THEN
@@ -1852,6 +1860,17 @@ BEGIN
     AND c.active IS NOT TRUE;
   IF n <> 0 THEN
     RAISE EXCEPTION 'VALIDATION: % operative orders with inactive clients', n;
+  END IF;
+
+  -- Explicit ready_at vs received_at (before general chronology K)
+  SELECT count(*) INTO n
+  FROM public.orders o
+  WHERE o.tenant_id = v_demo
+    AND o.ready_at IS NOT NULL
+    AND o.received_at IS NOT NULL
+    AND o.ready_at < o.received_at;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'VALIDATION: ready_at before received_at (% orders)', n;
   END IF;
 
   -- K order temporal coherence
