@@ -14,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type LoginFormProps = React.ComponentPropsWithoutRef<"div"> & {
@@ -30,7 +29,6 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
   const safeNext = getSafeNextPath(nextPath);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -47,11 +45,11 @@ export function LoginForm({
 
       if (error) throw error;
 
-      router.push(safeNext);
-      router.refresh();
+      // Full navigation so the next SSR/proxy request reads the new session cookies.
+      // Soft SPA navigation can race and hit the destination without auth cookies.
+      window.location.assign(safeNext);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
-    } finally {
       setIsLoading(false);
     }
   };
