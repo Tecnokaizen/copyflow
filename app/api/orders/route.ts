@@ -5,11 +5,32 @@ import {
   OPERATIVE_ROLES,
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
+import { isUuid } from "@/lib/team/payload";
+import { getZonedDayBounds, resolveTimeZone } from "@/lib/time/zoned-day";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PRIORITIES = ["normal", "high", "urgent"] as const;
 
 type Priority = (typeof PRIORITIES)[number];
+
+const LIST_FILTERS = [
+  "active",
+  "urgent",
+  "overdue",
+  "all",
+  "attention",
+  "upcoming",
+] as const;
+
+type ListFilter = (typeof LIST_FILTERS)[number];
+
+function parseListFilter(raw: string | null): ListFilter | null {
+  if (!raw) {
+    return null;
+  }
+
+  return LIST_FILTERS.includes(raw as ListFilter) ? (raw as ListFilter) : null;
+}
 
 const ORDER_SELECT = `
   *,
@@ -203,6 +224,39 @@ async function fetchActiveOrders(
   };
 }
 
+async function countAllOrders(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+) {
+  const { count, error } = await supabase
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId);
+
+  if (error) {
+    return { error, total: 0 };
+  }
+
+  return { error: null, total: count ?? 0 };
+}
+
+async function resolveUpcomingCutoffIso(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+) {
+  const { data: settings } = await supabase
+    .from("tenant_settings")
+    .select("timezone")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const timezone = resolveTimeZone(
+    typeof settings?.timezone === "string" ? settings.timezone : null
+  );
+  const day = getZonedDayBounds(new Date(), timezone);
+  return day.end.toISOString();
+}
+
 export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
@@ -253,6 +307,22 @@ export async function GET(request: NextRequest) {
   const to = from + pageSize - 1;
   const dateFiltered = Boolean(fromDate.value || toDate.value);
   const activeOnly = searchParams.get("active") === "true";
+  const rawFilter = searchParams.get("filter");
+  const listFilter = parseListFilter(rawFilter);
+  const assignedTeamMemberIdRaw = searchParams.get("assigned_team_member_id");
+  const assignedTeamMemberId = assignedTeamMemberIdRaw?.trim() || null;
+
+  if (rawFilter && !listFilter) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (assignedTeamMemberId && !isUuid(assignedTeamMemberId)) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  // Dashboard deep link with only assignee → operative (active) scope.
+  const effectiveFilter: ListFilter | null =
+    listFilter ?? (assignedTeamMemberId ? "active" : null);
 
   const supabase = await createClient();
 
@@ -311,14 +381,58 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const needsStatusInner =
+    effectiveFilter === "active" ||
+    effectiveFilter === "urgent" ||
+    effectiveFilter === "overdue" ||
+    effectiveFilter === "attention" ||
+    effectiveFilter === "upcoming";
+
+  const select = needsStatusInner ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+
+  let query = supabase
+    .from("orders")
+    .select(select, { count: "exact" })
+    .eq("tenant_id", context.tenant.id);
+
+  if (needsStatusInner) {
+    query = query
+      .is("archived_at", null)
+      .eq("status.is_closed", false)
+      .eq("status.is_cancelled", false);
+  }
+
+  if (effectiveFilter === "urgent") {
+    query = query.eq("priority", "urgent");
+  }
+
+  if (effectiveFilter === "overdue") {
+    query = query
+      .not("due_at", "is", null)
+      .lt("due_at", new Date().toISOString());
+  }
+
+  if (effectiveFilter === "attention") {
+    query = query.eq("status.is_ready", true);
+  }
+
+  if (effectiveFilter === "upcoming") {
+    const upcomingCutoff = await resolveUpcomingCutoffIso(
+      supabase,
+      context.tenant.id
+    );
+    query = query.gte("due_at", upcomingCutoff);
+  }
+
+  if (assignedTeamMemberId) {
+    query = query.eq("assigned_team_member_id", assignedTeamMemberId);
+  }
+
   const {
     data: orders,
     error,
     count: total,
-  } = await supabase
-    .from("orders")
-    .select(ORDER_SELECT, { count: "exact" })
-    .eq("tenant_id", context.tenant.id)
+  } = await query
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .range(from, to);
@@ -335,10 +449,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const allTotalResult = await countAllOrders(supabase, context.tenant.id);
+
+  if (allTotalResult.error) {
+    console.error("[GET /api/orders] Could not count all orders", {
+      tenantId: context.tenant.id,
+      error: allTotalResult.error,
+    });
+
+    return NextResponse.json(
+      { error: "Could not load orders" },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({
     tenant: context.tenant.slug,
     count: orders?.length ?? 0,
     total: total ?? 0,
+    all_total: allTotalResult.total,
     page,
     page_size: pageSize,
     orders: orders ?? [],

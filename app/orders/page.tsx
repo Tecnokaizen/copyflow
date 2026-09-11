@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { EmptyState } from "@/components/gestcopy/empty-state";
@@ -50,13 +50,26 @@ type OrdersResponse = {
   tenant: string;
   count: number;
   total: number;
+  all_total?: number;
   page: number;
   page_size: number;
   orders: Order[];
 };
 
+type TeamMemberOption = {
+  id: string;
+  name: string;
+};
+
 type ViewMode = "list" | "calendar" | "service";
-type ListFilter = "active" | "urgent" | "overdue" | "attention" | "upcoming";
+type ListFilter =
+  | "active"
+  | "urgent"
+  | "overdue"
+  | "all"
+  | "attention"
+  | "upcoming";
+type PrimaryListFilter = "active" | "urgent" | "overdue" | "all";
 
 function parseViewMode(raw: string | null): ViewMode | null {
   if (raw === "list" || raw === "calendar" || raw === "service") {
@@ -71,6 +84,7 @@ function parseListFilter(raw: string | null): ListFilter | null {
     raw === "active" ||
     raw === "urgent" ||
     raw === "overdue" ||
+    raw === "all" ||
     raw === "attention" ||
     raw === "upcoming"
   ) {
@@ -89,52 +103,90 @@ function parseAssignedTeamMemberId(raw: string | null): string | null {
   return isUuid(value) ? value : null;
 }
 
-function isOperativeActive(order: Order) {
-  return (
-    order.status?.is_closed !== true &&
-    order.status?.is_cancelled !== true
-  );
-}
-
-function matchesDashboardFilter(
-  order: Order,
-  filter: ListFilter | null,
-  assignedId: string | null,
-  now: Date | null
-) {
-  if (!isOperativeActive(order)) {
-    return false;
+function resolveListFilter(
+  raw: ListFilter | null,
+  assignedId: string | null
+): ListFilter {
+  if (raw) {
+    return raw;
   }
 
-  if (assignedId && order.assigned_team_member?.id !== assignedId) {
-    return false;
+  // Dashboard member deep link without filter → activos.
+  if (assignedId) {
+    return "active";
+  }
+
+  return "active";
+}
+
+function primaryFilterFrom(filter: ListFilter): PrimaryListFilter | null {
+  if (
+    filter === "active" ||
+    filter === "urgent" ||
+    filter === "overdue" ||
+    filter === "all"
+  ) {
+    return filter;
+  }
+
+  return null;
+}
+
+function emptyTitleForFilter(
+  filter: ListFilter,
+  hasAssignee: boolean,
+  allTotal: number
+) {
+  if (hasAssignee) {
+    return "No hay pedidos con estos filtros";
   }
 
   if (filter === "urgent") {
-    return order.priority === "urgent";
+    return "No hay pedidos urgentes";
   }
 
   if (filter === "overdue") {
-    return Boolean(order.due_at && now && new Date(order.due_at) < now);
+    return "No hay pedidos retrasados";
   }
 
-  if (filter === "attention") {
-    return order.status?.is_ready === true;
+  if (filter === "all") {
+    return allTotal === 0 ? "No hay pedidos todavía" : "No hay pedidos";
   }
 
-  if (filter === "upcoming") {
-    if (!order.due_at || !now) {
-      return false;
-    }
-
-    const nextDay = new Date(now);
-    nextDay.setHours(0, 0, 0, 0);
-    nextDay.setDate(nextDay.getDate() + 1);
-
-    return new Date(order.due_at) >= nextDay;
+  if (filter === "attention" || filter === "upcoming") {
+    return "No hay pedidos con estos filtros";
   }
 
-  return true;
+  return "No hay pedidos activos";
+}
+
+function summaryForFilter(
+  filter: ListFilter,
+  total: number,
+  allTotal: number,
+  hasAssignee: boolean
+) {
+  if (hasAssignee) {
+    return `${total} pedidos · ${allTotal} pedidos totales`;
+  }
+
+  if (filter === "urgent") {
+    return `${total} pedidos urgentes · ${allTotal} pedidos totales`;
+  }
+
+  if (filter === "overdue") {
+    return `${total} pedidos retrasados · ${allTotal} pedidos totales`;
+  }
+
+  if (filter === "all") {
+    return `${total} pedidos totales`;
+  }
+
+  if (filter === "attention" || filter === "upcoming") {
+    return `${total} pedidos · ${allTotal} pedidos totales`;
+  }
+
+  return `${total} pedidos activos · ${allTotal} pedidos totales`;
 }
 
 function formatDate(value: string | null) {
@@ -283,6 +335,7 @@ export default function OrdersPage() {
 
 function OrdersPageContent() {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement>(null);
   const isClient = useSyncExternalStore(
@@ -298,12 +351,13 @@ function OrdersPageContent() {
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
   const urlView = parseViewMode(searchParams.get("view"));
-  const listFilter = parseListFilter(searchParams.get("filter"));
+  const rawListFilter = parseListFilter(searchParams.get("filter"));
   const assignedMemberId = parseAssignedTeamMemberId(
     searchParams.get("assigned_team_member_id")
   );
+  const listFilter = resolveListFilter(rawListFilter, assignedMemberId);
+  const primaryFilter = primaryFilterFrom(listFilter);
   const scopeToday = searchParams.get("scope") === "today";
-  const hasDashboardListFilter = Boolean(listFilter || assignedMemberId);
   const [view, setView] = useState<ViewMode>(urlView ?? "list");
   const [prevUrlView, setPrevUrlView] = useState(urlView);
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -323,7 +377,12 @@ function OrdersPageContent() {
   const [listReloadToken, setListReloadToken] = useState(0);
   const [calendarReloadToken, setCalendarReloadToken] = useState(0);
   const [byServiceReloadToken, setByServiceReloadToken] = useState(0);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
+  const [prevListQuery, setPrevListQuery] = useState(
+    `${listFilter}|${assignedMemberId ?? ""}`
+  );
   const pageSize = 50;
+  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}`;
 
   useEffect(() => {
     async function loadContext() {
@@ -334,6 +393,38 @@ function OrdersPageContent() {
       }
     }
     void loadContext();
+  }, []);
+
+  useEffect(() => {
+    async function loadTeam() {
+      try {
+        const response = await fetch("/api/team?active=true");
+        if (!response.ok) {
+          return;
+        }
+
+        const result = (await response.json()) as {
+          members?: Array<{ id?: unknown; name?: unknown }>;
+        };
+
+        const members = (result.members ?? [])
+          .map((row) => {
+            const id = typeof row.id === "string" ? row.id : null;
+            const name = typeof row.name === "string" ? row.name : null;
+            if (!id || !name) {
+              return null;
+            }
+            return { id, name };
+          })
+          .filter((row): row is TeamMemberOption => row !== null);
+
+        setTeamMembers(members);
+      } catch {
+        setTeamMembers([]);
+      }
+    }
+
+    void loadTeam();
   }, []);
 
   if (pathname !== prevPathname) {
@@ -350,6 +441,11 @@ function OrdersPageContent() {
     }
   }
 
+  if (listQueryKey !== prevListQuery) {
+    setPrevListQuery(listQueryKey);
+    setPage(1);
+  }
+
   if (isClient && now === null) {
     const current = new Date();
     setNow(current);
@@ -364,17 +460,45 @@ function OrdersPageContent() {
     }
   }
 
+  function replaceListParams(next: {
+    filter?: PrimaryListFilter | ListFilter;
+    assignedTeamMemberId?: string | null;
+  }) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "list");
+
+    if (next.filter) {
+      params.set("filter", next.filter);
+    }
+
+    if (next.assignedTeamMemberId === null) {
+      params.delete("assigned_team_member_id");
+    } else if (typeof next.assignedTeamMemberId === "string") {
+      params.set("assigned_team_member_id", next.assignedTeamMemberId);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+    setPage(1);
+  }
+
   useEffect(() => {
     async function loadOrders() {
       setLoading(true);
       setError(null);
 
       try {
-        const response = await fetch(
-          hasDashboardListFilter
-            ? "/api/orders?active=true"
-            : `/api/orders?page=${page}&page_size=${pageSize}`
-        );
+        const params = new URLSearchParams({
+          page: String(page),
+          page_size: String(pageSize),
+          filter: listFilter,
+        });
+
+        if (assignedMemberId) {
+          params.set("assigned_team_member_id", assignedMemberId);
+        }
+
+        const response = await fetch(`/api/orders?${params.toString()}`);
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
@@ -382,10 +506,6 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setData(result);
-
-        if (hasDashboardListFilter) {
-          return;
-        }
 
         const receivedSize = result.page_size || pageSize;
         const receivedTotal = result.total ?? 0;
@@ -409,7 +529,7 @@ function OrdersPageContent() {
     }
 
     loadOrders();
-  }, [page, hasDashboardListFilter, listReloadToken]);
+  }, [page, listFilter, assignedMemberId, listReloadToken]);
 
   useEffect(() => {
     if (view !== "calendar" || !weekStart) {
@@ -476,21 +596,13 @@ function OrdersPageContent() {
     loadByService();
   }, [view, byServiceReloadToken]);
 
-  const activeOrders =
-    data?.orders.filter((order) =>
-      hasDashboardListFilter
-        ? matchesDashboardFilter(
-            order,
-            listFilter,
-            assignedMemberId,
-            now
-          )
-        : isOperativeActive(order)
-    ) ?? [];
-
+  const listOrders = data?.orders ?? [];
+  const filteredTotal = data?.total ?? 0;
+  const allTotal = data?.all_total ?? filteredTotal;
   const totalPages = data
-    ? Math.max(1, Math.ceil(data.total / data.page_size))
+    ? Math.max(1, Math.ceil(filteredTotal / (data.page_size || pageSize)))
     : 1;
+  const showPagination = filteredTotal > (data?.page_size || pageSize);
 
   const weekDays = weekStart
     ? Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
@@ -524,6 +636,13 @@ function OrdersPageContent() {
   const serviceColumns = groupOrdersByService(byServiceData?.orders ?? []);
   const calendarOrderCount = calendarData?.orders?.length ?? 0;
 
+  const primaryFilters: Array<{ id: PrimaryListFilter; label: string }> = [
+    { id: "active", label: "Activos" },
+    { id: "urgent", label: "Urgentes" },
+    { id: "overdue", label: "Retrasados" },
+    { id: "all", label: "Todos" },
+  ];
+
   return (
     <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
@@ -535,14 +654,14 @@ function OrdersPageContent() {
 
             <p className="mt-2 text-sm text-muted-foreground">
               {view === "list" ? (
-                hasDashboardListFilter ? (
-                  <>{activeOrders.length} pedidos</>
-                ) : (
-                  <>
-                    {activeOrders.length} pedidos activos en esta página ·{" "}
-                    {data?.total ?? 0} pedidos totales
-                  </>
-                )
+                <>
+                  {summaryForFilter(
+                    listFilter,
+                    filteredTotal,
+                    allTotal,
+                    Boolean(assignedMemberId)
+                  )}
+                </>
               ) : view === "calendar" ? (
                 <>Semana del {weekLabel}</>
               ) : (
@@ -601,6 +720,49 @@ function OrdersPageContent() {
           </button>
         </div>
 
+        {view === "list" ? (
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {primaryFilters.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => replaceListParams({ filter: item.id })}
+                  className={
+                    primaryFilter === item.id
+                      ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                      : "rounded-md border bg-background px-3 py-2 text-sm"
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
+              <span className="text-muted-foreground">Responsable</span>
+              <select
+                className="rounded-md border bg-background px-3 py-2"
+                value={assignedMemberId ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  replaceListParams({
+                    filter: primaryFilter ?? "active",
+                    assignedTeamMemberId: value ? value : null,
+                  });
+                }}
+              >
+                <option value="">Todos los responsables</option>
+                {teamMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+
         {canWrite && showCreateForm && (
           <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
         )}
@@ -616,22 +778,22 @@ function OrdersPageContent() {
               />
             ) : (
               <>
-                {!loading && activeOrders.length === 0 ? (
+                {!loading && listOrders.length === 0 ? (
                   <div
                     ref={listRef}
                     className="overflow-hidden rounded-lg border bg-card"
                   >
                     <EmptyState
-                      title={
-                        hasDashboardListFilter
-                          ? "No hay pedidos con estos filtros"
-                          : (data?.total ?? 0) === 0
-                            ? "No hay pedidos todavía"
-                            : "No hay pedidos activos en esta página"
-                      }
+                      title={emptyTitleForFilter(
+                        listFilter,
+                        Boolean(assignedMemberId),
+                        allTotal
+                      )}
                       description={
-                        hasDashboardListFilter
-                          ? "Prueba a cambiar el filtro del dashboard."
+                        assignedMemberId ||
+                        listFilter === "attention" ||
+                        listFilter === "upcoming"
+                          ? "Prueba a cambiar los filtros."
                           : undefined
                       }
                     />
@@ -677,7 +839,7 @@ function OrdersPageContent() {
                               </td>
                             </tr>
                           ) : (
-                            activeOrders.map((order) => (
+                            listOrders.map((order) => (
                               <tr
                                 key={order.id}
                                 className="border-b last:border-b-0 hover:bg-muted/30"
@@ -764,7 +926,7 @@ function OrdersPageContent() {
                   />
                 ) : null}
 
-                {(data?.total ?? 0) > 0 && !hasDashboardListFilter && (
+                {showPagination ? (
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
                     <p className="text-muted-foreground">
                       Página {page} de {totalPages}
@@ -788,7 +950,7 @@ function OrdersPageContent() {
                       </button>
                     </div>
                   </div>
-                )}
+                ) : null}
               </>
             )}
           </>
