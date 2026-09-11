@@ -1,6 +1,54 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
+import {
+  PREVIEW_TENANT_COOKIE,
+  PREVIEW_TENANT_QUERY,
+  isTenantOverrideAllowed,
+  parsePreviewTenantSlug,
+} from "@/lib/tenant/preview-tenant";
+
+function copyCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie.name, cookie.value);
+  });
+}
+
+function applyPreviewTenantOverride(
+  request: NextRequest,
+  supabaseResponse: NextResponse
+): NextResponse | null {
+  if (!isTenantOverrideAllowed()) {
+    return null;
+  }
+
+  const raw =
+    request.nextUrl.searchParams.get(PREVIEW_TENANT_QUERY) ??
+    request.nextUrl.searchParams.get("slug");
+  const slug = parsePreviewTenantSlug(raw);
+
+  if (!slug) {
+    return null;
+  }
+
+  const url = request.nextUrl.clone();
+  url.searchParams.delete(PREVIEW_TENANT_QUERY);
+  url.searchParams.delete("slug");
+
+  const redirectResponse = NextResponse.redirect(url);
+  copyCookies(supabaseResponse, redirectResponse);
+  redirectResponse.cookies.set(PREVIEW_TENANT_COOKIE, slug, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure:
+      process.env.VERCEL_ENV === "preview" ||
+      process.env.NODE_ENV === "production",
+    maxAge: 60 * 60 * 24 * 14,
+  });
+
+  return redirectResponse;
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -64,7 +112,14 @@ export async function updateSession(request: NextRequest) {
     url.pathname = "/auth/login";
     url.search = "";
     url.searchParams.set("next", returnTo);
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    copyCookies(supabaseResponse, redirectResponse);
+    return redirectResponse;
+  }
+
+  const previewOverride = applyPreviewTenantOverride(request, supabaseResponse);
+  if (previewOverride) {
+    return previewOverride;
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.

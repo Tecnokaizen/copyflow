@@ -1,7 +1,12 @@
 import "server-only";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import {
+  PREVIEW_TENANT_COOKIE,
+  isTenantOverrideAllowed,
+  parsePreviewTenantSlug,
+} from "@/lib/tenant/preview-tenant";
 
 export async function getRequestHostname() {
   const headersList = await headers();
@@ -10,11 +15,30 @@ export async function getRequestHostname() {
   );
 }
 
-/** Non-null when the request host is a tenant subdomain ({slug}.app.gestcopy.com). */
+/**
+ * Resolve tenant slug for the current request.
+ * 1) Hostname subdomain (production path) always wins.
+ * 2) Preview/local only: explicit cookie from ?tenant= / ?slug=.
+ */
+export async function resolveRequestTenantSlug(): Promise<string | null> {
+  const hostnameSlug = getSubdomainFromHostname(await getRequestHostname());
+  if (hostnameSlug) {
+    return hostnameSlug;
+  }
+
+  if (!isTenantOverrideAllowed()) {
+    return null;
+  }
+
+  const jar = await cookies();
+  return parsePreviewTenantSlug(jar.get(PREVIEW_TENANT_COOKIE)?.value);
+}
+
+/** @deprecated Prefer resolveRequestTenantSlug — kept name for call sites that expect hostname-only semantics historically; now includes Preview override. */
 export async function getRequestTenantSlug() {
-  return getSubdomainFromHostname(await getRequestHostname());
+  return resolveRequestTenantSlug();
 }
 
 export async function isTenantHostRequest() {
-  return (await getRequestTenantSlug()) !== null;
+  return (await resolveRequestTenantSlug()) !== null;
 }

@@ -1,16 +1,8 @@
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getSubdomainFromHostname } from "./hostname";
+import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
 
 export async function getCurrentTenant() {
-  const headersList = await headers();
-
-  const hostname =
-    headersList.get("x-forwarded-host") ??
-    headersList.get("host") ??
-    "";
-
-  const slug = getSubdomainFromHostname(hostname);
+  const slug = await resolveRequestTenantSlug();
 
   if (!slug) {
     return null;

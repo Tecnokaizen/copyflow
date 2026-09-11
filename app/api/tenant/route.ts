@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import {
+  getRequestHostname,
+  resolveRequestTenantSlug,
+} from "@/lib/tenant/request-host";
 
 export async function GET() {
   const supabase = await createClient();
@@ -25,14 +27,8 @@ export async function GET() {
     );
   }
 
-  const headersList = await headers();
-
-  const hostname =
-    headersList.get("x-forwarded-host") ??
-    headersList.get("host") ??
-    "";
-
-  const slug = getSubdomainFromHostname(hostname);
+  const hostname = await getRequestHostname();
+  const slug = await resolveRequestTenantSlug();
 
   if (!slug) {
     return NextResponse.json({

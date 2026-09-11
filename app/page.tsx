@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -7,21 +6,14 @@ import { LogoutButton } from "@/components/logout-button";
 import { TenantDashboard } from "@/components/dashboard/tenant-dashboard";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
 
 export const instant = false;
 
 export default async function Home() {
-  const headersList = await headers();
+  const tenantSlug = await resolveRequestTenantSlug();
 
-  const hostname =
-    headersList.get("x-forwarded-host") ??
-    headersList.get("host") ??
-    "";
-
-  const tenantSlug = getSubdomainFromHostname(hostname);
-
-  // Dominio raíz de Copyflow: todavía no estamos dentro de un tenant.
+  // Apex / Preview without explicit tenant: marketing + onboarding entry.
   if (!tenantSlug) {
     const supabase = await createClient();
     const {
@@ -60,19 +52,17 @@ export default async function Home() {
     );
   }
 
-  // Estamos en un subdominio de tenant.
+  // Tenant context (hostname subdomain or Preview/local override).
   const supabase = await createClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // No autenticado → login en el mismo subdominio.
   if (!user) {
     redirect("/auth/login");
   }
 
-  // Autenticado: comprobar que pertenece al tenant del hostname.
   const context = await getCurrentContext();
 
   if (!context) {
