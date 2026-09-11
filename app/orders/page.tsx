@@ -11,6 +11,12 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
+import {
+  addCivilDays,
+  formatZonedCivilDate,
+  formatZonedDayLabel,
+  formatZonedTime,
+} from "@/lib/time/zoned-day";
 
 type Order = {
   id: string;
@@ -54,7 +60,14 @@ type OrdersResponse = {
   page: number;
   page_size: number;
   orders: Order[];
+  timezone?: string;
+  week_start?: string;
+  week_days?: string[];
+  from?: string | null;
+  to?: string | null;
 };
+
+type CalendarScope = "active" | "all";
 
 type TeamMemberOption = {
   id: string;
@@ -151,6 +164,10 @@ function parseSortDir(raw: string | null): SortDir | null {
   }
 
   return null;
+}
+
+function parseCalendarScope(raw: string | null): CalendarScope {
+  return raw === "all" ? "all" : "active";
 }
 
 function resolveListFilter(
@@ -263,39 +280,6 @@ function formatDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("es-ES", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function startOfWeekMonday(date: Date) {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const day = start.getDay();
-  const offset = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + offset);
-  return start;
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function dayKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function dueAtDayKey(value: string) {
-  return dayKey(new Date(value));
 }
 
 function statusClassName(status: Order["status"]) {
@@ -427,10 +411,13 @@ function OrdersPageContent() {
   const scopeToday = searchParams.get("scope") === "today";
   const [view, setView] = useState<ViewMode>(urlView ?? "list");
   const [prevUrlView, setPrevUrlView] = useState(urlView);
-  const [weekStart, setWeekStart] = useState<Date | null>(null);
+  const [weekStartCivil, setWeekStartCivil] = useState<string | null>(null);
+  const [calendarTimezone, setCalendarTimezone] = useState<string | null>(null);
+  const [calendarDays, setCalendarDays] = useState<string[]>([]);
   const [now, setNow] = useState<Date | null>(null);
   const [prevScopeToday, setPrevScopeToday] = useState(scopeToday);
   const [prevNow, setPrevNow] = useState<Date | null>(null);
+  const calendarScope = parseCalendarScope(searchParams.get("calendar_scope"));
   const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
     null
   );
@@ -574,16 +561,15 @@ function OrdersPageContent() {
   }, [selectedStatus, listFilter, statusId]);
 
   if (isClient && now === null) {
-    const current = new Date();
-    setNow(current);
-    setWeekStart(startOfWeekMonday(current));
+    setNow(new Date());
   }
 
   if (scopeToday !== prevScopeToday || now !== prevNow) {
     setPrevScopeToday(scopeToday);
     setPrevNow(now);
-    if (scopeToday && now) {
-      setWeekStart(startOfWeekMonday(now));
+    if (scopeToday && now && view === "calendar") {
+      setWeekStartCivil(null);
+      setCalendarReloadToken((token) => token + 1);
     }
   }
 
@@ -729,24 +715,50 @@ function OrdersPageContent() {
     loadOrders();
   }, [page, listFilter, assignedMemberId, statusId, sortField, sortDir, listReloadToken]);
 
-  useEffect(() => {
-    if (view !== "calendar" || !weekStart) {
-      return;
+  function replaceCalendarParams(next: {
+    scope?: CalendarScope;
+    assignedTeamMemberId?: string | null;
+  }) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "calendar");
+    params.set("calendar_scope", next.scope ?? calendarScope);
+
+    if (next.assignedTeamMemberId === null) {
+      params.delete("assigned_team_member_id");
+    } else if (typeof next.assignedTeamMemberId === "string") {
+      params.set("assigned_team_member_id", next.assignedTeamMemberId);
     }
 
-    const rangeStart = weekStart;
+    // Calendar must not consume list-only params.
+    params.delete("status_id");
+    params.delete("sort");
+    params.delete("dir");
+    params.delete("filter");
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }
+
+  useEffect(() => {
+    if (view !== "calendar") {
+      return;
+    }
 
     async function loadWeek() {
       setCalendarLoading(true);
       setCalendarError(null);
 
-      const from = rangeStart.toISOString();
-      const to = addDays(rangeStart, 7).toISOString();
-
       try {
-        const response = await fetch(
-          `/api/orders?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-        );
+        const params = new URLSearchParams({
+          week_start: weekStartCivil ?? "current",
+          filter: calendarScope,
+        });
+
+        if (assignedMemberId) {
+          params.set("assigned_team_member_id", assignedMemberId);
+        }
+
+        const response = await fetch(`/api/orders?${params.toString()}`);
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
@@ -754,6 +766,16 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setCalendarData(result);
+
+        if (result.week_start && result.week_start !== weekStartCivil) {
+          setWeekStartCivil(result.week_start);
+        }
+        if (result.timezone) {
+          setCalendarTimezone(result.timezone);
+        }
+        if (Array.isArray(result.week_days) && result.week_days.length === 7) {
+          setCalendarDays(result.week_days);
+        }
       } catch {
         setCalendarData(null);
         setCalendarError("No se pudieron cargar los pedidos");
@@ -762,8 +784,14 @@ function OrdersPageContent() {
       }
     }
 
-    loadWeek();
-  }, [view, weekStart, calendarReloadToken]);
+    void loadWeek();
+  }, [
+    view,
+    weekStartCivil,
+    calendarScope,
+    assignedMemberId,
+    calendarReloadToken,
+  ]);
 
   useEffect(() => {
     if (view !== "service") {
@@ -802,30 +830,23 @@ function OrdersPageContent() {
     : 1;
   const showPagination = filteredTotal > (data?.page_size || pageSize);
 
-  const weekDays = weekStart
-    ? Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
-    : [];
-  const todayKey = now ? dayKey(now) : null;
-  const weekEnd = weekStart ? addDays(weekStart, 6) : null;
+  const weekDays = calendarDays.length === 7 ? calendarDays : [];
+  const todayKey =
+    now && calendarTimezone
+      ? formatZonedCivilDate(now, calendarTimezone)
+      : null;
   const weekLabel =
-    weekStart && weekEnd
-      ? `${weekStart.toLocaleDateString("es-ES", {
-          day: "numeric",
-          month: "short",
-        })} – ${weekEnd.toLocaleDateString("es-ES", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })}`
+    weekDays.length === 7 && calendarTimezone
+      ? `${formatZonedDayLabel(weekDays[0], calendarTimezone)} – ${formatZonedDayLabel(weekDays[6], calendarTimezone)}`
       : "";
   const ordersByDay = new Map<string, Order[]>();
 
   for (const order of calendarData?.orders ?? []) {
-    if (!order.due_at) {
+    if (!order.due_at || !calendarTimezone) {
       continue;
     }
 
-    const key = dueAtDayKey(order.due_at);
+    const key = formatZonedCivilDate(new Date(order.due_at), calendarTimezone);
     const current = ordersByDay.get(key) ?? [];
     current.push(order);
     ordersByDay.set(key, current);
@@ -897,7 +918,10 @@ function OrdersPageContent() {
           </button>
           <button
             type="button"
-            onClick={() => setView("calendar")}
+            onClick={() => {
+              setView("calendar");
+              replaceCalendarParams({ scope: calendarScope });
+            }}
             className={
               view === "calendar"
                 ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
@@ -1194,13 +1218,14 @@ function OrdersPageContent() {
 
         {view === "calendar" && (
           <div className="grid gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    if (!weekStart) return;
-                    setWeekStart(addDays(weekStart, -7));
+                    if (!weekStartCivil) return;
+                    const prev = addCivilDays(weekStartCivil, -7);
+                    if (prev) setWeekStartCivil(prev);
                   }}
                   className="rounded-md border bg-background px-3 py-2 text-sm"
                 >
@@ -1208,7 +1233,10 @@ function OrdersPageContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setWeekStart(startOfWeekMonday(new Date()))}
+                  onClick={() => {
+                    setWeekStartCivil(null);
+                    setCalendarReloadToken((token) => token + 1);
+                  }}
                   className="rounded-md border bg-background px-3 py-2 text-sm"
                 >
                   Hoy
@@ -1216,17 +1244,67 @@ function OrdersPageContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!weekStart) return;
-                    setWeekStart(addDays(weekStart, 7));
+                    if (!weekStartCivil) return;
+                    const next = addCivilDays(weekStartCivil, 7);
+                    if (next) setWeekStartCivil(next);
                   }}
                   className="rounded-md border bg-background px-3 py-2 text-sm"
                 >
                   Semana siguiente
                 </button>
               </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => replaceCalendarParams({ scope: "active" })}
+                    className={
+                      calendarScope === "active"
+                        ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                        : "rounded-md border bg-background px-3 py-2 text-sm"
+                    }
+                  >
+                    Activos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => replaceCalendarParams({ scope: "all" })}
+                    className={
+                      calendarScope === "all"
+                        ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
+                        : "rounded-md border bg-background px-3 py-2 text-sm"
+                    }
+                  >
+                    Todos
+                  </button>
+                </div>
+
+                <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
+                  <span className="text-muted-foreground">Responsable</span>
+                  <select
+                    className="rounded-md border bg-background px-3 py-2"
+                    value={assignedMemberId ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      replaceCalendarParams({
+                        scope: calendarScope,
+                        assignedTeamMemberId: value ? value : null,
+                      });
+                    }}
+                  >
+                    <option value="">Todos los responsables</option>
+                    {teamMembers.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
 
-            {calendarLoading || !weekStart ? (
+            {calendarLoading || weekDays.length !== 7 || !calendarTimezone ? (
               <LoadingState label="Cargando calendario..." />
             ) : calendarError ? (
               <ErrorState
@@ -1235,19 +1313,18 @@ function OrdersPageContent() {
               />
             ) : calendarOrderCount === 0 ? (
               <div className="overflow-hidden rounded-lg border bg-card">
-                <EmptyState title="No hay pedidos esta semana" />
+                <EmptyState title="No hay entregas esta semana" />
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <div className="grid min-w-[840px] grid-cols-7 gap-2">
                   {weekDays.map((day) => {
-                    const key = dayKey(day);
-                    const dayOrders = ordersByDay.get(key) ?? [];
-                    const isToday = key === todayKey;
+                    const dayOrders = ordersByDay.get(day) ?? [];
+                    const isToday = day === todayKey;
 
                     return (
                       <section
-                        key={key}
+                        key={day}
                         className={
                           isToday
                             ? "rounded-lg border border-foreground/30 bg-card p-3"
@@ -1255,14 +1332,14 @@ function OrdersPageContent() {
                         }
                       >
                         <h2 className="mb-3 text-sm font-medium">
-                          {day.toLocaleDateString("es-ES", {
-                            weekday: "short",
-                            day: "numeric",
-                          })}
+                          {formatZonedDayLabel(day, calendarTimezone)} ·{" "}
+                          {dayOrders.length}
                         </h2>
                         <div className="grid gap-2">
                           {dayOrders.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">—</p>
+                            <p className="text-xs text-muted-foreground">
+                              Sin entregas
+                            </p>
                           ) : (
                             dayOrders.map((order) => (
                               <Link
@@ -1271,7 +1348,10 @@ function OrdersPageContent() {
                                 className="block rounded-md border bg-background p-2 text-xs hover:bg-muted/40"
                               >
                                 <div className="font-medium">
-                                  {formatTime(order.due_at ?? "")}
+                                  {formatZonedTime(
+                                    new Date(order.due_at ?? ""),
+                                    calendarTimezone
+                                  )}
                                 </div>
                                 <div className="mt-1 text-muted-foreground">
                                   {order.reference}
@@ -1282,7 +1362,21 @@ function OrdersPageContent() {
                                 <div className="mt-1 text-muted-foreground">
                                   {order.client?.name ?? "Sin cliente"}
                                 </div>
-                                <div className="mt-2">
+                                <div className="mt-1 text-muted-foreground">
+                                  {order.assigned_team_member?.name ??
+                                    "Sin asignar"}
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {order.priority === "urgent" ||
+                                  order.priority === "high" ? (
+                                    <span
+                                      className={priorityClassName(
+                                        order.priority
+                                      )}
+                                    >
+                                      {priorityLabel(order.priority)}
+                                    </span>
+                                  ) : null}
                                   <span className={statusClassName(order.status)}>
                                     {order.status?.name ?? "—"}
                                   </span>

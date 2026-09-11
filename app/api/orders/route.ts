@@ -6,7 +6,7 @@ import {
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
-import { getZonedDayBounds, resolveTimeZone } from "@/lib/time/zoned-day";
+import { getZonedDayBounds, resolveTimeZone, getZonedWeekBoundsFromMonday, getZonedWeekMondayCivil, parseCivilDate } from "@/lib/time/zoned-day";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PRIORITIES = ["normal", "high", "urgent"] as const;
@@ -194,20 +194,33 @@ function parseTimestamp(
 
 const DUE_AT_RANGE_CHUNK = 500;
 
+const ORDER_SELECT_ACTIVE = ORDER_SELECT.replace(
+  "status:order_statuses(*)",
+  "status:order_statuses!inner(*)"
+);
+
+type CalendarRangeFilter = "active" | "all";
+
 async function fetchOrdersByDueAtRange(
   supabase: Awaited<ReturnType<typeof createClient>>,
   tenantId: string,
   fromValue: string | null,
-  toValue: string | null
+  toValue: string | null,
+  options?: {
+    filter?: CalendarRangeFilter | null;
+    assignedTeamMemberId?: string | null;
+  }
 ) {
   const orders = [];
   let total: number | null = null;
   let offset = 0;
+  const activeOnly = options?.filter === "active";
+  const select = activeOnly ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
 
   while (true) {
     let query = supabase
       .from("orders")
-      .select(ORDER_SELECT, { count: "exact" })
+      .select(select, { count: "exact" })
       .eq("tenant_id", tenantId)
       .not("due_at", "is", null);
 
@@ -217,6 +230,20 @@ async function fetchOrdersByDueAtRange(
 
     if (toValue) {
       query = query.lt("due_at", toValue);
+    }
+
+    if (activeOnly) {
+      query = query
+        .is("archived_at", null)
+        .eq("status.is_closed", false)
+        .eq("status.is_cancelled", false);
+    }
+
+    if (options?.assignedTeamMemberId) {
+      query = query.eq(
+        "assigned_team_member_id",
+        options.assignedTeamMemberId
+      );
     }
 
     const { data, error, count } = await query
@@ -252,11 +279,6 @@ async function fetchOrdersByDueAtRange(
     total: total ?? orders.length,
   };
 }
-
-const ORDER_SELECT_ACTIVE = ORDER_SELECT.replace(
-  "status:order_statuses(*)",
-  "status:order_statuses!inner(*)"
-);
 
 async function fetchActiveOrders(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -355,6 +377,7 @@ export async function GET(request: NextRequest) {
 
   const fromDate = parseTimestamp(searchParams.get("from"));
   const toDate = parseTimestamp(searchParams.get("to"));
+  const weekStartRaw = searchParams.get("week_start")?.trim() || null;
 
   if (!fromDate.ok || !toDate.ok) {
     return NextResponse.json(
@@ -389,7 +412,6 @@ export async function GET(request: NextRequest) {
 
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
-  const dateFiltered = Boolean(fromDate.value || toDate.value);
   const activeOnly = searchParams.get("active") === "true";
   const rawFilter = searchParams.get("filter");
   const listFilter = parseListFilter(rawFilter);
@@ -430,11 +452,58 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid value" }, { status: 400 });
   }
 
+  const supabase = await createClient();
+
+  let rangeFrom = fromDate.value;
+  let rangeTo = toDate.value;
+  let weekMeta: {
+    timezone: string;
+    week_start: string;
+    week_days: string[];
+  } | null = null;
+
+  if (weekStartRaw) {
+    const { data: settings } = await supabase
+      .from("tenant_settings")
+      .select("timezone")
+      .eq("tenant_id", context.tenant.id)
+      .maybeSingle();
+
+    const timezone = resolveTimeZone(
+      typeof settings?.timezone === "string" ? settings.timezone : null
+    );
+
+    let mondayCivil: string | null = null;
+    if (weekStartRaw === "current") {
+      mondayCivil = getZonedWeekMondayCivil(new Date(), timezone);
+    } else {
+      const parsedMonday = parseCivilDate(weekStartRaw);
+      mondayCivil = parsedMonday.ok ? parsedMonday.date : null;
+    }
+
+    if (!mondayCivil) {
+      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    }
+
+    const bounds = getZonedWeekBoundsFromMonday(mondayCivil, timezone);
+    if (!bounds) {
+      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    }
+
+    rangeFrom = bounds.start.toISOString();
+    rangeTo = bounds.end.toISOString();
+    weekMeta = {
+      timezone,
+      week_start: bounds.monday,
+      week_days: bounds.days,
+    };
+  }
+
+  const dateFiltered = Boolean(rangeFrom || rangeTo);
+
   // Dashboard deep link with only assignee → operative (active) scope.
   const effectiveFilter: ListFilter | null =
     listFilter ?? (assignedTeamMemberId || statusId ? "active" : null);
-
-  const supabase = await createClient();
 
   if (statusId) {
     const statusOk = await belongsToTenant(
@@ -453,11 +522,38 @@ export async function GET(request: NextRequest) {
   }
 
   if (dateFiltered) {
+    if (rawFilter && rawFilter !== "active" && rawFilter !== "all") {
+      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    }
+
+    const calendarFilter: CalendarRangeFilter | null =
+      rawFilter === "active" || rawFilter === "all" ? rawFilter : null;
+
+    if (assignedTeamMemberId) {
+      const assigneeOk = await belongsToTenant(
+        supabase,
+        "team_members",
+        assignedTeamMemberId,
+        context.tenant.id
+      );
+
+      if (!assigneeOk) {
+        return NextResponse.json(
+          { error: "Invalid related record for current tenant" },
+          { status: 400 }
+        );
+      }
+    }
+
     const result = await fetchOrdersByDueAtRange(
       supabase,
       context.tenant.id,
-      fromDate.value,
-      toDate.value
+      rangeFrom,
+      rangeTo,
+      {
+        filter: calendarFilter,
+        assignedTeamMemberId,
+      }
     );
 
     if (result.error) {
@@ -479,6 +575,15 @@ export async function GET(request: NextRequest) {
       page: 1,
       page_size: result.orders.length,
       orders: result.orders,
+      ...(weekMeta
+        ? {
+            timezone: weekMeta.timezone,
+            week_start: weekMeta.week_start,
+            week_days: weekMeta.week_days,
+            from: rangeFrom,
+            to: rangeTo,
+          }
+        : {}),
     });
   }
 
