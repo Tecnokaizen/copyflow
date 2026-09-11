@@ -8,6 +8,7 @@ import { AppNav } from "@/components/app-nav";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
@@ -280,22 +281,6 @@ function formatDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function statusClassName(status: Order["status"]) {
-  if (status?.is_closed) {
-    return "rounded-full bg-green-100 px-2 py-1 font-medium text-green-700";
-  }
-
-  if (status?.is_ready || status?.code === "ready") {
-    return "rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700";
-  }
-
-  if (status?.code === "in_progress") {
-    return "rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-700";
-  }
-
-  return "rounded-full bg-gray-100 px-2 py-1 font-medium text-gray-700";
 }
 
 function priorityClassName(priority: string) {
@@ -725,19 +710,27 @@ function OrdersPageContent() {
   }
 
   function toggleSort(field: SortField) {
-    if (sortField === field) {
+    if (sortField !== field) {
       replaceListParams({
         filter: listFilter,
         sort: field,
-        dir: sortDir === "asc" ? "desc" : "asc",
+        dir: "asc",
+      });
+      return;
+    }
+
+    if (sortDir === "asc") {
+      replaceListParams({
+        filter: listFilter,
+        sort: field,
+        dir: "desc",
       });
       return;
     }
 
     replaceListParams({
       filter: listFilter,
-      sort: field,
-      dir: "asc",
+      sort: null,
     });
   }
 
@@ -1285,11 +1278,7 @@ function OrdersPageContent() {
                                 </td>
 
                                 <td className="px-4 py-4">
-                                  <span
-                                    className={statusClassName(order.status)}
-                                  >
-                                    {order.status?.name ?? "—"}
-                                  </span>
+                                  <StatusBadge status={order.status} />
                                 </td>
 
                                 <td className="px-4 py-4">
@@ -1515,9 +1504,7 @@ function OrdersPageContent() {
                                       {priorityLabel(order.priority)}
                                     </span>
                                   ) : null}
-                                  <span className={statusClassName(order.status)}>
-                                    {order.status?.name ?? "—"}
-                                  </span>
+                                  <StatusBadge status={order.status} />
                                 </div>
                               </Link>
                             ))
@@ -1669,11 +1656,7 @@ function OrdersPageContent() {
                                       {priorityLabel(order.priority)}
                                     </span>
                                   ) : null}
-                                  <span
-                                    className={statusClassName(order.status)}
-                                  >
-                                    {order.status?.name ?? "—"}
-                                  </span>
+                                  <StatusBadge status={order.status} />
                                 </div>
                               </div>
                               <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-3">

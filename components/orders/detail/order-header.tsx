@@ -70,12 +70,10 @@ export function OrderHeader({
   const priority = draft && editing ? draft.priority : order.priority;
   const dueAt = draft && editing ? draft.due_at : order.due_at;
   const title = draft && editing ? draft.title : order.title;
-  const statusName =
+  const statusForBadge =
     (draft && editing
-      ? statuses.find((item) => item.id === draft.status_id)?.name
-      : null) ??
-    order.status?.name ??
-    "—";
+      ? (statuses.find((item) => item.id === draft.status_id) ?? null)
+      : order.status) ?? null;
 
   const signals = getOrderAttentionSignals({
     ...order,
@@ -142,7 +140,7 @@ export function OrderHeader({
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <StatusBadge tone="brand">{statusName}</StatusBadge>
+        <StatusBadge status={statusForBadge} />
         <StatusBadge tone={priorityTone(priority)}>
           {formatPriority(priority)}
         </StatusBadge>

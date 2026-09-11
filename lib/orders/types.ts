@@ -24,7 +24,10 @@ export type OrderStatus = {
   id: string;
   code: string;
   name: string;
+  is_initial?: boolean;
   is_ready?: boolean;
+  is_closed?: boolean;
+  is_cancelled?: boolean;
 };
 
 export type Order = {
@@ -53,7 +56,10 @@ export type Order = {
   status: {
     name: string;
     code: string;
+    is_initial?: boolean;
     is_ready?: boolean;
+    is_closed?: boolean;
+    is_cancelled?: boolean;
   } | null;
   order_context: OrderNamedRef | null;
 
