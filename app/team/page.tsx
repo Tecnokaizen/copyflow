@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { PageHeader } from "@/components/gestcopy/page-header";
 import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
@@ -156,19 +157,16 @@ export default function TeamPage() {
 
   return (
     <>
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Personal
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Equipo operativo del taller (no es la gestión de acceso SaaS).
-          </p>
-          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-            <span>Miembros: {data?.total ?? 0}</span>
-            <span>Disponibles: {data?.available_count ?? 0}</span>
-            <span>Pedidos activos: {data?.active_orders_count ?? 0}</span>
-          </div>
-        </div>
+      <PageHeader
+        title="Personal"
+        description="Equipo operativo del taller (no es la gestión de acceso SaaS)."
+        className="mb-4 sm:mb-5"
+      />
+      <div className="mb-8 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+        <span>Miembros: {data?.total ?? 0}</span>
+        <span>Disponibles: {data?.available_count ?? 0}</span>
+        <span>Pedidos activos: {data?.active_orders_count ?? 0}</span>
+      </div>
 
         <div className="mb-6 grid gap-3 md:grid-cols-2">
           <input
@@ -176,14 +174,14 @@ export default function TeamPage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Buscar por nombre, rol o área..."
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           />
           <select
             value={active}
             onChange={(event) =>
               setActive(event.target.value as ActiveFilter)
             }
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           >
             <option value="true">Activos</option>
             <option value="false">Inactivos</option>

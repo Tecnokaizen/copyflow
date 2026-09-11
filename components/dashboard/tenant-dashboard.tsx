@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { SectionCard } from "@/components/gestcopy/section-card";
@@ -66,9 +67,9 @@ function priorityLabel(priority: string) {
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="dark gc-page gc-dashboard">
-      <div className="gc-page-inner">{children}</div>
-    </main>
+    <AppShell className="gc-dashboard">
+      {children}
+    </AppShell>
   );
 }
 
@@ -115,9 +116,7 @@ function UpcomingRow({ order }: { order: DashboardUpcomingOrder }) {
               </StatusBadge>
             ) : null}
             {order.status?.name ? (
-              <StatusBadge tone={order.status.is_ready ? "brand" : "neutral"}>
-                {order.status.name}
-              </StatusBadge>
+              <StatusBadge status={order.status} />
             ) : null}
           </div>
         </div>
@@ -149,7 +148,7 @@ function AttentionRow({ order }: { order: DashboardAttentionOrder }) {
             </StatusBadge>
           ) : null}
           {order.status?.name ? (
-            <StatusBadge tone="brand">{order.status.name}</StatusBadge>
+            <StatusBadge status={order.status} />
           ) : null}
         </div>
       </div>

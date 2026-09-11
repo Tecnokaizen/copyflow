@@ -3,11 +3,14 @@
 import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
@@ -18,6 +21,7 @@ import {
   formatZonedDayLabel,
   formatZonedTime,
 } from "@/lib/time/zoned-day";
+import { cn } from "@/lib/utils";
 
 type Order = {
   id: string;
@@ -265,10 +269,14 @@ function summaryForFilter(
 
 function sortIndicator(active: boolean, dir: SortDir | null) {
   if (!active || !dir) {
-    return "↕";
+    return <ArrowUpDown className="size-3.5 opacity-50" aria-hidden />;
   }
 
-  return dir === "asc" ? "↑" : "↓";
+  if (dir === "asc") {
+    return <ArrowUp className="size-3.5 text-primary" aria-hidden />;
+  }
+
+  return <ArrowDown className="size-3.5 text-primary" aria-hidden />;
 }
 
 function formatDate(value: string | null) {
@@ -430,15 +438,11 @@ export default function OrdersPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto max-w-7xl">
-            <AppNav />
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold">Pedidos</h1>
-            </div>
-            <LoadingState label="Cargando pedidos..." />
-          </div>
-        </main>
+        <AppShell>
+          <AppNav />
+          <PageHeader title="Pedidos" />
+          <LoadingState label="Cargando pedidos..." />
+        </AppShell>
       }
     >
       <OrdersPageContent />
@@ -997,37 +1001,26 @@ function OrdersPageContent() {
   ];
 
   return (
-    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl">
-        <AppNav />
+    <AppShell>
+      <AppNav />
 
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Pedidos</h1>
-
-            <p className="mt-2 text-sm text-muted-foreground">
-              {view === "list" ? (
-                <>
-                  {summaryForFilter(
-                    listFilter,
-                    filteredTotal,
-                    allTotal,
-                    Boolean(assignedMemberId),
-                    Boolean(statusId)
-                  )}
-                </>
-              ) : view === "calendar" ? (
-                <>Semana del {weekLabel}</>
-              ) : (
-                <>
-                  {serviceOrdersForAssignee.length} pedidos activos ·{" "}
-                  {serviceGroups.length} servicios con carga
-                </>
-              )}
-            </p>
-          </div>
-
-          {canWrite ? (
+      <PageHeader
+        title="Pedidos"
+        description={
+          view === "list"
+            ? summaryForFilter(
+                listFilter,
+                filteredTotal,
+                allTotal,
+                Boolean(assignedMemberId),
+                Boolean(statusId)
+              )
+            : view === "calendar"
+              ? `Semana del ${weekLabel}`
+              : `${serviceOrdersForAssignee.length} pedidos activos · ${serviceGroups.length} servicios con carga`
+        }
+        actions={
+          canWrite ? (
             <Button
               type="button"
               onClick={() => setShowCreateForm(true)}
@@ -1035,58 +1028,46 @@ function OrdersPageContent() {
             >
               Nuevo pedido
             </Button>
-          ) : null}
-        </div>
+          ) : null
+        }
+      />
 
         <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => navigateToView("list")}
-            className={
-              view === "list"
-                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                : "rounded-md border bg-background px-3 py-2 text-sm"
-            }
+            className={cn("gc-chip", view === "list" && "gc-chip-active")}
           >
             Lista
           </button>
           <button
             type="button"
             onClick={() => navigateToView("calendar")}
-            className={
-              view === "calendar"
-                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                : "rounded-md border bg-background px-3 py-2 text-sm"
-            }
+            className={cn("gc-chip", view === "calendar" && "gc-chip-active")}
           >
             Calendario
           </button>
           <button
             type="button"
             onClick={() => navigateToView("service")}
-            className={
-              view === "service"
-                ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                : "rounded-md border bg-background px-3 py-2 text-sm"
-            }
+            className={cn("gc-chip", view === "service" && "gc-chip-active")}
           >
             Por Servicio
           </button>
         </div>
 
         {view === "list" ? (
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="gc-filter-bar">
             <div className="flex flex-wrap gap-2">
               {primaryFilters.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => applyPrimaryFilter(item.id)}
-                  className={
-                    primaryFilter === item.id
-                      ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                      : "rounded-md border bg-background px-3 py-2 text-sm"
-                  }
+                  className={cn(
+                    "gc-chip",
+                    primaryFilter === item.id && "gc-chip-active"
+                  )}
                 >
                   {item.label}
                 </button>
@@ -1094,10 +1075,10 @@ function OrdersPageContent() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <label className="flex flex-col gap-1 text-sm sm:min-w-[200px]">
-                <span className="text-muted-foreground">Estado</span>
+              <label className="gc-field sm:min-w-[200px]">
+                <span className="gc-field-label">Estado</span>
                 <select
-                  className="rounded-md border bg-background px-3 py-2"
+                  className="gc-field-control"
                   value={statusId ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1113,10 +1094,10 @@ function OrdersPageContent() {
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
-                <span className="text-muted-foreground">Responsable</span>
+              <label className="gc-field sm:min-w-[220px]">
+                <span className="gc-field-label">Responsable</span>
                 <select
-                  className="rounded-md border bg-background px-3 py-2"
+                  className="gc-field-control"
                   value={assignedMemberId ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -1176,13 +1157,10 @@ function OrdersPageContent() {
                     />
                   </div>
                 ) : (
-                  <div
-                    ref={listRef}
-                    className="overflow-hidden rounded-lg border bg-card"
-                  >
+                  <div ref={listRef} className="gc-card">
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="border-b bg-muted/50">
+                      <table className="gc-table">
+                        <thead>
                           <tr>
                             {(
                               [
@@ -1196,22 +1174,14 @@ function OrdersPageContent() {
                             ).map(([field, label]) => {
                               const active = sortField === field;
                               return (
-                                <th
-                                  key={field}
-                                  className="px-4 py-3 text-left font-medium"
-                                >
+                                <th key={field}>
                                   <button
                                     type="button"
                                     onClick={() => toggleSort(field)}
-                                    className="inline-flex items-center gap-1 hover:underline"
+                                    className="inline-flex items-center gap-1.5 hover:text-foreground"
                                   >
                                     <span>{label}</span>
-                                    <span
-                                      className="text-xs text-muted-foreground"
-                                      aria-hidden
-                                    >
-                                      {sortIndicator(active, sortDir)}
-                                    </span>
+                                    {sortIndicator(active, sortDir)}
                                   </button>
                                 </th>
                               );
@@ -1222,66 +1192,50 @@ function OrdersPageContent() {
                         <tbody>
                           {loading ? (
                             <tr>
-                              <td
-                                className="px-4 py-4 text-muted-foreground"
-                                colSpan={6}
-                              >
+                              <td className="text-muted-foreground" colSpan={6}>
                                 Cargando pedidos...
                               </td>
                             </tr>
                           ) : (
                             listOrders.map((order) => (
-                              <tr
-                                key={order.id}
-                                className="border-b last:border-b-0 hover:bg-muted/30"
-                              >
-                                <td className="px-4 py-4">
+                              <tr key={order.id}>
+                                <td>
                                   <Link
                                     href={`/orders/${order.id}`}
-                                    className="font-medium hover:underline"
+                                    className="font-semibold text-foreground hover:underline"
                                   >
                                     {order.title}
                                   </Link>
 
-                                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.8125rem] text-muted-foreground">
                                     <span>{order.reference}</span>
-
-                                    <span
-                                      className={
-                                        order.priority === "urgent"
-                                          ? "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700"
-                                          : order.priority === "high"
-                                            ? "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700"
-                                            : "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
-                                      }
-                                    >
-                                      {order.priority === "urgent"
-                                        ? "Urgente"
-                                        : order.priority === "high"
-                                          ? "Alta"
-                                          : "Normal"}
-                                    </span>
+                                    {order.priority === "urgent" ||
+                                    order.priority === "high" ? (
+                                      <span
+                                        className={priorityClassName(
+                                          order.priority
+                                        )}
+                                      >
+                                        {priorityLabel(order.priority)}
+                                      </span>
+                                    ) : null}
                                   </div>
                                 </td>
 
-                                <td className="px-4 py-4">
-                                  {order.client?.name ?? "Sin cliente"}
-                                </td>
+                                <td>{order.client?.name ?? "Sin cliente"}</td>
 
-                                <td className="px-4 py-4">
-                                  {order.entry_channel?.name ?? "—"}
-                                </td>
+                                <td>{order.entry_channel?.name ?? "—"}</td>
 
-                                <td className="px-4 py-4">
+                                <td>
                                   {order.assigned_team_member?.name ??
                                     "Sin asignar"}
                                 </td>
 
-                                <td className="px-4 py-4">
+                                <td>
                                   <StatusBadge status={order.status} />
                                 </td>
 
-                                <td className="px-4 py-4">
+                                <td>
                                   <div
                                     className={
                                       now &&
@@ -1289,7 +1243,7 @@ function OrdersPageContent() {
                                       new Date(order.due_at) < now &&
                                       order.status?.is_closed !== true &&
                                       order.status?.is_cancelled !== true
-                                        ? "font-medium text-red-600"
+                                        ? "font-medium text-[hsl(var(--gc-danger))]"
                                         : ""
                                     }
                                   >
@@ -1354,7 +1308,7 @@ function OrdersPageContent() {
                     const prev = addCivilDays(weekStartCivil, -7);
                     if (prev) setWeekStartCivil(prev);
                   }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                  className="gc-chip"
                 >
                   Semana anterior
                 </button>
@@ -1364,7 +1318,7 @@ function OrdersPageContent() {
                     setWeekStartCivil(null);
                     setCalendarReloadToken((token) => token + 1);
                   }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                  className="gc-chip"
                 >
                   Hoy
                 </button>
@@ -1375,7 +1329,7 @@ function OrdersPageContent() {
                     const next = addCivilDays(weekStartCivil, 7);
                     if (next) setWeekStartCivil(next);
                   }}
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                  className="gc-chip"
                 >
                   Semana siguiente
                 </button>
@@ -1386,31 +1340,29 @@ function OrdersPageContent() {
                   <button
                     type="button"
                     onClick={() => replaceCalendarParams({ scope: "active" })}
-                    className={
-                      calendarScope === "active"
-                        ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                        : "rounded-md border bg-background px-3 py-2 text-sm"
-                    }
+                    className={cn(
+                      "gc-chip",
+                      calendarScope === "active" && "gc-chip-active"
+                    )}
                   >
                     Activos
                   </button>
                   <button
                     type="button"
                     onClick={() => replaceCalendarParams({ scope: "all" })}
-                    className={
-                      calendarScope === "all"
-                        ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
-                        : "rounded-md border bg-background px-3 py-2 text-sm"
-                    }
+                    className={cn(
+                      "gc-chip",
+                      calendarScope === "all" && "gc-chip-active"
+                    )}
                   >
                     Todos
                   </button>
                 </div>
 
-                <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
-                  <span className="text-muted-foreground">Responsable</span>
+                <label className="gc-field sm:min-w-[220px]">
+                  <span className="gc-field-label">Responsable</span>
                   <select
-                    className="rounded-md border bg-background px-3 py-2"
+                    className="gc-field-control"
                     value={assignedMemberId ?? ""}
                     onChange={(event) => {
                       const value = event.target.value;
@@ -1535,10 +1487,10 @@ function OrdersPageContent() {
             ) : (
               <>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                  <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
-                    <span className="text-muted-foreground">Responsable</span>
+                  <label className="gc-field sm:min-w-[220px]">
+                    <span className="gc-field-label">Responsable</span>
                     <select
-                      className="rounded-md border bg-background px-3 py-2"
+                      className="gc-field-control"
                       value={serviceAssigneeId ?? ""}
                       onChange={(event) => {
                         const value = event.target.value;
@@ -1569,19 +1521,19 @@ function OrdersPageContent() {
                         onClick={() =>
                           replaceServiceParams({ serviceId: null })
                         }
-                        className={
-                          serviceIdParam === null
-                            ? "rounded-lg border border-foreground/40 bg-foreground px-3 py-3 text-left text-sm text-background"
-                            : "rounded-lg border bg-card px-3 py-3 text-left text-sm hover:bg-muted/40"
-                        }
+                        className={cn(
+                          "gc-chip h-auto flex-col items-start px-3 py-3 text-left",
+                          serviceIdParam === null && "gc-chip-active"
+                        )}
                       >
                         <div className="font-medium">Todos</div>
                         <div
-                          className={
+                          className={cn(
+                            "mt-1",
                             serviceIdParam === null
-                              ? "mt-1 text-background/80"
-                              : "mt-1 text-muted-foreground"
-                          }
+                              ? "text-primary/80"
+                              : "text-muted-foreground"
+                          )}
                         >
                           {serviceOrdersForAssignee.length} activos
                         </div>
@@ -1595,19 +1547,19 @@ function OrdersPageContent() {
                             onClick={() =>
                               replaceServiceParams({ serviceId: group.key })
                             }
-                            className={
-                              selected
-                                ? "rounded-lg border border-foreground/40 bg-foreground px-3 py-3 text-left text-sm text-background"
-                                : "rounded-lg border bg-card px-3 py-3 text-left text-sm hover:bg-muted/40"
-                            }
+                            className={cn(
+                              "gc-chip h-auto flex-col items-start px-3 py-3 text-left",
+                              selected && "gc-chip-active"
+                            )}
                           >
                             <div className="font-medium">{group.name}</div>
                             <div
-                              className={
+                              className={cn(
+                                "mt-1",
                                 selected
-                                  ? "mt-1 text-background/80"
-                                  : "mt-1 text-muted-foreground"
-                              }
+                                  ? "text-primary/80"
+                                  : "text-muted-foreground"
+                              )}
                             >
                               {group.orders.length} activos
                             </div>
@@ -1678,7 +1630,6 @@ function OrdersPageContent() {
             )}
           </div>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }

@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { PageHeader } from "@/components/gestcopy/page-header";
 import { ServiceForm } from "@/components/services/service-form";
 import { ServiceModal } from "@/components/services/service-modal";
 import { canWriteServices } from "@/lib/auth/membership-roles";
@@ -207,24 +209,16 @@ export default function ServicesPage() {
           : "No hay servicios todavía";
 
   return (
-    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl">
-        <AppNav />
+    <AppShell>
+      <AppNav />
 
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Servicios</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {total} servicios
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Plazo estándar medio:{" "}
-              {formatLeadTimeMinutes(
-                data?.average_standard_lead_time_minutes ?? null
-              )}
-            </p>
-          </div>
-          {canWrite && (
+      <PageHeader
+        title="Servicios"
+        description={`${total} servicios · Plazo estándar medio: ${formatLeadTimeMinutes(
+          data?.average_standard_lead_time_minutes ?? null
+        )}`}
+        actions={
+          canWrite ? (
             <Button
               type="button"
               onClick={() => {
@@ -235,8 +229,9 @@ export default function ServicesPage() {
             >
               Nuevo servicio
             </Button>
-          )}
-        </div>
+          ) : null
+        }
+      />
 
         <div className="mb-6 grid gap-3 md:grid-cols-3">
           <input
@@ -244,12 +239,12 @@ export default function ServicesPage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Buscar por nombre, descripción o categoría..."
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           />
           <select
             value={categoryId}
             onChange={(event) => setCategoryId(event.target.value)}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           >
             <option value="">Todas las categorías</option>
             {categories.map((category) => (
@@ -263,7 +258,7 @@ export default function ServicesPage() {
             onChange={(event) =>
               setActive(event.target.value as ActiveFilter)
             }
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           >
             <option value="true">Activos</option>
             <option value="false">Inactivos</option>
@@ -388,7 +383,6 @@ export default function ServicesPage() {
             </div>
           </div>
         )}
-      </div>
 
       {createOpen && (
         <ServiceModal>
@@ -424,6 +418,6 @@ export default function ServicesPage() {
           />
         </ServiceModal>
       )}
-    </main>
+    </AppShell>
   );
 }

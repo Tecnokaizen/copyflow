@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppNav } from "@/components/app-nav";
 import { ActivityEventCard } from "@/components/activity/activity-event-card";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { PageHeader } from "@/components/gestcopy/page-header";
 import { actionsForEntity } from "@/lib/activity/format";
 import { canViewActivity } from "@/lib/auth/membership-roles";
 import {
@@ -111,16 +113,13 @@ export default function ActivityPage() {
   const hasListFilters = Boolean(entityType || action || from || to);
 
   return (
-    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-5xl">
-        <AppNav />
+    <AppShell innerClassName="max-w-5xl">
+      <AppNav />
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Registro de actividad</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Historial de cambios realizados en Copyflow
-          </p>
-        </div>
+      <PageHeader
+        title="Registro de actividad"
+        description="Historial de cambios realizados en Copyflow"
+      />
 
         {!roleReady ? (
           <LoadingState label="Cargando actividad..." />
@@ -138,7 +137,7 @@ export default function ActivityPage() {
                   setAction("");
                   setPage(1);
                 }}
-                className="rounded-md border bg-background px-3 py-2 text-sm"
+                className="gc-field-control"
               >
                 <option value="">Todas las entidades</option>
                 {ENTITY_TYPE_OPTIONS.map((option) => (
@@ -154,7 +153,7 @@ export default function ActivityPage() {
                   setAction(event.target.value);
                   setPage(1);
                 }}
-                className="rounded-md border bg-background px-3 py-2 text-sm"
+                className="gc-field-control"
               >
                 <option value="">Todas las acciones</option>
                 {actionOptions.map((option) => (
@@ -171,7 +170,7 @@ export default function ActivityPage() {
                   setFrom(event.target.value);
                   setPage(1);
                 }}
-                className="rounded-md border bg-background px-3 py-2 text-sm"
+                className="gc-field-control"
                 aria-label="Fecha desde"
               />
 
@@ -182,7 +181,7 @@ export default function ActivityPage() {
                   setTo(event.target.value);
                   setPage(1);
                 }}
-                className="rounded-md border bg-background px-3 py-2 text-sm"
+                className="gc-field-control"
                 aria-label="Fecha hasta"
               />
             </div>
@@ -249,7 +248,6 @@ export default function ActivityPage() {
             )}
           </>
         )}
-      </div>
-    </main>
+    </AppShell>
   );
 }

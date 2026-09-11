@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppNav } from "@/components/app-nav";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { TeamSectionTabs } from "@/components/team/team-section-tabs";
 import { canManageTenantAccess } from "@/lib/auth/membership-roles";
 
@@ -22,12 +23,10 @@ export function TeamShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="gc-page-inner">
-        <AppNav />
-        <TeamSectionTabs showAccess={showAccess} />
-        {children}
-      </div>
-    </main>
+    <AppShell>
+      <AppNav />
+      <TeamSectionTabs showAccess={showAccess} />
+      {children}
+    </AppShell>
   );
 }

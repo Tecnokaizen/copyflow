@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { PageHeader } from "@/components/gestcopy/page-header";
 import {
   EMPTY_CLIENT_FORM,
   formatCreateDuplicateMessage,
@@ -213,18 +215,14 @@ export default function ClientsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl">
-        <AppNav />
+    <AppShell>
+      <AppNav />
 
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Clientes</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {total} clientes
-            </p>
-          </div>
-          {canWrite ? (
+      <PageHeader
+        title="Clientes"
+        description={`${total} clientes`}
+        actions={
+          canWrite ? (
             <Button
               type="button"
               onClick={() => {
@@ -235,8 +233,9 @@ export default function ClientsPage() {
             >
               Nuevo cliente
             </Button>
-          ) : null}
-        </div>
+          ) : null
+        }
+      />
 
         <div className="mb-6 grid gap-3 md:grid-cols-3">
           <input
@@ -244,7 +243,7 @@ export default function ClientsPage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Buscar por nombre, empresa, contacto, email, teléfono, NIF/CIF..."
-            className="rounded-md border bg-background px-3 py-2 text-sm md:col-span-1"
+            className="gc-field-control md:col-span-1"
           />
           <select
             value={customerTypeId}
@@ -252,7 +251,7 @@ export default function ClientsPage() {
               setCustomerTypeId(event.target.value);
               setPage(1);
             }}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           >
             <option value="">Todos los tipos</option>
             {customerTypes.map((option) => (
@@ -267,7 +266,7 @@ export default function ClientsPage() {
               setActive(event.target.value as ActiveFilter);
               setPage(1);
             }}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="gc-field-control"
           >
             <option value="true">Activos</option>
             <option value="false">Inactivos</option>
@@ -393,7 +392,6 @@ export default function ClientsPage() {
             </div>
           </>
         )}
-      </div>
 
       {canWrite && createOpen && (
         <ClientModal>
@@ -415,6 +413,6 @@ export default function ClientsPage() {
           />
         </ClientModal>
       )}
-    </main>
+    </AppShell>
   );
 }

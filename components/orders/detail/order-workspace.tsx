@@ -6,6 +6,7 @@ import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
+import { AppShell } from "@/components/gestcopy/app-shell";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
 import { OrderFulfillment } from "@/components/orders/detail/order-fulfillment";
 import { OrderHeader } from "@/components/orders/detail/order-header";
@@ -693,23 +694,19 @@ export function OrderWorkspace() {
 
   if (loading) {
     return (
-      <main className="gc-page">
-        <div className="gc-page-inner">
-          <AppNav />
-          <p className="text-muted-foreground">Cargando pedido…</p>
-        </div>
-      </main>
+      <AppShell>
+        <AppNav />
+        <p className="text-muted-foreground">Cargando pedido…</p>
+      </AppShell>
     );
   }
 
   if (!order) {
     return (
-      <main className="gc-page">
-        <div className="gc-page-inner">
-          <AppNav />
-          <p className="text-destructive">{error ?? "Pedido no encontrado"}</p>
-        </div>
-      </main>
+      <AppShell>
+        <AppNav />
+        <p className="text-destructive">{error ?? "Pedido no encontrado"}</p>
+      </AppShell>
     );
   }
 
@@ -784,9 +781,8 @@ export function OrderWorkspace() {
   );
 
   return (
-    <main className="gc-page">
-      <div className="gc-page-inner max-w-5xl">
-        <AppNav />
+    <AppShell innerClassName="max-w-5xl">
+      <AppNav />
 
         {!canWrite ? (
           <p className="mb-4 text-sm text-muted-foreground">Solo lectura</p>
@@ -858,7 +854,6 @@ export function OrderWorkspace() {
         <div className="mt-6">
           <OrderActivity activity={activity} loading={activityLoading} />
         </div>
-      </div>
 
       {canWrite && editing && (clientUiMode === "assign" || clientUiMode === "change") && (
         <ClientModal>
@@ -933,6 +928,6 @@ export function OrderWorkspace() {
             />
           </ClientModal>
         )}
-    </main>
+    </AppShell>
   );
 }

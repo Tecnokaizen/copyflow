@@ -157,4 +157,22 @@
   .gc-dashboard .gc-section-title {
     @apply text-base font-semibold tracking-tight text-foreground md:text-lg;
   }
+  .gc-chip {
+    @apply inline-flex items-center justify-center rounded-md border border-border/80 bg-card px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50;
+  }
+  .gc-chip-active {
+    @apply border-primary/30 bg-primary/10 text-primary hover:bg-primary/15;
+  }
+  .gc-filter-bar {
+    @apply mb-4 flex flex-col gap-3 rounded-[var(--radius)] border border-border/70 bg-card p-3 sm:p-4;
+  }
+  .gc-field {
+    @apply flex flex-col gap-1 text-sm;
+  }
+  .gc-field-label {
+    @apply text-muted-foreground;
+  }
+  .gc-field-control {
+    @apply rounded-md border border-border/80 bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
 }
