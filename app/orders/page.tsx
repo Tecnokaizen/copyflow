@@ -715,6 +715,19 @@ function OrdersPageContent() {
     loadOrders();
   }, [page, listFilter, assignedMemberId, statusId, sortField, sortDir, listReloadToken]);
 
+  function navigateToView(nextView: ViewMode) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", nextView);
+
+    if (nextView === "calendar" && !params.get("calendar_scope")) {
+      params.set("calendar_scope", "active");
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+    setView(nextView);
+  }
+
   function replaceCalendarParams(next: {
     scope?: CalendarScope;
     assignedTeamMemberId?: string | null;
@@ -729,14 +742,12 @@ function OrdersPageContent() {
       params.set("assigned_team_member_id", next.assignedTeamMemberId);
     }
 
-    // Calendar must not consume list-only params.
-    params.delete("status_id");
-    params.delete("sort");
-    params.delete("dir");
-    params.delete("filter");
+    // Keep list params (filter/status_id/sort/dir) so Lista can restore them.
+    // Calendar requests build their own querystring and ignore those params.
 
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname);
+    setView("calendar");
   }
 
   useEffect(() => {
@@ -907,7 +918,7 @@ function OrdersPageContent() {
         <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setView("list")}
+            onClick={() => navigateToView("list")}
             className={
               view === "list"
                 ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
@@ -918,10 +929,7 @@ function OrdersPageContent() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              setView("calendar");
-              replaceCalendarParams({ scope: calendarScope });
-            }}
+            onClick={() => navigateToView("calendar")}
             className={
               view === "calendar"
                 ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
@@ -932,7 +940,7 @@ function OrdersPageContent() {
           </button>
           <button
             type="button"
-            onClick={() => setView("service")}
+            onClick={() => navigateToView("service")}
             className={
               view === "service"
                 ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
