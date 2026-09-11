@@ -16,7 +16,9 @@ export async function GET() {
 
   const { data: statuses, error } = await supabase
     .from("order_statuses")
-    .select("id, code, name")
+    .select(
+      "id, code, name, active, is_initial, is_ready, is_closed, is_cancelled, sort_order"
+    )
     .eq("tenant_id", context.tenant.id)
     .order("sort_order", { ascending: true });
 

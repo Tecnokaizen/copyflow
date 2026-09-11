@@ -24,12 +24,96 @@ const LIST_FILTERS = [
 
 type ListFilter = (typeof LIST_FILTERS)[number];
 
+const SORT_FIELDS = [
+  "reference",
+  "client",
+  "channel",
+  "assignee",
+  "status",
+  "due_at",
+] as const;
+
+type SortField = (typeof SORT_FIELDS)[number];
+type SortDir = "asc" | "desc";
+
 function parseListFilter(raw: string | null): ListFilter | null {
   if (!raw) {
     return null;
   }
 
   return LIST_FILTERS.includes(raw as ListFilter) ? (raw as ListFilter) : null;
+}
+
+function parseSortField(raw: string | null): SortField | null {
+  if (!raw) {
+    return null;
+  }
+
+  return SORT_FIELDS.includes(raw as SortField) ? (raw as SortField) : null;
+}
+
+function parseSortDir(raw: string | null): SortDir | null {
+  if (!raw) {
+    return null;
+  }
+
+  if (raw === "asc" || raw === "desc") {
+    return raw;
+  }
+
+  return null;
+}
+
+function applyListOrdering(
+  // Supabase query builder; keep loose to allow relation order columns.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  sort: SortField | null,
+  dir: SortDir | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  if (!sort) {
+    return query
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+  }
+
+  const ascending = dir !== "desc";
+
+  switch (sort) {
+    case "reference":
+      return query
+        .order("reference", { ascending })
+        .order("id", { ascending: true });
+    case "client":
+      return query
+        .order("client(name)", { ascending, nullsFirst: false })
+        .order("reference", { ascending: true });
+    case "channel":
+      return query
+        .order("entry_channel(name)", { ascending, nullsFirst: false })
+        .order("reference", { ascending: true });
+    case "assignee":
+      return query
+        .order("assigned_team_member(name)", {
+          ascending,
+          nullsFirst: false,
+        })
+        .order("reference", { ascending: true });
+    case "status":
+      return query
+        .order("status(sort_order)", { ascending, nullsFirst: false })
+        .order("status(name)", { ascending: true })
+        .order("reference", { ascending: true });
+    case "due_at":
+      return query
+        .order("due_at", { ascending, nullsFirst: false })
+        .order("reference", { ascending: true });
+    default:
+      return query
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+  }
 }
 
 const ORDER_SELECT = `
@@ -311,6 +395,12 @@ export async function GET(request: NextRequest) {
   const listFilter = parseListFilter(rawFilter);
   const assignedTeamMemberIdRaw = searchParams.get("assigned_team_member_id");
   const assignedTeamMemberId = assignedTeamMemberIdRaw?.trim() || null;
+  const statusIdRaw = searchParams.get("status_id");
+  const statusId = statusIdRaw?.trim() || null;
+  const rawSort = searchParams.get("sort");
+  const rawDir = searchParams.get("dir");
+  const sortField = parseSortField(rawSort);
+  const sortDir = parseSortDir(rawDir);
 
   if (rawFilter && !listFilter) {
     return NextResponse.json({ error: "Invalid value" }, { status: 400 });
@@ -320,11 +410,47 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid value" }, { status: 400 });
   }
 
+  if (statusId && !isUuid(statusId)) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (rawSort && !sortField) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (rawDir && !sortDir) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (sortField && !sortDir) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (sortDir && !sortField) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
   // Dashboard deep link with only assignee → operative (active) scope.
   const effectiveFilter: ListFilter | null =
-    listFilter ?? (assignedTeamMemberId ? "active" : null);
+    listFilter ?? (assignedTeamMemberId || statusId ? "active" : null);
 
   const supabase = await createClient();
+
+  if (statusId) {
+    const statusOk = await belongsToTenant(
+      supabase,
+      "order_statuses",
+      statusId,
+      context.tenant.id
+    );
+
+    if (!statusOk) {
+      return NextResponse.json(
+        { error: "Invalid related record for current tenant" },
+        { status: 400 }
+      );
+    }
+  }
 
   if (dateFiltered) {
     const result = await fetchOrdersByDueAtRange(
@@ -428,14 +554,15 @@ export async function GET(request: NextRequest) {
     query = query.eq("assigned_team_member_id", assignedTeamMemberId);
   }
 
+  if (statusId) {
+    query = query.eq("status_id", statusId);
+  }
+
   const {
     data: orders,
     error,
     count: total,
-  } = await query
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(from, to);
+  } = await applyListOrdering(query, sortField, sortDir).range(from, to);
 
   if (error) {
     console.error("[GET /api/orders] Could not load orders", {

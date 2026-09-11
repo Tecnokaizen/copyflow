@@ -61,6 +61,14 @@ type TeamMemberOption = {
   name: string;
 };
 
+type OrderStatusOption = {
+  id: string;
+  name: string;
+  is_closed: boolean;
+  is_cancelled: boolean;
+  sort_order: number;
+};
+
 type ViewMode = "list" | "calendar" | "service";
 type ListFilter =
   | "active"
@@ -70,6 +78,23 @@ type ListFilter =
   | "attention"
   | "upcoming";
 type PrimaryListFilter = "active" | "urgent" | "overdue" | "all";
+type SortField =
+  | "reference"
+  | "client"
+  | "channel"
+  | "assignee"
+  | "status"
+  | "due_at";
+type SortDir = "asc" | "desc";
+
+const SORT_FIELDS: SortField[] = [
+  "reference",
+  "client",
+  "channel",
+  "assignee",
+  "status",
+  "due_at",
+];
 
 function parseViewMode(raw: string | null): ViewMode | null {
   if (raw === "list" || raw === "calendar" || raw === "service") {
@@ -103,6 +128,31 @@ function parseAssignedTeamMemberId(raw: string | null): string | null {
   return isUuid(value) ? value : null;
 }
 
+function parseStatusId(raw: string | null): string | null {
+  if (!raw) {
+    return null;
+  }
+
+  const value = raw.trim();
+  return isUuid(value) ? value : null;
+}
+
+function parseSortField(raw: string | null): SortField | null {
+  if (!raw) {
+    return null;
+  }
+
+  return SORT_FIELDS.includes(raw as SortField) ? (raw as SortField) : null;
+}
+
+function parseSortDir(raw: string | null): SortDir | null {
+  if (raw === "asc" || raw === "desc") {
+    return raw;
+  }
+
+  return null;
+}
+
 function resolveListFilter(
   raw: ListFilter | null,
   assignedId: string | null
@@ -132,12 +182,17 @@ function primaryFilterFrom(filter: ListFilter): PrimaryListFilter | null {
   return null;
 }
 
+function isTerminalStatus(status: OrderStatusOption | null | undefined) {
+  return Boolean(status?.is_closed || status?.is_cancelled);
+}
+
 function emptyTitleForFilter(
   filter: ListFilter,
   hasAssignee: boolean,
+  hasStatus: boolean,
   allTotal: number
 ) {
-  if (hasAssignee) {
+  if (hasAssignee || hasStatus) {
     return "No hay pedidos con estos filtros";
   }
 
@@ -164,9 +219,10 @@ function summaryForFilter(
   filter: ListFilter,
   total: number,
   allTotal: number,
-  hasAssignee: boolean
+  hasAssignee: boolean,
+  hasStatus: boolean
 ) {
-  if (hasAssignee) {
+  if (hasAssignee || hasStatus) {
     return `${total} pedidos · ${allTotal} pedidos totales`;
   }
 
@@ -187,6 +243,14 @@ function summaryForFilter(
   }
 
   return `${total} pedidos activos · ${allTotal} pedidos totales`;
+}
+
+function sortIndicator(active: boolean, dir: SortDir | null) {
+  if (!active || !dir) {
+    return "↕";
+  }
+
+  return dir === "asc" ? "↑" : "↓";
 }
 
 function formatDate(value: string | null) {
@@ -355,6 +419,9 @@ function OrdersPageContent() {
   const assignedMemberId = parseAssignedTeamMemberId(
     searchParams.get("assigned_team_member_id")
   );
+  const statusId = parseStatusId(searchParams.get("status_id"));
+  const sortField = parseSortField(searchParams.get("sort"));
+  const sortDir = parseSortDir(searchParams.get("dir"));
   const listFilter = resolveListFilter(rawListFilter, assignedMemberId);
   const primaryFilter = primaryFilterFrom(listFilter);
   const scopeToday = searchParams.get("scope") === "today";
@@ -378,11 +445,14 @@ function OrdersPageContent() {
   const [calendarReloadToken, setCalendarReloadToken] = useState(0);
   const [byServiceReloadToken, setByServiceReloadToken] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
+  const [orderStatuses, setOrderStatuses] = useState<OrderStatusOption[]>([]);
   const [prevListQuery, setPrevListQuery] = useState(
-    `${listFilter}|${assignedMemberId ?? ""}`
+    `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`
   );
   const pageSize = 50;
-  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}`;
+  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`;
+  const selectedStatus =
+    orderStatuses.find((status) => status.id === statusId) ?? null;
 
   useEffect(() => {
     async function loadContext() {
@@ -424,7 +494,44 @@ function OrdersPageContent() {
       }
     }
 
+    async function loadStatuses() {
+      try {
+        const response = await fetch("/api/order-statuses");
+        if (!response.ok) {
+          return;
+        }
+
+        const result = (await response.json()) as {
+          statuses?: Array<Record<string, unknown>>;
+        };
+
+        const statuses = (result.statuses ?? [])
+          .map((row) => {
+            const id = typeof row.id === "string" ? row.id : null;
+            const name = typeof row.name === "string" ? row.name : null;
+            if (!id || !name) {
+              return null;
+            }
+
+            return {
+              id,
+              name,
+              is_closed: row.is_closed === true,
+              is_cancelled: row.is_cancelled === true,
+              sort_order:
+                typeof row.sort_order === "number" ? row.sort_order : 0,
+            };
+          })
+          .filter((row): row is OrderStatusOption => row !== null);
+
+        setOrderStatuses(statuses);
+      } catch {
+        setOrderStatuses([]);
+      }
+    }
+
     void loadTeam();
+    void loadStatuses();
   }, []);
 
   if (pathname !== prevPathname) {
@@ -446,6 +553,26 @@ function OrdersPageContent() {
     setPage(1);
   }
 
+  // Closed/cancelled status is incompatible with operative scopes.
+  useEffect(() => {
+    if (!selectedStatus || !isTerminalStatus(selectedStatus)) {
+      return;
+    }
+
+    if (
+      listFilter === "active" ||
+      listFilter === "urgent" ||
+      listFilter === "overdue"
+    ) {
+      replaceListParams({
+        filter: "all",
+        statusId,
+      });
+    }
+    // replaceListParams is stable enough for this sync; intentionally omit it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStatus, listFilter, statusId]);
+
   if (isClient && now === null) {
     const current = new Date();
     setNow(current);
@@ -463,6 +590,9 @@ function OrdersPageContent() {
   function replaceListParams(next: {
     filter?: PrimaryListFilter | ListFilter;
     assignedTeamMemberId?: string | null;
+    statusId?: string | null;
+    sort?: SortField | null;
+    dir?: SortDir | null;
   }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("view", "list");
@@ -477,9 +607,68 @@ function OrdersPageContent() {
       params.set("assigned_team_member_id", next.assignedTeamMemberId);
     }
 
+    if (next.statusId === null) {
+      params.delete("status_id");
+    } else if (typeof next.statusId === "string") {
+      params.set("status_id", next.statusId);
+    }
+
+    if (next.sort === null) {
+      params.delete("sort");
+      params.delete("dir");
+    } else if (typeof next.sort === "string") {
+      params.set("sort", next.sort);
+      params.set("dir", next.dir === "desc" ? "desc" : "asc");
+    }
+
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname);
     setPage(1);
+  }
+
+  function applyPrimaryFilter(nextFilter: PrimaryListFilter) {
+    const clearTerminalStatus =
+      nextFilter !== "all" && isTerminalStatus(selectedStatus);
+
+    replaceListParams({
+      filter: nextFilter,
+      statusId: clearTerminalStatus ? null : undefined,
+    });
+  }
+
+  function applyStatusFilter(nextStatusId: string | null) {
+    if (!nextStatusId) {
+      replaceListParams({
+        filter: listFilter,
+        statusId: null,
+      });
+      return;
+    }
+
+    const status = orderStatuses.find((row) => row.id === nextStatusId) ?? null;
+    const nextFilter = isTerminalStatus(status) ? "all" : listFilter;
+
+    replaceListParams({
+      filter: nextFilter,
+      statusId: nextStatusId,
+    });
+  }
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      replaceListParams({
+        filter: listFilter,
+        sort: field,
+        dir: sortDir === "asc" ? "desc" : "asc",
+      });
+      return;
+    }
+
+    replaceListParams({
+      filter: listFilter,
+      sort: field,
+      dir: "asc",
+    });
   }
 
   useEffect(() => {
@@ -496,6 +685,15 @@ function OrdersPageContent() {
 
         if (assignedMemberId) {
           params.set("assigned_team_member_id", assignedMemberId);
+        }
+
+        if (statusId) {
+          params.set("status_id", statusId);
+        }
+
+        if (sortField && sortDir) {
+          params.set("sort", sortField);
+          params.set("dir", sortDir);
         }
 
         const response = await fetch(`/api/orders?${params.toString()}`);
@@ -529,7 +727,7 @@ function OrdersPageContent() {
     }
 
     loadOrders();
-  }, [page, listFilter, assignedMemberId, listReloadToken]);
+  }, [page, listFilter, assignedMemberId, statusId, sortField, sortDir, listReloadToken]);
 
   useEffect(() => {
     if (view !== "calendar" || !weekStart) {
@@ -659,7 +857,8 @@ function OrdersPageContent() {
                     listFilter,
                     filteredTotal,
                     allTotal,
-                    Boolean(assignedMemberId)
+                    Boolean(assignedMemberId),
+                    Boolean(statusId)
                   )}
                 </>
               ) : view === "calendar" ? (
@@ -721,13 +920,13 @@ function OrdersPageContent() {
         </div>
 
         {view === "list" ? (
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
             <div className="flex flex-wrap gap-2">
               {primaryFilters.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => replaceListParams({ filter: item.id })}
+                  onClick={() => applyPrimaryFilter(item.id)}
                   className={
                     primaryFilter === item.id
                       ? "rounded-md border bg-foreground px-3 py-2 text-sm text-background"
@@ -739,27 +938,48 @@ function OrdersPageContent() {
               ))}
             </div>
 
-            <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
-              <span className="text-muted-foreground">Responsable</span>
-              <select
-                className="rounded-md border bg-background px-3 py-2"
-                value={assignedMemberId ?? ""}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  replaceListParams({
-                    filter: listFilter,
-                    assignedTeamMemberId: value ? value : null,
-                  });
-                }}
-              >
-                <option value="">Todos los responsables</option>
-                {teamMembers.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex flex-col gap-1 text-sm sm:min-w-[200px]">
+                <span className="text-muted-foreground">Estado</span>
+                <select
+                  className="rounded-md border bg-background px-3 py-2"
+                  value={statusId ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    applyStatusFilter(value ? value : null);
+                  }}
+                >
+                  <option value="">Todos los estados</option>
+                  {orderStatuses.map((status) => (
+                    <option key={status.id} value={status.id}>
+                      {status.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
+                <span className="text-muted-foreground">Responsable</span>
+                <select
+                  className="rounded-md border bg-background px-3 py-2"
+                  value={assignedMemberId ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    replaceListParams({
+                      filter: listFilter,
+                      assignedTeamMemberId: value ? value : null,
+                    });
+                  }}
+                >
+                  <option value="">Todos los responsables</option>
+                  {teamMembers.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         ) : null}
 
@@ -787,10 +1007,12 @@ function OrdersPageContent() {
                       title={emptyTitleForFilter(
                         listFilter,
                         Boolean(assignedMemberId),
+                        Boolean(statusId),
                         allTotal
                       )}
                       description={
                         assignedMemberId ||
+                        statusId ||
                         listFilter === "attention" ||
                         listFilter === "upcoming"
                           ? "Prueba a cambiar los filtros."
@@ -807,24 +1029,38 @@ function OrdersPageContent() {
                       <table className="w-full text-sm">
                         <thead className="border-b bg-muted/50">
                           <tr>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Pedido
-                            </th>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Cliente
-                            </th>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Canal
-                            </th>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Responsable
-                            </th>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Estado
-                            </th>
-                            <th className="px-4 py-3 text-left font-medium">
-                              Entrega
-                            </th>
+                            {(
+                              [
+                                ["reference", "Pedido"],
+                                ["client", "Cliente"],
+                                ["channel", "Canal"],
+                                ["assignee", "Responsable"],
+                                ["status", "Estado"],
+                                ["due_at", "Entrega"],
+                              ] as const
+                            ).map(([field, label]) => {
+                              const active = sortField === field;
+                              return (
+                                <th
+                                  key={field}
+                                  className="px-4 py-3 text-left font-medium"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleSort(field)}
+                                    className="inline-flex items-center gap-1 hover:underline"
+                                  >
+                                    <span>{label}</span>
+                                    <span
+                                      className="text-xs text-muted-foreground"
+                                      aria-hidden
+                                    >
+                                      {sortIndicator(active, sortDir)}
+                                    </span>
+                                  </button>
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
 
