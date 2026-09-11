@@ -316,14 +316,74 @@ function priorityLabel(priority: string) {
   return "Normal";
 }
 
-type ServiceColumn = {
+const NONE_SERVICE_ID = "none";
+
+type ServiceGroup = {
   key: string;
   name: string;
   orders: Order[];
 };
 
-function groupOrdersByService(orders: Order[]) {
-  const columns = new Map<string, ServiceColumn>();
+function parseServiceIdParam(raw: string | null): string | null {
+  if (raw === null || raw === "") {
+    return null;
+  }
+
+  if (raw === NONE_SERVICE_ID) {
+    return NONE_SERVICE_ID;
+  }
+
+  return isUuid(raw) ? raw : null;
+}
+
+function parseServiceAssigneeId(raw: string | null): string | null {
+  if (!raw || !isUuid(raw)) {
+    return null;
+  }
+
+  return raw;
+}
+
+function compareServiceOrders(a: Order, b: Order) {
+  if (a.due_at === null && b.due_at === null) {
+    return a.reference.localeCompare(b.reference, "es");
+  }
+
+  if (a.due_at === null) {
+    return 1;
+  }
+
+  if (b.due_at === null) {
+    return -1;
+  }
+
+  const byDue = a.due_at.localeCompare(b.due_at);
+  if (byDue !== 0) {
+    return byDue;
+  }
+
+  return a.reference.localeCompare(b.reference, "es");
+}
+
+function sortServiceOrders(orders: Order[]) {
+  return [...orders].sort(compareServiceOrders);
+}
+
+function filterOrdersByServiceAssignee(
+  orders: Order[],
+  assigneeId: string | null
+) {
+  if (!assigneeId) {
+    return orders;
+  }
+
+  return orders.filter(
+    (order) => order.assigned_team_member?.id === assigneeId
+  );
+}
+
+function buildServiceGroups(orders: Order[]): ServiceGroup[] {
+  const columns = new Map<string, ServiceGroup>();
   const withoutService: Order[] = [];
 
   for (const order of orders) {
@@ -346,19 +406,39 @@ function groupOrdersByService(orders: Order[]) {
     });
   }
 
-  const grouped = [...columns.values()].sort((a, b) =>
-    a.name.localeCompare(b.name, "es")
-  );
+  const grouped = [...columns.values()];
 
   if (withoutService.length > 0) {
     grouped.push({
-      key: "none",
+      key: NONE_SERVICE_ID,
       name: "Sin servicio",
       orders: withoutService,
     });
   }
 
-  return grouped;
+  return grouped.sort((a, b) => {
+    const byCount = b.orders.length - a.orders.length;
+    if (byCount !== 0) {
+      return byCount;
+    }
+
+    return a.name.localeCompare(b.name, "es");
+  });
+}
+
+function ordersForSelectedService(
+  orders: Order[],
+  serviceId: string | null
+) {
+  if (serviceId === null) {
+    return orders;
+  }
+
+  if (serviceId === NONE_SERVICE_ID) {
+    return orders.filter((order) => !order.service?.id);
+  }
+
+  return orders.filter((order) => order.service?.id === serviceId);
 }
 
 export default function OrdersPage() {
@@ -418,6 +498,10 @@ function OrdersPageContent() {
   const [prevScopeToday, setPrevScopeToday] = useState(scopeToday);
   const [prevNow, setPrevNow] = useState<Date | null>(null);
   const calendarScope = parseCalendarScope(searchParams.get("calendar_scope"));
+  const serviceIdParam = parseServiceIdParam(searchParams.get("service_id"));
+  const serviceAssigneeId = parseServiceAssigneeId(
+    searchParams.get("service_assignee_id")
+  );
   const [calendarData, setCalendarData] = useState<OrdersResponse | null>(
     null
   );
@@ -728,6 +812,32 @@ function OrdersPageContent() {
     setView(nextView);
   }
 
+  function replaceServiceParams(next: {
+    serviceId?: string | null;
+    serviceAssigneeId?: string | null;
+  }) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "service");
+
+    if (next.serviceId === null) {
+      params.delete("service_id");
+    } else if (typeof next.serviceId === "string") {
+      params.set("service_id", next.serviceId);
+    }
+
+    if (next.serviceAssigneeId === null) {
+      params.delete("service_assignee_id");
+    } else if (typeof next.serviceAssigneeId === "string") {
+      params.set("service_assignee_id", next.serviceAssigneeId);
+    }
+
+    // Keep list/calendar params; Por Servicio ignores them.
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+    setView("service");
+  }
+
   function replaceCalendarParams(next: {
     scope?: CalendarScope;
     assignedTeamMemberId?: string | null;
@@ -863,7 +973,27 @@ function OrdersPageContent() {
     ordersByDay.set(key, current);
   }
 
-  const serviceColumns = groupOrdersByService(byServiceData?.orders ?? []);
+  const serviceOrdersAll = byServiceData?.orders ?? [];
+  const serviceOrdersForAssignee = filterOrdersByServiceAssignee(
+    serviceOrdersAll,
+    serviceAssigneeId
+  );
+  const serviceGroups = buildServiceGroups(serviceOrdersForAssignee);
+  const selectedServiceGroup =
+    serviceIdParam === null
+      ? null
+      : (serviceGroups.find((group) => group.key === serviceIdParam) ?? null);
+  const serviceDetailOrders = sortServiceOrders(
+    ordersForSelectedService(serviceOrdersForAssignee, serviceIdParam)
+  );
+  const serviceDetailTitle =
+    serviceIdParam === null
+      ? "Todos los servicios"
+      : selectedServiceGroup
+        ? selectedServiceGroup.name
+        : serviceIdParam === NONE_SERVICE_ID
+          ? "Sin servicio"
+          : "Servicio";
   const calendarOrderCount = calendarData?.orders?.length ?? 0;
 
   const primaryFilters: Array<{ id: PrimaryListFilter; label: string }> = [
@@ -897,8 +1027,8 @@ function OrdersPageContent() {
                 <>Semana del {weekLabel}</>
               ) : (
                 <>
-                  {byServiceData?.total ?? 0} pedidos activos · agrupados por
-                  servicio
+                  {serviceOrdersForAssignee.length} pedidos activos ·{" "}
+                  {serviceGroups.length} servicios con carga
                 </>
               )}
             </p>
@@ -1411,58 +1541,157 @@ function OrdersPageContent() {
                 title="No se pudieron cargar los pedidos"
                 onRetry={() => setByServiceReloadToken((token) => token + 1)}
               />
-            ) : serviceColumns.length === 0 ? (
+            ) : serviceOrdersAll.length === 0 ? (
               <div className="overflow-hidden rounded-lg border bg-card">
                 <EmptyState title="No hay pedidos activos" />
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <div className="flex min-w-full gap-2">
-                  {serviceColumns.map((column) => (
-                    <section
-                      key={column.key}
-                      className="w-[240px] shrink-0 rounded-lg border bg-card p-3"
+              <>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <label className="flex flex-col gap-1 text-sm sm:min-w-[220px]">
+                    <span className="text-muted-foreground">Responsable</span>
+                    <select
+                      className="rounded-md border bg-background px-3 py-2"
+                      value={serviceAssigneeId ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        replaceServiceParams({
+                          serviceAssigneeId: value ? value : null,
+                        });
+                      }}
                     >
-                      <h2 className="mb-3 text-sm font-medium">
-                        {column.name}{" "}
-                        <span className="text-muted-foreground">
-                          ({column.orders.length})
+                      <option value="">Todos los responsables</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {serviceOrdersForAssignee.length === 0 ? (
+                  <div className="overflow-hidden rounded-lg border bg-card">
+                    <EmptyState title="No hay pedidos activos para este responsable" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          replaceServiceParams({ serviceId: null })
+                        }
+                        className={
+                          serviceIdParam === null
+                            ? "rounded-lg border border-foreground/40 bg-foreground px-3 py-3 text-left text-sm text-background"
+                            : "rounded-lg border bg-card px-3 py-3 text-left text-sm hover:bg-muted/40"
+                        }
+                      >
+                        <div className="font-medium">Todos</div>
+                        <div
+                          className={
+                            serviceIdParam === null
+                              ? "mt-1 text-background/80"
+                              : "mt-1 text-muted-foreground"
+                          }
+                        >
+                          {serviceOrdersForAssignee.length} activos
+                        </div>
+                      </button>
+                      {serviceGroups.map((group) => {
+                        const selected = serviceIdParam === group.key;
+                        return (
+                          <button
+                            key={group.key}
+                            type="button"
+                            onClick={() =>
+                              replaceServiceParams({ serviceId: group.key })
+                            }
+                            className={
+                              selected
+                                ? "rounded-lg border border-foreground/40 bg-foreground px-3 py-3 text-left text-sm text-background"
+                                : "rounded-lg border bg-card px-3 py-3 text-left text-sm hover:bg-muted/40"
+                            }
+                          >
+                            <div className="font-medium">{group.name}</div>
+                            <div
+                              className={
+                                selected
+                                  ? "mt-1 text-background/80"
+                                  : "mt-1 text-muted-foreground"
+                              }
+                            >
+                              {group.orders.length} activos
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <section className="grid gap-3">
+                      <h2 className="text-base font-medium">
+                        {serviceDetailTitle}
+                        <span className="ml-2 text-sm font-normal text-muted-foreground">
+                          {serviceDetailOrders.length} pedidos activos
                         </span>
                       </h2>
-                      <div className="grid gap-2">
-                        {column.orders.map((order) => (
-                          <Link
-                            key={order.id}
-                            href={`/orders/${order.id}`}
-                            className="block rounded-md border bg-background p-2 text-xs hover:bg-muted/40"
-                          >
-                            <div className="text-muted-foreground">
-                              {order.reference}
-                            </div>
-                            <div className="mt-1 font-medium">{order.title}</div>
-                            <div className="mt-2">
-                              <span className={priorityClassName(order.priority)}>
-                                {priorityLabel(order.priority)}
-                              </span>
-                            </div>
-                            <div className="mt-2">
-                              <span className={statusClassName(order.status)}>
-                                {order.status?.name ?? "—"}
-                              </span>
-                            </div>
-                            <div className="mt-2 text-muted-foreground">
-                              {formatDate(order.due_at)}
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              {order.assigned_team_member?.name ?? "Sin asignar"}
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
+
+                      {serviceDetailOrders.length === 0 ? (
+                        <div className="overflow-hidden rounded-lg border bg-card">
+                          <EmptyState title="No hay pedidos con estos filtros" />
+                        </div>
+                      ) : (
+                        <div className="grid gap-2">
+                          {serviceDetailOrders.map((order) => (
+                            <Link
+                              key={order.id}
+                              href={`/orders/${order.id}`}
+                              className="block rounded-lg border bg-card p-3 text-sm hover:bg-muted/40"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <div className="text-muted-foreground">
+                                    {order.reference}
+                                  </div>
+                                  <div className="mt-1 font-medium">
+                                    {order.title}
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {order.priority === "urgent" ||
+                                  order.priority === "high" ? (
+                                    <span
+                                      className={priorityClassName(
+                                        order.priority
+                                      )}
+                                    >
+                                      {priorityLabel(order.priority)}
+                                    </span>
+                                  ) : null}
+                                  <span
+                                    className={statusClassName(order.status)}
+                                  >
+                                    {order.status?.name ?? "—"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-3">
+                                <div>{order.client?.name ?? "Sin cliente"}</div>
+                                <div>
+                                  {order.assigned_team_member?.name ??
+                                    "Sin asignar"}
+                                </div>
+                                <div>{formatDate(order.due_at)}</div>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
                     </section>
-                  ))}
-                </div>
-              </div>
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
