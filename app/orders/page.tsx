@@ -747,7 +747,7 @@ function OrdersPageContent() {
                 onChange={(event) => {
                   const value = event.target.value;
                   replaceListParams({
-                    filter: primaryFilter ?? "active",
+                    filter: listFilter,
                     assignedTeamMemberId: value ? value : null,
                   });
                 }}
