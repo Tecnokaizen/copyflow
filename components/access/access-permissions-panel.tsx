@@ -266,7 +266,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
       ) : null}
 
       {error ? (
-        <div className="mb-5 rounded-[var(--radius)] border border-red-200/80 bg-red-50/90 px-4 py-3.5 text-[0.9375rem] text-red-800">
+        <div className="mb-5 rounded-[var(--radius)] border border-[hsl(var(--gc-danger)/0.35)] bg-[hsl(var(--gc-danger)/0.12)] px-4 py-3.5 text-[0.9375rem] text-[hsl(var(--gc-danger))]">
           {error}
         </div>
       ) : null}
@@ -645,7 +645,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
       (modal.kind === "revoke" ||
         modal.kind === "reactivate" ||
         modal.kind === "cancel_invite") ? (
-        <div className="fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 shadow">
+        <div className="fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 rounded-md border border-[hsl(var(--gc-danger)/0.35)] bg-card px-4 py-2 text-sm text-[hsl(var(--gc-danger))] shadow">
           {formError}
         </div>
       ) : null}

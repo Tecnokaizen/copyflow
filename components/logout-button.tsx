@@ -50,7 +50,7 @@ export function LogoutButton({
       >
         {isLoading ? "Cerrando sesión..." : "Cerrar sesión"}
       </Button>
-      {error ? <p className="text-sm text-red-500">{error}</p> : null}
+      {error ? <p className="text-sm text-[hsl(var(--gc-danger))]">{error}</p> : null}
     </span>
   );
 }

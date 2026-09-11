@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { canViewActivity } from "@/lib/auth/membership-roles";
 import { cn } from "@/lib/utils";
 
@@ -92,7 +93,8 @@ function AppNavFrame({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 sm:justify-end">
+        <div className="flex shrink-0 items-center gap-1 sm:justify-end">
+          <ThemeSwitcher />
           <LogoutButton className="text-muted-foreground" />
         </div>
       </div>

@@ -37,35 +37,36 @@
     --gc-urgent: 346 77% 50%;
   }
   .dark {
-    --background: 222 47% 6%;
+    /* Gestcopy dark: layered surfaces, not pure black */
+    --background: 222 40% 7%;
     --foreground: 210 40% 98%;
-    --card: 222 40% 9%;
+    --card: 222 32% 10%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 40% 9%;
+    --popover: 222 32% 11%;
     --popover-foreground: 210 40% 98%;
-    --primary: 239 84% 67%;
+    --primary: 239 84% 70%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 217 25% 16%;
+    --secondary: 217 22% 14%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217 25% 16%;
-    --muted-foreground: 215 16% 65%;
-    --accent: 217 25% 16%;
+    --muted: 217 22% 14%;
+    --muted-foreground: 215 16% 72%;
+    --accent: 217 22% 16%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62% 40%;
+    --destructive: 0 62% 48%;
     --destructive-foreground: 0 0% 98%;
-    --border: 217 25% 18%;
-    --input: 217 25% 18%;
-    --ring: 239 84% 67%;
+    --border: 217 18% 22%;
+    --input: 217 18% 22%;
+    --ring: 239 84% 70%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --gc-success: 152 60% 45%;
-    --gc-warning: 32 95% 55%;
-    --gc-danger: 0 72% 55%;
-    --gc-info: 199 89% 55%;
-    --gc-urgent: 346 77% 62%;
+    --gc-success: 152 55% 48%;
+    --gc-warning: 32 95% 58%;
+    --gc-danger: 0 72% 58%;
+    --gc-info: 199 89% 58%;
+    --gc-urgent: 346 77% 64%;
   }
 }
 
@@ -116,10 +117,10 @@
     @apply inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary disabled:opacity-50;
   }
   .gc-action-danger {
-    @apply inline-flex items-center justify-center rounded-md border border-red-200/80 bg-background px-3 py-2 text-sm font-medium text-red-700/90 transition-colors hover:bg-red-50 disabled:opacity-50;
+    @apply inline-flex items-center justify-center rounded-md border border-[hsl(var(--gc-danger)/0.35)] bg-background px-3 py-2 text-sm font-medium text-[hsl(var(--gc-danger))] transition-colors hover:bg-[hsl(var(--gc-danger)/0.12)] disabled:opacity-50;
   }
   .gc-cta {
-    @apply inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-none transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50;
+    @apply inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-none transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50;
   }
   .gc-kpi {
     @apply gc-card block border-border/80 bg-card p-5 transition-colors hover:bg-secondary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-6;
@@ -140,7 +141,7 @@
     color: hsl(var(--gc-info));
   }
   .gc-list-row {
-    @apply block rounded-[calc(var(--radius)-2px)] border border-border/50 bg-background/50 px-3.5 py-3.5 transition-colors hover:border-border/80 hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply block rounded-[calc(var(--radius)-2px)] border border-border/60 bg-card/60 px-3.5 py-3.5 transition-colors hover:border-border hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
   .gc-workload-track {
     @apply mt-2.5 h-2 overflow-hidden rounded-full bg-secondary/80;

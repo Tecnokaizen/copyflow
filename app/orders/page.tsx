@@ -293,11 +293,11 @@ function formatDate(value: string | null) {
 
 function priorityClassName(priority: string) {
   if (priority === "urgent") {
-    return "rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700";
+    return "rounded-full bg-[hsl(var(--gc-urgent)/0.16)] px-2 py-0.5 font-medium text-[hsl(var(--gc-urgent))]";
   }
 
   if (priority === "high") {
-    return "rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700";
+    return "rounded-full bg-[hsl(var(--gc-warning)/0.16)] px-2 py-0.5 font-medium text-[hsl(var(--gc-warning))]";
   }
 
   return "rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground";
