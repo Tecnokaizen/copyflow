@@ -96,6 +96,9 @@ begin
   end if;
 
   if v_target.role = 'owner' then
+    if v_actor_role is distinct from 'owner' then
+      raise exception 'tenant access denied' using errcode = '42501';
+    end if;
     if not public.actor_can_manage_owner_target(
       p_tenant_id,
       v_actor_role,
@@ -217,6 +220,9 @@ begin
   end if;
 
   if v_target.role = 'owner' then
+    if v_actor_role is distinct from 'owner' then
+      raise exception 'tenant access denied' using errcode = '42501';
+    end if;
     if not public.actor_can_manage_owner_target(
       p_tenant_id,
       v_actor_role,
