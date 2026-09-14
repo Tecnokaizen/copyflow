@@ -13,6 +13,9 @@ declare
   v_role text;
   v_count integer;
   v_member_id uuid;
+  v_clara_id uuid;
+  v_job_title text;
+  v_email text;
 begin
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
@@ -120,6 +123,50 @@ begin
   execute 'set local role authenticated';
   perform public.list_tenant_user_directory(v_tenant_a);
   execute 'reset role';
+
+  insert into public.team_members (
+    tenant_id, name, job_title, department, email, active, can_receive_orders
+  )
+  values (
+    v_tenant_a, 'Clara Ruiz', 'Mostrador', 'Tienda', 'clara@phase7.test', true, true
+  )
+  returning id into v_clara_id;
+
+  -- Asociación already_linked no debe persistir puesto/email del mismo formulario.
+  v_sqlstate := null;
+  begin
+    perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+    execute 'set local role authenticated';
+    perform public.update_team_member(
+      v_clara_id,
+      'Clara Ruiz',
+      'Hackeado',
+      'Gestión',
+      true,
+      true,
+      v_tenant_a,
+      'nuevo@phase7.test',
+      '611111111',
+      v_owner_b
+    );
+    execute 'reset role';
+  exception when others then
+    v_sqlstate := sqlstate;
+    execute 'reset role';
+  end;
+  if v_sqlstate is distinct from '23505' then
+    raise exception 'FAIL atomic update already_linked: expected 23505 got %', v_sqlstate;
+  end if;
+
+  select tm.job_title, tm.email
+  into v_job_title, v_email
+  from public.team_members tm
+  where tm.id = v_clara_id;
+
+  if v_job_title is distinct from 'Mostrador'
+     or v_email is distinct from 'clara@phase7.test' then
+    raise exception 'FAIL atomic update leaked form fields: job=% email=%', v_job_title, v_email;
+  end if;
 
   raise notice 'phase7 team roles operative OK';
 end;
