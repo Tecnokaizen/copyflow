@@ -20,12 +20,11 @@ export type InvitationPreview = {
   tenant: InvitationPreviewTenant | null;
   account_exists: boolean;
   email_confirmed: boolean;
-  auth_user_id: string | null;
   role: string | null;
   add_to_personal: boolean;
 };
 
-export type PublicInvitationPreview = Omit<InvitationPreview, "auth_user_id">;
+export type PublicInvitationPreview = InvitationPreview;
 
 function asNullableString(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -96,7 +95,6 @@ export function mapInvitationPreview(data: unknown): InvitationPreview | null {
     tenant: mapTenant(record.tenant),
     account_exists: asBoolean(record.account_exists, false),
     email_confirmed: asBoolean(record.email_confirmed, false),
-    auth_user_id: asNullableString(record.auth_user_id),
     role: asNullableString(record.role),
     add_to_personal: asBoolean(record.add_to_personal, false),
   };

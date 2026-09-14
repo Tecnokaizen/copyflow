@@ -10,7 +10,6 @@ export type InvitationSignupPlan =
     }
   | {
       action: "recover_unconfirmed";
-      userId: string;
       email: string;
       password: string;
       emailConfirm: true;
@@ -69,12 +68,10 @@ export function planInvitationSignup(input: {
 
   if (
     input.preview.account_exists &&
-    !input.preview.email_confirmed &&
-    input.preview.auth_user_id
+    !input.preview.email_confirmed
   ) {
     return {
       action: "recover_unconfirmed",
-      userId: input.preview.auth_user_id,
       email,
       password: input.password,
       emailConfirm: true,

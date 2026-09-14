@@ -18,7 +18,8 @@ export type InvitationSignupDeps = {
     name: string | null;
   }) => Promise<{ id: string }>;
   recoverUnconfirmedUser: (input: {
-    userId: string;
+    token: string;
+    email: string;
     password: string;
     emailConfirm: boolean;
   }) => Promise<void>;
@@ -80,7 +81,8 @@ export async function completeInvitationSignup(
 
   if (plan.action === "recover_unconfirmed") {
     await deps.recoverUnconfirmedUser({
-      userId: plan.userId,
+      token: input.token,
+      email: plan.email,
       password: plan.password,
       emailConfirm: plan.emailConfirm,
     });

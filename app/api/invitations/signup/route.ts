@@ -11,6 +11,7 @@ import { mapAcceptInvitationResult } from "@/lib/access/types";
 import { completeInvitationSignup } from "@/lib/invitations/complete-signup";
 import { ACCOUNT_EXISTS } from "@/lib/invitations/copy";
 import { mapInvitationPreview } from "@/lib/invitations/preview";
+import { parseResolvedInvitationAuthUserId } from "@/lib/invitations/resolve-auth-user";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -83,12 +84,23 @@ export async function POST(request: NextRequest) {
           return { id: data.user.id };
         },
         recoverUnconfirmedUser: async (input) => {
-          const { error } = await admin.auth.admin.updateUserById(input.userId, {
-            password: input.password,
-            email_confirm: input.emailConfirm,
-          });
-          if (error) {
-            throw error;
+          const { data, error } = await admin.rpc(
+            "resolve_invitation_auth_user",
+            { p_token: input.token }
+          );
+          const userId = parseResolvedInvitationAuthUserId(data);
+          if (error || !userId) {
+            throw error ?? new Error("Could not resolve invitation user");
+          }
+          const { error: updateError } = await admin.auth.admin.updateUserById(
+            userId,
+            {
+              password: input.password,
+              email_confirm: input.emailConfirm,
+            }
+          );
+          if (updateError) {
+            throw updateError;
           }
         },
         signIn: async (input) => {

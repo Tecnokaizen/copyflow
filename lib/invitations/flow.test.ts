@@ -26,6 +26,7 @@ import {
   mapInvitationPreview,
   toPublicInvitationPreview,
 } from "./preview";
+import { parseResolvedInvitationAuthUserId } from "./resolve-auth-user";
 import { planInvitationSignup } from "./signup-plan";
 
 const TOKEN = "a".repeat(64);
@@ -52,7 +53,6 @@ function pendingPreview(
     tenant: TENANT_A,
     account_exists: false,
     email_confirmed: false,
-    auth_user_id: null,
     role: "staff",
     add_to_personal: true,
     ...overrides,
@@ -187,7 +187,6 @@ describe("invitation direct signup flow", () => {
     const preview = pendingPreview({
       account_exists: true,
       email_confirmed: true,
-      auth_user_id: "user-existing",
     });
     assert.ok(preview);
     const view = invitationAcceptView({
@@ -295,7 +294,6 @@ describe("invitation direct signup flow", () => {
         tenant: null,
         account_exists: false,
         email_confirmed: false,
-        auth_user_id: null,
         role: null,
         add_to_personal: false,
       });
@@ -350,7 +348,7 @@ describe("invitation direct signup flow", () => {
     assert.equal(createdEmail, INVITED_EMAIL);
   });
 
-  it("20. a token only reveals its own tenant", () => {
+  it("20. a token only reveals its own tenant and never an auth user id", () => {
     const preview = mapInvitationPreview({
       status: "pending",
       email: INVITED_EMAIL,
@@ -365,6 +363,7 @@ describe("invitation direct signup flow", () => {
     assert.ok(preview);
     assert.equal(preview.tenant?.id, TENANT_A.id);
     assert.notEqual(preview.tenant?.id, TENANT_B.id);
+    assert.equal("auth_user_id" in preview, false);
     const publicPreview = toPublicInvitationPreview(preview);
     assert.equal("auth_user_id" in publicPreview, false);
     assert.equal(publicPreview.tenant?.slug, "dj-kaizen");
@@ -403,12 +402,22 @@ describe("invitation mismatch API code", () => {
   });
 });
 
+describe("resolve invitation auth user id", () => {
+  it("accepts only a uuid from the internal RPC", () => {
+    assert.equal(
+      parseResolvedInvitationAuthUserId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
+    assert.equal(parseResolvedInvitationAuthUserId("not-a-user"), null);
+    assert.equal(parseResolvedInvitationAuthUserId(null), null);
+  });
+});
+
 describe("unconfirmed leftover from the broken public signup", () => {
   it("recovers an unconfirmed user without sending a second email", async () => {
     const preview = pendingPreview({
       account_exists: true,
       email_confirmed: false,
-      auth_user_id: "user-unconfirmed",
     });
     assert.ok(preview);
     const view = invitationAcceptView({
@@ -417,6 +426,16 @@ describe("unconfirmed leftover from the broken public signup", () => {
       sessionEmail: null,
     });
     assert.equal(view.kind, "signup");
+
+    const plan = planInvitationSignup({
+      preview,
+      password: "secreto12",
+    });
+    assert.equal(plan.action, "recover_unconfirmed");
+    if (plan.action === "recover_unconfirmed") {
+      assert.equal("userId" in plan, false);
+      assert.equal(plan.email, INVITED_EMAIL);
+    }
 
     const calls: string[] = [];
     const result = await completeInvitationSignup(
@@ -428,7 +447,8 @@ describe("unconfirmed leftover from the broken public signup", () => {
         },
         recoverUnconfirmedUser: async (input) => {
           calls.push("recover");
-          assert.equal(input.userId, "user-unconfirmed");
+          assert.equal(input.token, TOKEN);
+          assert.equal(input.email, INVITED_EMAIL);
           assert.equal(input.password, "secreto12");
           assert.equal(input.emailConfirm, true);
         },

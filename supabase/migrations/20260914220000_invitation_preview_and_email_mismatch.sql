@@ -72,18 +72,77 @@ begin
       'slug', v_tenant.slug
     ),
     'account_exists', v_account_id is not null,
-    'email_confirmed', coalesce(v_email_confirmed, false),
-    'auth_user_id', v_account_id
+    'email_confirmed', coalesce(v_email_confirmed, false)
   );
 end;
 $function$;
 
 COMMENT ON FUNCTION public.preview_tenant_invitation(text) IS
-  'DEFINER acotado: preview de invitación por token. Anon+authenticated. No expone token_hash. Email y tenant solo si pending y no expirada.';
+  'DEFINER acotado: preview de invitación por token. Anon+authenticated. No expone token_hash ni auth_user_id. Email y tenant solo si pending y no expirada.';
 
 REVOKE ALL ON FUNCTION public.preview_tenant_invitation(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.preview_tenant_invitation(text)
   TO anon, authenticated, service_role, postgres;
+
+CREATE OR REPLACE FUNCTION public.resolve_invitation_auth_user(p_token text)
+  RETURNS uuid
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+declare
+  v_token text;
+  v_token_hash bytea;
+  v_invitation public.tenant_invitations%rowtype;
+  v_account_id uuid;
+begin
+  v_token := nullif(btrim(coalesce(p_token, '')), '');
+  if v_token is null or length(v_token) <> 64 then
+    return null;
+  end if;
+
+  v_token_hash := public.hash_invitation_token(v_token);
+
+  select i.*
+  into v_invitation
+  from public.tenant_invitations i
+  where i.token_hash = v_token_hash;
+
+  if v_invitation.id is null then
+    return null;
+  end if;
+
+  if v_invitation.status <> 'pending' or v_invitation.expires_at <= now() then
+    return null;
+  end if;
+
+  if not exists (
+    select 1
+    from public.tenants t
+    where t.id = v_invitation.tenant_id
+      and t.active = true
+  ) then
+    return null;
+  end if;
+
+  select u.id
+  into v_account_id
+  from auth.users u
+  where public.normalize_invitation_email(u.email) = v_invitation.email_normalized
+  limit 1;
+
+  return v_account_id;
+end;
+$function$;
+
+COMMENT ON FUNCTION public.resolve_invitation_auth_user(text) IS
+  'DEFINER interno: resuelve auth.users.id de una invitación pending vigente. Solo service_role/postgres. No exponer a anon/authenticated.';
+
+REVOKE ALL ON FUNCTION public.resolve_invitation_auth_user(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.resolve_invitation_auth_user(text) FROM anon;
+REVOKE ALL ON FUNCTION public.resolve_invitation_auth_user(text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.resolve_invitation_auth_user(text)
+  TO service_role, postgres;
 
 CREATE OR REPLACE FUNCTION public.accept_tenant_invitation(
   p_token text
