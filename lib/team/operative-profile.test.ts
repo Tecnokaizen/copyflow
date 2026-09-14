@@ -14,7 +14,7 @@ describe("formatOperativeProfile", () => {
     );
   });
 
-  it("says Sin asociar when there is no operative profile", () => {
+  it("says Sin asociar when there is no associated team member", () => {
     assert.equal(formatOperativeProfile(null), "Sin asociar");
   });
 });

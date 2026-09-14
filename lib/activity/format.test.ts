@@ -24,7 +24,7 @@ function event(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
 }
 
 describe("membership.role_changed activity", () => {
-  it("describes an access role change without mentioning the operative profile", () => {
+  it("describes an access role change without mentioning the team member", () => {
     const formatted = formatActivityEvent(event());
     assert.match(formatted.headline, /rol de acceso/i);
     assert.equal(formatted.href, "/team/access");
