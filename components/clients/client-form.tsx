@@ -27,7 +27,7 @@ type ClientFormProps = {
 };
 
 const fieldClassName =
-  "rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50";
+  "min-h-11 rounded-md border bg-background px-3 py-2 text-base disabled:opacity-50";
 
 export function ClientForm({
   title,
@@ -209,7 +209,7 @@ export function ClientForm({
           type="button"
           disabled={submitting}
           onClick={() => onUseDuplicate(duplicate.client_id)}
-          className="justify-self-start rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          className="gc-action min-h-11 justify-self-start text-sm disabled:opacity-50"
         >
           {duplicateActionLabel}
         </button>
@@ -220,14 +220,14 @@ export function ClientForm({
           type="button"
           disabled={submitting}
           onClick={onCancel}
-          className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          className="gc-action min-h-11 text-sm disabled:opacity-50"
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={submitting || form.name.trim() === ""}
-          className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          className="gc-cta min-h-11 text-sm disabled:opacity-50"
         >
           {submitLabel}
         </button>

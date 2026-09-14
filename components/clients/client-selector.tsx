@@ -15,7 +15,7 @@ type ClientSelectorProps = {
 };
 
 const inputClassName =
-  "w-full rounded-md border bg-background px-3 py-2 text-sm";
+  "min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base";
 
 function resultLines(client: ClientSummary) {
   return [
@@ -151,7 +151,7 @@ export function ClientSelector({
               setSwitching(true);
               setOpen(true);
             }}
-            className="rounded-md border bg-background px-3 py-1 text-sm disabled:opacity-50"
+            className="gc-action min-h-11 text-sm disabled:opacity-50"
           >
             Cambiar
           </button>
@@ -165,7 +165,7 @@ export function ClientSelector({
                 setSwitching(false);
                 onChange(null);
               }}
-              className="rounded-md border bg-background px-3 py-1 text-sm disabled:opacity-50"
+              className="gc-action min-h-11 text-sm disabled:opacity-50"
             >
               Quitar
             </button>
@@ -198,7 +198,7 @@ export function ClientSelector({
           {allowNoClient && (
             <button
               type="button"
-              className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+              className="block min-h-11 w-full px-3 py-2 text-left text-sm hover:bg-muted"
               onClick={() => {
                 onChange(null);
                 setOpen(false);
@@ -230,7 +230,7 @@ export function ClientSelector({
             <button
               key={client.id}
               type="button"
-              className="block w-full border-t px-3 py-2 text-left hover:bg-muted"
+              className="block min-h-11 w-full border-t px-3 py-2 text-left hover:bg-muted"
               onClick={() => {
                 onChange(client);
                 setOpen(false);
@@ -253,7 +253,7 @@ export function ClientSelector({
         <button
           type="button"
           disabled={disabled}
-          className="mt-2 rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
+          className="gc-action min-h-11 mt-2 w-full text-sm disabled:opacity-50 sm:w-auto"
           onClick={() => {
             onCreateNew(query.trim());
             setOpen(false);

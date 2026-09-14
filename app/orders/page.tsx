@@ -4,7 +4,6 @@ import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "rea
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
@@ -1021,13 +1020,14 @@ function OrdersPageContent() {
         }
         actions={
           canWrite ? (
-            <Button
+            <button
               type="button"
               onClick={() => setShowCreateForm(true)}
               disabled={showCreateForm}
+              className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
             >
               Nuevo pedido
-            </Button>
+            </button>
           ) : null
         }
       />
