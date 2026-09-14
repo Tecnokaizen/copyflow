@@ -6,6 +6,10 @@ import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { formatPriority } from "@/lib/orders/format";
 import type { MineOrder, MineQueueSection } from "@/lib/orders/mine";
 import {
+  UNLINKED_MINE_ASSIGN_CTA_LABEL,
+  unlinkedMineOrdersCopy,
+} from "@/lib/orders/mine-unlinked-copy";
+import {
   formatZonedCivilDate,
   formatZonedTime,
 } from "@/lib/time/zoned-day";
@@ -78,19 +82,32 @@ export function MyOrdersQueue({
   sections,
   today,
   timezone,
+  actorRole,
 }: {
   linked: boolean;
   sections: MineQueueSection[];
   today: string;
   timezone: string;
+  actorRole?: string | null;
 }) {
   if (!linked) {
+    const copy = unlinkedMineOrdersCopy(actorRole);
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
-        <EmptyState
-          title="Tu usuario todavía no está vinculado a un perfil de equipo."
-          description="Pide a un administrador o encargado que vincule tu acceso a tu ficha de personal. Hasta entonces no se pueden resolver tus pedidos."
-        />
+        <EmptyState title={copy.title} description={copy.description}>
+          {copy.hint ? (
+            <p className="mx-auto mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted-foreground">
+              {copy.hint}
+            </p>
+          ) : null}
+          {copy.assignCtaHref ? (
+            <div className="mt-5">
+              <Link href={copy.assignCtaHref} className="gc-action min-h-11">
+                {UNLINKED_MINE_ASSIGN_CTA_LABEL}
+              </Link>
+            </div>
+          ) : null}
+        </EmptyState>
       </div>
     );
   }

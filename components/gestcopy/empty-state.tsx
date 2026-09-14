@@ -4,9 +4,15 @@ type EmptyStateProps = {
   title: string;
   description?: string;
   className?: string;
+  children?: React.ReactNode;
 };
 
-export function EmptyState({ title, description, className }: EmptyStateProps) {
+export function EmptyState({
+  title,
+  description,
+  className,
+  children,
+}: EmptyStateProps) {
   return (
     <div className={cn("px-6 py-12 text-center", className)}>
       <p className="text-base font-medium text-foreground">{title}</p>
@@ -15,6 +21,7 @@ export function EmptyState({ title, description, className }: EmptyStateProps) {
           {description}
         </p>
       ) : null}
+      {children}
     </div>
   );
 }

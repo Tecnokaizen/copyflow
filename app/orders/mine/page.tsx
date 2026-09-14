@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { MyOrdersQueue } from "@/components/orders/my-orders-queue";
 import type { MineQueueSection } from "@/lib/orders/mine";
+import { MINE_ORDERS_PAGE_DESCRIPTION } from "@/lib/orders/mine-unlinked-copy";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
 import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
 import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
@@ -25,6 +26,7 @@ function MyOrdersContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [actorRole, setActorRole] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadOrders = useCallback(async (opts?: SilentLoadOptions) => {
@@ -73,6 +75,29 @@ function MyOrdersContent() {
     };
   }, [loadOrders, reloadToken]);
 
+  useEffect(() => {
+    async function loadContext() {
+      try {
+        const response = await fetch("/api/context");
+        if (!response.ok) {
+          return;
+        }
+        const context = (await response.json()) as {
+          membership?: { role?: unknown };
+        };
+        setActorRole(
+          typeof context.membership?.role === "string"
+            ? context.membership.role
+            : null
+        );
+      } catch {
+        setActorRole(null);
+      }
+    }
+
+    void loadContext();
+  }, []);
+
   useLiveRefresh({
     onRefresh: (signal) => loadOrders({ silent: true, signal }),
   });
@@ -82,7 +107,7 @@ function MyOrdersContent() {
       <AppNav />
       <PageHeader
         title="Mis pedidos"
-        description="Cola de trabajo asignada a tu perfil de equipo."
+        description={MINE_ORDERS_PAGE_DESCRIPTION}
         className="mb-5 sm:mb-6"
       />
       {loading && !data ? (
@@ -102,6 +127,7 @@ function MyOrdersContent() {
           sections={data?.sections ?? []}
           today={data?.today ?? ""}
           timezone={data?.timezone ?? "Europe/Madrid"}
+          actorRole={actorRole}
         />
       )}
     </AppShell>
