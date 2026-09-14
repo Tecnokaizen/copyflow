@@ -15,6 +15,7 @@ import {
   mapAccessMembership,
   unwrapRpcPayload,
 } from "@/lib/access/types";
+import { loadTeamMembersForAccess } from "@/lib/team/access-users";
 
 export async function GET() {
   const context = await getCurrentContext();
@@ -61,9 +62,33 @@ export async function GET() {
   }
 
   const record = unwrapRpcPayload(data);
+  const teamMembers = await loadTeamMembersForAccess(
+    supabase,
+    context.tenant.id
+  );
+  if (!teamMembers) {
+    return NextResponse.json(
+      { error: "Could not load access" },
+      { status: 500 }
+    );
+  }
+  const teamMemberByUser = new Map(
+    teamMembers
+      .filter((member) => member.user_id)
+      .map((member) => [member.user_id as string, member] as const)
+  );
   const memberships = (Array.isArray(record.memberships) ? record.memberships : [])
     .map((row) => mapAccessMembership(row))
-    .filter((row): row is NonNullable<typeof row> => row !== null);
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .map((membership) => {
+      const linked = teamMemberByUser.get(membership.user_id);
+      return {
+        ...membership,
+        team_member: linked
+          ? { id: linked.id, name: linked.name }
+          : membership.team_member,
+      };
+    });
   const invitations = (Array.isArray(record.invitations) ? record.invitations : [])
     .map((row) => mapAccessInvitation(row))
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -76,6 +101,7 @@ export async function GET() {
     },
     memberships,
     invitations,
+    team_members: teamMembers,
   };
 
   if (containsTokenMaterial(response)) {

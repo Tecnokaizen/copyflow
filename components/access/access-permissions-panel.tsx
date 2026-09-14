@@ -14,6 +14,7 @@ import type {
   AccessInvitation,
   AccessListResponse,
   AccessMembership,
+  AccessTeamMemberOption,
 } from "@/lib/access/types";
 import {
   formatAccessDate,
@@ -34,6 +35,7 @@ type ModalState =
   | { kind: "closed" }
   | { kind: "invite" }
   | { kind: "change_role"; member: AccessMembership }
+  | { kind: "link_team"; member: AccessMembership }
   | { kind: "revoke"; member: AccessMembership }
   | { kind: "reactivate"; member: AccessMembership }
   | { kind: "cancel_invite"; invitation: AccessInvitation };
@@ -50,6 +52,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<InvitableRole | "">("");
   const [changeRole, setChangeRole] = useState<InvitableRole | "">("");
+  const [linkTeamMemberId, setLinkTeamMemberId] = useState("");
 
   const assignableRoles = useMemo(
     () => invitableRolesForActor(actorRole),
@@ -196,6 +199,57 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     }
   }
 
+  async function patchTeamMemberLink(
+    teamMemberId: string,
+    userId: string | null
+  ) {
+    const response = await fetch(`/api/team/${teamMemberId}/link`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(publicAccessUiError(response.status, payload));
+    }
+  }
+
+  async function submitLinkTeam() {
+    if (modal.kind !== "link_team" || busy) return;
+    const member = modal.member;
+    const currentId = member.team_member?.id ?? null;
+    const nextId = linkTeamMemberId.trim() || null;
+
+    if (currentId === nextId) {
+      setModal({ kind: "closed" });
+      return;
+    }
+
+    setBusy(true);
+    setFormError(null);
+    try {
+      if (currentId && currentId !== nextId) {
+        await patchTeamMemberLink(currentId, null);
+      }
+      if (nextId) {
+        await patchTeamMemberLink(nextId, member.user_id);
+      }
+      setFlash(
+        nextId
+          ? "Usuario asignado al trabajador."
+          : "Se quitó la asignación de este usuario."
+      );
+      setModal({ kind: "closed" });
+      await load();
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "No se pudo asignar el perfil"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resendInvitation(invitation: AccessInvitation) {
     if (busy) return;
     setBusy(true);
@@ -241,6 +295,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
   const memberships = data?.memberships ?? [];
   const invitations = data?.invitations ?? [];
+  const teamMembers = data?.team_members ?? [];
 
   return (
     <>
@@ -294,6 +349,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     <th>Email</th>
                     <th>Rol</th>
                     <th>Estado</th>
+                    <th>Perfil de equipo</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -314,6 +370,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                         );
                         setFormError(null);
                         setModal({ kind: "change_role", member });
+                      }}
+                      onLinkTeam={() => {
+                        setLinkTeamMemberId(member.team_member?.id ?? "");
+                        setFormError(null);
+                        setModal({ kind: "link_team", member });
                       }}
                       onRevoke={() => {
                         setFormError(null);
@@ -342,6 +403,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     );
                     setFormError(null);
                     setModal({ kind: "change_role", member });
+                  }}
+                  onLinkTeam={() => {
+                    setLinkTeamMemberId(member.team_member?.id ?? "");
+                    setFormError(null);
+                    setModal({ kind: "link_team", member });
                   }}
                   onRevoke={() => {
                     setFormError(null);
@@ -530,6 +596,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               ) : null}
             </div>
             <RoleHelpList roles={assignableRoles} />
+            <p className="text-sm text-muted-foreground">
+              La invitación da acceso a Gestcopy. Si esta persona también
+              trabaja en el taller, asígnale un perfil de equipo cuando
+              acepte. No se asigna automáticamente.
+            </p>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
             ) : null}
@@ -600,6 +671,104 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 onClick={() => void submitChangeRole()}
               >
                 {busy ? "Guardando…" : "Guardar rol"}
+              </Button>
+            </div>
+          </div>
+        </AccessFormModal>
+      ) : null}
+
+      {modal.kind === "link_team" ? (
+        <AccessFormModal
+          title={
+            modal.member.team_member
+              ? "Cambiar perfil de equipo"
+              : "Asignar perfil de equipo"
+          }
+          onClose={() => !busy && setModal({ kind: "closed" })}
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Relaciona este usuario con el miembro del equipo que representa
+              dentro del trabajo diario.
+            </p>
+            <dl className="space-y-3 rounded-md border border-border/70 bg-muted/30 px-4 py-3.5">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Usuario de Gestcopy
+                </dt>
+                <dd className="mt-1 space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">
+                    {modal.member.full_name ||
+                      modal.member.email ||
+                      "Sin nombre"}
+                  </p>
+                  {modal.member.email && modal.member.full_name ? (
+                    <p className="text-sm text-muted-foreground">
+                      {modal.member.email}
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-muted-foreground">
+                    {membershipRoleLabel(modal.member.role)}
+                  </p>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Perfil de equipo
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-foreground">
+                  {modal.member.team_member?.name ?? "Sin asignar"}
+                </dd>
+              </div>
+            </dl>
+            <div className="grid gap-2">
+              <Label htmlFor="link-team-member">Perfil de equipo</Label>
+              <select
+                id="link-team-member"
+                value={linkTeamMemberId}
+                onChange={(event) => setLinkTeamMemberId(event.target.value)}
+                disabled={busy}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Sin asignar</option>
+                {teamMembersAvailableForUser(
+                  teamMembers,
+                  modal.member.user_id
+                ).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                    {option.active ? "" : " (inactivo)"}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Cada usuario de Gestcopy solo puede corresponder a un
+                trabajador. Quienes ya están asignados a otra persona no
+                aparecen.
+              </p>
+            </div>
+            {formError ? (
+              <p className="text-sm text-red-600">{formError}</p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setModal({ kind: "closed" })}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitLinkTeam()}
+              >
+                {busy
+                  ? "Guardando…"
+                  : modal.member.team_member
+                    ? "Cambiar perfil"
+                    : "Asignar perfil"}
               </Button>
             </div>
           </div>
@@ -710,11 +879,21 @@ function AccessFormModal({
   );
 }
 
+function teamMembersAvailableForUser(
+  teamMembers: AccessTeamMemberOption[],
+  userId: string
+) {
+  return teamMembers.filter(
+    (member) => member.user_id === null || member.user_id === userId
+  );
+}
+
 function MembershipRowDesktop({
   member,
   actorRole,
   busy,
   onChangeRole,
+  onLinkTeam,
   onRevoke,
   onReactivate,
 }: {
@@ -722,6 +901,7 @@ function MembershipRowDesktop({
   actorRole: string;
   busy: boolean;
   onChangeRole: () => void;
+  onLinkTeam: () => void;
   onRevoke: () => void;
   onReactivate: () => void;
 }) {
@@ -738,9 +918,111 @@ function MembershipRowDesktop({
           {member.active ? "Activo" : "Acceso revocado"}
         </StatusBadge>
       </td>
+      <td className={member.team_member ? "font-medium" : "text-muted-foreground"}>
+        {member.team_member ? member.team_member.name : "Sin asignar"}
+      </td>
       <td>
+        <div className="flex flex-wrap justify-end gap-2.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onLinkTeam}
+            className="gc-action"
+          >
+            {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
+          </button>
+          {manageable ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onChangeRole}
+                className="gc-action"
+              >
+                Cambiar rol
+              </button>
+              {member.active ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onRevoke}
+                  className="gc-action-danger"
+                >
+                  Revocar acceso
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onReactivate}
+                  className="gc-action"
+                >
+                  Reactivar acceso
+                </button>
+              )}
+            </>
+          ) : null}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function MembershipCardMobile({
+  member,
+  actorRole,
+  busy,
+  onChangeRole,
+  onLinkTeam,
+  onRevoke,
+  onReactivate,
+}: {
+  member: AccessMembership;
+  actorRole: string;
+  busy: boolean;
+  onChangeRole: () => void;
+  onLinkTeam: () => void;
+  onRevoke: () => void;
+  onReactivate: () => void;
+}) {
+  const manageable = canManageMembershipTarget(actorRole, member.role);
+  return (
+    <div className="rounded-[var(--radius)] border border-border/70 bg-background p-5">
+      <p className="font-medium">{member.full_name || "Sin nombre"}</p>
+      <p className="mt-1 text-[0.9375rem] text-muted-foreground">
+        {member.email || "—"}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <RoleBadge role={member.role} />
+        <StatusBadge tone={member.active ? "success" : "danger"}>
+          {member.active ? "Activo" : "Acceso revocado"}
+        </StatusBadge>
+      </div>
+      <div className="mt-3 space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Perfil de equipo
+        </p>
+        <p
+          className={
+            member.team_member
+              ? "text-[0.9375rem] font-medium"
+              : "text-[0.9375rem] text-muted-foreground"
+          }
+        >
+          {member.team_member ? member.team_member.name : "Sin asignar"}
+        </p>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onLinkTeam}
+          className="gc-action"
+        >
+          {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
+        </button>
         {manageable ? (
-          <div className="flex justify-end gap-2.5">
+          <>
             <button
               type="button"
               disabled={busy}
@@ -768,76 +1050,9 @@ function MembershipRowDesktop({
                 Reactivar acceso
               </button>
             )}
-          </div>
-        ) : (
-          <span className="block text-right text-sm text-muted-foreground">
-            —
-          </span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function MembershipCardMobile({
-  member,
-  actorRole,
-  busy,
-  onChangeRole,
-  onRevoke,
-  onReactivate,
-}: {
-  member: AccessMembership;
-  actorRole: string;
-  busy: boolean;
-  onChangeRole: () => void;
-  onRevoke: () => void;
-  onReactivate: () => void;
-}) {
-  const manageable = canManageMembershipTarget(actorRole, member.role);
-  return (
-    <div className="rounded-[var(--radius)] border border-border/70 bg-background p-5">
-      <p className="font-medium">{member.full_name || "Sin nombre"}</p>
-      <p className="mt-1 text-[0.9375rem] text-muted-foreground">
-        {member.email || "—"}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <RoleBadge role={member.role} />
-        <StatusBadge tone={member.active ? "success" : "danger"}>
-          {member.active ? "Activo" : "Acceso revocado"}
-        </StatusBadge>
+          </>
+        ) : null}
       </div>
-      {manageable ? (
-        <div className="mt-4 flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onChangeRole}
-            className="gc-action"
-          >
-            Cambiar rol
-          </button>
-          {member.active ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onRevoke}
-              className="gc-action-danger"
-            >
-              Revocar acceso
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onReactivate}
-              className="gc-action"
-            >
-              Reactivar acceso
-            </button>
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }

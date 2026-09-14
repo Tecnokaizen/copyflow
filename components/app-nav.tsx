@@ -24,11 +24,20 @@ const NAV_ITEMS: NavItem[] = [
     match: (pathname) => pathname === "/",
   },
   {
+    href: "/orders/mine",
+    label: "Mis pedidos",
+    visible: () => true,
+    match: (pathname) =>
+      pathname === "/orders/mine" || pathname.startsWith("/orders/mine/"),
+  },
+  {
     href: "/orders",
     label: "Pedidos",
     visible: () => true,
     match: (pathname) =>
-      pathname === "/orders" || pathname.startsWith("/orders/"),
+      (pathname === "/orders" || pathname.startsWith("/orders/")) &&
+      pathname !== "/orders/mine" &&
+      !pathname.startsWith("/orders/mine/"),
   },
   {
     href: "/clients",
