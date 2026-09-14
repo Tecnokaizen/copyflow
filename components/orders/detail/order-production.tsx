@@ -2,12 +2,11 @@ import { SectionCard } from "@/components/gestcopy/section-card";
 import {
   DraftInput,
   DraftSelect,
+  DraftTextarea,
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
 import {
-  formatDate,
-  formatPriority,
   fromDateTimeLocalValue,
   toDateTimeLocalValue,
 } from "@/lib/orders/format";
@@ -43,6 +42,13 @@ export function OrderProduction({
   if (editing && draft) {
     return (
       <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
+        <FactRow label="Instrucciones">
+          <DraftTextarea
+            value={draft.description}
+            onChange={(value) => onDraftChange({ description: value })}
+            rows={4}
+          />
+        </FactRow>
         <FactRow label="Estado">
           <DraftSelect
             value={
@@ -131,28 +137,39 @@ export function OrderProduction({
     );
   }
 
+  const description = order.description?.trim();
+  const hasNotes = Boolean(order.notes?.trim());
+  const serviceName = order.service?.name;
+
   return (
     <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
-      <FactRow label="Responsable">
-        <FactValue value={order.assigned_team_member?.name} empty="Sin responsable" />
-      </FactRow>
+      <div className="border-b border-border/60 py-4">
+        <div className="text-sm font-medium text-muted-foreground">
+          Instrucciones
+        </div>
+        {description ? (
+          <p className="mt-1.5 whitespace-pre-wrap break-words text-base leading-relaxed text-foreground">
+            {description}
+          </p>
+        ) : (
+          <p className="mt-1.5 text-base text-muted-foreground">
+            Sin instrucciones
+          </p>
+        )}
+        {hasNotes ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            Hay notas internas más abajo.
+          </p>
+        ) : null}
+      </div>
       <FactRow label="Servicio">
-        <FactValue value={order.service?.name} />
+        <FactValue value={serviceName} />
       </FactRow>
       <FactRow label="Archivos">
-        <FactValue value={order.file_status?.name} />
+        <FactValue value={order.file_status?.name} empty="Sin estado de archivo" />
       </FactRow>
       <FactRow label="Presupuesto">
         <FactValue value={order.quote_status?.name} />
-      </FactRow>
-      <FactRow label="Prioridad">
-        <FactValue value={formatPriority(order.priority)} />
-      </FactRow>
-      <FactRow label="Estado">
-        <FactValue value={order.status?.name} />
-      </FactRow>
-      <FactRow label="Entrega prevista">
-        <FactValue value={formatDate(order.due_at)} />
       </FactRow>
     </SectionCard>
   );

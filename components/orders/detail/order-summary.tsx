@@ -2,13 +2,13 @@ import { SectionCard } from "@/components/gestcopy/section-card";
 import {
   DraftInput,
   DraftSelect,
-  DraftTextarea,
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
 import {
   displayValue,
   formatDate,
+  formatPriority,
 } from "@/lib/orders/format";
 import type {
   Order,
@@ -34,8 +34,6 @@ export function OrderSummary({
   clientActions?: React.ReactNode;
 }) {
   const client = order.client_id && order.client?.id ? order.client : null;
-  const description =
-    editing && draft ? draft.description : (order.description ?? "");
   const serviceName =
     editing && draft
       ? orderOptions?.services.find((item) => item.id === draft.service_id)
@@ -53,6 +51,15 @@ export function OrderSummary({
           (item) => item.id === draft.order_context_id
         )?.name ?? null
       : order.order_context?.name;
+  const assigneeName =
+    editing && draft
+      ? orderOptions?.team_members.find(
+          (item) => item.id === draft.assigned_team_member_id
+        )?.name ?? null
+      : order.assigned_team_member?.name;
+  const dueAt = editing && draft ? draft.due_at : order.due_at;
+  const priority = editing && draft ? draft.priority : order.priority;
+  const hasContact = Boolean(client?.email?.trim() || client?.phone?.trim());
 
   return (
     <SectionCard title="Resumen" bodyClassName="px-5 py-2 sm:px-6">
@@ -62,13 +69,6 @@ export function OrderSummary({
             <DraftInput
               value={draft.title}
               onChange={(value) => onDraftChange({ title: value })}
-            />
-          </FactRow>
-          <FactRow label="Descripción">
-            <DraftTextarea
-              value={draft.description}
-              onChange={(value) => onDraftChange({ description: value })}
-              rows={3}
             />
           </FactRow>
           <FactRow label="Servicio">
@@ -122,53 +122,90 @@ export function OrderSummary({
         </>
       ) : (
         <>
-          <FactRow label="Servicio">
-            <FactValue value={serviceName} />
+          <FactRow label="Cliente">
+            {client ? (
+              <div className="space-y-1">
+                <div className="font-medium">{client.name}</div>
+                {client.company_name ? (
+                  <div className="text-muted-foreground">{client.company_name}</div>
+                ) : null}
+                {client.contact_name ? (
+                  <div className="text-muted-foreground">
+                    Contacto: {client.contact_name}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <span className="text-muted-foreground">Sin cliente</span>
+            )}
           </FactRow>
-          <FactRow label="Descripción">
-            <FactValue value={description} empty="Sin descripción" />
-          </FactRow>
+          {hasContact ? (
+            <FactRow label="Contacto">
+              <div className="space-y-1">
+                {client?.phone?.trim() ? <div>{client.phone}</div> : null}
+                {client?.email?.trim() ? (
+                  <div>{displayValue(client.email)}</div>
+                ) : null}
+              </div>
+            </FactRow>
+          ) : null}
           <FactRow label="Canal">
             <FactValue value={channelName} />
           </FactRow>
-          <FactRow label="Contexto">
-            <FactValue value={contextName} />
+          <FactRow label="Servicio">
+            <FactValue value={serviceName} />
           </FactRow>
+          <FactRow label="Recepción">
+            <FactValue value={formatDate(order.received_at)} />
+          </FactRow>
+          <FactRow label="Entrega prevista">
+            <FactValue value={formatDate(dueAt)} />
+          </FactRow>
+          <FactRow label="Responsable">
+            <FactValue value={assigneeName} empty="Sin responsable" />
+          </FactRow>
+          <FactRow label="Prioridad">
+            <FactValue value={formatPriority(priority)} />
+          </FactRow>
+          {contextName ? (
+            <FactRow label="Contexto">
+              <FactValue value={contextName} />
+            </FactRow>
+          ) : null}
         </>
       )}
 
-      <FactRow label="Cliente">
-        {client ? (
-          <div className="space-y-1">
-            <div className="font-medium">{client.name}</div>
-            {client.company_name ? (
-              <div className="text-muted-foreground">{client.company_name}</div>
-            ) : null}
-            {client.contact_name ? (
-              <div className="text-muted-foreground">
-                Contacto: {client.contact_name}
+      {editing ? (
+        <>
+          <FactRow label="Cliente">
+            {client ? (
+              <div className="space-y-1">
+                <div className="font-medium">{client.name}</div>
+                {client.company_name ? (
+                  <div className="text-muted-foreground">{client.company_name}</div>
+                ) : null}
+                {client.contact_name ? (
+                  <div className="text-muted-foreground">
+                    Contacto: {client.contact_name}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        ) : (
-          <span className="text-muted-foreground">Sin cliente</span>
-        )}
-      </FactRow>
-
-      <FactRow label="Contacto">
-        {client ? (
-          <div className="space-y-1">
-            <div>{displayValue(client.email)}</div>
-            <div>{displayValue(client.phone)}</div>
-          </div>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </FactRow>
-
-      <FactRow label="Recepción">
-        <FactValue value={formatDate(order.received_at)} />
-      </FactRow>
+            ) : (
+              <span className="text-muted-foreground">Sin cliente</span>
+            )}
+          </FactRow>
+          <FactRow label="Contacto">
+            {client ? (
+              <div className="space-y-1">
+                <div>{displayValue(client.email)}</div>
+                <div>{displayValue(client.phone)}</div>
+              </div>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </FactRow>
+        </>
+      ) : null}
 
       {editing && clientActions ? (
         <div className="border-t border-border/60 py-4">{clientActions}</div>

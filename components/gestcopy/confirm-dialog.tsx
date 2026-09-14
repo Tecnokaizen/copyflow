@@ -1,14 +1,17 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 type ConfirmDialogProps = {
   title: string;
-  description: string;
+  description?: string;
   confirmLabel: string;
   cancelLabel?: string;
   destructive?: boolean;
   busy?: boolean;
+  confirmDisabled?: boolean;
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -20,6 +23,8 @@ export function ConfirmDialog({
   cancelLabel = "Cancelar",
   destructive = false,
   busy = false,
+  confirmDisabled = false,
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -31,13 +36,17 @@ export function ConfirmDialog({
         className="w-full max-w-md rounded-[var(--radius)] border border-border bg-card p-5 shadow-lg"
       >
         <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+        {description ? (
+          <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+        ) : null}
+        {children ? <div className="mt-4">{children}</div> : null}
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
             type="button"
             variant="outline"
             onClick={onCancel}
             disabled={busy}
+            className="min-h-11 w-full sm:w-auto"
           >
             {cancelLabel}
           </Button>
@@ -45,7 +54,8 @@ export function ConfirmDialog({
             type="button"
             variant={destructive ? "destructive" : "default"}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
+            className="min-h-11 w-full sm:w-auto"
           >
             {busy ? "Procesando…" : confirmLabel}
           </Button>

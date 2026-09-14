@@ -54,7 +54,7 @@ export function DraftSelect({
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        "w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm",
+        "min-h-11 w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm",
         className
       )}
     >
@@ -83,7 +83,7 @@ export function DraftInput({
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        "w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm",
+        "min-h-11 w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm",
         className
       )}
     />
@@ -110,7 +110,7 @@ export function DraftTextarea({
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        "w-full rounded-md border border-border bg-background px-3 py-2 text-sm",
+        "min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm",
         className
       )}
     />
