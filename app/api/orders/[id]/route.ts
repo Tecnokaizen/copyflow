@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -24,7 +25,7 @@ export async function GET(
   const context = await getCurrentContext();
 
   if (!context) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
@@ -54,13 +55,13 @@ export async function GET(
     .single();
 
   if (error || !order) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Order not found" },
       { status: 404 }
     );
   }
 
-  return NextResponse.json({
+  return operationalJson({
     tenant: context.tenant.slug,
     order,
   });

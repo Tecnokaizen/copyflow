@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
@@ -13,6 +13,9 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
+import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
+import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
 import {
   parseStoreListFilter,
   storeListFilterParam,
@@ -469,6 +472,9 @@ function OrdersPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const calendarAbortRef = useRef<AbortController | null>(null);
+  const byServiceAbortRef = useRef<AbortController | null>(null);
   const isClient = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -518,7 +524,6 @@ function OrdersPageContent() {
   const [byServiceData, setByServiceData] = useState<OrdersResponse | null>(
     null
   );
-  const [byServiceLoading, setByServiceLoading] = useState(false);
   const [byServiceError, setByServiceError] = useState<string | null>(null);
   const [listReloadToken, setListReloadToken] = useState(0);
   const [calendarReloadToken, setCalendarReloadToken] = useState(0);
@@ -794,10 +799,14 @@ function OrdersPageContent() {
     });
   }
 
-  useEffect(() => {
-    async function loadOrders() {
-      setLoading(true);
-      setError(null);
+  const loadOrders = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        listAbortRef.current,
+        opts?.signal
+      );
+      listAbortRef.current = controller;
 
       try {
         const params = new URLSearchParams({
@@ -823,7 +832,9 @@ function OrdersPageContent() {
           params.set("dir", sortDir);
         }
 
-        const response = await fetch(`/api/orders?${params.toString()}`);
+        const response = await fetchLive(`/api/orders?${params.toString()}`, {
+          signal,
+        });
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
@@ -831,6 +842,8 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setData(result);
+        setError(null);
+        setLoading(false);
 
         const receivedSize = result.page_size || pageSize;
         const receivedTotal = result.total ?? 0;
@@ -843,18 +856,41 @@ function OrdersPageContent() {
           setPage(lastPage);
         }
 
-        if (page > 1) {
+        if (!silent && page > 1) {
           listRef.current?.scrollIntoView({ block: "start" });
         }
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (silent) {
+          return;
+        }
         setError("No se pudieron cargar los pedidos");
-      } finally {
         setLoading(false);
       }
+    },
+    [
+      page,
+      listFilter,
+      assignedMemberId,
+      statusId,
+      selectedStoreParam,
+      sortField,
+      sortDir,
+    ]
+  );
+
+  useEffect(() => {
+    if (view !== "list") {
+      return;
     }
 
-    loadOrders();
-  }, [page, listFilter, assignedMemberId, statusId, selectedStoreParam, sortField, sortDir, listReloadToken]);
+    void loadOrders();
+    return () => {
+      listAbortRef.current?.abort();
+    };
+  }, [loadOrders, listReloadToken, view]);
 
   function navigateToView(nextView: ViewMode) {
     const params = new URLSearchParams(searchParams.toString());
@@ -917,14 +953,14 @@ function OrdersPageContent() {
     setView("calendar");
   }
 
-  useEffect(() => {
-    if (view !== "calendar") {
-      return;
-    }
-
-    async function loadWeek() {
-      setCalendarLoading(true);
-      setCalendarError(null);
+  const loadWeek = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        calendarAbortRef.current,
+        opts?.signal
+      );
+      calendarAbortRef.current = controller;
 
       try {
         const params = new URLSearchParams({
@@ -936,7 +972,9 @@ function OrdersPageContent() {
           params.set("assigned_team_member_id", assignedMemberId);
         }
 
-        const response = await fetch(`/api/orders?${params.toString()}`);
+        const response = await fetchLive(`/api/orders?${params.toString()}`, {
+          signal,
+        });
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
@@ -944,8 +982,14 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setCalendarData(result);
+        setCalendarError(null);
+        setCalendarLoading(false);
 
-        if (result.week_start && result.week_start !== weekStartCivil) {
+        if (
+          result.week_start &&
+          (weekStartCivil == null ||
+            (!silent && result.week_start !== weekStartCivil))
+        ) {
           setWeekStartCivil(result.week_start);
         }
         if (result.timezone) {
@@ -954,34 +998,46 @@ function OrdersPageContent() {
         if (Array.isArray(result.week_days) && result.week_days.length === 7) {
           setCalendarDays(result.week_days);
         }
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (silent) {
+          return;
+        }
         setCalendarData(null);
         setCalendarError("No se pudieron cargar los pedidos");
-      } finally {
         setCalendarLoading(false);
       }
-    }
-
-    void loadWeek();
-  }, [
-    view,
-    weekStartCivil,
-    calendarScope,
-    assignedMemberId,
-    calendarReloadToken,
-  ]);
+    },
+    [weekStartCivil, calendarScope, assignedMemberId]
+  );
 
   useEffect(() => {
-    if (view !== "service") {
+    if (view !== "calendar") {
+      calendarAbortRef.current?.abort();
       return;
     }
 
-    async function loadByService() {
-      setByServiceLoading(true);
-      setByServiceError(null);
+    void loadWeek();
+    return () => {
+      calendarAbortRef.current?.abort();
+    };
+  }, [view, loadWeek, calendarReloadToken]);
+
+  const loadByService = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        byServiceAbortRef.current,
+        opts?.signal
+      );
+      byServiceAbortRef.current = controller;
 
       try {
-        const response = await fetch("/api/orders?active=true");
+        const response = await fetchLive("/api/orders?active=true", {
+          signal,
+        });
 
         if (!response.ok) {
           throw new Error("No se pudieron cargar los pedidos");
@@ -989,16 +1045,46 @@ function OrdersPageContent() {
 
         const result = (await response.json()) as OrdersResponse;
         setByServiceData(result);
-      } catch {
+        setByServiceError(null);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (silent) {
+          return;
+        }
         setByServiceData(null);
         setByServiceError("No se pudieron cargar los pedidos");
-      } finally {
-        setByServiceLoading(false);
       }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (view !== "service") {
+      byServiceAbortRef.current?.abort();
+      return;
     }
 
-    loadByService();
-  }, [view, byServiceReloadToken]);
+    void loadByService();
+    return () => {
+      byServiceAbortRef.current?.abort();
+    };
+  }, [view, loadByService, byServiceReloadToken]);
+
+  useLiveRefresh({
+    onRefresh: async (signal) => {
+      if (view === "calendar") {
+        await loadWeek({ silent: true, signal });
+        return;
+      }
+      if (view === "service") {
+        await loadByService({ silent: true, signal });
+        return;
+      }
+      await loadOrders({ silent: true, signal });
+    },
+  });
 
   const listOrders = data?.orders ?? [];
   const filteredTotal = data?.total ?? 0;
@@ -1215,7 +1301,11 @@ function OrdersPageContent() {
             ) : error && !data ? (
               <ErrorState
                 title="No se pudieron cargar los pedidos"
-                onRetry={() => setListReloadToken((token) => token + 1)}
+                onRetry={() => {
+                  setError(null);
+                  setLoading(true);
+                  setListReloadToken((token) => token + 1);
+                }}
               />
             ) : (
               <>
@@ -1353,7 +1443,11 @@ function OrdersPageContent() {
                   <ErrorState
                     className="mt-3"
                     title="No se pudieron cargar los pedidos"
-                    onRetry={() => setListReloadToken((token) => token + 1)}
+                    onRetry={() => {
+                  setError(null);
+                  setLoading(true);
+                  setListReloadToken((token) => token + 1);
+                }}
                   />
                 ) : null}
 
@@ -1478,7 +1572,12 @@ function OrdersPageContent() {
             ) : calendarError ? (
               <ErrorState
                 title="No se pudieron cargar los pedidos"
-                onRetry={() => setCalendarReloadToken((token) => token + 1)}
+                onRetry={() => {
+                  setCalendarError(null);
+                  setCalendarDays([]);
+                  setCalendarTimezone(null);
+                  setCalendarReloadToken((token) => token + 1);
+                }}
               />
             ) : calendarOrderCount === 0 ? (
               <div className="overflow-hidden rounded-lg border bg-card">
@@ -1563,12 +1662,15 @@ function OrdersPageContent() {
 
         {view === "service" && (
           <div className="grid gap-4">
-            {byServiceLoading ? (
+            {!byServiceData && !byServiceError ? (
               <LoadingState label="Cargando pedidos por servicio..." />
             ) : byServiceError ? (
               <ErrorState
                 title="No se pudieron cargar los pedidos"
-                onRetry={() => setByServiceReloadToken((token) => token + 1)}
+                onRetry={() => {
+                  setByServiceError(null);
+                  setByServiceReloadToken((token) => token + 1);
+                }}
               />
             ) : serviceOrdersAll.length === 0 ? (
               <div className="overflow-hidden rounded-lg border bg-card">

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
@@ -97,7 +97,7 @@ export async function GET() {
   const context = await getCurrentContext();
 
   if (!context) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
@@ -116,7 +116,7 @@ export async function GET() {
   });
 
   if (!scope.assignedTeamMemberId || !teamMember) {
-    return NextResponse.json({
+    return operationalJson({
       tenant: context.tenant.slug,
       linked: false,
       team_member: null,
@@ -141,7 +141,7 @@ export async function GET() {
       error: result.error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load orders" },
       { status: 500 }
     );
@@ -157,7 +157,7 @@ export async function GET() {
     assignedTeamMemberId: scope.assignedTeamMemberId,
   });
 
-  return NextResponse.json({
+  return operationalJson({
     tenant: context.tenant.slug,
     linked: true,
     team_member: teamMember,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
@@ -14,6 +14,9 @@ import type {
   DashboardUpcomingOrder,
   DashboardWorkloadMember,
 } from "@/lib/dashboard/types";
+import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
+import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
+import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
 import { cn } from "@/lib/utils";
 
 function formatOperativeDate(localDate: string) {
@@ -196,33 +199,49 @@ export function TenantDashboard() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadDashboard = useCallback(async (opts?: SilentLoadOptions) => {
+    const silent = opts?.silent === true;
+    const { controller, signal } = nextLoadSignal(abortRef.current, opts?.signal);
+    abortRef.current = controller;
+
+    try {
+      const response = await fetchLive("/api/dashboard", { signal });
+
+      if (!response.ok) {
+        throw new Error("No se pudo cargar el panel");
+      }
+
+      const result = (await response.json()) as DashboardResponse;
+      setData(result);
+      setError(null);
+      setLoading(false);
+    } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+      if (silent) {
+        return;
+      }
+      setData(null);
+      setError(
+        err instanceof Error ? err.message : "No se pudo cargar el panel"
+      );
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function loadDashboard() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetch("/api/dashboard");
-
-        if (!response.ok) {
-          throw new Error("No se pudo cargar el panel");
-        }
-
-        const result = (await response.json()) as DashboardResponse;
-        setData(result);
-      } catch (err) {
-        setData(null);
-        setError(
-          err instanceof Error ? err.message : "No se pudo cargar el panel"
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
     void loadDashboard();
-  }, []);
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [loadDashboard]);
+
+  useLiveRefresh({
+    onRefresh: (signal) => loadDashboard({ silent: true, signal }),
+  });
 
   const workloadMax = useMemo(() => {
     const members = data?.workload.members ?? [];
