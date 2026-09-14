@@ -67,7 +67,11 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+# Intentionally empty: the smoke suite is self-sufficient (it bootstraps its own
+# users/tenants/data through the real app flow) and production data is never
+# seeded locally. The demo dataset in ./seeds/demo-commercial.sql is kept for
+# manual exploration only and is loaded on demand, not during `db reset`.
+sql_paths = []
 
 [db.network_restrictions]
 # Enable management of network restrictions.

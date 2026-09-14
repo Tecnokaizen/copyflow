@@ -6,7 +6,12 @@
 # duplicating work.
 set -euo pipefail
 
-WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/cloud-agent-common.sh
+. "${SCRIPT_DIR}/cloud-agent-common.sh"
+gestcopy_require_cloud_agent
+
+WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 cd "${WORKSPACE_DIR}"
 
 log() { printf '\n[start] %s\n' "$*"; }
@@ -29,18 +34,36 @@ if ! sudo docker info >/dev/null 2>&1; then
     sleep 1
   done
 fi
-# Let the non-root user talk to the daemon without sudo.
-sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+
+# Grant the agent user access to the Docker socket WITHOUT making it
+# world-writable (avoids `chmod 666`).
+#
+# Ideally we would rely on the `docker` group, but the Cloud Agent's long-lived
+# shells are started before this script runs and do not refresh their
+# supplementary groups mid-session, so a fresh `usermod -aG docker` would not
+# take effect for the current agent. We therefore scope the socket to the
+# agent's *primary* login group (mode 660) — reachable by the current sessions
+# yet not open to every account on the box. We still add the user to the
+# `docker` group so future login shells work the conventional way.
+log "Granting Docker socket access to the agent user (group-scoped, not world)"
+sudo groupadd -f docker || true
+sudo usermod -aG docker "$(id -un)" || true
+if [ -S /var/run/docker.sock ]; then
+  sudo chown "root:$(id -gn)" /var/run/docker.sock
+  sudo chmod 660 /var/run/docker.sock
+fi
 
 # --- Container networking --------------------------------------------------
 # Bridged traffic between containers on the same Docker network is otherwise
-# dropped by the iptables FORWARD chain. Let same-bridge L2 traffic bypass
-# iptables and default the FORWARD policy to ACCEPT.
+# dropped by the iptables FORWARD chain. Disabling bridge-nf-call-iptables lets
+# same-bridge L2 traffic flow directly (verified: containers reach each other
+# even with FORWARD policy DROP), so we do NOT need a broad
+# `iptables -P FORWARD ACCEPT`. `ip_forward` stays enabled because Docker needs
+# it for published-port NAT. This is scoped to this ephemeral, single-tenant VM.
 log "Enabling container-to-container networking"
 sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
 sudo sysctl -w net.bridge.bridge-nf-call-iptables=0 >/dev/null 2>&1 || true
 sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=0 >/dev/null 2>&1 || true
-sudo iptables -P FORWARD ACCEPT 2>/dev/null || true
 
 # --- Supabase local stack --------------------------------------------------
 if supabase status >/dev/null 2>&1; then

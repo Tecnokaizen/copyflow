@@ -4,6 +4,11 @@
 # Next.js app, then installs JS dependencies. Safe to re-run.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/cloud-agent-common.sh
+. "${SCRIPT_DIR}/cloud-agent-common.sh"
+gestcopy_require_cloud_agent
+
 SUPABASE_CLI_VERSION="${SUPABASE_CLI_VERSION:-2.117.0}"
 
 log() { printf '\n[install] %s\n' "$*"; }
