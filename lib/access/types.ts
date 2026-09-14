@@ -1,5 +1,15 @@
 import type { InvitableRole, MembershipRole } from "@/lib/auth/membership-roles";
 
+export type AccessTeamMemberRef = {
+  id: string;
+  name: string;
+};
+
+export type AccessTeamMemberOption = AccessTeamMemberRef & {
+  user_id: string | null;
+  active: boolean;
+};
+
 export type AccessMembership = {
   user_id: string;
   full_name: string | null;
@@ -7,6 +17,7 @@ export type AccessMembership = {
   role: MembershipRole | string;
   active: boolean;
   created_at: string | null;
+  team_member: AccessTeamMemberRef | null;
 };
 
 export type AccessInvitation = {
@@ -29,6 +40,7 @@ export type AccessListResponse = {
   };
   memberships: AccessMembership[];
   invitations: AccessInvitation[];
+  team_members: AccessTeamMemberOption[];
 };
 
 /** Public HTTP body for create/resend — never includes plaintext token. */
@@ -106,6 +118,38 @@ export function unwrapRpcPayload(data: unknown): Record<string, unknown> {
   return {};
 }
 
+function asTeamMemberRef(value: unknown): AccessTeamMemberRef | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = asNullableString(record.id);
+  const name = asNullableString(record.name);
+
+  if (!id || !name) {
+    return null;
+  }
+
+  return { id, name };
+}
+
+export function mapAccessTeamMemberOption(
+  row: unknown
+): AccessTeamMemberOption | null {
+  const ref = asTeamMemberRef(row);
+  if (!ref) {
+    return null;
+  }
+
+  const record = row as Record<string, unknown>;
+  return {
+    ...ref,
+    user_id: asNullableString(record.user_id),
+    active: asBoolean(record.active, true),
+  };
+}
+
 export function mapAccessMembership(row: unknown): AccessMembership | null {
   if (!row || typeof row !== "object") {
     return null;
@@ -126,6 +170,7 @@ export function mapAccessMembership(row: unknown): AccessMembership | null {
     role,
     active: asBoolean(record.active, true),
     created_at: asNullableString(record.created_at),
+    team_member: asTeamMemberRef(record.team_member),
   };
 }
 

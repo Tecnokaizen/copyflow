@@ -3,7 +3,11 @@ import type {
   AccessListResponse,
   AccessMembership,
 } from "@/lib/access/types";
-import { mapAccessInvitation, mapAccessMembership } from "@/lib/access/types";
+import {
+  mapAccessInvitation,
+  mapAccessMembership,
+  mapAccessTeamMemberOption,
+} from "@/lib/access/types";
 
 export function parseAccessListResponse(
   payload: unknown
@@ -39,10 +43,17 @@ export function parseAccessListResponse(
     .map((row) => mapAccessInvitation(row))
     .filter((row): row is AccessInvitation => row !== null);
 
+  const teamMembers = (
+    Array.isArray(record.team_members) ? record.team_members : []
+  )
+    .map((row) => mapAccessTeamMemberOption(row))
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
   return {
     tenant: { id, name, slug },
     memberships,
     invitations,
+    team_members: teamMembers,
   };
 }
 
@@ -76,6 +87,12 @@ export function publicAccessUiError(
   status: number,
   payload: { error?: string; code?: string } | null
 ) {
+  if (payload?.code === "already_linked") {
+    return "Ese usuario ya está vinculado a otro perfil de equipo.";
+  }
+  if (payload?.code === "membership_missing") {
+    return "Ese usuario no tiene acceso a esta organización.";
+  }
   if (payload?.code === "email_delivery_failed") {
     return "La invitación se creó, pero no se pudo enviar el email. Prueba a reenviar.";
   }

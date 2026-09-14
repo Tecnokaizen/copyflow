@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
+import { canWriteTeam } from "@/lib/auth/membership-roles";
+import {
+  loadTeamMemberLinks,
+  loadTenantAccessUsers,
+} from "@/lib/team/access-users";
+import {
+  applyTeamMemberLinks,
+  mapTeamMember,
+  unwrapRpcPayload,
+} from "@/lib/team/types";
 import { statusForTeamRpcError } from "@/lib/team/rpc-error";
 
 function parseActive(raw: string | null) {
@@ -53,9 +62,29 @@ export async function GET(request: NextRequest) {
 
   const record = unwrapRpcPayload(data);
   const rawMembers = Array.isArray(record.members) ? record.members : [];
-  const members = rawMembers
+  const mapped = rawMembers
     .map((row) => mapTeamMember(row))
     .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  const links = await loadTeamMemberLinks(supabase, context.tenant.id);
+  if (!links) {
+    return NextResponse.json(
+      { error: "Could not load team" },
+      { status: 500 }
+    );
+  }
+
+  const members = applyTeamMemberLinks(mapped, links);
+  const accessUsers = canWriteTeam(context.membership.role)
+    ? await loadTenantAccessUsers(supabase, context.tenant.id, links)
+    : [];
+
+  if (accessUsers === null) {
+    return NextResponse.json(
+      { error: "Could not load team" },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({
     tenant: context.tenant.slug,
@@ -63,5 +92,6 @@ export async function GET(request: NextRequest) {
     total: Number(record.total ?? members.length) || 0,
     available_count: Number(record.available_count ?? 0) || 0,
     active_orders_count: Number(record.active_orders_count ?? 0) || 0,
+    access_users: accessUsers,
   });
 }

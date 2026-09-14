@@ -5,9 +5,12 @@ import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
+import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { TeamMemberForm } from "@/components/team/team-member-form";
+import { TeamMemberLinkModal } from "@/components/team/team-member-link-modal";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
+import { publicTeamLinkError, type TeamAccessUser } from "@/lib/team/link";
 import {
   formToTeamPayload,
   memberToForm,
@@ -33,8 +36,10 @@ export default function TeamPage() {
   const [error, setError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
+  const [linking, setLinking] = useState<TeamMember | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -146,7 +151,39 @@ export default function TeamPage() {
     }
   }
 
+  async function handleLink(userId: string | null) {
+    if (!linking || saving) return;
+
+    setSaving(true);
+    setLinkError(null);
+
+    try {
+      const response = await fetch(`/api/team/${linking.id}/link`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(publicTeamLinkError(response.status, result));
+      }
+
+      setLinking(null);
+      await refreshList();
+    } catch (err) {
+      setLinkError(
+        err instanceof Error ? err.message : "No se pudo actualizar el vínculo"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const members = data?.members ?? [];
+  const accessUsers: TeamAccessUser[] = data?.access_users ?? [];
   const emptyMembersTitle = search
     ? "No hay miembros con estos filtros"
     : active === "true"
@@ -230,6 +267,9 @@ export default function TeamPage() {
                     <th className="px-4 py-3 text-left font-medium">
                       Estado
                     </th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Acceso
+                    </th>
                     {canWrite && (
                       <th className="px-4 py-3 text-left font-medium">
                         Acción
@@ -277,18 +317,39 @@ export default function TeamPage() {
                         <td className="px-4 py-4">
                           {member.active ? "Activo" : "Inactivo"}
                         </td>
+                        <td className="px-4 py-4">
+                          {member.has_access ? (
+                            <StatusBadge tone="success">Con acceso</StatusBadge>
+                          ) : (
+                            <StatusBadge tone="warning">Sin acceso</StatusBadge>
+                          )}
+                        </td>
                         {canWrite && (
                           <td className="px-4 py-4">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFormError(null);
-                                setEditing(member);
-                              }}
-                              className="rounded-md border bg-background px-3 py-2 text-sm"
-                            >
-                              Editar
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormError(null);
+                                  setEditing(member);
+                                }}
+                                className="rounded-md border bg-background px-3 py-2 text-sm"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLinkError(null);
+                                  setLinking(member);
+                                }}
+                                className="rounded-md border bg-background px-3 py-2 text-sm"
+                              >
+                                {member.has_access
+                                  ? "Cambiar acceso"
+                                  : "Vincular acceso"}
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -299,6 +360,23 @@ export default function TeamPage() {
             </div>
           </div>
         )}
+
+      {linking && (
+        <TeamMemberLinkModal
+          key={linking.id}
+          member={linking}
+          accessUsers={accessUsers}
+          busy={saving}
+          error={linkError}
+          onClose={() => {
+            if (saving) return;
+            setLinking(null);
+          }}
+          onSave={(userId) => {
+            void handleLink(userId);
+          }}
+        />
+      )}
 
       {editing && (
         <TeamModal>

@@ -1,4 +1,5 @@
 import { canWriteTeam } from "@/lib/auth/membership-roles";
+import type { TeamAccessUser } from "@/lib/team/link";
 
 export type TeamMember = {
   id: string;
@@ -10,11 +11,15 @@ export type TeamMember = {
   active: boolean;
   can_receive_orders: boolean;
   notes: string | null;
+  user_id: string | null;
+  has_access: boolean;
   active_orders_count: number;
   total_orders_count: number;
   created_at: string;
   updated_at: string;
 };
+
+export type { TeamAccessUser };
 
 export type TeamListResponse = {
   tenant: string;
@@ -22,6 +27,7 @@ export type TeamListResponse = {
   total: number;
   available_count: number;
   active_orders_count: number;
+  access_users: TeamAccessUser[];
 };
 
 export type TeamMemberFormData = {
@@ -96,6 +102,8 @@ export function mapTeamMember(row: unknown): TeamMember | null {
     return null;
   }
 
+  const userId = asNullableString(record.user_id);
+
   return {
     id,
     name,
@@ -109,11 +117,34 @@ export function mapTeamMember(row: unknown): TeamMember | null {
         ? true
         : asBoolean(record.can_receive_orders, true),
     notes: asNullableString(record.notes),
+    user_id: userId,
+    has_access: Boolean(userId),
     active_orders_count: asNumber(record.active_orders_count, 0),
     total_orders_count: asNumber(record.total_orders_count, 0),
     created_at: typeof record.created_at === "string" ? record.created_at : "",
     updated_at: typeof record.updated_at === "string" ? record.updated_at : "",
   };
+}
+
+export function applyTeamMemberLinks(
+  members: TeamMember[],
+  links: Array<{ id: string; user_id: string | null }>
+) {
+  const userIdByMember = new Map(
+    links.map((link) => [link.id, link.user_id] as const)
+  );
+
+  return members.map((member) => {
+    const userId = userIdByMember.has(member.id)
+      ? userIdByMember.get(member.id) ?? null
+      : member.user_id;
+
+    return {
+      ...member,
+      user_id: userId,
+      has_access: Boolean(userId),
+    };
+  });
 }
 
 export function memberToForm(member: TeamMember): TeamMemberFormData {
