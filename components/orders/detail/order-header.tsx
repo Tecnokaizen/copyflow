@@ -1,7 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
+import { OrderQuickActions } from "@/components/orders/detail/order-quick-actions";
 import { getOrderAttentionSignals } from "@/lib/orders/attention";
 import { formatDate, formatPriority } from "@/lib/orders/format";
+import { resolveOrderStatusId } from "@/lib/orders/draft";
 import type {
   Order,
   OrderDraft,
@@ -48,24 +52,34 @@ export function OrderHeader({
   editing,
   canWrite,
   saving,
+  quickSaving,
   clientSavedDuringEdit,
   statuses,
   orderOptions,
+  orderOptionsLoading,
   onEdit,
   onCancel,
   onSave,
+  onQuickStatus,
+  onQuickAssignee,
+  onQuickNote,
 }: {
   order: Order;
   draft: OrderDraft | null;
   editing: boolean;
   canWrite: boolean;
   saving: boolean;
+  quickSaving: boolean;
   clientSavedDuringEdit: boolean;
   statuses: OrderStatus[];
   orderOptions: OrderOptionsResponse | null;
+  orderOptionsLoading: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
+  onQuickStatus: (statusId: string) => Promise<void>;
+  onQuickAssignee: (memberId: string | null) => Promise<void>;
+  onQuickNote: (note: string) => Promise<void>;
 }) {
   const priority = draft && editing ? draft.priority : order.priority;
   const dueAt = draft && editing ? draft.due_at : order.due_at;
@@ -79,13 +93,16 @@ export function OrderHeader({
     ...order,
     priority,
     due_at: dueAt,
+    assigned_team_member_id: editing
+      ? (draft?.assigned_team_member_id ?? null)
+      : order.assigned_team_member_id,
   });
 
   return (
     <header className="mb-8 sm:mb-10">
       <Link
         href="/orders"
-        className="mb-4 inline-block text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="mb-4 inline-block min-h-11 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         ← Pedidos
       </Link>
@@ -101,18 +118,21 @@ export function OrderHeader({
           <p className="mt-2 text-base text-muted-foreground">
             {clientLine(order)}
           </p>
+          <p className="mt-3 text-lg font-semibold tabular-nums tracking-tight text-foreground">
+            Entrega {formatDate(dueAt)}
+          </p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end sm:pt-1">
+        <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end sm:pt-1">
           {editing ? (
             <>
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
                 <button
                   type="button"
                   disabled={saving}
                   onClick={onCancel}
                   title="Descarta solo el borrador del pedido. Los cambios de cliente ya confirmados no se revierten."
-                  className="gc-action disabled:opacity-50"
+                  className="gc-action min-h-11 w-full sm:w-auto disabled:opacity-50"
                 >
                   Descartar borrador
                 </button>
@@ -120,7 +140,7 @@ export function OrderHeader({
                   type="button"
                   disabled={saving}
                   onClick={onSave}
-                  className="gc-cta disabled:opacity-50"
+                  className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
                 >
                   {saving ? "Guardando…" : "Guardar cambios"}
                 </button>
@@ -132,9 +152,18 @@ export function OrderHeader({
               ) : null}
             </>
           ) : canWrite ? (
-            <button type="button" onClick={onEdit} className="gc-cta">
-              Editar pedido
-            </button>
+            <OrderQuickActions
+              busy={quickSaving}
+              statuses={statuses}
+              teamMembers={orderOptions?.team_members ?? []}
+              optionsLoading={orderOptionsLoading}
+              currentStatusId={resolveOrderStatusId(order, statuses)}
+              currentAssigneeId={order.assigned_team_member_id}
+              onEdit={onEdit}
+              onSaveStatus={onQuickStatus}
+              onSaveAssignee={onQuickAssignee}
+              onSaveNote={onQuickNote}
+            />
           ) : null}
         </div>
       </div>
@@ -147,7 +176,6 @@ export function OrderHeader({
         <StatusBadge tone="neutral">
           {resolveAssigneeName(order, editing ? draft : null, orderOptions)}
         </StatusBadge>
-        <StatusBadge tone="neutral">Entrega {formatDate(dueAt)}</StatusBadge>
       </div>
 
       {signals.length > 0 ? (

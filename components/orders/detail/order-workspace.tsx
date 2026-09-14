@@ -7,6 +7,8 @@ import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
 import { AppShell } from "@/components/gestcopy/app-shell";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
 import { OrderFulfillment } from "@/components/orders/detail/order-fulfillment";
 import { OrderHeader } from "@/components/orders/detail/order-header";
@@ -33,6 +35,7 @@ import {
   resolveOrderStatusId,
   type DraftSaveStep,
 } from "@/lib/orders/draft";
+import { appendOrderNote } from "@/lib/orders/notes";
 import type {
   ActivityItem,
   ActivityResponse,
@@ -73,6 +76,8 @@ export function OrderWorkspace() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<OrderDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [clientSavedDuringEdit, setClientSavedDuringEdit] = useState(false);
 
   const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
@@ -119,7 +124,9 @@ export function OrderWorkspace() {
         }
 
         setOrder(normalizeLoadedOrder(result.order));
+        setError(null);
       } catch (err) {
+        setOrder(null);
         setError(
           err instanceof Error ? err.message : "Error al cargar el pedido"
         );
@@ -138,7 +145,7 @@ export function OrderWorkspace() {
 
     void loadOrder();
     void loadContext();
-  }, [params.id]);
+  }, [params.id, reloadToken]);
 
   useEffect(() => {
     async function loadStatuses() {
@@ -493,6 +500,60 @@ export function OrderWorkspace() {
     }
   }
 
+  async function runQuickSave(
+    label: string,
+    step: DraftSaveStep
+  ): Promise<void> {
+    if (!order || quickSaving) return;
+
+    setQuickSaving(true);
+    setError(null);
+    setSaveMessage(null);
+
+    try {
+      const next = await applySaveStep(order, step);
+      setOrder(next);
+      await loadActivity();
+      setSaveMessage(label);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo guardar el cambio"
+      );
+      throw err;
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
+  async function saveQuickStatus(statusId: string) {
+    await runQuickSave("Estado actualizado", {
+      kind: "status",
+      status_id: statusId,
+      label: "Estado",
+    });
+  }
+
+  async function saveQuickAssignee(memberId: string | null) {
+    await runQuickSave("Responsable actualizado", {
+      kind: "detail",
+      field: "assigned_team_member_id",
+      value: memberId,
+      label: "Responsable",
+    });
+  }
+
+  async function saveQuickNote(note: string) {
+    if (!order) return;
+
+    const nextNotes = appendOrderNote(order.notes, note);
+    await runQuickSave("Nota añadida", {
+      kind: "content",
+      field: "notes",
+      value: nextNotes,
+      label: "Notas",
+    });
+  }
+
   function closeClientUi() {
     if (savingClient) return;
     setClientUiMode(null);
@@ -696,7 +757,7 @@ export function OrderWorkspace() {
     return (
       <AppShell>
         <AppNav />
-        <p className="text-muted-foreground">Cargando pedido…</p>
+        <LoadingState label="Cargando pedido…" />
       </AppShell>
     );
   }
@@ -705,7 +766,14 @@ export function OrderWorkspace() {
     return (
       <AppShell>
         <AppNav />
-        <p className="text-destructive">{error ?? "Pedido no encontrado"}</p>
+        <ErrorState
+          title={error ?? "Pedido no encontrado"}
+          onRetry={() => {
+            setError(null);
+            setLoading(true);
+            setReloadToken((current) => current + 1);
+          }}
+        />
       </AppShell>
     );
   }
@@ -725,14 +793,14 @@ export function OrderWorkspace() {
             <button
               type="button"
               onClick={openEditClient}
-              className="gc-action"
+              className="gc-action min-h-11"
             >
               Editar cliente
             </button>
             <button
               type="button"
               onClick={openChangeClient}
-              className="gc-action"
+              className="gc-action min-h-11"
             >
               Cambiar cliente
             </button>
@@ -745,14 +813,14 @@ export function OrderWorkspace() {
                   type="button"
                   disabled={savingClient}
                   onClick={() => void assignExistingClient(null)}
-                  className="gc-action-danger disabled:opacity-50"
+                  className="gc-action-danger min-h-11 disabled:opacity-50"
                 >
                   Sí, quitar
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmRemoveClient(false)}
-                  className="gc-action"
+                  className="gc-action min-h-11"
                 >
                   No quitar
                 </button>
@@ -761,7 +829,7 @@ export function OrderWorkspace() {
               <button
                 type="button"
                 onClick={() => setConfirmRemoveClient(true)}
-                className="gc-action"
+                className="gc-action min-h-11"
               >
                 Quitar cliente
               </button>
@@ -771,7 +839,7 @@ export function OrderWorkspace() {
           <button
             type="button"
             onClick={openAssignClient}
-            className="gc-action"
+            className="gc-action min-h-11"
           >
             Asignar cliente
           </button>
@@ -806,12 +874,17 @@ export function OrderWorkspace() {
           editing={editing}
           canWrite={canWrite}
           saving={saving}
+          quickSaving={quickSaving}
           clientSavedDuringEdit={clientSavedDuringEdit}
           statuses={statuses}
           orderOptions={orderOptions}
+          orderOptionsLoading={orderOptionsLoading}
           onEdit={startEditing}
           onCancel={cancelEditing}
           onSave={() => void saveEditing()}
+          onQuickStatus={saveQuickStatus}
+          onQuickAssignee={saveQuickAssignee}
+          onQuickNote={saveQuickNote}
         />
 
         <div className="grid gap-6 lg:grid-cols-2">

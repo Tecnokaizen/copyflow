@@ -1,3 +1,4 @@
+import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import {
   formatActivityDate,
@@ -15,9 +16,7 @@ export function OrderActivity({
   return (
     <SectionCard title="Actividad" bodyClassName="px-5 py-2 sm:px-6">
       {loading ? (
-        <p className="py-4 text-sm text-muted-foreground">
-          Cargando historial…
-        </p>
+        <LoadingState label="Cargando historial…" className="px-0 py-6" />
       ) : activity.length === 0 ? (
         <p className="py-4 text-sm text-muted-foreground">
           Todavía no hay actividad registrada.
