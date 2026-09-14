@@ -54,7 +54,7 @@ describe("evaluateLinkChange", () => {
       targetMemberId: MEMBER_A,
       sessionTenantId: TENANT_A,
       userId: USER_A,
-      membership: { tenantId: TENANT_A, userId: USER_A },
+      membership: { tenantId: TENANT_A, userId: USER_A, active: true },
       existingLinkMemberId: null,
     });
 
@@ -66,7 +66,7 @@ describe("evaluateLinkChange", () => {
       targetMemberId: MEMBER_A,
       sessionTenantId: TENANT_A,
       userId: USER_A,
-      membership: { tenantId: TENANT_A, userId: USER_A },
+      membership: { tenantId: TENANT_A, userId: USER_A, active: true },
       existingLinkMemberId: MEMBER_A,
     });
 
@@ -78,7 +78,7 @@ describe("evaluateLinkChange", () => {
       targetMemberId: MEMBER_B,
       sessionTenantId: TENANT_A,
       userId: USER_A,
-      membership: { tenantId: TENANT_A, userId: USER_A },
+      membership: { tenantId: TENANT_A, userId: USER_A, active: true },
       existingLinkMemberId: MEMBER_A,
     });
 
@@ -102,7 +102,7 @@ describe("evaluateLinkChange", () => {
       targetMemberId: MEMBER_A,
       sessionTenantId: TENANT_A,
       userId: USER_A,
-      membership: { tenantId: TENANT_B, userId: USER_A },
+      membership: { tenantId: TENANT_B, userId: USER_A, active: true },
       existingLinkMemberId: null,
     });
 
@@ -117,6 +117,7 @@ describe("accessUsersAvailableForMember", () => {
         {
           user_id: USER_A,
           full_name: "Ana",
+          email: "ana@example.com",
           role: "staff",
           active: true,
           team_member_id: MEMBER_A,
@@ -124,6 +125,7 @@ describe("accessUsersAvailableForMember", () => {
         {
           user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           full_name: "Luis",
+          email: "luis@example.com",
           role: "staff",
           active: true,
           team_member_id: MEMBER_B,
@@ -131,6 +133,7 @@ describe("accessUsersAvailableForMember", () => {
         {
           user_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
           full_name: "Marta",
+          email: "marta@example.com",
           role: "manager",
           active: true,
           team_member_id: null,

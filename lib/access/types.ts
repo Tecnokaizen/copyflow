@@ -3,6 +3,8 @@ import type { InvitableRole, MembershipRole } from "@/lib/auth/membership-roles"
 export type AccessTeamMemberRef = {
   id: string;
   name: string;
+  job_title: string | null;
+  department: string | null;
 };
 
 export type AccessTeamMemberOption = AccessTeamMemberRef & {
@@ -24,6 +26,8 @@ export type AccessInvitation = {
   invitation_id: string;
   email: string;
   role: InvitableRole | string;
+  name: string | null;
+  add_to_personal: boolean;
   status: string;
   expires_at: string | null;
   invited_by_user_id: string | null;
@@ -49,6 +53,8 @@ export type CreatedInvitationPublicResponse = {
     id: string;
     email: string;
     role: string;
+    name: string | null;
+    add_to_personal: boolean;
     expires_at: string | null;
     send_attempts: number;
   };
@@ -74,6 +80,7 @@ export type AcceptInvitationResponse = {
     role: string;
     active: boolean;
   };
+  team_member_id?: string | null;
   tenant_origin: string;
 };
 
@@ -131,7 +138,12 @@ function asTeamMemberRef(value: unknown): AccessTeamMemberRef | null {
     return null;
   }
 
-  return { id, name };
+  return {
+    id,
+    name,
+    job_title: asNullableString(record.job_title),
+    department: asNullableString(record.department),
+  };
 }
 
 export function mapAccessTeamMemberOption(
@@ -194,6 +206,8 @@ export function mapAccessInvitation(row: unknown): AccessInvitation | null {
     invitation_id: invitationId,
     email,
     role,
+    name: asNullableString(record.name),
+    add_to_personal: asBoolean(record.add_to_personal, false),
     status,
     expires_at: asNullableString(record.expires_at),
     invited_by_user_id: asNullableString(record.invited_by_user_id),
@@ -232,6 +246,8 @@ export function mapCreateInvitationResult(
       id: invitationId,
       email,
       role,
+      name: asNullableString(record.name),
+      add_to_personal: asBoolean(record.add_to_personal, false),
       expires_at: asNullableString(record.expires_at),
       send_attempts: asNumber(record.send_attempts, 1),
     },
@@ -280,12 +296,16 @@ export function mapAcceptInvitationResult(
     return null;
   }
 
+  const teamMemberId = asNullableString(membership.team_member_id) ??
+    asNullableString(record.team_member_id);
+
   return {
     tenant: { id, name, slug },
     membership: {
       role,
       active: asBoolean(membership.active, true),
     },
+    team_member_id: teamMemberId,
   };
 }
 

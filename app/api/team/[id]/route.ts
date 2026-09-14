@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { isUuid, parseTeamMemberPayload } from "@/lib/team/payload";
+import { updateTeamMemberRpcParams } from "@/lib/team/atomic-update";
 import {
   canWriteTeam,
   mapTeamMember,
   unwrapRpcPayload,
 } from "@/lib/team/types";
-import { statusForTeamRpcError } from "@/lib/team/rpc-error";
+import {
+  classifyTeamMemberWriteError,
+  statusForTeamRpcError,
+} from "@/lib/team/rpc-error";
 
 function extractMember(data: unknown) {
   const record = unwrapRpcPayload(data);
@@ -76,22 +80,29 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("update_team_member", {
-    p_team_member_id: id,
-    p_name: parsed.data.name,
-    p_job_title: parsed.data.job_title,
-    p_department: parsed.data.department,
-    p_active: parsed.data.active,
-    p_can_receive_orders: parsed.data.can_receive_orders,
-    p_tenant_id: context.tenant.id,
-  });
+  const { data, error } = await supabase.rpc(
+    "update_team_member",
+    updateTeamMemberRpcParams({
+      teamMemberId: id,
+      tenantId: context.tenant.id,
+      payload: parsed.data,
+    })
+  );
 
   if (error || !data) {
     console.error("update_team_member", error?.message ?? "unknown error");
+    const mapped = classifyTeamMemberWriteError(error?.code, error?.message);
+
+    if (mapped) {
+      return NextResponse.json(
+        { error: mapped.code, code: mapped.code },
+        { status: mapped.status }
+      );
+    }
 
     return NextResponse.json(
       { error: "Could not update team member" },
-      { status: statusForTeamRpcError(error?.code) }
+      { status: statusForTeamRpcError(error?.code, error?.message) }
     );
   }
 

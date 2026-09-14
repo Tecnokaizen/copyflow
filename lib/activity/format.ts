@@ -45,6 +45,9 @@ const FIELD_LABELS: Record<string, string> = {
   job_title: "Puesto / función",
   department: "Área",
   can_receive_orders: "Disponible para pedidos",
+  role: "Rol de acceso",
+  from_role: "Rol de acceso",
+  to_role: "Rol de acceso",
   file_status_id: "Archivos",
   quote_status_id: "Presupuesto",
   payment_status_id: "Pago",
@@ -275,7 +278,8 @@ function entityName(event: ActivityEvent) {
     !label ||
     label === event.entity_type ||
     label === "service" ||
-    label === "team_member"
+    label === "team_member" ||
+    label === "membership"
   ) {
     if (event.entity_type === "service") {
       return asString(metadata.service_name) ?? "un servicio";
@@ -283,6 +287,14 @@ function entityName(event: ActivityEvent) {
 
     if (event.entity_type === "team_member") {
       return asString(metadata.team_member_name) ?? "un miembro del equipo";
+    }
+
+    if (event.entity_type === "membership") {
+      return (
+        asString(metadata.email) ??
+        asString(metadata.full_name) ??
+        "un usuario de Gestcopy"
+      );
     }
 
     if (event.entity_type === "order") {
@@ -311,6 +323,8 @@ function entityHref(event: ActivityEvent) {
       return "/services";
     case "team_member":
       return "/team";
+    case "membership":
+      return "/team/access";
     default:
       return null;
   }
@@ -524,6 +538,8 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Creó a ${entity}`;
     case "team_member.updated":
       return `Actualizó a ${entity}`;
+    case "membership.role_changed":
+      return `Cambió el rol de acceso de ${entity}`;
     default:
       return `Realizó una actualización en ${entity}`;
   }
@@ -570,6 +586,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "service.updated",
     "team_member.created",
     "team_member.updated",
+    "membership.role_changed",
   ].includes(event.action);
 
   const changes = extractChanges(event);

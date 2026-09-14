@@ -55,10 +55,21 @@ export function parseTeamMemberPayload(
 
   const jobTitle = normalizeOptionalText(payload.job_title);
   const department = normalizeOptionalText(payload.department);
+  const email = normalizeOptionalText(payload.email);
+  const phone = normalizeOptionalText(payload.phone);
   const active = normalizeBoolean(payload.active, true);
   const canReceiveOrders = normalizeBoolean(payload.can_receive_orders, true);
+  const userId = normalizeOptionalUserId(payload.user_id);
 
-  if (!jobTitle.ok || !department.ok || !active.ok || !canReceiveOrders.ok) {
+  if (
+    !jobTitle.ok ||
+    !department.ok ||
+    !email.ok ||
+    !phone.ok ||
+    !active.ok ||
+    !canReceiveOrders.ok ||
+    !userId.ok
+  ) {
     return { ok: false };
   }
 
@@ -68,10 +79,27 @@ export function parseTeamMemberPayload(
       name,
       job_title: jobTitle.value,
       department: department.value,
+      email: email.value,
+      phone: phone.value,
       active: active.value,
       can_receive_orders: canReceiveOrders.value,
+      user_id: userId.value,
     },
   };
+}
+
+function normalizeOptionalUserId(
+  value: unknown
+): { ok: true; value: string | null } | { ok: false } {
+  if (value == null || value === "") {
+    return { ok: true, value: null };
+  }
+
+  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+    return { ok: false };
+  }
+
+  return { ok: true, value };
 }
 
 export function isUuid(value: string) {

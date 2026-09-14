@@ -52,7 +52,7 @@ function buildPlainText(input: SendTenantInvitationInput, label: string) {
   return [
     `Te han invitado a unirte a ${input.tenantName} en Gestcopy.`,
     "",
-    `Rol: ${label}`,
+    `Rol de acceso: ${label}`,
     "",
     `Aceptar invitación: ${input.invitationUrl}`,
     "",
@@ -73,7 +73,7 @@ function buildHtml(input: SendTenantInvitationInput, label: string) {
 <html lang="es">
 <body style="font-family: system-ui, sans-serif; line-height: 1.5; color: #111;">
   <p>Te han invitado a unirte a <strong>${safeTenant}</strong> en Gestcopy.</p>
-  <p>Rol: <strong>${safeLabel}</strong></p>
+  <p>Rol de acceso: <strong>${safeLabel}</strong></p>
   <p><a href="${safeUrl}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px;">Aceptar invitación</a></p>
   <p>Esta invitación caduca el ${safeExpires}.</p>
   <p style="color:#555;font-size:14px;">Si no esperabas este correo, puedes ignorarlo.</p>

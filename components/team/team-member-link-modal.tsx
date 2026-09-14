@@ -39,7 +39,7 @@ export function TeamMemberLinkModal({
       <div className="space-y-5">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
-            Asignar usuario a este trabajador
+            Asignar usuario
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Selecciona qué usuario de Gestcopy corresponde a este miembro del
@@ -66,6 +66,7 @@ export function TeamMemberLinkModal({
                   {currentName || "Sin nombre"}
                 </p>
                 <p className="text-sm text-muted-foreground">
+                  {current.email ? `${current.email} · ` : ""}
                   {membershipRoleLabel(current.role)}
                 </p>
               </dd>
@@ -88,8 +89,9 @@ export function TeamMemberLinkModal({
             <option value="">Sin usuario asignado</option>
             {options.map((user) => (
               <option key={user.user_id} value={user.user_id}>
-                {(user.full_name || "Sin nombre").trim()} ·{" "}
-                {membershipRoleLabel(user.role)}
+                {(user.full_name || user.email || "Sin nombre").trim()}
+                {user.email ? ` · ${user.email}` : ""}
+                {` · ${membershipRoleLabel(user.role)}`}
               </option>
             ))}
           </select>

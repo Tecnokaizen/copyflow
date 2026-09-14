@@ -1,6 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { membershipRoleLabel } from "@/lib/auth/membership-roles";
+import {
+  accessUsersAvailableForMember,
+  type TeamAccessUser,
+} from "@/lib/team/link";
 import type { TeamMemberFormData } from "@/lib/team/types";
 
 type TeamMemberFormProps = {
@@ -9,6 +14,10 @@ type TeamMemberFormProps = {
   submitting?: boolean;
   error?: string | null;
   submitLabel?: string;
+  accessUsers?: TeamAccessUser[];
+  memberId?: string | null;
+  showUserSelect?: boolean;
+  lockUserId?: boolean;
   onSubmit: (data: TeamMemberFormData) => void;
   onCancel: () => void;
 };
@@ -22,6 +31,10 @@ export function TeamMemberForm({
   submitting = false,
   error,
   submitLabel = "Guardar",
+  accessUsers = [],
+  memberId = null,
+  showUserSelect = true,
+  lockUserId = false,
   onSubmit,
   onCancel,
 }: TeamMemberFormProps) {
@@ -32,6 +45,8 @@ export function TeamMemberForm({
     setPrevInitialValues(initialValues);
     setForm(initialValues);
   }
+
+  const userOptions = accessUsersAvailableForMember(accessUsers, memberId);
 
   function updateField<K extends keyof TeamMemberFormData>(
     field: K,
@@ -56,7 +71,7 @@ export function TeamMemberForm({
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-4">
-      <h2 className="text-lg font-semibold">{title}</h2>
+      {title ? <h2 className="text-lg font-semibold">{title}</h2> : null}
 
       <label className="grid gap-1 text-sm">
         Nombre *
@@ -70,7 +85,7 @@ export function TeamMemberForm({
       </label>
 
       <label className="grid gap-1 text-sm">
-        Rol
+        Puesto
         <input
           type="text"
           value={form.job_title}
@@ -91,15 +106,52 @@ export function TeamMemberForm({
         />
       </label>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="grid gap-1 text-sm">
+        Email
         <input
-          type="checkbox"
-          checked={form.active}
+          type="email"
+          value={form.email}
           disabled={submitting}
-          onChange={(event) => updateField("active", event.target.checked)}
+          onChange={(event) => updateField("email", event.target.value)}
+          className={fieldClassName}
         />
-        Activo
       </label>
+
+      <label className="grid gap-1 text-sm">
+        Teléfono
+        <input
+          type="tel"
+          value={form.phone}
+          disabled={submitting}
+          onChange={(event) => updateField("phone", event.target.value)}
+          className={fieldClassName}
+        />
+      </label>
+
+      {showUserSelect ? (
+        <label className="grid gap-1 text-sm">
+          Usuario de Gestcopy
+          <select
+            value={form.user_id}
+            disabled={submitting || lockUserId}
+            onChange={(event) => updateField("user_id", event.target.value)}
+            className={fieldClassName}
+          >
+            <option value="">Sin usuario asignado</option>
+            {userOptions.map((user) => (
+              <option key={user.user_id} value={user.user_id}>
+                {(user.full_name || user.email || "Sin nombre").trim()}
+                {user.email ? ` · ${user.email}` : ""}
+                {` · ${membershipRoleLabel(user.role)}`}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">
+            Opcional. Así Gestcopy sabrá qué usuario corresponde a este miembro
+            del equipo.
+          </span>
+        </label>
+      ) : null}
 
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -110,7 +162,17 @@ export function TeamMemberForm({
             updateField("can_receive_orders", event.target.checked)
           }
         />
-        Disponible para pedidos
+        Puede recibir pedidos
+      </label>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={form.active}
+          disabled={submitting}
+          onChange={(event) => updateField("active", event.target.checked)}
+        />
+        Activo
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

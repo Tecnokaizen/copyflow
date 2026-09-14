@@ -27,13 +27,19 @@ export function isUuid(value: string) {
 export function parseInvitationCreatePayload(
   payload: unknown
 ):
-  | { ok: true; email: string; role: InvitableRole }
+  | {
+      ok: true;
+      email: string;
+      role: InvitableRole;
+      name: string | null;
+      add_to_personal: boolean;
+    }
   | { ok: false } {
   if (!isPlainObject(payload)) {
     return { ok: false };
   }
 
-  if (!hasOnlyAllowedKeys(payload, ["email", "role"])) {
+  if (!hasOnlyAllowedKeys(payload, ["email", "role", "name", "add_to_personal"])) {
     return { ok: false };
   }
 
@@ -41,14 +47,39 @@ export function parseInvitationCreatePayload(
     return { ok: false };
   }
 
+  if (payload.name !== undefined && payload.name !== null && typeof payload.name !== "string") {
+    return { ok: false };
+  }
+
+  if (
+    payload.add_to_personal !== undefined &&
+    typeof payload.add_to_personal !== "boolean"
+  ) {
+    return { ok: false };
+  }
+
   const email = payload.email.trim();
   const role = payload.role.trim();
+  const name =
+    typeof payload.name === "string" ? payload.name.trim() || null : null;
+  const addToPersonal =
+    payload.add_to_personal === undefined ? true : payload.add_to_personal;
 
   if (!email || !isInvitableRole(role)) {
     return { ok: false };
   }
 
-  return { ok: true, email, role };
+  if (name && name.length > 120) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    email,
+    role,
+    name,
+    add_to_personal: addToPersonal,
+  };
 }
 
 export function parseInvitationAcceptPayload(

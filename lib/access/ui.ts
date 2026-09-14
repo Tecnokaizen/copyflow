@@ -8,6 +8,7 @@ import {
   mapAccessMembership,
   mapAccessTeamMemberOption,
 } from "@/lib/access/types";
+import { LAST_OWNER_REQUIRED_MESSAGE } from "@/lib/access/owner-protection";
 
 export function parseAccessListResponse(
   payload: unknown
@@ -92,6 +93,13 @@ export function publicAccessUiError(
   }
   if (payload?.code === "membership_missing") {
     return "Ese usuario no tiene acceso a esta organización.";
+  }
+  if (
+    payload?.code === "GTO01" ||
+    payload?.code === "last_owner" ||
+    payload?.error === LAST_OWNER_REQUIRED_MESSAGE
+  ) {
+    return LAST_OWNER_REQUIRED_MESSAGE;
   }
   if (payload?.code === "email_delivery_failed") {
     return "La invitación se creó, pero no se pudo enviar el email. Prueba a reenviar.";

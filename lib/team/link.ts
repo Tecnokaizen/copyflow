@@ -3,6 +3,7 @@ import { isUuid } from "@/lib/team/payload";
 export type TeamAccessUser = {
   user_id: string;
   full_name: string | null;
+  email: string | null;
   role: string;
   active: boolean;
   team_member_id: string | null;
@@ -12,7 +13,7 @@ export type LinkChangeInput = {
   targetMemberId: string;
   sessionTenantId: string;
   userId: string | null;
-  membership: { tenantId: string; userId: string } | null;
+  membership: { tenantId: string; userId: string; active: boolean } | null;
   existingLinkMemberId: string | null;
 };
 
@@ -20,7 +21,11 @@ export type LinkChangeResult =
   | { ok: true; userId: string | null }
   | {
       ok: false;
-      code: "tenant_mismatch" | "membership_missing" | "already_linked";
+      code:
+        | "tenant_mismatch"
+        | "membership_missing"
+        | "membership_inactive"
+        | "already_linked";
     };
 
 export function parseLinkBody(
@@ -66,6 +71,10 @@ export function evaluateLinkChange(input: LinkChangeInput): LinkChangeResult {
     return { ok: false, code: "tenant_mismatch" };
   }
 
+  if (!input.membership.active) {
+    return { ok: false, code: "membership_inactive" };
+  }
+
   if (
     input.existingLinkMemberId &&
     input.existingLinkMemberId !== input.targetMemberId
@@ -86,6 +95,10 @@ export function publicTeamLinkError(
 
   if (payload?.code === "membership_missing") {
     return "Ese usuario no tiene acceso a esta organización.";
+  }
+
+  if (payload?.code === "membership_inactive") {
+    return "No se puede asignar un usuario con el acceso revocado.";
   }
 
   if (payload?.code === "tenant_mismatch") {
@@ -113,11 +126,19 @@ export function publicTeamLinkError(
 
 export function accessUsersAvailableForMember(
   users: TeamAccessUser[],
-  memberId: string
+  memberId: string | null
 ) {
   return users.filter(
     (user) =>
       user.active &&
       (user.team_member_id === null || user.team_member_id === memberId)
+  );
+}
+
+export function teamMembersAvailableForUser<
+  T extends { user_id: string | null },
+>(members: T[], userId: string) {
+  return members.filter(
+    (member) => member.user_id === null || member.user_id === userId
   );
 }

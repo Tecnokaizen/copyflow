@@ -3,7 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
-import { evaluateLinkChange, parseLinkBody } from "@/lib/team/link";
+import { parseLinkBody } from "@/lib/team/link";
+import {
+  linkDecisionStatus,
+  resolveRequestedUserLink,
+} from "@/lib/team/resolve-link";
 import { applyTeamMemberLinks, mapTeamMember } from "@/lib/team/types";
 
 function postgresCode(error: { code?: string; message?: string } | null) {
@@ -63,56 +67,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Team member not found" }, { status: 404 });
   }
 
-  let membership: { tenantId: string; userId: string } | null = null;
-  let existingLinkMemberId: string | null = null;
-
-  if (parsed.userId) {
-    const { data: membershipRow } = await supabase
-      .from("memberships")
-      .select("tenant_id, user_id")
-      .eq("tenant_id", context.tenant.id)
-      .eq("user_id", parsed.userId)
-      .maybeSingle();
-
-    if (
-      membershipRow &&
-      typeof membershipRow.tenant_id === "string" &&
-      typeof membershipRow.user_id === "string"
-    ) {
-      membership = {
-        tenantId: membershipRow.tenant_id,
-        userId: membershipRow.user_id,
-      };
-    }
-
-    const { data: existing } = await supabase
-      .from("team_members")
-      .select("id")
-      .eq("tenant_id", context.tenant.id)
-      .eq("user_id", parsed.userId)
-      .maybeSingle();
-
-    existingLinkMemberId =
-      existing && typeof existing.id === "string" ? existing.id : null;
-  }
-
-  const decision = evaluateLinkChange({
-    targetMemberId: id,
+  const decision = await resolveRequestedUserLink(supabase, {
     sessionTenantId: context.tenant.id,
+    targetMemberId: id,
     userId: parsed.userId,
-    membership,
-    existingLinkMemberId,
   });
 
   if (!decision.ok) {
-    const status =
-      decision.code === "already_linked"
-        ? 409
-        : decision.code === "membership_missing"
-          ? 400
-          : 403;
-
-    return NextResponse.json({ error: decision.code, code: decision.code }, { status });
+    return NextResponse.json(
+      { error: decision.code, code: decision.code },
+      { status: linkDecisionStatus(decision.code) }
+    );
   }
 
   const { data: updated, error: updateError } = await supabase

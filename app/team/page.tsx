@@ -10,8 +10,10 @@ import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamMemberLinkModal } from "@/components/team/team-member-link-modal";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
+import { assignedGestcopyUser } from "@/lib/team/assigned-user";
 import { publicTeamLinkError, type TeamAccessUser } from "@/lib/team/link";
 import {
+  emptyTeamMemberForm,
   formToTeamPayload,
   memberToForm,
   type TeamListResponse,
@@ -35,6 +37,7 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [linking, setLinking] = useState<TeamMember | null>(null);
   const [saving, setSaving] = useState(false);
@@ -111,6 +114,44 @@ export default function TeamPage() {
     }
   }
 
+  async function handleCreate(form: TeamMemberFormData) {
+    if (saving) return;
+
+    const parsed = formToTeamPayload(form);
+    if (!parsed.ok) {
+      setFormError("Revisa los datos del miembro.");
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+
+    try {
+      const response = await fetch("/api/team", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(parsed.data),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(publicTeamLinkError(response.status, result));
+      }
+
+      setCreating(false);
+      await refreshList();
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "No se pudo crear el miembro"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleEdit(form: TeamMemberFormData) {
     if (!editing || saving) return;
 
@@ -132,10 +173,15 @@ export default function TeamPage() {
         body: JSON.stringify(parsed.data),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(result.error ?? "No se pudo actualizar el miembro");
+        throw new Error(
+          publicTeamLinkError(
+            response.status,
+            result
+          ) || result?.error || "No se pudo actualizar el miembro"
+        );
       }
 
       setEditing(null);
@@ -196,8 +242,22 @@ export default function TeamPage() {
     <>
       <PageHeader
         title="Personal"
-        description="Equipo operativo del taller (no es la gestión de acceso SaaS)."
+        description="Personas que forman parte del trabajo diario del negocio."
         className="mb-4 sm:mb-5"
+        actions={
+          canWrite ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setCreating(true);
+              }}
+              className="gc-cta h-10 rounded-[var(--radius)] px-5 font-semibold"
+            >
+              + Añadir miembro
+            </button>
+          ) : null
+        }
       />
       <div className="mb-8 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
         <span>Miembros: {data?.total ?? 0}</span>
@@ -210,7 +270,7 @@ export default function TeamPage() {
             type="search"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Buscar por nombre, rol o área..."
+            placeholder="Buscar por nombre, puesto o área..."
             className="gc-field-control"
           />
           <select
@@ -240,7 +300,23 @@ export default function TeamPage() {
               description={
                 search
                   ? "Prueba a cambiar la búsqueda o los filtros."
-                  : undefined
+                  : canWrite
+                    ? "Añade a las personas que forman parte del trabajo diario. No se crea un usuario de Gestcopy."
+                    : undefined
+              }
+              action={
+                canWrite && !search ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormError(null);
+                      setCreating(true);
+                    }}
+                    className="gc-cta h-10 rounded-[var(--radius)] px-5 font-semibold"
+                  >
+                    + Añadir miembro
+                  </button>
+                ) : null
               }
             />
           </div>
@@ -251,9 +327,9 @@ export default function TeamPage() {
                 <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">
-                      Miembro
+                      Miembro del equipo
                     </th>
-                    <th className="px-4 py-3 text-left font-medium">Rol</th>
+                    <th className="px-4 py-3 text-left font-medium">Puesto</th>
                     <th className="px-4 py-3 text-left font-medium">Área</th>
                     <th className="px-4 py-3 text-left font-medium">
                       Pedidos activos
@@ -268,7 +344,7 @@ export default function TeamPage() {
                       Estado
                     </th>
                     <th className="px-4 py-3 text-left font-medium">
-                      Acceso al sistema
+                      Acceso a Gestcopy
                     </th>
                     {canWrite && (
                       <th className="px-4 py-3 text-left font-medium">
@@ -280,6 +356,10 @@ export default function TeamPage() {
                 <tbody>
                   {members.map((member) => {
                     const contact = contactLines(member);
+                    const assignedUser = assignedGestcopyUser(
+                      member,
+                      accessUsers
+                    );
 
                     return (
                       <tr
@@ -319,7 +399,14 @@ export default function TeamPage() {
                         </td>
                         <td className="px-4 py-4">
                           {member.has_access ? (
-                            <StatusBadge tone="success">Con acceso</StatusBadge>
+                            <div className="space-y-1">
+                              <StatusBadge tone="success">Con acceso</StatusBadge>
+                              <div className="text-xs text-muted-foreground">
+                                {assignedUser?.email ||
+                                  assignedUser?.full_name ||
+                                  "Usuario de Gestcopy asignado"}
+                              </div>
+                            </div>
                           ) : (
                             <StatusBadge tone="warning">Sin acceso</StatusBadge>
                           )}
@@ -378,12 +465,32 @@ export default function TeamPage() {
         />
       )}
 
+      {creating && (
+        <TeamModal>
+          <TeamMemberForm
+            title="Añadir miembro del equipo"
+            initialValues={emptyTeamMemberForm()}
+            accessUsers={accessUsers}
+            submitting={saving}
+            error={formError}
+            submitLabel="Crear miembro"
+            onCancel={() => {
+              if (saving) return;
+              setCreating(false);
+            }}
+            onSubmit={handleCreate}
+          />
+        </TeamModal>
+      )}
+
       {editing && (
         <TeamModal>
           <TeamMemberForm
             key={editing.id}
-            title="Editar miembro"
+            title="Editar miembro del equipo"
             initialValues={memberToForm(editing)}
+            accessUsers={accessUsers}
+            memberId={editing.id}
             submitting={saving}
             error={formError}
             onCancel={() => {
