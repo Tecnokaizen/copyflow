@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
@@ -86,7 +86,7 @@ export async function GET() {
   const context = await getCurrentContext();
 
   if (!context) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
@@ -171,7 +171,7 @@ export async function GET() {
       error: failedCount.error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load dashboard" },
       { status: 500 }
     );
@@ -183,7 +183,7 @@ export async function GET() {
       error: upcomingListResult.error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load dashboard" },
       { status: 500 }
     );
@@ -195,7 +195,7 @@ export async function GET() {
       error: attentionListResult.error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load dashboard" },
       { status: 500 }
     );
@@ -207,7 +207,7 @@ export async function GET() {
       teamResult.error?.message ?? "unknown error"
     );
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load dashboard" },
       { status: statusForTeamRpcError(teamResult.error?.code) }
     );
@@ -242,7 +242,7 @@ export async function GET() {
     .map((row) => asPreviewOrder(row))
     .filter((row): row is DashboardAttentionOrder => row !== null);
 
-  return NextResponse.json({
+  return operationalJson({
     tenant: context.tenant.slug,
     timezone,
     local_date: day.date,

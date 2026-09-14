@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
@@ -47,6 +47,10 @@ import type {
   OrderResponse,
   OrderStatus,
 } from "@/lib/orders/types";
+import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
+import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
+import { shouldApplyLiveOrderSnapshot } from "@/lib/refresh/order-snapshot";
+import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
 
 function normalizeLoadedOrder(order: Order): Order {
   return {
@@ -95,29 +99,71 @@ export function OrderWorkspace() {
   const [clientDuplicate, setClientDuplicate] =
     useState<ClientDuplicate | null>(null);
   const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
+  const orderAbortRef = useRef<AbortController | null>(null);
+  const activityAbortRef = useRef<AbortController | null>(null);
+  const orderRef = useRef<Order | null>(null);
+  const editingRef = useRef(false);
+  const savingRef = useRef(false);
+  const quickSavingRef = useRef(false);
 
-  async function loadActivity() {
-    try {
-      const response = await fetch(`/api/orders/${params.id}/activity`);
+  useLayoutEffect(() => {
+    orderRef.current = order;
+    editingRef.current = editing;
+    savingRef.current = saving;
+    quickSavingRef.current = quickSaving;
+  });
 
-      if (!response.ok) {
-        setActivity([]);
-        return;
-      }
+  const loadActivity = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        activityAbortRef.current,
+        opts?.signal
+      );
+      activityAbortRef.current = controller;
 
-      const result: ActivityResponse = await response.json();
-      setActivity(result.activity ?? []);
-    } catch {
-      setActivity([]);
-    } finally {
-      setActivityLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    async function loadOrder() {
       try {
-        const response = await fetch(`/api/orders/${params.id}`);
+        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
+          signal,
+        });
+
+        if (!response.ok) {
+          if (!silent) {
+            setActivity([]);
+            setActivityLoading(false);
+          }
+          return;
+        }
+
+        const result: ActivityResponse = await response.json();
+        setActivity(result.activity ?? []);
+        setActivityLoading(false);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (!silent) {
+          setActivity([]);
+          setActivityLoading(false);
+        }
+      }
+    },
+    [params.id]
+  );
+
+  const loadOrder = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        orderAbortRef.current,
+        opts?.signal
+      );
+      orderAbortRef.current = controller;
+
+      try {
+        const response = await fetchLive(`/api/orders/${params.id}`, {
+          signal,
+        });
         const result: OrderResponse = await response.json();
 
         if (!response.ok) {
@@ -128,18 +174,38 @@ export function OrderWorkspace() {
           throw new Error("Pedido no encontrado");
         }
 
+        if (
+          silent &&
+          !shouldApplyLiveOrderSnapshot({
+            editing: editingRef.current,
+            saving: savingRef.current,
+            quickSaving: quickSavingRef.current,
+          })
+        ) {
+          return;
+        }
+
         setOrder(normalizeLoadedOrder(result.order));
         setError(null);
+        setLoading(false);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (silent && orderRef.current) {
+          return;
+        }
         setOrder(null);
         setError(
           err instanceof Error ? err.message : "Error al cargar el pedido"
         );
-      } finally {
         setLoading(false);
       }
-    }
+    },
+    [params.id]
+  );
 
+  useEffect(() => {
     async function loadContext() {
       const response = await fetch("/api/context");
       if (response.ok) {
@@ -150,7 +216,19 @@ export function OrderWorkspace() {
 
     void loadOrder();
     void loadContext();
-  }, [params.id, reloadToken]);
+    return () => {
+      orderAbortRef.current?.abort();
+    };
+  }, [loadOrder, reloadToken]);
+
+  useLiveRefresh({
+    onRefresh: async (signal) => {
+      await Promise.all([
+        loadOrder({ silent: true, signal }),
+        loadActivity({ silent: true, signal }),
+      ]);
+    },
+  });
 
   useEffect(() => {
     if (!showCreated) return;
@@ -241,8 +319,13 @@ export function OrderWorkspace() {
 
   useEffect(() => {
     async function loadOrderActivity() {
+      const { controller, signal } = nextLoadSignal(activityAbortRef.current);
+      activityAbortRef.current = controller;
+
       try {
-        const response = await fetch(`/api/orders/${params.id}/activity`);
+        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
+          signal,
+        });
 
         if (!response.ok) {
           setActivity([]);
@@ -251,7 +334,10 @@ export function OrderWorkspace() {
 
         const result: ActivityResponse = await response.json();
         setActivity(result.activity ?? []);
-      } catch {
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         setActivity([]);
       } finally {
         setActivityLoading(false);
@@ -259,6 +345,9 @@ export function OrderWorkspace() {
     }
 
     void loadOrderActivity();
+    return () => {
+      activityAbortRef.current?.abort();
+    };
   }, [params.id]);
 
   function patchDraft(patch: Partial<OrderDraft>) {
@@ -771,7 +860,7 @@ export function OrderWorkspace() {
     }
   }
 
-  if (loading) {
+  if (loading && !order) {
     return (
       <AppShell>
         <AppNav />

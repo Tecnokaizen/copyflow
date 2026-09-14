@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
@@ -415,7 +416,7 @@ export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
   if (!context) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
@@ -428,7 +429,7 @@ export async function GET(request: NextRequest) {
   const weekStartRaw = searchParams.get("week_start")?.trim() || null;
 
   if (!fromDate.ok || !toDate.ok) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid value" },
       { status: 400 }
     );
@@ -439,7 +440,7 @@ export async function GET(request: NextRequest) {
     toDate.value &&
     fromDate.value > toDate.value
   ) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid value" },
       { status: 400 }
     );
@@ -474,35 +475,35 @@ export async function GET(request: NextRequest) {
   const sortDir = parseSortDir(rawDir);
 
   if (rawFilter && !listFilter) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (assignedTeamMemberId && !isUuid(assignedTeamMemberId)) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (statusId && !isUuid(statusId)) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (storeFilter.kind === "invalid") {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (rawSort && !sortField) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (rawDir && !sortDir) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (sortField && !sortDir) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   if (sortDir && !sortField) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -535,12 +536,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (!mondayCivil) {
-      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+      return operationalJson({ error: "Invalid value" }, { status: 400 });
     }
 
     const bounds = getZonedWeekBoundsFromMonday(mondayCivil, timezone);
     if (!bounds) {
-      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+      return operationalJson({ error: "Invalid value" }, { status: 400 });
     }
 
     rangeFrom = bounds.start.toISOString();
@@ -567,7 +568,7 @@ export async function GET(request: NextRequest) {
     );
 
     if (!statusOk) {
-      return NextResponse.json(
+      return operationalJson(
         { error: "Invalid related record for current tenant" },
         { status: 400 }
       );
@@ -584,7 +585,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!assigned.ok) {
-      return NextResponse.json(
+      return operationalJson(
         { error: "Invalid related record for current tenant" },
         { status: 400 }
       );
@@ -593,7 +594,7 @@ export async function GET(request: NextRequest) {
 
   if (dateFiltered) {
     if (rawFilter && rawFilter !== "active" && rawFilter !== "all") {
-      return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+      return operationalJson({ error: "Invalid value" }, { status: 400 });
     }
 
     const calendarFilter: CalendarRangeFilter | null =
@@ -608,7 +609,7 @@ export async function GET(request: NextRequest) {
       );
 
       if (!assigneeOk) {
-        return NextResponse.json(
+        return operationalJson(
           { error: "Invalid related record for current tenant" },
           { status: 400 }
         );
@@ -633,13 +634,13 @@ export async function GET(request: NextRequest) {
         error: result.error,
       });
 
-      return NextResponse.json(
+      return operationalJson(
         { error: "Could not load orders" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
+    return operationalJson({
       tenant: context.tenant.slug,
       count: result.orders.length,
       total: result.total,
@@ -671,13 +672,13 @@ export async function GET(request: NextRequest) {
         error: result.error,
       });
 
-      return NextResponse.json(
+      return operationalJson(
         { error: "Could not load orders" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
+    return operationalJson({
       tenant: context.tenant.slug,
       count: result.orders.length,
       total: result.total,
@@ -752,7 +753,7 @@ export async function GET(request: NextRequest) {
       error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load orders" },
       { status: 500 }
     );
@@ -766,13 +767,13 @@ export async function GET(request: NextRequest) {
       error: allTotalResult.error,
     });
 
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not load orders" },
       { status: 500 }
     );
   }
 
-  return NextResponse.json({
+  return operationalJson({
     tenant: context.tenant.slug,
     count: orders?.length ?? 0,
     total: total ?? 0,
@@ -787,14 +788,14 @@ export async function POST(request: NextRequest) {
   const context = await getCurrentContext();
 
   if (!context) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
   }
 
   if (!hasMembershipRole(context.membership.role, OPERATIVE_ROLES)) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
     );
@@ -805,14 +806,14 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid JSON body" },
       { status: 400 }
     );
   }
 
   if (!body || typeof body !== "object") {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid JSON body" },
       { status: 400 }
     );
@@ -823,7 +824,7 @@ export async function POST(request: NextRequest) {
     typeof payload.title === "string" ? payload.title.trim() : "";
 
   if (!title) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "title is required" },
       { status: 400 }
     );
@@ -832,7 +833,7 @@ export async function POST(request: NextRequest) {
   const priorityValue = emptyToNull(payload.priority) ?? "normal";
 
   if (!PRIORITIES.includes(priorityValue as Priority)) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid priority" },
       { status: 400 }
     );
@@ -842,7 +843,7 @@ export async function POST(request: NextRequest) {
   const dueAtResult = parseDueAt(payload.due_at);
 
   if (!dueAtResult.ok) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid due_at" },
       { status: 400 }
     );
@@ -858,7 +859,7 @@ export async function POST(request: NextRequest) {
   const notes = emptyToNull(payload.notes);
 
   if (!storeIdResult.ok) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Invalid related record for current tenant" },
       { status: 400 }
     );
@@ -888,7 +889,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (!ok) {
-      return NextResponse.json(
+      return operationalJson(
         { error: "Invalid related record for current tenant" },
         { status: 400 }
       );
@@ -905,7 +906,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!assigned.ok) {
-      return NextResponse.json(
+      return operationalJson(
         { error: "Invalid related record for current tenant" },
         { status: 400 }
       );
@@ -925,7 +926,7 @@ export async function POST(request: NextRequest) {
     !initialStatuses ||
     initialStatuses.length !== 1
   ) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Tenant has no initial order status configured" },
       { status: 500 }
     );
@@ -953,13 +954,13 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (insertError || !order) {
-    return NextResponse.json(
+    return operationalJson(
       { error: "Could not create order" },
       { status: 500 }
     );
   }
 
-  return NextResponse.json(
+  return operationalJson(
     {
       ok: true,
       tenant: context.tenant.slug,
