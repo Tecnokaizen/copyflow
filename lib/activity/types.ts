@@ -5,6 +5,7 @@ export const ACTIVITY_ENTITY_TYPES = [
   "client",
   "service",
   "team_member",
+  "membership",
 ] as const;
 
 export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number];
@@ -23,6 +24,7 @@ export const ACTIVITY_ACTIONS = [
   "service.updated",
   "team_member.created",
   "team_member.updated",
+  "membership.role_changed",
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -83,6 +85,7 @@ export const ENTITY_TYPE_OPTIONS: { value: ActivityEntityType; label: string }[]
     { value: "client", label: "Clientes" },
     { value: "service", label: "Servicios" },
     { value: "team_member", label: "Equipo" },
+    { value: "membership", label: "Rol de acceso" },
   ];
 
 export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
@@ -99,6 +102,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "service.updated", label: "Servicio actualizado" },
   { value: "team_member.created", label: "Miembro creado" },
   { value: "team_member.updated", label: "Miembro actualizado" },
+  { value: "membership.role_changed", label: "Rol de acceso cambiado" },
 ];
 
 export { canViewActivity };

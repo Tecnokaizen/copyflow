@@ -7,8 +7,15 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { MyOrdersQueue } from "@/components/orders/my-orders-queue";
+import {
+  canManageTenantAccess,
+  canWriteTeam,
+} from "@/lib/auth/membership-roles";
 import type { MineQueueSection } from "@/lib/orders/mine";
-import { MINE_ORDERS_PAGE_DESCRIPTION } from "@/lib/orders/mine-unlinked-copy";
+import {
+  MINE_ORDERS_PAGE_DESCRIPTION,
+  unlinkedMineOrdersCopy,
+} from "@/lib/orders/mine-unlinked-copy";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
 import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
 import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
@@ -127,7 +134,10 @@ function MyOrdersContent() {
           sections={data?.sections ?? []}
           today={data?.today ?? ""}
           timezone={data?.timezone ?? "Europe/Madrid"}
-          actorRole={actorRole}
+          unlinkedCopy={unlinkedMineOrdersCopy({
+            canWriteTeam: canWriteTeam(actorRole),
+            canManageTenantAccess: canManageTenantAccess(actorRole),
+          })}
         />
       )}
     </AppShell>

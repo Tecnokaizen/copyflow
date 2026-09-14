@@ -34,16 +34,22 @@ export type TeamMemberFormData = {
   name: string;
   job_title: string;
   department: string;
+  email: string;
+  phone: string;
   active: boolean;
   can_receive_orders: boolean;
+  user_id: string;
 };
 
 export type TeamMemberPayload = {
   name: string;
   job_title: string | null;
   department: string | null;
+  email: string | null;
+  phone: string | null;
   active: boolean;
   can_receive_orders: boolean;
+  user_id: string | null;
 };
 
 export { canWriteTeam };
@@ -152,8 +158,24 @@ export function memberToForm(member: TeamMember): TeamMemberFormData {
     name: member.name,
     job_title: member.job_title ?? "",
     department: member.department ?? "",
+    email: member.email ?? "",
+    phone: member.phone ?? "",
     active: member.active,
     can_receive_orders: member.can_receive_orders,
+    user_id: member.user_id ?? "",
+  };
+}
+
+export function emptyTeamMemberForm(): TeamMemberFormData {
+  return {
+    name: "",
+    job_title: "",
+    department: "",
+    email: "",
+    phone: "",
+    active: true,
+    can_receive_orders: true,
+    user_id: "",
   };
 }
 
@@ -165,14 +187,22 @@ export function formToTeamPayload(
     return { ok: false };
   }
 
+  const userId = form.user_id.trim();
+  if (userId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return { ok: false };
+  }
+
   return {
     ok: true,
     data: {
       name,
       job_title: form.job_title.trim() || null,
       department: form.department.trim() || null,
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
       active: form.active,
       can_receive_orders: form.can_receive_orders,
+      user_id: userId || null,
     },
   };
 }

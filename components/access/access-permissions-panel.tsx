@@ -10,11 +10,17 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { RoleBadge } from "@/components/gestcopy/role-badge";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
+import { TeamMemberForm } from "@/components/team/team-member-form";
+import {
+  LAST_OWNER_REQUIRED_MESSAGE,
+  canManageMembershipTarget,
+  countOtherActiveOwners,
+  ownerProtectionMessage,
+} from "@/lib/access/owner-protection";
 import type {
   AccessInvitation,
   AccessListResponse,
   AccessMembership,
-  AccessTeamMemberOption,
 } from "@/lib/access/types";
 import {
   formatAccessDate,
@@ -23,19 +29,22 @@ import {
   publicAccessUiError,
 } from "@/lib/access/ui";
 import {
-  canManageMembershipTarget,
   invitableRolesForActor,
   membershipRoleDescription,
   membershipRoleLabel,
   membershipRoleRank,
   type InvitableRole,
 } from "@/lib/auth/membership-roles";
+import { formatOperativeProfile } from "@/lib/team/operative-profile";
+import { publicTeamLinkError, teamMembersAvailableForUser } from "@/lib/team/link";
+import { emptyTeamMemberForm, type TeamMemberFormData } from "@/lib/team/types";
 
 type ModalState =
   | { kind: "closed" }
   | { kind: "invite" }
   | { kind: "change_role"; member: AccessMembership }
   | { kind: "link_team"; member: AccessMembership }
+  | { kind: "create_member"; member: AccessMembership }
   | { kind: "revoke"; member: AccessMembership }
   | { kind: "reactivate"; member: AccessMembership }
   | { kind: "cancel_invite"; invitation: AccessInvitation };
@@ -144,7 +153,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     if (
       membershipRoleRank(changeRole) < membershipRoleRank(member.role) &&
       !window.confirm(
-        `Vas a reducir el rol de ${membershipRoleLabel(member.role)} a ${membershipRoleLabel(changeRole)}. ¿Continuar?`
+        `Vas a reducir el rol de acceso de ${membershipRoleLabel(member.role)} a ${membershipRoleLabel(changeRole)}. El perfil operativo no cambia. ¿Continuar?`
       )
     ) {
       return;
@@ -162,7 +171,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         setFormError(publicAccessUiError(response.status, payload));
         return;
       }
-      setFlash("Rol actualizado correctamente.");
+      setFlash("Rol de acceso actualizado. El perfil operativo no cambia.");
       setModal({ kind: "closed" });
       await load();
     } finally {
@@ -236,15 +245,56 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
       }
       setFlash(
         nextId
-          ? "Usuario asignado al trabajador."
-          : "Se quitó la asignación de este usuario."
+          ? "Este usuario de Gestcopy ahora corresponde a ese miembro del equipo."
+          : "Se quitó la asociación. El miembro del equipo no se ha eliminado."
       );
       setModal({ kind: "closed" });
       await load();
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "No se pudo asignar el perfil"
+        err instanceof Error ? err.message : "No se pudo asociar el trabajador"
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitCreateMember(form: TeamMemberFormData) {
+    if (modal.kind !== "create_member" || busy) return;
+    const member = modal.member;
+    const name = form.name.trim();
+    if (!name) {
+      setFormError("El nombre es obligatorio.");
+      return;
+    }
+
+    setBusy(true);
+    setFormError(null);
+    try {
+      const response = await fetch("/api/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          job_title: form.job_title.trim() || null,
+          department: form.department.trim() || null,
+          email: form.email.trim() || null,
+          phone: form.phone.trim() || null,
+          active: form.active,
+          can_receive_orders: form.can_receive_orders,
+          user_id: member.user_id,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFormError(publicTeamLinkError(response.status, payload));
+        return;
+      }
+      setFlash(
+        "Miembro del equipo creado y asociado a este usuario de Gestcopy."
+      );
+      setModal({ kind: "closed" });
+      await load();
     } finally {
       setBusy(false);
     }
@@ -301,7 +351,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     <>
       <PageHeader
         title="Usuarios y permisos"
-        description="Gestiona quién puede acceder a esta organización y qué permisos tiene."
+        description="Quién inicia sesión en Gestcopy y qué puede hacer. El perfil operativo es independiente."
         actions={
           <Button
             type="button"
@@ -328,7 +378,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       <SectionCard
         title="Usuarios con acceso"
-        description="Personas que pueden acceder actualmente a esta organización."
+        description="Usuarios de Gestcopy de esta organización. El rol de acceso no cambia el puesto ni el área."
         bodyClassName="p-0"
       >
         {loading ? (
@@ -347,9 +397,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                   <tr>
                     <th>Nombre</th>
                     <th>Email</th>
-                    <th>Rol</th>
+                    <th>Rol de acceso</th>
                     <th>Estado</th>
-                    <th>Perfil de equipo</th>
+                    <th>Perfil operativo</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -359,6 +409,10 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                       key={member.user_id}
                       member={member}
                       actorRole={actorRole}
+                      otherActiveOwners={countOtherActiveOwners(
+                        memberships,
+                        member.user_id
+                      )}
                       busy={busy}
                       onChangeRole={() => {
                         setChangeRole(
@@ -391,11 +445,15 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
             </div>
             <div className="space-y-3 p-5 md:hidden">
               {memberships.map((member) => (
-                <MembershipCardMobile
-                  key={member.user_id}
-                  member={member}
-                  actorRole={actorRole}
-                  busy={busy}
+                  <MembershipCardMobile
+                    key={member.user_id}
+                    member={member}
+                    actorRole={actorRole}
+                    otherActiveOwners={countOtherActiveOwners(
+                      memberships,
+                      member.user_id
+                    )}
+                    busy={busy}
                   onChangeRole={() => {
                     setChangeRole(
                       (invitableRolesForActor(actorRole)[0] ??
@@ -573,7 +631,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="invite-role">Rol</Label>
+              <Label htmlFor="invite-role">Rol de acceso</Label>
               <select
                 id="invite-role"
                 value={inviteRole}
@@ -598,8 +656,8 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
             <RoleHelpList roles={assignableRoles} />
             <p className="text-sm text-muted-foreground">
               La invitación da acceso a Gestcopy. Si esta persona también
-              trabaja en el taller, asígnale un perfil de equipo cuando
-              acepte. No se asigna automáticamente.
+              trabaja en el taller, asóciala a un miembro del equipo cuando
+              acepte. No se crea un perfil operativo automáticamente.
             </p>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
@@ -627,7 +685,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       {modal.kind === "change_role" ? (
         <AccessFormModal
-          title="Cambiar rol"
+          title="Cambiar rol de acceso"
           onClose={() => !busy && setModal({ kind: "closed" })}
         >
           <div className="space-y-4">
@@ -635,8 +693,24 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               {modal.member.full_name || modal.member.email || "Usuario"} ·{" "}
               {membershipRoleLabel(modal.member.role)}
             </p>
+            {ownerProtectionMessage({
+              targetRole: modal.member.role,
+              otherActiveOwners: countOtherActiveOwners(
+                memberships,
+                modal.member.user_id
+              ),
+            }) ? (
+              <p className="text-sm text-[hsl(var(--gc-danger))]">
+                {LAST_OWNER_REQUIRED_MESSAGE}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Cambia qué puede hacer este usuario en Gestcopy. El miembro
+                del equipo, el puesto y los pedidos asignados no se modifican.
+              </p>
+            )}
             <div className="grid gap-2">
-              <Label htmlFor="change-role">Nuevo rol</Label>
+              <Label htmlFor="change-role">Nuevo rol de acceso</Label>
               <select
                 id="change-role"
                 value={changeRole}
@@ -667,10 +741,22 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </Button>
               <Button
                 type="button"
-                disabled={busy || !changeRole}
+                disabled={
+                  busy ||
+                  !changeRole ||
+                  Boolean(
+                    ownerProtectionMessage({
+                      targetRole: modal.member.role,
+                      otherActiveOwners: countOtherActiveOwners(
+                        memberships,
+                        modal.member.user_id
+                      ),
+                    })
+                  )
+                }
                 onClick={() => void submitChangeRole()}
               >
-                {busy ? "Guardando…" : "Guardar rol"}
+                {busy ? "Guardando…" : "Guardar rol de acceso"}
               </Button>
             </div>
           </div>
@@ -679,17 +765,12 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       {modal.kind === "link_team" ? (
         <AccessFormModal
-          title={
-            modal.member.team_member
-              ? "Cambiar perfil de equipo"
-              : "Asignar perfil de equipo"
-          }
+          title="Asociar trabajador"
           onClose={() => !busy && setModal({ kind: "closed" })}
         >
           <div className="space-y-4">
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Relaciona este usuario con el miembro del equipo que representa
-              dentro del trabajo diario.
+              Selecciona qué miembro del equipo corresponde a este usuario.
             </p>
             <dl className="space-y-3 rounded-md border border-border/70 bg-muted/30 px-4 py-3.5">
               <div>
@@ -714,15 +795,15 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Perfil de equipo
+                  Perfil operativo
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-foreground">
-                  {modal.member.team_member?.name ?? "Sin asignar"}
+                  {formatOperativeProfile(modal.member.team_member)}
                 </dd>
               </div>
             </dl>
             <div className="grid gap-2">
-              <Label htmlFor="link-team-member">Perfil de equipo</Label>
+              <Label htmlFor="link-team-member">Miembro del equipo</Label>
               <select
                 id="link-team-member"
                 value={linkTeamMemberId}
@@ -730,23 +811,34 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 disabled={busy}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="">Sin asignar</option>
+                <option value="">Sin asociar</option>
                 {teamMembersAvailableForUser(
                   teamMembers,
                   modal.member.user_id
                 ).map((option) => (
                   <option key={option.id} value={option.id}>
-                    {option.name}
+                    {formatOperativeProfile(option)}
                     {option.active ? "" : " (inactivo)"}
                   </option>
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                Cada usuario de Gestcopy solo puede corresponder a un
-                trabajador. Quienes ya están asignados a otra persona no
+                Cada usuario de Gestcopy solo puede corresponder a un miembro
+                del equipo. Quienes ya están asociados a otra persona no
                 aparecen.
               </p>
             </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setFormError(null);
+                setModal({ kind: "create_member", member: modal.member });
+              }}
+              className="gc-action"
+            >
+              + Crear nuevo miembro del equipo
+            </button>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
             ) : null}
@@ -767,18 +859,50 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 {busy
                   ? "Guardando…"
                   : modal.member.team_member
-                    ? "Cambiar perfil"
-                    : "Asignar perfil"}
+                    ? "Cambiar trabajador"
+                    : "Asociar trabajador"}
               </Button>
             </div>
           </div>
         </AccessFormModal>
       ) : null}
 
+      {modal.kind === "create_member" ? (
+        <AccessFormModal
+          title="Crear miembro del equipo"
+          onClose={() => !busy && setModal({ kind: "closed" })}
+        >
+          <TeamMemberForm
+            title=""
+            initialValues={{
+              ...emptyTeamMemberForm(),
+              name: modal.member.full_name ?? "",
+              email: modal.member.email ?? "",
+              user_id: modal.member.user_id,
+            }}
+            accessUsers={[]}
+            showUserSelect={false}
+            lockUserId
+            submitting={busy}
+            error={formError}
+            submitLabel="Crear y asociar"
+            onCancel={() => {
+              if (busy) return;
+              setFormError(null);
+              setLinkTeamMemberId(modal.member.team_member?.id ?? "");
+              setModal({ kind: "link_team", member: modal.member });
+            }}
+            onSubmit={(form) => {
+              void submitCreateMember(form);
+            }}
+          />
+        </AccessFormModal>
+      ) : null}
+
       {modal.kind === "revoke" ? (
         <ConfirmDialog
           title="Revocar acceso"
-          description="Este usuario dejará de poder acceder a esta organización. Sus datos de personal no se eliminarán."
+          description="Este usuario dejará de poder acceder a esta organización. El miembro del equipo y sus pedidos no se eliminan."
           confirmLabel="Revocar acceso"
           destructive
           busy={busy}
@@ -879,18 +1003,10 @@ function AccessFormModal({
   );
 }
 
-function teamMembersAvailableForUser(
-  teamMembers: AccessTeamMemberOption[],
-  userId: string
-) {
-  return teamMembers.filter(
-    (member) => member.user_id === null || member.user_id === userId
-  );
-}
-
 function MembershipRowDesktop({
   member,
   actorRole,
+  otherActiveOwners,
   busy,
   onChangeRole,
   onLinkTeam,
@@ -899,19 +1015,31 @@ function MembershipRowDesktop({
 }: {
   member: AccessMembership;
   actorRole: string;
+  otherActiveOwners: number;
   busy: boolean;
   onChangeRole: () => void;
   onLinkTeam: () => void;
   onRevoke: () => void;
   onReactivate: () => void;
 }) {
-  const manageable = canManageMembershipTarget(actorRole, member.role);
+  const manageable = canManageMembershipTarget(actorRole, member.role, {
+    otherActiveOwners,
+  });
+  const lastOwnerMessage = ownerProtectionMessage({
+    targetRole: member.role,
+    otherActiveOwners,
+  });
+  const profile = formatOperativeProfile(member.team_member);
+
   return (
     <tr>
       <td className="font-medium">{member.full_name || "—"}</td>
       <td className="text-muted-foreground">{member.email || "—"}</td>
       <td>
-        <RoleBadge role={member.role} />
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Rol de acceso</p>
+          <RoleBadge role={member.role} />
+        </div>
       </td>
       <td>
         <StatusBadge tone={member.active ? "success" : "danger"}>
@@ -919,7 +1047,10 @@ function MembershipRowDesktop({
         </StatusBadge>
       </td>
       <td className={member.team_member ? "font-medium" : "text-muted-foreground"}>
-        {member.team_member ? member.team_member.name : "Sin asignar"}
+        <p className="text-xs font-normal text-muted-foreground">
+          Perfil operativo
+        </p>
+        <p className="mt-1">{profile}</p>
       </td>
       <td>
         <div className="flex flex-wrap justify-end gap-2.5">
@@ -929,7 +1060,7 @@ function MembershipRowDesktop({
             onClick={onLinkTeam}
             className="gc-action"
           >
-            {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
+            {member.team_member ? "Cambiar trabajador" : "Asociar trabajador"}
           </button>
           {manageable ? (
             <>
@@ -961,6 +1092,10 @@ function MembershipRowDesktop({
                 </button>
               )}
             </>
+          ) : lastOwnerMessage ? (
+            <p className="max-w-[16rem] text-right text-xs text-muted-foreground">
+              {lastOwnerMessage}
+            </p>
           ) : null}
         </div>
       </td>
@@ -971,6 +1106,7 @@ function MembershipRowDesktop({
 function MembershipCardMobile({
   member,
   actorRole,
+  otherActiveOwners,
   busy,
   onChangeRole,
   onLinkTeam,
@@ -979,13 +1115,22 @@ function MembershipCardMobile({
 }: {
   member: AccessMembership;
   actorRole: string;
+  otherActiveOwners: number;
   busy: boolean;
   onChangeRole: () => void;
   onLinkTeam: () => void;
   onRevoke: () => void;
   onReactivate: () => void;
 }) {
-  const manageable = canManageMembershipTarget(actorRole, member.role);
+  const manageable = canManageMembershipTarget(actorRole, member.role, {
+    otherActiveOwners,
+  });
+  const lastOwnerMessage = ownerProtectionMessage({
+    targetRole: member.role,
+    otherActiveOwners,
+  });
+  const profile = formatOperativeProfile(member.team_member);
+
   return (
     <div className="rounded-[var(--radius)] border border-border/70 bg-background p-5">
       <p className="font-medium">{member.full_name || "Sin nombre"}</p>
@@ -1000,7 +1145,15 @@ function MembershipCardMobile({
       </div>
       <div className="mt-3 space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Perfil de equipo
+          Rol de acceso
+        </p>
+        <p className="text-[0.9375rem] font-medium">
+          {membershipRoleLabel(member.role)}
+        </p>
+      </div>
+      <div className="mt-3 space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Perfil operativo
         </p>
         <p
           className={
@@ -1009,7 +1162,7 @@ function MembershipCardMobile({
               : "text-[0.9375rem] text-muted-foreground"
           }
         >
-          {member.team_member ? member.team_member.name : "Sin asignar"}
+          {profile}
         </p>
       </div>
       <div className="mt-4 flex flex-wrap gap-2.5">
@@ -1019,7 +1172,7 @@ function MembershipCardMobile({
           onClick={onLinkTeam}
           className="gc-action"
         >
-          {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
+          {member.team_member ? "Cambiar trabajador" : "Asociar trabajador"}
         </button>
         {manageable ? (
           <>
@@ -1051,6 +1204,8 @@ function MembershipCardMobile({
               </button>
             )}
           </>
+        ) : lastOwnerMessage ? (
+          <p className="text-xs text-muted-foreground">{lastOwnerMessage}</p>
         ) : null}
       </div>
     </div>

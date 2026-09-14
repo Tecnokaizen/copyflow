@@ -3,6 +3,8 @@ import type { InvitableRole, MembershipRole } from "@/lib/auth/membership-roles"
 export type AccessTeamMemberRef = {
   id: string;
   name: string;
+  job_title: string | null;
+  department: string | null;
 };
 
 export type AccessTeamMemberOption = AccessTeamMemberRef & {
@@ -131,7 +133,12 @@ function asTeamMemberRef(value: unknown): AccessTeamMemberRef | null {
     return null;
   }
 
-  return { id, name };
+  return {
+    id,
+    name,
+    job_title: asNullableString(record.job_title),
+    department: asNullableString(record.department),
+  };
 }
 
 export function mapAccessTeamMemberOption(

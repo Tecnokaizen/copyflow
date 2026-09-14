@@ -7,7 +7,7 @@ import { formatPriority } from "@/lib/orders/format";
 import type { MineOrder, MineQueueSection } from "@/lib/orders/mine";
 import {
   UNLINKED_MINE_ASSIGN_CTA_LABEL,
-  unlinkedMineOrdersCopy,
+  type UnlinkedMineOrdersCopy,
 } from "@/lib/orders/mine-unlinked-copy";
 import {
   formatZonedCivilDate,
@@ -82,32 +82,37 @@ export function MyOrdersQueue({
   sections,
   today,
   timezone,
-  actorRole,
+  unlinkedCopy,
 }: {
   linked: boolean;
   sections: MineQueueSection[];
   today: string;
   timezone: string;
-  actorRole?: string | null;
+  unlinkedCopy?: UnlinkedMineOrdersCopy;
 }) {
   if (!linked) {
-    const copy = unlinkedMineOrdersCopy(actorRole);
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
-        <EmptyState title={copy.title} description={copy.description}>
-          {copy.hint ? (
-            <p className="mx-auto mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted-foreground">
-              {copy.hint}
-            </p>
-          ) : null}
-          {copy.assignCtaHref ? (
-            <div className="mt-5">
-              <Link href={copy.assignCtaHref} className="gc-action min-h-11">
+        <EmptyState
+          title={
+            unlinkedCopy?.title ??
+            "No tienes un perfil operativo asociado"
+          }
+          description={
+            unlinkedCopy?.description ??
+            "Puedes usar Gestcopy con normalidad. Solo necesitas asociar un miembro del equipo si quieres utilizar Mis pedidos."
+          }
+          action={
+            unlinkedCopy?.assignCtaHref ? (
+              <Link
+                href={unlinkedCopy.assignCtaHref}
+                className="gc-cta inline-flex h-10 items-center rounded-[var(--radius)] px-5 font-semibold"
+              >
                 {UNLINKED_MINE_ASSIGN_CTA_LABEL}
               </Link>
-            </div>
-          ) : null}
-        </EmptyState>
+            ) : null
+          }
+        />
       </div>
     );
   }

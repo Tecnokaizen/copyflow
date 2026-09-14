@@ -1,3 +1,5 @@
+import { LAST_OWNER_REQUIRED_MESSAGE } from "@/lib/access/owner-protection";
+
 type AccessErrorKind =
   | "unauthorized"
   | "forbidden"
@@ -5,6 +7,7 @@ type AccessErrorKind =
   | "conflict"
   | "gone"
   | "invalid"
+  | "last_owner"
   | "rate_limited_cooldown"
   | "rate_limited_max"
   | "generic";
@@ -21,6 +24,10 @@ export function classifyAccessRpcError(
 
   if (code === "28000") {
     return "unauthorized";
+  }
+
+  if (code === "GTO01" || normalized.includes("last owner required")) {
+    return "last_owner";
   }
 
   if (code === "42501") {
@@ -72,6 +79,7 @@ export function statusForAccessRpcError(
     case "unauthorized":
       return 401;
     case "forbidden":
+    case "last_owner":
       return 403;
     case "not_found":
       return 404;
@@ -99,6 +107,8 @@ export function publicMessageForAccessRpcError(
       return "Unauthorized";
     case "forbidden":
       return "Unauthorized or tenant access denied";
+    case "last_owner":
+      return LAST_OWNER_REQUIRED_MESSAGE;
     case "not_found":
       return "Not found";
     case "conflict":

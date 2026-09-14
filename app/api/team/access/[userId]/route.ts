@@ -88,6 +88,7 @@ export async function PATCH(
           error?.message,
           "Could not update membership"
         ),
+        code: error?.code,
       },
       { status: statusForAccessRpcError(error?.code, error?.message) }
     );

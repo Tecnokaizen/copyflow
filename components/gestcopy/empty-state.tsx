@@ -1,16 +1,19 @@
 import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 
 type EmptyStateProps = {
   title: string;
   description?: string;
   className?: string;
-  children?: React.ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
 };
 
 export function EmptyState({
   title,
   description,
   className,
+  action,
   children,
 }: EmptyStateProps) {
   return (
@@ -21,6 +24,7 @@ export function EmptyState({
           {description}
         </p>
       ) : null}
+      {action ? <div className="mt-5">{action}</div> : null}
       {children}
     </div>
   );

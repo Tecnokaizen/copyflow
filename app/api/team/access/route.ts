@@ -85,7 +85,12 @@ export async function GET() {
       return {
         ...membership,
         team_member: linked
-          ? { id: linked.id, name: linked.name }
+          ? {
+              id: linked.id,
+              name: linked.name,
+              job_title: linked.job_title,
+              department: linked.department,
+            }
           : membership.team_member,
       };
     });

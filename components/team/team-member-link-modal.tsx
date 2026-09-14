@@ -66,6 +66,7 @@ export function TeamMemberLinkModal({
                   {currentName || "Sin nombre"}
                 </p>
                 <p className="text-sm text-muted-foreground">
+                  {current.email ? `${current.email} · ` : ""}
                   {membershipRoleLabel(current.role)}
                 </p>
               </dd>
@@ -88,8 +89,9 @@ export function TeamMemberLinkModal({
             <option value="">Sin usuario asignado</option>
             {options.map((user) => (
               <option key={user.user_id} value={user.user_id}>
-                {(user.full_name || "Sin nombre").trim()} ·{" "}
-                {membershipRoleLabel(user.role)}
+                {(user.full_name || user.email || "Sin nombre").trim()}
+                {user.email ? ` · ${user.email}` : ""}
+                {` · ${membershipRoleLabel(user.role)}`}
               </option>
             ))}
           </select>
