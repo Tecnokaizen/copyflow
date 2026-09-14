@@ -23,7 +23,7 @@ export const MEMBERSHIP_ROLE_DESCRIPTIONS = {
   admin:
     "Gestiona gran parte de la organización, incluidos usuarios de menor nivel.",
   manager:
-    "Gestiona pedidos, clientes, servicios, equipo operativo y actividad.",
+    "Gestiona pedidos, clientes, servicios, equipo y actividad.",
   staff:
     "Trabaja con pedidos y clientes, sin acceso a configuración ni gestión de usuarios.",
   viewer:
@@ -56,6 +56,18 @@ export const INVITABLE_ROLES = [
 ] as const satisfies readonly MembershipRole[];
 
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];
+
+/** Safe default for a normal invitation UI. Owner is never invitable. */
+export const DEFAULT_INVITABLE_ROLE: InvitableRole = "staff";
+
+export function preferredInvitableRole(
+  roles: readonly InvitableRole[]
+): InvitableRole | "" {
+  if (roles.includes(DEFAULT_INVITABLE_ROLE)) {
+    return DEFAULT_INVITABLE_ROLE;
+  }
+  return roles[0] ?? "";
+}
 
 const ROLE_RANK: Record<MembershipRole, number> = {
   owner: 50,

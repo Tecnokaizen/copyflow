@@ -242,7 +242,7 @@ export default function TeamPage() {
     <>
       <PageHeader
         title="Personal"
-        description="Miembros del equipo y su perfil operativo. El rol de acceso se gestiona en Usuarios y permisos."
+        description="Personas que forman parte del trabajo diario del negocio."
         className="mb-4 sm:mb-5"
         actions={
           canWrite ? (
@@ -301,7 +301,7 @@ export default function TeamPage() {
                 search
                   ? "Prueba a cambiar la búsqueda o los filtros."
                   : canWrite
-                    ? "Crea el perfil operativo de cada persona del taller. No se crea un usuario de Gestcopy."
+                    ? "Añade a las personas que forman parte del trabajo diario. No se crea un usuario de Gestcopy."
                     : undefined
               }
               action={
@@ -344,7 +344,7 @@ export default function TeamPage() {
                       Estado
                     </th>
                     <th className="px-4 py-3 text-left font-medium">
-                      Acceso al sistema
+                      Acceso a Gestcopy
                     </th>
                     {canWrite && (
                       <th className="px-4 py-3 text-left font-medium">

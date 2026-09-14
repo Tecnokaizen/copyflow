@@ -96,11 +96,11 @@ export function MyOrdersQueue({
         <EmptyState
           title={
             unlinkedCopy?.title ??
-            "No tienes un perfil operativo asociado"
+            "No tienes un miembro del equipo asociado"
           }
           description={
             unlinkedCopy?.description ??
-            "Puedes usar Gestcopy con normalidad. Solo necesitas asociar un miembro del equipo si quieres utilizar Mis pedidos."
+            "Puedes usar Gestcopy con normalidad. Solo necesitas asociarte a un miembro del equipo para utilizar Mis pedidos."
           }
           action={
             unlinkedCopy?.assignCtaHref ? (

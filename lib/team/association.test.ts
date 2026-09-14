@@ -18,7 +18,7 @@ const USER_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TENANT_A = "tenant-a";
 const TENANT_B = "tenant-b";
 
-describe("operative profile and Gestcopy user are independent", () => {
+describe("team member and Gestcopy user are independent", () => {
   it("allows a team_member without a Gestcopy user", () => {
     const member = { id: MEMBER_A, name: "Clara Ruiz", user_id: null };
     assert.equal(member.user_id, null);
@@ -76,7 +76,7 @@ describe("operative profile and Gestcopy user are independent", () => {
     assert.deepEqual(result, { ok: false, code: "tenant_mismatch" });
   });
 
-  it("does not change the operative profile when only the access role changes", () => {
+  it("does not change the associated team member when only the access role changes", () => {
     const parsed = parseAccessPatchPayload({
       action: "change_role",
       role: "admin",
@@ -99,7 +99,7 @@ describe("operative profile and Gestcopy user are independent", () => {
     );
   });
 
-  it("does not change the access role when the operative profile changes", () => {
+  it("does not change the access role when the associated team member changes", () => {
     const accessRole = "staff";
     const afterProfileEdit = {
       role: accessRole,
@@ -108,7 +108,7 @@ describe("operative profile and Gestcopy user are independent", () => {
     assert.equal(afterProfileEdit.role, "staff");
   });
 
-  it("lets owner and staff create orders without an operative profile", () => {
+  it("lets owner and staff create orders without an associated team member", () => {
     assert.equal(canWriteOrders("owner"), true);
     assert.equal(canWriteOrders("staff"), true);
     assert.equal(canWriteOrders("manager"), true);
@@ -116,7 +116,7 @@ describe("operative profile and Gestcopy user are independent", () => {
     assert.equal(canWriteOrders("viewer"), false);
   });
 
-  it("scopes Mis pedidos only to the session operative profile", () => {
+  it("scopes Mis pedidos only to the session team member", () => {
     assert.deepEqual(
       resolveMineQueryScope({
         tenantId: TENANT_A,

@@ -44,7 +44,7 @@ describe("canManageMembershipTarget with owners", () => {
     );
   });
 
-  it("does not change who the operative profile is when only the access role changes", () => {
+  it("does not change who the team member is when only the access role changes", () => {
     const profile = { id: "tm-1", name: "Jesús", job_title: "Producción" };
     const afterRoleChange = { ...profile };
     assert.deepEqual(afterRoleChange, profile);
@@ -65,7 +65,7 @@ describe("countOtherActiveOwners", () => {
   });
 });
 
-describe("order create permission is the access role, not the operative profile", () => {
+describe("order create permission is the access role, not the team member", () => {
   it("lets owner and staff create orders without a team profile", () => {
     assert.equal(canWriteOrders("owner"), true);
     assert.equal(canWriteOrders("staff"), true);

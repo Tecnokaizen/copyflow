@@ -29,10 +29,17 @@ import {
   publicAccessUiError,
 } from "@/lib/access/ui";
 import {
+  ACCESS_PAGE_DESCRIPTION,
+  ACCESS_USERS_SECTION_DESCRIPTION,
+  INVITE_NAME_HELP,
+  INVITE_ROLE_HELP,
+} from "@/lib/access/invite-copy";
+import {
   invitableRolesForActor,
   membershipRoleDescription,
   membershipRoleLabel,
   membershipRoleRank,
+  preferredInvitableRole,
   type InvitableRole,
 } from "@/lib/auth/membership-roles";
 import { formatOperativeProfile } from "@/lib/team/operative-profile";
@@ -58,6 +65,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<InvitableRole | "">("");
   const [changeRole, setChangeRole] = useState<InvitableRole | "">("");
@@ -115,8 +123,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
   }, [flash]);
 
   function openInvite() {
+    setInviteName("");
     setInviteEmail("");
-    setInviteRole(assignableRoles[0] ?? "");
+    setInviteRole(preferredInvitableRole(assignableRoles));
     setFormError(null);
     setModal({ kind: "invite" });
   }
@@ -153,7 +162,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     if (
       membershipRoleRank(changeRole) < membershipRoleRank(member.role) &&
       !window.confirm(
-        `Vas a reducir el rol de acceso de ${membershipRoleLabel(member.role)} a ${membershipRoleLabel(changeRole)}. El perfil operativo no cambia. ¿Continuar?`
+        `Vas a reducir el rol de acceso de ${membershipRoleLabel(member.role)} a ${membershipRoleLabel(changeRole)}. El miembro del equipo asociado no cambia. ¿Continuar?`
       )
     ) {
       return;
@@ -171,7 +180,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         setFormError(publicAccessUiError(response.status, payload));
         return;
       }
-      setFlash("Rol de acceso actualizado. El perfil operativo no cambia.");
+      setFlash("Rol de acceso actualizado. El miembro del equipo asociado no cambia.");
       setModal({ kind: "closed" });
       await load();
     } finally {
@@ -351,7 +360,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     <>
       <PageHeader
         title="Usuarios y permisos"
-        description="Quién inicia sesión en Gestcopy y qué puede hacer. El perfil operativo es independiente."
+        description={ACCESS_PAGE_DESCRIPTION}
         actions={
           <Button
             type="button"
@@ -378,7 +387,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       <SectionCard
         title="Usuarios con acceso"
-        description="Usuarios de Gestcopy de esta organización. El rol de acceso no cambia el puesto ni el área."
+        description={ACCESS_USERS_SECTION_DESCRIPTION}
         bodyClassName="p-0"
       >
         {loading ? (
@@ -399,7 +408,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     <th>Email</th>
                     <th>Rol de acceso</th>
                     <th>Estado</th>
-                    <th>Perfil operativo</th>
+                    <th>Miembro del equipo</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -501,7 +510,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                   <thead>
                     <tr>
                       <th>Email</th>
-                      <th>Rol</th>
+                      <th>Rol de acceso</th>
                       <th>Enviada</th>
                       <th>Caduca</th>
                       <th>Estado</th>
@@ -619,6 +628,19 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         >
           <div className="space-y-4">
             <div className="grid gap-2">
+              <Label htmlFor="invite-name">Nombre</Label>
+              <Input
+                id="invite-name"
+                type="text"
+                value={inviteName}
+                onChange={(event) => setInviteName(event.target.value)}
+                placeholder="Ej. Rubén"
+                disabled={busy}
+                autoComplete="name"
+              />
+              <p className="text-xs text-muted-foreground">{INVITE_NAME_HELP}</p>
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="invite-email">Email</Label>
               <Input
                 id="invite-email"
@@ -647,18 +669,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                   </option>
                 ))}
               </select>
-              {inviteRole ? (
-                <p className="text-xs text-muted-foreground">
-                  {membershipRoleDescription(inviteRole)}
-                </p>
-              ) : null}
+              <p className="text-xs text-muted-foreground">{INVITE_ROLE_HELP}</p>
             </div>
             <RoleHelpList roles={assignableRoles} />
-            <p className="text-sm text-muted-foreground">
-              La invitación da acceso a Gestcopy. Si esta persona también
-              trabaja en el taller, asóciala a un miembro del equipo cuando
-              acepte. No se crea un perfil operativo automáticamente.
-            </p>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
             ) : null}
@@ -795,7 +808,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Perfil operativo
+                  Miembro del equipo
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-foreground">
                   {formatOperativeProfile(modal.member.team_member)}
@@ -1048,7 +1061,7 @@ function MembershipRowDesktop({
       </td>
       <td className={member.team_member ? "font-medium" : "text-muted-foreground"}>
         <p className="text-xs font-normal text-muted-foreground">
-          Perfil operativo
+          Miembro del equipo
         </p>
         <p className="mt-1">{profile}</p>
       </td>
@@ -1153,7 +1166,7 @@ function MembershipCardMobile({
       </div>
       <div className="mt-3 space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Perfil operativo
+          Miembro del equipo
         </p>
         <p
           className={

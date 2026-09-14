@@ -39,7 +39,7 @@ export function TeamMemberLinkModal({
       <div className="space-y-5">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
-            Asignar usuario a este trabajador
+            Asignar usuario
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Selecciona qué usuario de Gestcopy corresponde a este miembro del
