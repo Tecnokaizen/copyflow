@@ -1,18 +1,15 @@
 "use client";
 
 /**
- * Temporary invitation acceptance surface for Phase 2C-A.
- *
- * Risk: invitation token travels in the query string (referrer/history exposure).
- * Future alternative: opaque one-time id / short code exchanged server-side,
- * never placing the raw invitation token in URLs or client storage.
+ * Invitation acceptance stays on this page.
+ * The token is the secret; email always comes from the server preview.
  */
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { authHrefWithNext } from "@/lib/auth/safe-next-path";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -20,41 +17,102 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  CREATE_ACCOUNT_AND_CONTINUE,
+  CREATE_ACCOUNT_TITLE,
+  EMAIL_LABEL,
+  INVITATION_INVALID,
+  PASSWORD_LABEL,
+  PASSWORDS_DO_NOT_MATCH,
+  REPEAT_PASSWORD_LABEL,
+  SIGN_IN_TITLE,
+  invitationWrongAccountCopy,
+} from "@/lib/invitations/copy";
+import {
+  mapInvitationPreview,
+  type InvitationPreview,
+} from "@/lib/invitations/preview";
+import {
+  invitationAcceptPath,
+  parseInvitationToken,
+} from "@/lib/invitations/token";
+import {
+  invitationAcceptFailureView,
+  invitationAcceptView,
+} from "@/lib/invitations/view-state";
 
-type AcceptState =
+type Screen =
   | { kind: "loading" }
-  | { kind: "need_auth"; returnTo: string }
   | { kind: "accepting" }
-  | { kind: "wrong_account"; returnTo: string; email: string | null }
-  | { kind: "success"; tenantOrigin: string; tenantName: string }
-  | { kind: "error"; message: string };
+  | ReturnType<typeof invitationAcceptView>
+  | { kind: "success"; tenantOrigin: string; tenantName: string };
 
-function publicAcceptError(status: number | undefined, fallback?: string) {
-  if (status === 401) {
-    return "Debes iniciar sesión para aceptar la invitación.";
+async function postAcceptInvitation(
+  currentToken: string,
+  currentPreview: InvitationPreview | null,
+  currentSessionEmail: string | null
+): Promise<Screen> {
+  const returnTo = invitationAcceptPath(currentToken);
+  const response = await fetch("/api/invitations/accept", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: currentToken }),
+  });
+
+  let payload: {
+    error?: string;
+    code?: string;
+    tenant_origin?: string;
+    tenant?: { name?: string };
+  } = {};
+
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
   }
-  if (status === 403) {
-    return "No tienes acceso a esta invitación.";
+
+  if (!response.ok) {
+    return invitationAcceptFailureView({
+      status: response.status,
+      payload,
+      sessionEmail: currentSessionEmail,
+      invitedEmail: currentPreview?.email ?? null,
+      returnTo,
+    });
   }
-  if (status === 404 || status === 410) {
-    return "La invitación no es válida o ya no está disponible.";
+
+  const tenantOrigin =
+    typeof payload.tenant_origin === "string" ? payload.tenant_origin : null;
+  if (!tenantOrigin) {
+    return {
+      kind: "error",
+      message: "No se pudo completar la invitación.",
+    };
   }
-  if (status === 409) {
-    return "Ya formas parte de esta organización.";
-  }
-  if (status === 400) {
-    return "La invitación no es válida.";
-  }
-  return fallback ?? "No se pudo aceptar la invitación.";
+
+  return {
+    kind: "success",
+    tenantOrigin,
+    tenantName:
+      typeof payload.tenant?.name === "string"
+        ? payload.tenant.name
+        : "tu organización",
+  };
 }
 
 export function AcceptInvitationClient() {
   const searchParams = useSearchParams();
-  const token = (searchParams.get("token") ?? "").trim();
+  const token = parseInvitationToken(searchParams.get("token"));
   const attempted = useRef(false);
-  const [state, setState] = useState<AcceptState>({ kind: "loading" });
-  const [signingOut, setSigningOut] = useState(false);
+  const [screen, setScreen] = useState<Screen>({ kind: "loading" });
+  const [preview, setPreview] = useState<InvitationPreview | null>(null);
+  const [password, setPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (attempted.current) {
@@ -62,105 +120,163 @@ export function AcceptInvitationClient() {
     }
     attempted.current = true;
 
-    async function run() {
-      if (!token || token.length !== 64 || !/^[0-9a-f]+$/i.test(token)) {
-        setState({
-          kind: "error",
-          message: "La invitación no es válida.",
-        });
+    async function bootstrap() {
+      if (!token) {
+        setScreen({ kind: "error", message: INVITATION_INVALID });
         return;
       }
 
-      const returnTo = `/invitations/accept?token=${encodeURIComponent(token)}`;
       const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const [{ data: userData }, previewResponse] = await Promise.all([
+        supabase.auth.getUser(),
+        fetch("/api/invitations/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        }),
+      ]);
 
-      if (!user) {
-        setState({ kind: "need_auth", returnTo });
-        return;
-      }
-
-      setState({ kind: "accepting" });
-
-      const response = await fetch("/api/invitations/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-
-      let payload: {
-        error?: string;
-        tenant_origin?: string;
-        tenant?: { name?: string; slug?: string };
-      } = {};
-
+      let previewPayload: unknown = null;
       try {
-        payload = await response.json();
+        previewPayload = await previewResponse.json();
       } catch {
-        payload = {};
+        previewPayload = null;
       }
 
-      if (!response.ok) {
-        if (response.status === 403) {
-          setState({
-            kind: "wrong_account",
-            returnTo,
-            email: user.email ?? null,
-          });
-          return;
-        }
+      const nextPreview = previewResponse.ok
+        ? mapInvitationPreview(previewPayload)
+        : null;
+      const email = userData.user?.email ?? null;
+      setPreview(nextPreview);
 
-        setState({
-          kind: "error",
-          message: publicAcceptError(response.status, payload.error),
-        });
-        return;
-      }
-
-      const tenantOrigin =
-        typeof payload.tenant_origin === "string"
-          ? payload.tenant_origin
-          : null;
-
-      if (!tenantOrigin) {
-        setState({
-          kind: "error",
-          message: "No se pudo completar la invitación.",
-        });
-        return;
-      }
-
-      setState({
-        kind: "success",
-        tenantOrigin,
-        tenantName:
-          typeof payload.tenant?.name === "string"
-            ? payload.tenant.name
-            : "tu organización",
+      const view = invitationAcceptView({
+        token,
+        preview: nextPreview,
+        sessionEmail: email,
       });
 
-      window.location.assign(tenantOrigin);
+      if (view.kind === "auto_accept") {
+        setScreen({ kind: "accepting" });
+        const nextScreen = await postAcceptInvitation(
+          token,
+          nextPreview,
+          email
+        );
+        setScreen(nextScreen);
+        if (nextScreen.kind === "success") {
+          window.location.assign(nextScreen.tenantOrigin);
+        }
+        return;
+      }
+
+      setScreen(view);
     }
 
-    void run();
+    void bootstrap();
   }, [token]);
 
   async function signOutAndContinue(returnTo: string) {
-    if (signingOut) return;
-    setSigningOut(true);
+    if (busy) return;
+    setBusy(true);
     const supabase = createClient();
     await supabase.auth.signOut();
     window.location.assign(returnTo);
   }
 
-  if (state.kind === "loading" || state.kind === "accepting") {
+  async function handleSignup(event: React.FormEvent) {
+    event.preventDefault();
+    if (!token || busy) return;
+    if (password !== repeatPassword) {
+      setFormError(PASSWORDS_DO_NOT_MATCH);
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    try {
+      const response = await fetch("/api/invitations/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+        tenant_origin?: string;
+      } | null;
+
+      if (!response.ok) {
+        if (payload?.code === "ACCOUNT_EXISTS" && preview) {
+          setScreen(
+            invitationAcceptView({
+              token,
+              preview: {
+                ...preview,
+                account_exists: true,
+                email_confirmed: true,
+              },
+              sessionEmail: null,
+            })
+          );
+          setFormError(
+            payload.error ?? "Ya tienes una cuenta. Inicia sesión para continuar."
+          );
+          return;
+        }
+        setFormError(payload?.error ?? "No se pudo crear la cuenta.");
+        return;
+      }
+
+      const tenantOrigin =
+        typeof payload?.tenant_origin === "string"
+          ? payload.tenant_origin
+          : null;
+      if (!tenantOrigin) {
+        setFormError("No se pudo completar la invitación.");
+        return;
+      }
+
+      window.location.assign(tenantOrigin);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLogin(event: React.FormEvent) {
+    event.preventDefault();
+    if (!token || !preview?.email || busy) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: preview.email,
+        password,
+      });
+      if (error) {
+        setFormError("No se pudo iniciar sesión. Revisa la contraseña.");
+        return;
+      }
+      setScreen({ kind: "accepting" });
+      const nextScreen = await postAcceptInvitation(
+        token,
+        preview,
+        preview.email
+      );
+      setScreen(nextScreen);
+      if (nextScreen.kind === "success") {
+        window.location.assign(nextScreen.tenantOrigin);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (screen.kind === "loading" || screen.kind === "accepting") {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">
-            {state.kind === "accepting"
+            {screen.kind === "accepting"
               ? "Aceptando invitación"
               : "Comprobando invitación"}
           </CardTitle>
@@ -170,91 +286,173 @@ export function AcceptInvitationClient() {
     );
   }
 
-  if (state.kind === "need_auth") {
+  if (screen.kind === "signup") {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Has recibido una invitación</CardTitle>
+          <CardTitle className="text-2xl">{CREATE_ACCOUNT_TITLE}</CardTitle>
           <CardDescription>
-            Para acceder a esta organización necesitas una cuenta de Gestcopy
-            con el mismo correo que recibió la invitación.
+            {screen.tenantName
+              ? `Te han invitado a ${screen.tenantName}. Elige una contraseña para entrar.`
+              : "Elige una contraseña para entrar en la organización."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Button asChild className="w-full">
-            <Link href={authHrefWithNext("/auth/sign-up", state.returnTo)}>
-              Crear cuenta y continuar
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="w-full">
-            <Link href={authHrefWithNext("/auth/login", state.returnTo)}>
-              Ya tengo una cuenta
-            </Link>
-          </Button>
+        <CardContent>
+          <form
+            onSubmit={(event) => void handleSignup(event)}
+            className="grid gap-4"
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="invitation-email">{EMAIL_LABEL}</Label>
+              <Input
+                id="invitation-email"
+                type="email"
+                value={screen.email}
+                readOnly
+                autoComplete="username"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invitation-password">{PASSWORD_LABEL}</Label>
+              <Input
+                id="invitation-password"
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invitation-repeat-password">
+                {REPEAT_PASSWORD_LABEL}
+              </Label>
+              <Input
+                id="invitation-repeat-password"
+                type="password"
+                required
+                minLength={8}
+                value={repeatPassword}
+                onChange={(event) => setRepeatPassword(event.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            {formError ? (
+              <p className="text-sm text-red-500">{formError}</p>
+            ) : null}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? "Creando cuenta…" : CREATE_ACCOUNT_AND_CONTINUE}
+            </Button>
+          </form>
         </CardContent>
       </Card>
     );
   }
 
-  if (state.kind === "wrong_account") {
+  if (screen.kind === "login") {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">
-            Esta invitación es para otra cuenta
-          </CardTitle>
+          <CardTitle className="text-2xl">{SIGN_IN_TITLE}</CardTitle>
           <CardDescription>
-            Has iniciado sesión con una cuenta diferente de la que recibió esta
-            invitación. Cierra sesión y continúa con el correo invitado.
-            {state.email ? (
-              <>
-                <br />
-                Has iniciado sesión como {state.email}.
-              </>
-            ) : null}
+            {screen.tenantName
+              ? `Entra con tu cuenta para unirte a ${screen.tenantName}.`
+              : "Entra con tu cuenta para aceptar la invitación."}
           </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={(event) => void handleLogin(event)}
+            className="grid gap-4"
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="invitation-login-email">{EMAIL_LABEL}</Label>
+              <Input
+                id="invitation-login-email"
+                type="email"
+                value={screen.email}
+                readOnly
+                autoComplete="username"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invitation-login-password">{PASSWORD_LABEL}</Label>
+              <Input
+                id="invitation-login-password"
+                type="password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            {formError ? (
+              <p className="text-sm text-red-500">{formError}</p>
+            ) : null}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? "Entrando…" : SIGN_IN_TITLE}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (screen.kind === "wrong_account") {
+    const copy = invitationWrongAccountCopy(
+      screen.invitedEmail,
+      screen.sessionEmail
+    );
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">{copy.title}</CardTitle>
+          <CardDescription>{copy.description}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button
             type="button"
             className="w-full"
-            disabled={signingOut}
-            onClick={() => void signOutAndContinue(state.returnTo)}
+            disabled={busy}
+            onClick={() => void signOutAndContinue(screen.returnTo)}
           >
-            {signingOut ? "Cerrando sesión…" : "Cerrar sesión y continuar"}
+            {busy ? "Cerrando sesión…" : copy.action}
           </Button>
         </CardContent>
       </Card>
     );
   }
 
-  if (state.kind === "success") {
+  if (screen.kind === "success") {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">Invitación aceptada</CardTitle>
-          <CardDescription>
-            Redirigiendo a {state.tenantName}…
-          </CardDescription>
+          <CardDescription>Redirigiendo a {screen.tenantName}…</CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild className="w-full">
-            <a href={state.tenantOrigin}>Ir ahora</a>
+            <a href={screen.tenantOrigin}>Ir ahora</a>
           </Button>
         </CardContent>
       </Card>
     );
+  }
+
+  if (screen.kind !== "error") {
+    return null;
   }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-2xl">No se pudo aceptar</CardTitle>
-        <CardDescription>{state.message}</CardDescription>
+        <CardDescription>{screen.message}</CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild variant="outline" className="w-full">
-          <Link href="/auth/login">Ir al login</Link>
+          <Link href="/auth/login">Iniciar sesión</Link>
         </Button>
       </CardContent>
     </Card>

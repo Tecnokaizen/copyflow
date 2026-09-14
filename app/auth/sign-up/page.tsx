@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { redirect } from "next/navigation";
 import {
   getSafeNextPath,
   isInvitationAcceptNext,
@@ -24,6 +25,9 @@ async function SignUpContent({
   const rawNext = typeof params.next === "string" ? params.next : undefined;
   const nextPath = getSafeNextPath(rawNext);
   const invitationNext = isInvitationAcceptNext(rawNext) ? nextPath : null;
+  if (invitationNext) {
+    redirect(invitationNext);
+  }
   const onTenantHost = await isTenantHostRequest();
 
   if (onTenantHost && !invitationNext) {

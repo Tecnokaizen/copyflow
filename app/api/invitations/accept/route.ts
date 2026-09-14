@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { tenantOrigin } from "@/lib/tenant/domains";
 import { parseInvitationAcceptPayload } from "@/lib/access/payload";
 import {
+  publicApiErrorCode,
   publicMessageForAccessRpcError,
   statusForAccessRpcError,
 } from "@/lib/access/rpc-error";
@@ -48,6 +49,8 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    const code = publicApiErrorCode(error?.code, error?.message);
+
     return NextResponse.json(
       {
         error: publicMessageForAccessRpcError(
@@ -55,6 +58,7 @@ export async function POST(request: NextRequest) {
           error?.message,
           "Could not accept invitation"
         ),
+        ...(code ? { code } : {}),
       },
       { status: statusForAccessRpcError(error?.code, error?.message) }
     );
