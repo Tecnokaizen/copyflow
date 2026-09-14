@@ -43,6 +43,7 @@ export async function GET(
       entry_channel:entry_channels(*),
       assigned_team_member:team_members(*),
       order_context:order_contexts(*),
+      store:stores(*),
       file_status:file_statuses(*),
       quote_status:quote_statuses(*),
       payment_status:payment_statuses(*),

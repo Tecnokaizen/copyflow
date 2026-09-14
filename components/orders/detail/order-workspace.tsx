@@ -223,6 +223,7 @@ export function OrderWorkspace() {
           entry_channels: result.entry_channels ?? [],
           order_contexts: result.order_contexts ?? [],
           team_members: result.team_members ?? [],
+          stores: result.stores ?? [],
         });
       } catch (err) {
         setError(
@@ -370,6 +371,13 @@ export function OrderWorkspace() {
           ...current,
           order_context_id: result.order.order_context_id,
           order_context: nextValue,
+        };
+      }
+      if (step.field === "store_id") {
+        return {
+          ...current,
+          store_id: result.order.store_id,
+          store: nextValue,
         };
       }
       return { ...current, due_at: result.order.due_at };

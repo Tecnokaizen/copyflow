@@ -13,6 +13,10 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import {
+  parseStoreListFilter,
+  storeListFilterParam,
+} from "@/lib/stores/scope";
 import { isUuid } from "@/lib/team/payload";
 import {
   addCivilDays,
@@ -39,6 +43,10 @@ type Order = {
 
   assigned_team_member: {
     id: string;
+    name: string;
+  } | null;
+
+  store: {
     name: string;
   } | null;
 
@@ -74,6 +82,11 @@ type OrdersResponse = {
 type CalendarScope = "active" | "all";
 
 type TeamMemberOption = {
+  id: string;
+  name: string;
+};
+
+type StoreOption = {
   id: string;
   name: string;
 };
@@ -211,9 +224,10 @@ function emptyTitleForFilter(
   filter: ListFilter,
   hasAssignee: boolean,
   hasStatus: boolean,
+  hasStore: boolean,
   allTotal: number
 ) {
-  if (hasAssignee || hasStatus) {
+  if (hasAssignee || hasStatus || hasStore) {
     return "No hay pedidos con estos filtros";
   }
 
@@ -241,9 +255,10 @@ function summaryForFilter(
   total: number,
   allTotal: number,
   hasAssignee: boolean,
-  hasStatus: boolean
+  hasStatus: boolean,
+  hasStore: boolean
 ) {
-  if (hasAssignee || hasStatus) {
+  if (hasAssignee || hasStatus || hasStore) {
     return `${total} pedidos · ${allTotal} pedidos totales`;
   }
 
@@ -472,6 +487,11 @@ function OrdersPageContent() {
     searchParams.get("assigned_team_member_id")
   );
   const statusId = parseStatusId(searchParams.get("status_id"));
+  const storeFilter = parseStoreListFilter(searchParams.get("store_id"));
+  const selectedStoreParam =
+    storeFilter.kind === "invalid"
+      ? null
+      : storeListFilterParam(storeFilter);
   const sortField = parseSortField(searchParams.get("sort"));
   const sortDir = parseSortDir(searchParams.get("dir"));
   const listFilter = resolveListFilter(rawListFilter, assignedMemberId);
@@ -504,12 +524,13 @@ function OrdersPageContent() {
   const [calendarReloadToken, setCalendarReloadToken] = useState(0);
   const [byServiceReloadToken, setByServiceReloadToken] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
+  const [stores, setStores] = useState<StoreOption[]>([]);
   const [orderStatuses, setOrderStatuses] = useState<OrderStatusOption[]>([]);
   const [prevListQuery, setPrevListQuery] = useState(
-    `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`
+    `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`
   );
   const pageSize = 50;
-  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`;
+  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`;
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
 
@@ -553,6 +574,34 @@ function OrdersPageContent() {
       }
     }
 
+    async function loadStores() {
+      try {
+        const response = await fetch("/api/stores?active=true");
+        if (!response.ok) {
+          return;
+        }
+
+        const result = (await response.json()) as {
+          stores?: Array<{ id?: unknown; name?: unknown }>;
+        };
+
+        const nextStores = (result.stores ?? [])
+          .map((row) => {
+            const id = typeof row.id === "string" ? row.id : null;
+            const name = typeof row.name === "string" ? row.name : null;
+            if (!id || !name) {
+              return null;
+            }
+            return { id, name };
+          })
+          .filter((row): row is StoreOption => row !== null);
+
+        setStores(nextStores);
+      } catch {
+        setStores([]);
+      }
+    }
+
     async function loadStatuses() {
       try {
         const response = await fetch("/api/order-statuses");
@@ -590,6 +639,7 @@ function OrdersPageContent() {
     }
 
     void loadTeam();
+    void loadStores();
     void loadStatuses();
   }, []);
 
@@ -649,6 +699,7 @@ function OrdersPageContent() {
     filter?: PrimaryListFilter | ListFilter;
     assignedTeamMemberId?: string | null;
     statusId?: string | null;
+    storeId?: string | null;
     sort?: SortField | null;
     dir?: SortDir | null;
   }) {
@@ -669,6 +720,12 @@ function OrdersPageContent() {
       params.delete("status_id");
     } else if (typeof next.statusId === "string") {
       params.set("status_id", next.statusId);
+    }
+
+    if (next.storeId === null) {
+      params.delete("store_id");
+    } else if (typeof next.storeId === "string") {
+      params.set("store_id", next.storeId);
     }
 
     if (next.sort === null) {
@@ -757,6 +814,10 @@ function OrdersPageContent() {
           params.set("status_id", statusId);
         }
 
+        if (selectedStoreParam) {
+          params.set("store_id", selectedStoreParam);
+        }
+
         if (sortField && sortDir) {
           params.set("sort", sortField);
           params.set("dir", sortDir);
@@ -793,7 +854,7 @@ function OrdersPageContent() {
     }
 
     loadOrders();
-  }, [page, listFilter, assignedMemberId, statusId, sortField, sortDir, listReloadToken]);
+  }, [page, listFilter, assignedMemberId, statusId, selectedStoreParam, sortField, sortDir, listReloadToken]);
 
   function navigateToView(nextView: ViewMode) {
     const params = new URLSearchParams(searchParams.toString());
@@ -1012,7 +1073,8 @@ function OrdersPageContent() {
                 filteredTotal,
                 allTotal,
                 Boolean(assignedMemberId),
-                Boolean(statusId)
+                Boolean(statusId),
+                Boolean(selectedStoreParam)
               )
             : view === "calendar"
               ? `Semana del ${weekLabel}`
@@ -1115,6 +1177,29 @@ function OrdersPageContent() {
                   ))}
                 </select>
               </label>
+
+              <label className="gc-field sm:min-w-[220px]">
+                <span className="gc-field-label">Tienda</span>
+                <select
+                  className="gc-field-control"
+                  value={selectedStoreParam ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    replaceListParams({
+                      filter: listFilter,
+                      storeId: value ? value : null,
+                    });
+                  }}
+                >
+                  <option value="">Todas</option>
+                  {stores.map((store) => (
+                    <option key={store.id} value={store.id}>
+                      {store.name}
+                    </option>
+                  ))}
+                  <option value="none">Sin tienda</option>
+                </select>
+              </label>
             </div>
           </div>
         ) : null}
@@ -1144,11 +1229,13 @@ function OrdersPageContent() {
                         listFilter,
                         Boolean(assignedMemberId),
                         Boolean(statusId),
+                        Boolean(selectedStoreParam),
                         allTotal
                       )}
                       description={
                         assignedMemberId ||
                         statusId ||
+                        selectedStoreParam ||
                         listFilter === "attention" ||
                         listFilter === "upcoming"
                           ? "Prueba a cambiar los filtros."
@@ -1186,13 +1273,14 @@ function OrdersPageContent() {
                                 </th>
                               );
                             })}
+                            <th>Tienda</th>
                           </tr>
                         </thead>
 
                         <tbody>
                           {loading ? (
                             <tr>
-                              <td className="text-muted-foreground" colSpan={6}>
+                              <td className="text-muted-foreground" colSpan={7}>
                                 Cargando pedidos...
                               </td>
                             </tr>
@@ -1250,6 +1338,8 @@ function OrdersPageContent() {
                                     {formatDate(order.due_at)}
                                   </div>
                                 </td>
+
+                                <td>{order.store?.name ?? "Sin tienda"}</td>
                               </tr>
                             ))
                           )}

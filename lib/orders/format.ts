@@ -81,6 +81,8 @@ function formatDetailField(value: string | undefined) {
       return "Responsable";
     case "order_context_id":
       return "Contexto";
+    case "store_id":
+      return "Tienda";
     case "due_at":
       return "Fecha prevista";
     default:

@@ -25,6 +25,7 @@ const MINE_SELECT = `
   assigned_team_member_id,
   client:clients(name),
   service:services(name),
+  store:stores(name),
   status:order_statuses!inner(name, code, is_ready, is_closed, is_cancelled)
 `;
 

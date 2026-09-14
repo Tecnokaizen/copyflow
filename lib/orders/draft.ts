@@ -31,6 +31,7 @@ export function createOrderDraft(
     entry_channel_id: order.entry_channel_id,
     assigned_team_member_id: order.assigned_team_member_id,
     order_context_id: order.order_context_id,
+    store_id: order.store_id,
     due_at: order.due_at,
     file_status_id: order.file_status_id,
     quote_status_id: order.quote_status_id,
@@ -154,6 +155,12 @@ export function buildDraftSaveSteps(
       next: draft.order_context_id,
       prev: order.order_context_id,
       label: "Contexto",
+    },
+    {
+      field: "store_id",
+      next: draft.store_id,
+      prev: order.store_id,
+      label: "Tienda",
     },
     {
       field: "due_at",

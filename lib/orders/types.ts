@@ -51,6 +51,7 @@ export type Order = {
   entry_channel_id: string | null;
   assigned_team_member_id: string | null;
   order_context_id: string | null;
+  store_id: string | null;
   entry_channel: OrderNamedRef | null;
   assigned_team_member: OrderNamedRef | null;
   status: {
@@ -62,6 +63,7 @@ export type Order = {
     is_cancelled?: boolean;
   } | null;
   order_context: OrderNamedRef | null;
+  store: OrderNamedRef | null;
 
   file_status_id: string | null;
   quote_status_id: string | null;
@@ -167,6 +169,7 @@ export type DetailField =
   | "entry_channel_id"
   | "assigned_team_member_id"
   | "order_context_id"
+  | "store_id"
   | "due_at";
 
 export type ContentField = "title" | "description" | "notes";
@@ -190,6 +193,7 @@ export type OrderOptionsResponse = {
   entry_channels: CodedOrderOption[];
   order_contexts: CodedOrderOption[];
   team_members: OrderOption[];
+  stores: OrderOption[];
 };
 
 /** Editable snapshot used while the workspace is in edit mode. */
@@ -203,6 +207,7 @@ export type OrderDraft = {
   entry_channel_id: string | null;
   assigned_team_member_id: string | null;
   order_context_id: string | null;
+  store_id: string | null;
   due_at: string | null;
   file_status_id: string | null;
   quote_status_id: string | null;

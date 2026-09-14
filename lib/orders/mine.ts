@@ -24,6 +24,7 @@ export type MineOrder = {
   assigned_team_member_id: string | null;
   client_name: string | null;
   service_name: string | null;
+  store_name: string | null;
   status: {
     name: string;
     code: string | null;
@@ -236,6 +237,7 @@ export function mapMineOrderRow(row: unknown): MineOrder | null {
         : null,
     client_name: asNamed(record.client),
     service_name: asNamed(record.service),
+    store_name: asNamed(record.store),
     status: asStatus(record.status),
   };
 }

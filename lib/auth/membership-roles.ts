@@ -166,6 +166,10 @@ export function canWriteTeam(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
+export function canWriteStores(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}
+
 export function canViewActivity(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }

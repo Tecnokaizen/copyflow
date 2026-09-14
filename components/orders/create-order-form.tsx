@@ -29,6 +29,7 @@ import {
 } from "@/lib/orders/create";
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
+import { defaultActiveStoreId } from "@/lib/stores/scope";
 
 type CreateOrderFormProps = {
   onCancel: () => void;
@@ -66,6 +67,7 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
     "normal"
   );
   const [assignedTeamMemberId, setAssignedTeamMemberId] = useState("");
+  const [storeId, setStoreId] = useState("");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -80,12 +82,21 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
           );
         }
 
-        setOptions({
+        const nextOptions = {
           tenant: result.tenant,
           services: result.services ?? [],
           entry_channels: result.entry_channels ?? [],
           order_contexts: result.order_contexts ?? [],
           team_members: result.team_members ?? [],
+          stores: result.stores ?? [],
+        };
+        setOptions(nextOptions);
+        setStoreId((current) => {
+          if (current) {
+            return current;
+          }
+
+          return defaultActiveStoreId(nextOptions.stores) ?? "";
         });
         setOptionsError(null);
       } catch (err) {
@@ -228,6 +239,7 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
           order_context_id: orderContextId || null,
           priority,
           assigned_team_member_id: assignedTeamMemberId || null,
+          store_id: storeId || null,
           notes: notes.trim() || null,
         }),
       });
@@ -287,6 +299,25 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
               Busca por nombre, empresa o teléfono, o créalo sin salir.
             </span>
           </label>
+
+          {(options?.stores.length ?? 0) > 0 ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Tienda
+              <DraftSelect
+                value={storeId}
+                disabled={submitting}
+                className="max-w-none text-base"
+                onChange={setStoreId}
+              >
+                <option value="">Sin tienda</option>
+                {options?.stores.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </DraftSelect>
+            </label>
+          ) : null}
 
           <label className="grid gap-2 text-sm font-medium text-foreground">
             Servicio
