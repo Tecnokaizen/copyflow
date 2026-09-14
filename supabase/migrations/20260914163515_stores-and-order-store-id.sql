@@ -49,7 +49,11 @@ CREATE POLICY stores_update_management ON public.stores
 COMMENT ON TABLE public.stores IS
   'Tiendas/sedes operativas del tenant. No eliminar físicamente si hay pedidos: desactivar (active=false).';
 
-GRANT INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE public.stores TO authenticated;
+-- Los default privileges del proyecto conceden MAINTAIN/REFERENCES/TRIGGER/TRUNCATE
+-- a authenticated en tablas nuevas. TRUNCATE no está protegido por RLS.
+-- La app solo necesita DML; las políticas RLS siguen filtrando filas.
+REVOKE ALL ON TABLE public.stores FROM authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.stores TO authenticated;
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE public.stores TO postgres, service_role;
 
 ALTER TABLE public.orders
