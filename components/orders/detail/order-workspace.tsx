@@ -143,7 +143,6 @@ export function OrderWorkspace() {
       }
     }
 
-    setLoading(true);
     void loadOrder();
     void loadContext();
   }, [params.id, reloadToken]);
@@ -769,7 +768,11 @@ export function OrderWorkspace() {
         <AppNav />
         <ErrorState
           title={error ?? "Pedido no encontrado"}
-          onRetry={() => setReloadToken((current) => current + 1)}
+          onRetry={() => {
+            setError(null);
+            setLoading(true);
+            setReloadToken((current) => current + 1);
+          }}
         />
       </AppShell>
     );
