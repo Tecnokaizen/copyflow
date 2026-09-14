@@ -20,6 +20,7 @@ export async function GET() {
     entryChannelsResult,
     orderContextsResult,
     teamMembersResult,
+    storesResult,
   ] = await Promise.all([
     supabase
       .from("services")
@@ -45,13 +46,20 @@ export async function GET() {
       .eq("tenant_id", tenantId)
       .eq("active", true)
       .order("name", { ascending: true }),
+    supabase
+      .from("stores")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .eq("active", true)
+      .order("name", { ascending: true }),
   ]);
 
   const firstError =
     servicesResult.error ??
     entryChannelsResult.error ??
     orderContextsResult.error ??
-    teamMembersResult.error;
+    teamMembersResult.error ??
+    storesResult.error;
 
   if (firstError) {
     console.error("[GET /api/orders/options] Could not load order options", {
@@ -71,5 +79,6 @@ export async function GET() {
     entry_channels: entryChannelsResult.data ?? [],
     order_contexts: orderContextsResult.data ?? [],
     team_members: teamMembersResult.data ?? [],
+    stores: storesResult.data ?? [],
   });
 }

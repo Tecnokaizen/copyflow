@@ -26,6 +26,7 @@ function order(overrides: Partial<MineOrder> = {}): MineOrder {
     assigned_team_member_id: MEMBER_A,
     client_name: "Cliente",
     service_name: "Copias",
+    store_name: null,
     status: {
       name: "En producción",
       code: "in_progress",
@@ -243,6 +244,7 @@ describe("mapMineOrderRow", () => {
       assigned_team_member_id: MEMBER_A,
       client: { name: "Acme" },
       service: { name: "Plotter" },
+      store: { name: "Sur 4 Colores 1" },
       status: {
         name: "En curso",
         code: "in_progress",
@@ -254,6 +256,18 @@ describe("mapMineOrderRow", () => {
 
     assert.equal(mapped?.client_name, "Acme");
     assert.equal(mapped?.service_name, "Plotter");
+    assert.equal(mapped?.store_name, "Sur 4 Colores 1");
     assert.equal(mapped?.assigned_team_member_id, MEMBER_A);
+  });
+
+  it("keeps store_name empty when the order has no store", () => {
+    const mapped = mapMineOrderRow({
+      id: "order-2",
+      reference: "PED-2",
+      title: "Folletos",
+      assigned_team_member_id: MEMBER_A,
+    });
+
+    assert.equal(mapped?.store_name, null);
   });
 });

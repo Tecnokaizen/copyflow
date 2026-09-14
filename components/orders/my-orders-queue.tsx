@@ -172,6 +172,9 @@ function MineOrderCard({
         {order.client_name || "Sin cliente"}
         {order.service_name ? ` · ${order.service_name}` : ""}
       </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {order.store_name || "Sin tienda"}
+      </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <StatusBadge status={order.status}>{order.status?.name}</StatusBadge>
         <span className="text-muted-foreground">

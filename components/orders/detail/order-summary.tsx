@@ -51,6 +51,12 @@ export function OrderSummary({
           (item) => item.id === draft.order_context_id
         )?.name ?? null
       : order.order_context?.name;
+  const storeName =
+    editing && draft
+      ? orderOptions?.stores.find((item) => item.id === draft.store_id)
+          ?.name ??
+        (draft.store_id ? order.store?.name ?? "—" : null)
+      : order.store?.name;
   const assigneeName =
     editing && draft
       ? orderOptions?.team_members.find(
@@ -119,6 +125,22 @@ export function OrderSummary({
               ))}
             </DraftSelect>
           </FactRow>
+          <FactRow label="Tienda">
+            <DraftSelect
+              value={draft.store_id ?? ""}
+              disabled={orderOptionsLoading}
+              onChange={(value) =>
+                onDraftChange({ store_id: value || null })
+              }
+            >
+              <option value="">— Sin tienda —</option>
+              {orderOptions?.stores.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </DraftSelect>
+          </FactRow>
         </>
       ) : (
         <>
@@ -151,6 +173,9 @@ export function OrderSummary({
           ) : null}
           <FactRow label="Canal">
             <FactValue value={channelName} />
+          </FactRow>
+          <FactRow label="Tienda">
+            <FactValue value={storeName} empty="Sin tienda" />
           </FactRow>
           <FactRow label="Servicio">
             <FactValue value={serviceName} />

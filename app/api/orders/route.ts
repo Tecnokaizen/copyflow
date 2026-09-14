@@ -6,6 +6,13 @@ import {
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
+import { parseOptionalStoreId } from "@/lib/stores/payload";
+import {
+  evaluateStoreAssignment,
+  parseStoreListFilter,
+  type StoreListFilter,
+} from "@/lib/stores/scope";
+import { mapStoreLookup } from "@/lib/stores/types";
 import { getZonedDayBounds, resolveTimeZone, getZonedWeekBoundsFromMonday, getZonedWeekMondayCivil, parseCivilDate } from "@/lib/time/zoned-day";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -124,6 +131,7 @@ const ORDER_SELECT = `
   entry_channel:entry_channels(*),
   assigned_team_member:team_members(*),
   order_context:order_contexts(*),
+  store:stores(*),
   file_status:file_statuses(*),
   quote_status:quote_statuses(*),
   payment_status:payment_statuses(*),
@@ -177,6 +185,39 @@ async function belongsToTenant(
   return !error && Boolean(data);
 }
 
+function applyStoreListFilter<T>(
+  query: T,
+  filter: StoreListFilter | undefined
+): T {
+  if (!filter || filter.kind === "all" || filter.kind === "invalid") {
+    return query;
+  }
+
+  const builder = query as T & {
+    eq: (column: string, value: string) => T;
+    is: (column: string, value: null) => T;
+  };
+
+  if (filter.kind === "none") {
+    return builder.is("store_id", null);
+  }
+
+  return builder.eq("store_id", filter.id);
+}
+
+async function resolveStoreLookup(
+  supabase: SupabaseClient,
+  storeId: string
+) {
+  const { data } = await supabase
+    .from("stores")
+    .select("id, tenant_id, active")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  return mapStoreLookup(data);
+}
+
 function parseTimestamp(
   raw: string | null
 ): { ok: true; value: string | null } | { ok: false } {
@@ -209,6 +250,7 @@ async function fetchOrdersByDueAtRange(
   options?: {
     filter?: CalendarRangeFilter | null;
     assignedTeamMemberId?: string | null;
+    storeFilter?: StoreListFilter;
   }
 ) {
   const orders = [];
@@ -246,6 +288,8 @@ async function fetchOrdersByDueAtRange(
       );
     }
 
+    query = applyStoreListFilter(query, options?.storeFilter);
+
     const { data, error, count } = await query
       .order("due_at", { ascending: true })
       .order("id", { ascending: true })
@@ -282,20 +326,24 @@ async function fetchOrdersByDueAtRange(
 
 async function fetchActiveOrders(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  tenantId: string
+  tenantId: string,
+  storeFilter?: StoreListFilter
 ) {
   const orders = [];
   let total: number | null = null;
   let offset = 0;
 
   while (true) {
-    const { data, error, count } = await supabase
-      .from("orders")
-      .select(ORDER_SELECT_ACTIVE, { count: "exact" })
-      .eq("tenant_id", tenantId)
-      .is("archived_at", null)
-      .eq("status.is_closed", false)
-      .eq("status.is_cancelled", false)
+    const { data, error, count } = await applyStoreListFilter(
+      supabase
+        .from("orders")
+        .select(ORDER_SELECT_ACTIVE, { count: "exact" })
+        .eq("tenant_id", tenantId)
+        .is("archived_at", null)
+        .eq("status.is_closed", false)
+        .eq("status.is_cancelled", false),
+      storeFilter
+    )
       .order("service_id", { ascending: true, nullsFirst: false })
       .order("due_at", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true })
@@ -419,6 +467,7 @@ export async function GET(request: NextRequest) {
   const assignedTeamMemberId = assignedTeamMemberIdRaw?.trim() || null;
   const statusIdRaw = searchParams.get("status_id");
   const statusId = statusIdRaw?.trim() || null;
+  const storeFilter = parseStoreListFilter(searchParams.get("store_id"));
   const rawSort = searchParams.get("sort");
   const rawDir = searchParams.get("dir");
   const sortField = parseSortField(rawSort);
@@ -433,6 +482,10 @@ export async function GET(request: NextRequest) {
   }
 
   if (statusId && !isUuid(statusId)) {
+    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+  }
+
+  if (storeFilter.kind === "invalid") {
     return NextResponse.json({ error: "Invalid value" }, { status: 400 });
   }
 
@@ -521,6 +574,23 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  if (storeFilter.kind === "id") {
+    const store = await resolveStoreLookup(supabase, storeFilter.id);
+    const assigned = evaluateStoreAssignment({
+      sessionTenantId: context.tenant.id,
+      storeId: storeFilter.id,
+      store,
+      requireActive: false,
+    });
+
+    if (!assigned.ok) {
+      return NextResponse.json(
+        { error: "Invalid related record for current tenant" },
+        { status: 400 }
+      );
+    }
+  }
+
   if (dateFiltered) {
     if (rawFilter && rawFilter !== "active" && rawFilter !== "all") {
       return NextResponse.json({ error: "Invalid value" }, { status: 400 });
@@ -553,6 +623,7 @@ export async function GET(request: NextRequest) {
       {
         filter: calendarFilter,
         assignedTeamMemberId,
+        storeFilter,
       }
     );
 
@@ -588,7 +659,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (activeOnly) {
-    const result = await fetchActiveOrders(supabase, context.tenant.id);
+    const result = await fetchActiveOrders(
+      supabase,
+      context.tenant.id,
+      storeFilter
+    );
 
     if (result.error) {
       console.error("[GET /api/orders] Could not load orders", {
@@ -662,6 +737,8 @@ export async function GET(request: NextRequest) {
   if (statusId) {
     query = query.eq("status_id", statusId);
   }
+
+  query = applyStoreListFilter(query, storeFilter);
 
   const {
     data: orders,
@@ -776,8 +853,16 @@ export async function POST(request: NextRequest) {
   const entryChannelId = emptyToNull(payload.entry_channel_id);
   const orderContextId = emptyToNull(payload.order_context_id);
   const assignedTeamMemberId = emptyToNull(payload.assigned_team_member_id);
+  const storeIdResult = parseOptionalStoreId(payload.store_id);
   const description = emptyToNull(payload.description);
   const notes = emptyToNull(payload.notes);
+
+  if (!storeIdResult.ok) {
+    return NextResponse.json(
+      { error: "Invalid related record for current tenant" },
+      { status: 400 }
+    );
+  }
 
   const supabase = await createClient();
   const tenantId = context.tenant.id;
@@ -803,6 +888,23 @@ export async function POST(request: NextRequest) {
     );
 
     if (!ok) {
+      return NextResponse.json(
+        { error: "Invalid related record for current tenant" },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (storeIdResult.storeId) {
+    const store = await resolveStoreLookup(supabase, storeIdResult.storeId);
+    const assigned = evaluateStoreAssignment({
+      sessionTenantId: tenantId,
+      storeId: storeIdResult.storeId,
+      store,
+      requireActive: true,
+    });
+
+    if (!assigned.ok) {
       return NextResponse.json(
         { error: "Invalid related record for current tenant" },
         { status: 400 }
@@ -841,6 +943,7 @@ export async function POST(request: NextRequest) {
       status_id: initialStatuses[0].id,
       entry_channel_id: entryChannelId,
       order_context_id: orderContextId,
+      store_id: storeIdResult.storeId,
       priority,
       due_at: dueAtResult.dueAt,
       notes,

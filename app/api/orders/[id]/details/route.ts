@@ -8,6 +8,7 @@ const DETAIL_FIELDS = [
   "entry_channel_id",
   "assigned_team_member_id",
   "order_context_id",
+  "store_id",
   "due_at",
 ] as const;
 
