@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
@@ -58,6 +58,11 @@ function normalizeLoadedOrder(order: Order): Order {
 
 export function OrderWorkspace() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [showCreated] = useState(
+    () => searchParams.get("created") === "1"
+  );
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +151,11 @@ export function OrderWorkspace() {
     void loadOrder();
     void loadContext();
   }, [params.id, reloadToken]);
+
+  useEffect(() => {
+    if (!showCreated) return;
+    router.replace(`/orders/${params.id}`);
+  }, [showCreated, params.id, router]);
 
   useEffect(() => {
     async function loadStatuses() {
@@ -862,9 +872,9 @@ export function OrderWorkspace() {
           </div>
         ) : null}
 
-        {saveMessage ? (
+        {showCreated || saveMessage ? (
           <div className="mb-4 rounded-[var(--radius)] border border-border bg-secondary/40 px-4 py-3 text-sm text-foreground">
-            {saveMessage}
+            {saveMessage ?? "Pedido creado. Ya puedes completar el resto en la ficha."}
           </div>
         ) : null}
 

@@ -2,64 +2,44 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ClientSelector } from "@/components/clients/client-selector";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
+import { ClientSelector } from "@/components/clients/client-selector";
+import { ErrorState } from "@/components/gestcopy/error-state";
+import { LoadingState } from "@/components/gestcopy/loading-state";
+import { SectionCard } from "@/components/gestcopy/section-card";
+import {
+  DraftInput,
+  DraftSelect,
+  DraftTextarea,
+} from "@/components/orders/detail/order-field";
 import {
   EMPTY_CLIENT_FORM,
+  formatCreateDuplicateMessage,
+  mapClientSummary,
   parseClientDuplicate,
-  summaryFromForm,
   toClientPayload,
   type ClientDuplicate,
   type ClientFormData,
   type ClientSummary,
 } from "@/lib/clients/types";
-
-type OptionItem = {
-  id: string;
-  name: string;
-  code?: string;
-};
-
-type OrderOptionsResponse = {
-  services: OptionItem[];
-  entry_channels: OptionItem[];
-  order_contexts: OptionItem[];
-  team_members: OptionItem[];
-};
+import {
+  deriveOrderTitle,
+  userFacingCreateOrderError,
+} from "@/lib/orders/create";
+import { fromDateTimeLocalValue } from "@/lib/orders/format";
+import type { OrderOptionsResponse } from "@/lib/orders/types";
 
 type CreateOrderFormProps = {
   onCancel: () => void;
 };
-
-const selectClassName =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
-
-const textareaClassName =
-  "flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
-
-function datetimeLocalToIso(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toISOString();
-}
 
 export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
   const router = useRouter();
   const [options, setOptions] = useState<OrderOptionsResponse | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsReload, setOptionsReload] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,11 +47,15 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(
     null
   );
-  const [pendingNewClient, setPendingNewClient] =
-    useState<ClientFormData | null>(null);
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [clientFormInitial, setClientFormInitial] =
     useState<ClientFormData>(EMPTY_CLIENT_FORM);
+  const [savingClient, setSavingClient] = useState(false);
+  const [clientActionError, setClientActionError] = useState<string | null>(
+    null
+  );
+  const [clientDuplicate, setClientDuplicate] =
+    useState<ClientDuplicate | null>(null);
 
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
@@ -91,16 +75,21 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error ?? "No se pudieron cargar las opciones");
+          throw new Error(
+            result.error ?? "No se pudieron cargar las opciones"
+          );
         }
 
         setOptions({
+          tenant: result.tenant,
           services: result.services ?? [],
           entry_channels: result.entry_channels ?? [],
           order_contexts: result.order_contexts ?? [],
           team_members: result.team_members ?? [],
         });
+        setOptionsError(null);
       } catch (err) {
+        setOptions(null);
         setOptionsError(
           err instanceof Error
             ? err.message
@@ -111,107 +100,97 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
       }
     }
 
-    loadOptions();
-  }, []);
+    void loadOptions();
+  }, [optionsReload]);
+
+  const serviceName =
+    options?.services.find((item) => item.id === serviceId)?.name ?? null;
+  const derivedTitle = deriveOrderTitle({
+    title,
+    description,
+    serviceName,
+  });
 
   function openCreateClient(query: string) {
     setClientFormInitial({
       ...EMPTY_CLIENT_FORM,
       name: query,
     });
+    setClientActionError(null);
+    setClientDuplicate(null);
     setClientModalOpen(true);
   }
 
-  function keepPendingClient(form: ClientFormData) {
-    setPendingNewClient(form);
-    setSelectedClient(summaryFromForm(form, null));
+  function closeClientModal() {
+    if (savingClient) return;
     setClientModalOpen(false);
+    setClientActionError(null);
+    setClientDuplicate(null);
   }
 
-  async function createOrder(clientId: string | null) {
-    const trimmedTitle = title.trim();
-    let dueAtIso: string | null = null;
-    if (dueAt.trim()) {
-      dueAtIso = datetimeLocalToIso(dueAt);
-      if (!dueAtIso) {
-        throw new Error("La fecha prevista no es válida");
-      }
-    }
-
-    const response = await fetch("/api/orders", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        title: trimmedTitle,
-        client_id: clientId,
-        service_id: serviceId || null,
-        description: description.trim() || null,
-        due_at: dueAtIso,
-        entry_channel_id: entryChannelId || null,
-        order_context_id: orderContextId || null,
-        priority,
-        assigned_team_member_id: assignedTeamMemberId || null,
-        notes: notes.trim() || null,
-      }),
-    });
-
+  async function selectClientById(clientId: string) {
+    const response = await fetch(`/api/clients/${clientId}`);
     const result = await response.json();
+    const summary = mapClientSummary(result.client);
 
-    if (!response.ok) {
-      throw new Error(result.error ?? "No se pudo crear el pedido");
+    if (!response.ok || !summary) {
+      throw new Error("No se pudo cargar el cliente");
     }
 
-    if (!result.order?.id) {
-      throw new Error("No se pudo crear el pedido");
-    }
-
-    return result.order.id as string;
+    setSelectedClient(summary);
+    setClientModalOpen(false);
+    setClientActionError(null);
+    setClientDuplicate(null);
   }
 
-  async function assignExistingClient(orderId: string, clientId: string) {
-    const response = await fetch(`/api/orders/${orderId}/client`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ client_id: clientId }),
-    });
+  async function saveNewClient(form: ClientFormData) {
+    if (savingClient) return;
 
-    if (!response.ok) {
-      return false;
-    }
+    setSavingClient(true);
+    setClientActionError(null);
+    setClientDuplicate(null);
 
-    return true;
-  }
+    try {
+      const response = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toClientPayload(form)),
+      });
+      const result = await response.json();
 
-  async function createAndAssignClient(
-    orderId: string,
-    form: ClientFormData
-  ): Promise<{ ok: true } | { duplicate: ClientDuplicate } | { failed: true }> {
-    const response = await fetch(`/api/orders/${orderId}/client`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(toClientPayload(form)),
-    });
-
-    const result = await response.json();
-
-    if (response.status === 409 && result.code === "client_duplicate") {
-      const duplicate = parseClientDuplicate(result.duplicate);
-      if (duplicate) {
-        return { duplicate };
+      if (response.status === 409 && result.code === "client_duplicate") {
+        const duplicate = parseClientDuplicate(result.duplicate);
+        setClientDuplicate(duplicate);
+        setClientActionError(
+          duplicate
+            ? formatCreateDuplicateMessage(duplicate)
+            : "Ya existe un cliente con estos datos."
+        );
+        return;
       }
-    }
 
-    if (!response.ok) {
-      return { failed: true };
-    }
+      if (!response.ok) {
+        throw new Error(
+          userFacingCreateOrderError(
+            result.error ?? "Could not create client"
+          )
+        );
+      }
 
-    return { ok: true };
+      const summary = mapClientSummary(result.client);
+      if (!summary) {
+        throw new Error("No se pudo crear el cliente");
+      }
+
+      setSelectedClient(summary);
+      setClientModalOpen(false);
+    } catch (err) {
+      setClientActionError(
+        err instanceof Error ? err.message : "No se pudo crear el cliente"
+      );
+    } finally {
+      setSavingClient(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -221,13 +200,8 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
       return;
     }
 
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      setError("El nombre del pedido es obligatorio");
-      return;
-    }
-
-    if (dueAt.trim() && !datetimeLocalToIso(dueAt)) {
+    const dueAtIso = dueAt.trim() ? fromDateTimeLocalValue(dueAt) : null;
+    if (dueAt.trim() && !dueAtIso) {
       setError("La fecha prevista no es válida");
       return;
     }
@@ -241,78 +215,86 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
           ? selectedClient.id
           : null;
 
-      const orderId = await createOrder(existingClientId);
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: derivedTitle,
+          client_id: existingClientId,
+          service_id: serviceId || null,
+          description: description.trim() || null,
+          due_at: dueAtIso,
+          entry_channel_id: entryChannelId || null,
+          order_context_id: orderContextId || null,
+          priority,
+          assigned_team_member_id: assignedTeamMemberId || null,
+          notes: notes.trim() || null,
+        }),
+      });
 
-      if (pendingNewClient && !existingClientId) {
-        const created = await createAndAssignClient(orderId, pendingNewClient);
+      const result = await response.json();
 
-        if ("duplicate" in created) {
-          await assignExistingClient(orderId, created.duplicate.client_id);
-        }
+      if (!response.ok) {
+        throw new Error(
+          userFacingCreateOrderError(result.error ?? "Could not create order")
+        );
       }
 
-      router.push(`/orders/${orderId}`);
+      if (!result.order?.id) {
+        throw new Error("No se pudo crear el pedido");
+      }
+
+      router.push(`/orders/${result.order.id}?created=1`);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Error al crear el pedido"
+        err instanceof Error ? err.message : "No se pudo crear el pedido"
       );
       setSubmitting(false);
     }
   }
 
   return (
-    <section className="mb-6 rounded-lg border bg-card p-6">
-      <h2 className="mb-4 text-lg font-semibold">Nuevo pedido</h2>
-
+    <SectionCard
+      title="Nuevo pedido"
+      description="Datos mínimos para registrar el trabajo. El resto se puede completar en la ficha."
+      className="mb-6"
+      bodyClassName="px-5 py-5 sm:px-6"
+    >
       {optionsLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando opciones...</p>
+        <LoadingState label="Cargando opciones…" className="px-0 py-8" />
       ) : optionsError ? (
-        <div className="grid gap-4">
-          <p className="text-sm text-red-600">{optionsError}</p>
-          <div>
-            <Button type="button" variant="outline" onClick={onCancel}>
-              Cancelar
-            </Button>
-          </div>
-        </div>
+        <ErrorState
+          title={userFacingCreateOrderError(optionsError)}
+          className="px-0 py-6"
+          onRetry={() => {
+            setOptionsError(null);
+            setOptionsLoading(true);
+            setOptionsReload((current) => current + 1);
+          }}
+        />
       ) : (
-        <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
-          <div className="grid gap-2 md:col-span-2">
-            <Label htmlFor="order-title">Nombre del pedido</Label>
-            <Input
-              id="order-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              disabled={submitting}
-            />
-          </div>
-
-          <div className="grid gap-2 md:col-span-2">
-            <Label>Cliente</Label>
+        <form onSubmit={handleSubmit} className="grid gap-5">
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Cliente
             <ClientSelector
               value={selectedClient}
               disabled={submitting}
               allowNoClient
-              onChange={(client) => {
-                setSelectedClient(client);
-                setPendingNewClient(null);
-              }}
+              onChange={setSelectedClient}
               onCreateNew={openCreateClient}
             />
-            <p className="text-xs text-muted-foreground">
-              Puedes registrar el pedido sin cliente y asignarlo después.
-            </p>
-          </div>
+            <span className="text-xs font-normal text-muted-foreground">
+              Busca por nombre, empresa o teléfono, o créalo sin salir.
+            </span>
+          </label>
 
-          <div className="grid gap-2">
-            <Label htmlFor="order-service">Servicio</Label>
-            <select
-              id="order-service"
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Servicio
+            <DraftSelect
               value={serviceId}
-              onChange={(event) => setServiceId(event.target.value)}
               disabled={submitting}
-              className={selectClassName}
+              className="max-w-none text-base"
+              onChange={setServiceId}
             >
               <option value="">Sin servicio</option>
               {options?.services.map((service) => (
@@ -320,92 +302,38 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
                   {service.name}
                 </option>
               ))}
-            </select>
-          </div>
+            </DraftSelect>
+          </label>
 
-          <div className="grid gap-2 md:col-span-2">
-            <Label htmlFor="order-description">Descripción</Label>
-            <textarea
-              id="order-description"
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Instrucciones
+            <DraftTextarea
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
               disabled={submitting}
-              className={textareaClassName}
+              rows={5}
+              className="min-h-32 text-base"
+              onChange={setDescription}
             />
-          </div>
+          </label>
 
-          <div className="grid gap-2">
-            <Label htmlFor="order-due-at">Fecha prevista</Label>
-            <Input
-              id="order-due-at"
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Entrega prevista
+            <DraftInput
               type="datetime-local"
               value={dueAt}
-              onChange={(event) => setDueAt(event.target.value)}
               disabled={submitting}
+              className="max-w-none text-base"
+              onChange={setDueAt}
             />
-          </div>
+          </label>
 
-          <div className="grid gap-2">
-            <Label htmlFor="order-channel">Canal de entrada</Label>
-            <select
-              id="order-channel"
-              value={entryChannelId}
-              onChange={(event) => setEntryChannelId(event.target.value)}
-              disabled={submitting}
-              className={selectClassName}
-            >
-              <option value="">Sin canal</option>
-              {options?.entry_channels.map((channel) => (
-                <option key={channel.id} value={channel.id}>
-                  {channel.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="order-context">Contexto</Label>
-            <select
-              id="order-context"
-              value={orderContextId}
-              onChange={(event) => setOrderContextId(event.target.value)}
-              disabled={submitting}
-              className={selectClassName}
-            >
-              <option value="">Sin contexto</option>
-              {options?.order_contexts.map((context) => (
-                <option key={context.id} value={context.id}>
-                  {context.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="order-priority">Prioridad</Label>
-            <select
-              id="order-priority"
-              value={priority}
-              onChange={(event) =>
-                setPriority(event.target.value as "normal" | "high" | "urgent")
-              }
-              disabled={submitting}
-              className={selectClassName}
-            >
-              <option value="normal">Normal</option>
-              <option value="high">Alta</option>
-              <option value="urgent">Urgente</option>
-            </select>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="order-assignee">Responsable</Label>
-            <select
-              id="order-assignee"
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Responsable
+            <DraftSelect
               value={assignedTeamMemberId}
-              onChange={(event) => setAssignedTeamMemberId(event.target.value)}
               disabled={submitting}
-              className={selectClassName}
+              className="max-w-none text-base"
+              onChange={setAssignedTeamMemberId}
             >
               <option value="">Sin asignar</option>
               {options?.team_members.map((member) => (
@@ -413,52 +341,145 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
                   {member.name}
                 </option>
               ))}
-            </select>
-          </div>
+            </DraftSelect>
+          </label>
 
-          <div className="grid gap-2 md:col-span-2">
-            <Label htmlFor="order-notes">Observaciones</Label>
-            <textarea
-              id="order-notes"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Prioridad
+            <DraftSelect
+              value={priority}
               disabled={submitting}
-              className={textareaClassName}
-            />
-          </div>
+              className="max-w-none text-base"
+              onChange={(value) =>
+                setPriority(value as "normal" | "high" | "urgent")
+              }
+            >
+              <option value="normal">Normal</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </DraftSelect>
+          </label>
 
-          {error && (
-            <p className="text-sm text-red-600 md:col-span-2">{error}</p>
-          )}
+          {(options?.entry_channels.length ?? 0) > 0 ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Canal de entrada
+              <DraftSelect
+                value={entryChannelId}
+                disabled={submitting}
+                className="max-w-none text-base"
+                onChange={setEntryChannelId}
+              >
+                <option value="">Sin canal</option>
+                {options?.entry_channels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.name}
+                  </option>
+                ))}
+              </DraftSelect>
+            </label>
+          ) : null}
 
-          <div className="flex flex-wrap gap-3 md:col-span-2">
-            <Button type="submit" disabled={submitting}>
-              {submitting ? "Creando..." : "Crear pedido"}
-            </Button>
-            <Button
+          <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
+            <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+              Más opciones
+            </summary>
+            <div className="mt-4 grid gap-5">
+              <label className="grid gap-2 text-sm font-medium text-foreground">
+                Nombre del pedido
+                <DraftInput
+                  value={title}
+                  disabled={submitting}
+                  className="max-w-none text-base"
+                  onChange={setTitle}
+                />
+                <span className="text-xs font-normal text-muted-foreground">
+                  {title.trim()
+                    ? "Este nombre es el que verás en la ficha y en la lista."
+                    : `Si lo dejas vacío se usará «${derivedTitle}».`}
+                </span>
+              </label>
+
+              {(options?.order_contexts.length ?? 0) > 0 ? (
+                <label className="grid gap-2 text-sm font-medium text-foreground">
+                  Contexto
+                  <DraftSelect
+                    value={orderContextId}
+                    disabled={submitting}
+                    className="max-w-none text-base"
+                    onChange={setOrderContextId}
+                  >
+                    <option value="">Sin contexto</option>
+                    {options?.order_contexts.map((context) => (
+                      <option key={context.id} value={context.id}>
+                        {context.name}
+                      </option>
+                    ))}
+                  </DraftSelect>
+                </label>
+              ) : null}
+
+              <label className="grid gap-2 text-sm font-medium text-foreground">
+                Notas internas
+                <DraftTextarea
+                  value={notes}
+                  disabled={submitting}
+                  rows={3}
+                  className="text-base"
+                  onChange={setNotes}
+                />
+              </label>
+            </div>
+          </details>
+
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
+            >
+              {submitting ? "Creando…" : "Crear pedido"}
+            </button>
+            <button
               type="button"
-              variant="outline"
               onClick={onCancel}
               disabled={submitting}
+              className="gc-action min-h-11 w-full sm:w-auto"
             >
               Cancelar
-            </Button>
+            </button>
           </div>
         </form>
       )}
 
-      {clientModalOpen && (
+      {clientModalOpen ? (
         <ClientModal>
           <ClientForm
             title="Crear cliente"
             initialValues={clientFormInitial}
-            onCancel={() => {
-              setClientModalOpen(false);
+            submitting={savingClient}
+            error={clientActionError}
+            duplicate={clientDuplicate}
+            submitLabel="Crear cliente"
+            onCancel={closeClientModal}
+            onSubmit={saveNewClient}
+            onUseDuplicate={(clientId) => {
+              void selectClientById(clientId).catch((err: unknown) => {
+                setClientActionError(
+                  err instanceof Error
+                    ? err.message
+                    : "No se pudo usar el cliente existente"
+                );
+              });
             }}
-            onSubmit={keepPendingClient}
           />
         </ClientModal>
-      )}
-    </section>
+      ) : null}
+    </SectionCard>
   );
 }
