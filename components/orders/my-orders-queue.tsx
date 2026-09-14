@@ -7,6 +7,8 @@ import { formatPriority } from "@/lib/orders/format";
 import type { MineOrder, MineQueueSection } from "@/lib/orders/mine";
 import {
   UNLINKED_MINE_ASSIGN_CTA_LABEL,
+  UNLINKED_MINE_DESCRIPTION,
+  UNLINKED_MINE_TITLE,
   type UnlinkedMineOrdersCopy,
 } from "@/lib/orders/mine-unlinked-copy";
 import {
@@ -94,14 +96,8 @@ export function MyOrdersQueue({
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
         <EmptyState
-          title={
-            unlinkedCopy?.title ??
-            "No tienes un miembro del equipo asociado"
-          }
-          description={
-            unlinkedCopy?.description ??
-            "Puedes usar Gestcopy con normalidad. Solo necesitas asociarte a un miembro del equipo para utilizar Mis pedidos."
-          }
+          title={unlinkedCopy?.title ?? UNLINKED_MINE_TITLE}
+          description={unlinkedCopy?.description ?? UNLINKED_MINE_DESCRIPTION}
           action={
             unlinkedCopy?.assignCtaHref ? (
               <Link

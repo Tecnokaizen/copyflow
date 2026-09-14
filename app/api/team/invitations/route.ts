@@ -53,6 +53,8 @@ export async function POST(request: NextRequest) {
     p_tenant_id: context.tenant.id,
     p_email: parsed.email,
     p_role: parsed.role,
+    p_name: parsed.name,
+    p_add_to_personal: parsed.add_to_personal,
   });
 
   if (error || !data) {

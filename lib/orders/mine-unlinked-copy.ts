@@ -1,12 +1,12 @@
 export const MINE_ORDERS_PAGE_DESCRIPTION =
   "Aquí verás los pedidos que tengas asignados.";
 
-export const UNLINKED_MINE_TITLE = "No tienes un miembro del equipo asociado";
+export const UNLINKED_MINE_TITLE = "No tienes una ficha de Personal asociada";
 
 export const UNLINKED_MINE_DESCRIPTION =
-  "Puedes usar Gestcopy con normalidad. Solo necesitas asociarte a un miembro del equipo para utilizar Mis pedidos.";
+  "Puedes usar Gestcopy con normalidad. Solo necesitas una ficha de Personal vinculada para utilizar Mis pedidos.";
 
-export const UNLINKED_MINE_ASSIGN_CTA_LABEL = "Asociar trabajador";
+export const UNLINKED_MINE_ASSIGN_CTA_LABEL = "Vincular con Personal";
 export const UNLINKED_MINE_ASSIGN_CTA_ACCESS_HREF = "/team/access";
 export const UNLINKED_MINE_ASSIGN_CTA_TEAM_HREF = "/team";
 

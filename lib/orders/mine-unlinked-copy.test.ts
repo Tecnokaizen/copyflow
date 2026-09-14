@@ -29,13 +29,13 @@ describe("Mis pedidos depends only on the associated team member", () => {
     });
     assert.equal(
       UNLINKED_MINE_TITLE,
-      "No tienes un miembro del equipo asociado"
+      "No tienes una ficha de Personal asociada"
     );
     assert.equal(
       UNLINKED_MINE_DESCRIPTION,
-      "Puedes usar Gestcopy con normalidad. Solo necesitas asociarte a un miembro del equipo para utilizar Mis pedidos."
+      "Puedes usar Gestcopy con normalidad. Solo necesitas una ficha de Personal vinculada para utilizar Mis pedidos."
     );
-    assert.equal(UNLINKED_MINE_ASSIGN_CTA_LABEL, "Asociar trabajador");
+    assert.equal(UNLINKED_MINE_ASSIGN_CTA_LABEL, "Vincular con Personal");
     assert.equal(accessCopy.title, UNLINKED_MINE_TITLE);
     assert.equal(accessCopy.description, UNLINKED_MINE_DESCRIPTION);
     assert.equal(accessCopy.assignCtaHref, "/team/access");

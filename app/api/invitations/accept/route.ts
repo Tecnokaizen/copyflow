@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     tenant: mapped.tenant,
     membership: mapped.membership,
+    team_member_id: mapped.team_member_id ?? null,
     tenant_origin: tenantOrigin(mapped.tenant.slug),
   });
 }

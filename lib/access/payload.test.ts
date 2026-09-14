@@ -23,6 +23,8 @@ describe("invitation create payload", () => {
       ok: true,
       email: "jesus@sur4.es",
       role: "staff",
+      name: null,
+      add_to_personal: true,
     });
   });
 
@@ -35,6 +37,8 @@ describe("invitation create payload", () => {
       ok: true,
       email: "admin@sur4.es",
       role: "admin",
+      name: null,
+      add_to_personal: true,
     });
   });
 
@@ -47,6 +51,8 @@ describe("invitation create payload", () => {
       ok: true,
       email: "encargado@sur4.es",
       role: "manager",
+      name: null,
+      add_to_personal: true,
     });
   });
 
@@ -59,6 +65,8 @@ describe("invitation create payload", () => {
       ok: true,
       email: "lectura@sur4.es",
       role: "viewer",
+      name: null,
+      add_to_personal: true,
     });
   });
 
@@ -88,7 +96,7 @@ describe("invitation create payload", () => {
     );
   });
 
-  it("sends only email and role, not a team member", () => {
+  it("rejects linking a team_member_id on invite and defaults add_to_personal", () => {
     const parsed = parseInvitationCreatePayload({
       email: "jesus@sur4.es",
       role: "staff",
@@ -103,7 +111,8 @@ describe("invitation create payload", () => {
     assert.equal(ok.ok, true);
     if (!ok.ok) return;
     assert.equal("team_member_id" in ok, false);
-    assert.equal("name" in ok, false);
+    assert.equal(ok.name, null);
+    assert.equal(ok.add_to_personal, true);
   });
 });
 
@@ -123,14 +132,26 @@ describe("invitation UI default role", () => {
 });
 
 describe("accept invitation keeps the chosen access role", () => {
-  it("maps the accepted membership role without a team member", () => {
+  it("maps team_member_id when accept created a Personal card", () => {
     const mapped = mapAcceptInvitationResult({
       tenant: { id: "t1", name: "SUR4", slug: "sur4" },
-      membership: { role: "manager", active: true },
+      membership: { role: "staff", active: true },
+      team_member_id: "11111111-1111-4111-8111-111111111111",
     });
-    assert.equal(mapped?.membership.role, "manager");
-    assert.equal(mapped?.membership.active, true);
-    assert.equal("team_member" in (mapped?.membership ?? {}), false);
+    assert.equal(mapped?.membership.role, "staff");
+    assert.equal(
+      mapped?.team_member_id,
+      "11111111-1111-4111-8111-111111111111"
+    );
+  });
+
+  it("maps a missing team_member_id when the invite was access-only", () => {
+    const mapped = mapAcceptInvitationResult({
+      tenant: { id: "t1", name: "SUR4", slug: "sur4" },
+      membership: { role: "viewer", active: true },
+    });
+    assert.equal(mapped?.membership.role, "viewer");
+    assert.equal(mapped?.team_member_id ?? null, null);
   });
 
   it("preserves Personal, Administrador, Encargado and Solo lectura", () => {

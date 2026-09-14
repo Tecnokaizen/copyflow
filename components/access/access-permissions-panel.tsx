@@ -35,6 +35,12 @@ import {
   INVITE_ROLE_HELP,
 } from "@/lib/access/invite-copy";
 import {
+  DEFAULT_INVITE_ADD_TO_PERSONAL,
+  INVITE_ADD_TO_PERSONAL_HELP,
+  personalLinkActionLabel,
+  personalStatusLabel,
+} from "@/lib/access/invitation-personal";
+import {
   invitableRolesForActor,
   membershipRoleDescription,
   membershipRoleLabel,
@@ -68,6 +74,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<InvitableRole | "">("");
+  const [inviteAddToPersonal, setInviteAddToPersonal] = useState(
+    DEFAULT_INVITE_ADD_TO_PERSONAL
+  );
   const [changeRole, setChangeRole] = useState<InvitableRole | "">("");
   const [linkTeamMemberId, setLinkTeamMemberId] = useState("");
 
@@ -126,6 +135,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
     setInviteName("");
     setInviteEmail("");
     setInviteRole(preferredInvitableRole(assignableRoles));
+    setInviteAddToPersonal(DEFAULT_INVITE_ADD_TO_PERSONAL);
     setFormError(null);
     setModal({ kind: "invite" });
   }
@@ -139,8 +149,10 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name: inviteName.trim() || null,
           email: inviteEmail.trim(),
           role: inviteRole,
+          add_to_personal: inviteAddToPersonal,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -148,7 +160,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         setFormError(publicAccessUiError(response.status, payload));
         return;
       }
-      setFlash(`Invitación enviada a ${inviteEmail.trim()}`);
+      setFlash(
+        inviteAddToPersonal
+          ? `Invitación enviada a ${inviteEmail.trim()}. Al aceptar se creará también su ficha en Personal.`
+          : `Invitación enviada a ${inviteEmail.trim()}`
+      );
       setModal({ kind: "closed" });
       await load();
     } finally {
@@ -300,7 +316,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         return;
       }
       setFlash(
-        "Miembro del equipo creado y asociado a este usuario de Gestcopy."
+        "Ficha de Personal creada y vinculada a este usuario de Gestcopy."
       );
       setModal({ kind: "closed" });
       await load();
@@ -408,7 +424,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     <th>Email</th>
                     <th>Rol de acceso</th>
                     <th>Estado</th>
-                    <th>Miembro del equipo</th>
+                    <th>Personal</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -509,8 +525,10 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 <table className="gc-table">
                   <thead>
                     <tr>
+                      <th>Nombre</th>
                       <th>Email</th>
                       <th>Rol de acceso</th>
+                      <th>Personal</th>
                       <th>Enviada</th>
                       <th>Caduca</th>
                       <th>Estado</th>
@@ -522,9 +540,17 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                       const expired = isInvitationVisuallyExpired(invitation);
                       return (
                         <tr key={invitation.invitation_id}>
-                          <td className="font-medium">{invitation.email}</td>
+                          <td className="font-medium">
+                            {invitation.name || "—"}
+                          </td>
+                          <td>{invitation.email}</td>
                           <td>
                             <RoleBadge role={invitation.role} />
+                          </td>
+                          <td className="text-muted-foreground">
+                            {invitation.add_to_personal
+                              ? "También Personal"
+                              : "Solo acceso"}
                           </td>
                           <td className="text-muted-foreground">
                             {formatAccessDate(
@@ -578,9 +604,23 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                       key={invitation.invitation_id}
                       className="rounded-[var(--radius)] border border-border/70 bg-background p-5"
                     >
-                      <p className="font-medium">{invitation.email}</p>
+                      <p className="font-medium">
+                        {invitation.name || invitation.email}
+                      </p>
+                      {invitation.name ? (
+                        <p className="mt-1 text-[0.9375rem] text-muted-foreground">
+                          {invitation.email}
+                        </p>
+                      ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <RoleBadge role={invitation.role} />
+                        <StatusBadge
+                          tone={invitation.add_to_personal ? "brand" : "warning"}
+                        >
+                          {invitation.add_to_personal
+                            ? "También Personal"
+                            : "Solo acceso"}
+                        </StatusBadge>
                         <StatusBadge tone={expired ? "warning" : "brand"}>
                           {expired ? "Caducada" : "Pendiente"}
                         </StatusBadge>
@@ -671,6 +711,26 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </select>
               <p className="text-xs text-muted-foreground">{INVITE_ROLE_HELP}</p>
             </div>
+            <label className="flex items-start gap-3 rounded-[var(--radius)] border border-border/70 bg-secondary/40 px-3 py-3">
+              <input
+                id="invite-add-to-personal"
+                type="checkbox"
+                checked={inviteAddToPersonal}
+                onChange={(event) =>
+                  setInviteAddToPersonal(event.target.checked)
+                }
+                disabled={busy}
+                className="mt-1 h-4 w-4"
+              />
+              <span className="grid gap-1">
+                <span className="text-sm font-medium">
+                  Añadir también a Personal
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {INVITE_ADD_TO_PERSONAL_HELP}
+                </span>
+              </span>
+            </label>
             <RoleHelpList roles={assignableRoles} />
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
@@ -778,12 +838,12 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       {modal.kind === "link_team" ? (
         <AccessFormModal
-          title="Asociar trabajador"
+          title="Vincular con Personal"
           onClose={() => !busy && setModal({ kind: "closed" })}
         >
           <div className="space-y-4">
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Selecciona qué miembro del equipo corresponde a este usuario.
+              Selecciona qué ficha de Personal corresponde a este usuario.
             </p>
             <dl className="space-y-3 rounded-md border border-border/70 bg-muted/30 px-4 py-3.5">
               <div>
@@ -808,7 +868,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Miembro del equipo
+                  Ficha de Personal
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-foreground">
                   {formatOperativeProfile(modal.member.team_member)}
@@ -816,7 +876,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               </div>
             </dl>
             <div className="grid gap-2">
-              <Label htmlFor="link-team-member">Miembro del equipo</Label>
+              <Label htmlFor="link-team-member">Ficha de Personal</Label>
               <select
                 id="link-team-member"
                 value={linkTeamMemberId}
@@ -824,7 +884,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 disabled={busy}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="">Sin asociar</option>
+                <option value="">Sin ficha de Personal</option>
                 {teamMembersAvailableForUser(
                   teamMembers,
                   modal.member.user_id
@@ -836,8 +896,8 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                Cada usuario de Gestcopy solo puede corresponder a un miembro
-                del equipo. Quienes ya están asociados a otra persona no
+                Cada usuario de Gestcopy solo puede corresponder a una ficha de
+                Personal. Quienes ya están vinculados a otra persona no
                 aparecen.
               </p>
             </div>
@@ -850,7 +910,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
               }}
               className="gc-action"
             >
-              + Crear nuevo miembro del equipo
+              + Crear ficha de Personal
             </button>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
@@ -872,8 +932,8 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 {busy
                   ? "Guardando…"
                   : modal.member.team_member
-                    ? "Cambiar trabajador"
-                    : "Asociar trabajador"}
+                    ? "Cambiar ficha"
+                    : "Vincular con Personal"}
               </Button>
             </div>
           </div>
@@ -882,7 +942,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       {modal.kind === "create_member" ? (
         <AccessFormModal
-          title="Crear miembro del equipo"
+          title="Crear ficha de Personal"
           onClose={() => !busy && setModal({ kind: "closed" })}
         >
           <TeamMemberForm
@@ -1042,7 +1102,10 @@ function MembershipRowDesktop({
     targetRole: member.role,
     otherActiveOwners,
   });
-  const profile = formatOperativeProfile(member.team_member);
+  const personalStatus = personalStatusLabel(member.team_member);
+  const profile = member.team_member
+    ? formatOperativeProfile(member.team_member)
+    : null;
 
   return (
     <tr>
@@ -1060,21 +1123,15 @@ function MembershipRowDesktop({
         </StatusBadge>
       </td>
       <td className={member.team_member ? "font-medium" : "text-muted-foreground"}>
-        <p className="text-xs font-normal text-muted-foreground">
-          Miembro del equipo
-        </p>
-        <p className="mt-1">{profile}</p>
+        <p>{personalStatus}</p>
+        {profile ? (
+          <p className="mt-1 text-xs font-normal text-muted-foreground">
+            {profile}
+          </p>
+        ) : null}
       </td>
       <td>
         <div className="flex flex-wrap justify-end gap-2.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onLinkTeam}
-            className="gc-action"
-          >
-            {member.team_member ? "Cambiar trabajador" : "Asociar trabajador"}
-          </button>
           {manageable ? (
             <>
               <button
@@ -1110,6 +1167,14 @@ function MembershipRowDesktop({
               {lastOwnerMessage}
             </p>
           ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onLinkTeam}
+            className="gc-action"
+          >
+            {personalLinkActionLabel(Boolean(member.team_member))}
+          </button>
         </div>
       </td>
     </tr>
@@ -1142,7 +1207,10 @@ function MembershipCardMobile({
     targetRole: member.role,
     otherActiveOwners,
   });
-  const profile = formatOperativeProfile(member.team_member);
+  const personalStatus = personalStatusLabel(member.team_member);
+  const profile = member.team_member
+    ? formatOperativeProfile(member.team_member)
+    : null;
 
   return (
     <div className="rounded-[var(--radius)] border border-border/70 bg-background p-5">
@@ -1166,7 +1234,7 @@ function MembershipCardMobile({
       </div>
       <div className="mt-3 space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Miembro del equipo
+          Personal
         </p>
         <p
           className={
@@ -1175,18 +1243,13 @@ function MembershipCardMobile({
               : "text-[0.9375rem] text-muted-foreground"
           }
         >
-          {profile}
+          {personalStatus}
         </p>
+        {profile ? (
+          <p className="text-[0.9375rem] text-muted-foreground">{profile}</p>
+        ) : null}
       </div>
       <div className="mt-4 flex flex-wrap gap-2.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onLinkTeam}
-          className="gc-action"
-        >
-          {member.team_member ? "Cambiar trabajador" : "Asociar trabajador"}
-        </button>
         {manageable ? (
           <>
             <button
@@ -1220,6 +1283,14 @@ function MembershipCardMobile({
         ) : lastOwnerMessage ? (
           <p className="text-xs text-muted-foreground">{lastOwnerMessage}</p>
         ) : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onLinkTeam}
+          className="gc-action"
+        >
+          {personalLinkActionLabel(Boolean(member.team_member))}
+        </button>
       </div>
     </div>
   );
