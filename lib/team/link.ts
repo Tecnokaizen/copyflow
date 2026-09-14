@@ -81,7 +81,7 @@ export function publicTeamLinkError(
   payload: { error?: string; code?: string } | null
 ) {
   if (payload?.code === "already_linked") {
-    return "Ese usuario ya está vinculado a otro perfil de equipo.";
+    return "Ese usuario ya está asignado a otro trabajador.";
   }
 
   if (payload?.code === "membership_missing") {
@@ -89,26 +89,26 @@ export function publicTeamLinkError(
   }
 
   if (payload?.code === "tenant_mismatch") {
-    return "No se puede vincular un usuario de otra organización.";
+    return "No se puede asignar un usuario de otra organización.";
   }
 
   if (status === 409) {
-    return "Ese usuario ya está vinculado a otro perfil de equipo.";
+    return "Ese usuario ya está asignado a otro trabajador.";
   }
 
   if (status === 403) {
-    return "No tienes permiso para vincular el acceso.";
+    return "No tienes permiso para asignar este usuario.";
   }
 
   if (status === 404) {
-    return "No se encontró el perfil de equipo.";
+    return "No se encontró este trabajador.";
   }
 
   if (status === 400) {
     return "Revisa los datos indicados.";
   }
 
-  return payload?.error ?? "No se pudo actualizar el vínculo.";
+  return payload?.error ?? "No se pudo asignar el usuario.";
 }
 
 export function accessUsersAvailableForMember(

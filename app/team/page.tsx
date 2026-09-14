@@ -175,7 +175,7 @@ export default function TeamPage() {
       await refreshList();
     } catch (err) {
       setLinkError(
-        err instanceof Error ? err.message : "No se pudo actualizar el vínculo"
+        err instanceof Error ? err.message : "No se pudo asignar el usuario"
       );
     } finally {
       setSaving(false);
@@ -268,7 +268,7 @@ export default function TeamPage() {
                       Estado
                     </th>
                     <th className="px-4 py-3 text-left font-medium">
-                      Acceso
+                      Acceso al sistema
                     </th>
                     {canWrite && (
                       <th className="px-4 py-3 text-left font-medium">
@@ -346,8 +346,8 @@ export default function TeamPage() {
                                 className="rounded-md border bg-background px-3 py-2 text-sm"
                               >
                                 {member.has_access
-                                  ? "Cambiar acceso"
-                                  : "Vincular acceso"}
+                                  ? "Cambiar usuario"
+                                  : "Asignar usuario"}
                               </button>
                             </div>
                           </td>

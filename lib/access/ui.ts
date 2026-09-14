@@ -88,7 +88,7 @@ export function publicAccessUiError(
   payload: { error?: string; code?: string } | null
 ) {
   if (payload?.code === "already_linked") {
-    return "Ese usuario ya está vinculado a otro perfil de equipo.";
+    return "Ese usuario ya está asignado a otro trabajador.";
   }
   if (payload?.code === "membership_missing") {
     return "Ese usuario no tiene acceso a esta organización.";

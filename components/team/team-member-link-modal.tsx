@@ -29,43 +29,66 @@ export function TeamMemberLinkModal({
     [accessUsers, member.id]
   );
   const [userId, setUserId] = useState(member.user_id ?? "");
+  const hasAssignedUser = Boolean(member.user_id);
 
   const current = accessUsers.find((user) => user.user_id === member.user_id);
+  const currentName = current?.full_name?.trim() || null;
 
   return (
     <TeamModal>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
-            Vincular acceso
+            Asignar usuario a este trabajador
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Asocia un usuario con acceso a <span className="font-medium text-foreground">{member.name}</span>.
-            Un usuario solo puede estar vinculado a un perfil de equipo.
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            Selecciona qué usuario de Gestcopy corresponde a este miembro del
+            equipo.
           </p>
         </div>
 
-        {current ? (
-          <p className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-sm">
-            Ahora: {current.full_name || "Usuario"} ·{" "}
-            {membershipRoleLabel(current.role)}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">Sin acceso</p>
-        )}
+        <dl className="space-y-4 rounded-md border border-border/70 bg-muted/30 px-4 py-3.5">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Trabajador
+            </dt>
+            <dd className="mt-1 text-sm font-medium text-foreground">
+              {member.name}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Usuario asignado actualmente
+            </dt>
+            {current ? (
+              <dd className="mt-1 space-y-0.5">
+                <p className="text-sm font-medium text-foreground">
+                  {currentName || "Sin nombre"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {membershipRoleLabel(current.role)}
+                </p>
+              </dd>
+            ) : (
+              <dd className="mt-1 text-sm text-muted-foreground">
+                Sin usuario asignado
+              </dd>
+            )}
+          </div>
+        </dl>
 
         <label className="grid gap-2 text-sm">
-          <span className="font-medium">Usuario con acceso</span>
+          <span className="font-medium">Usuario de Gestcopy</span>
           <select
             value={userId}
             onChange={(event) => setUserId(event.target.value)}
             disabled={busy}
             className="gc-field-control"
           >
-            <option value="">Sin acceso</option>
+            <option value="">Sin usuario asignado</option>
             {options.map((user) => (
               <option key={user.user_id} value={user.user_id}>
-                {(user.full_name || "Usuario").trim()} ·{" "}
+                {(user.full_name || "Sin nombre").trim()} ·{" "}
                 {membershipRoleLabel(user.role)}
               </option>
             ))}
@@ -74,8 +97,8 @@ export function TeamMemberLinkModal({
 
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No hay usuarios disponibles para vincular. Invita o activa un
-            acceso primero, o quita el vínculo de otro perfil.
+            No hay usuarios disponibles. Invita a esta persona o quita la
+            asignación de otro trabajador.
           </p>
         ) : null}
 
@@ -98,7 +121,11 @@ export function TeamMemberLinkModal({
             disabled={busy}
             onClick={() => onSave(userId ? userId : null)}
           >
-            {busy ? "Guardando…" : "Guardar vínculo"}
+            {busy
+              ? "Guardando…"
+              : hasAssignedUser
+                ? "Cambiar usuario"
+                : "Asignar usuario"}
           </button>
         </div>
       </div>

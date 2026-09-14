@@ -236,14 +236,14 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
       }
       setFlash(
         nextId
-          ? "Usuario vinculado al perfil de equipo."
-          : "Se quitó el vínculo con el perfil de equipo."
+          ? "Usuario asignado al trabajador."
+          : "Se quitó la asignación de este usuario."
       );
       setModal({ kind: "closed" });
       await load();
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "No se pudo actualizar el vínculo"
+        err instanceof Error ? err.message : "No se pudo asignar el perfil"
       );
     } finally {
       setBusy(false);
@@ -597,10 +597,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
             </div>
             <RoleHelpList roles={assignableRoles} />
             <p className="text-sm text-muted-foreground">
-              La invitación concede acceso a la aplicación. Si esta persona
-              debe aparecer como responsable de pedidos, vincula su usuario a
-              un perfil de equipo cuando acepte. No se crea un vínculo
-              automático.
+              La invitación da acceso a Gestcopy. Si esta persona también
+              trabaja en el taller, asígnale un perfil de equipo cuando
+              acepte. No se asigna automáticamente.
             </p>
             {formError ? (
               <p className="text-sm text-red-600">{formError}</p>
@@ -680,14 +679,48 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
 
       {modal.kind === "link_team" ? (
         <AccessFormModal
-          title="Vincular perfil de equipo"
+          title={
+            modal.member.team_member
+              ? "Cambiar perfil de equipo"
+              : "Asignar perfil de equipo"
+          }
           onClose={() => !busy && setModal({ kind: "closed" })}
         >
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {modal.member.full_name || modal.member.email || "Usuario"} ·{" "}
-              {membershipRoleLabel(modal.member.role)}
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Relaciona este usuario con el miembro del equipo que representa
+              dentro del trabajo diario.
             </p>
+            <dl className="space-y-3 rounded-md border border-border/70 bg-muted/30 px-4 py-3.5">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Usuario de Gestcopy
+                </dt>
+                <dd className="mt-1 space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">
+                    {modal.member.full_name ||
+                      modal.member.email ||
+                      "Sin nombre"}
+                  </p>
+                  {modal.member.email && modal.member.full_name ? (
+                    <p className="text-sm text-muted-foreground">
+                      {modal.member.email}
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-muted-foreground">
+                    {membershipRoleLabel(modal.member.role)}
+                  </p>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Perfil de equipo
+                </dt>
+                <dd className="mt-1 text-sm font-medium text-foreground">
+                  {modal.member.team_member?.name ?? "Sin asignar"}
+                </dd>
+              </div>
+            </dl>
             <div className="grid gap-2">
               <Label htmlFor="link-team-member">Perfil de equipo</Label>
               <select
@@ -697,7 +730,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 disabled={busy}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="">Sin perfil de equipo</option>
+                <option value="">Sin asignar</option>
                 {teamMembersAvailableForUser(
                   teamMembers,
                   modal.member.user_id
@@ -709,8 +742,9 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                Un usuario solo puede estar vinculado a un perfil. Los perfiles
-                ya vinculados a otra persona no aparecen.
+                Cada usuario de Gestcopy solo puede corresponder a un
+                trabajador. Quienes ya están asignados a otra persona no
+                aparecen.
               </p>
             </div>
             {formError ? (
@@ -730,7 +764,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                 disabled={busy}
                 onClick={() => void submitLinkTeam()}
               >
-                {busy ? "Guardando…" : "Guardar vínculo"}
+                {busy
+                  ? "Guardando…"
+                  : modal.member.team_member
+                    ? "Cambiar perfil"
+                    : "Asignar perfil"}
               </Button>
             </div>
           </div>
@@ -880,12 +918,8 @@ function MembershipRowDesktop({
           {member.active ? "Activo" : "Acceso revocado"}
         </StatusBadge>
       </td>
-      <td>
-        {member.team_member ? (
-          member.team_member.name
-        ) : (
-          <StatusBadge tone="warning">Sin perfil de equipo</StatusBadge>
-        )}
+      <td className={member.team_member ? "font-medium" : "text-muted-foreground"}>
+        {member.team_member ? member.team_member.name : "Sin asignar"}
       </td>
       <td>
         <div className="flex flex-wrap justify-end gap-2.5">
@@ -895,7 +929,7 @@ function MembershipRowDesktop({
             onClick={onLinkTeam}
             className="gc-action"
           >
-            {member.team_member ? "Cambiar perfil" : "Vincular perfil"}
+            {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
           </button>
           {manageable ? (
             <>
@@ -963,11 +997,20 @@ function MembershipCardMobile({
         <StatusBadge tone={member.active ? "success" : "danger"}>
           {member.active ? "Activo" : "Acceso revocado"}
         </StatusBadge>
-        {member.team_member ? (
-          <StatusBadge tone="brand">{member.team_member.name}</StatusBadge>
-        ) : (
-          <StatusBadge tone="warning">Sin perfil de equipo</StatusBadge>
-        )}
+      </div>
+      <div className="mt-3 space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Perfil de equipo
+        </p>
+        <p
+          className={
+            member.team_member
+              ? "text-[0.9375rem] font-medium"
+              : "text-[0.9375rem] text-muted-foreground"
+          }
+        >
+          {member.team_member ? member.team_member.name : "Sin asignar"}
+        </p>
       </div>
       <div className="mt-4 flex flex-wrap gap-2.5">
         <button
@@ -976,7 +1019,7 @@ function MembershipCardMobile({
           onClick={onLinkTeam}
           className="gc-action"
         >
-          {member.team_member ? "Cambiar perfil" : "Vincular perfil"}
+          {member.team_member ? "Cambiar perfil" : "Asignar perfil"}
         </button>
         {manageable ? (
           <>
