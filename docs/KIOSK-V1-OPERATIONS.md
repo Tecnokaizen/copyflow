@@ -34,6 +34,10 @@ La migración no habilita ningún tenant. Kiosk solo está disponible cuando el
 tenant tiene exactamente un canal activo con `code = 'kiosk'`. Desactivar ese
 canal desactiva Kiosk sin cambiar código ni infraestructura.
 
+Un tenant sin opt-in responde como no encontrado antes de consultar servicios,
+crear una ventana de rate limit o emitir un permiso; no permite enumerar su
+catálogo ni distinguir configuración interna.
+
 ## Frontera Vercel y WAF
 
 La aplicación solo confía en Vercel cuando `VERCEL=1`, exige coincidencia

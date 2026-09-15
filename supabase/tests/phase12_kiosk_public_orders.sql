@@ -251,6 +251,32 @@ begin
     raise exception 'FAIL signature selected another tenant: %', v_result;
   end if;
 
+  -- A correctly signed opt-out tenant remains indistinguishable and emits no
+  -- service list, rate row or permit.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'bootstrap', 'sur4-phase12', v_client_key,
+    v_issued_at, 'bootstrap'
+  );
+  v_result := public.kiosk_bootstrap(
+    'sur4-phase12', v_client_key, v_issued_at,
+    'bootstrap', 'bootstrap', v_signature
+  );
+  if v_result <> '{"status":"not_found"}'::jsonb then
+    raise exception 'FAIL opt-out bootstrap enumerated tenant: %', v_result;
+  end if;
+
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'sur4-phase12', v_client_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'sur4-phase12', v_client_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  if v_result <> '{"status":"not_found"}'::jsonb then
+    raise exception 'FAIL opt-out admission emitted permit: %', v_result;
+  end if;
+
   -- Admission happens before parsing and emits a one-shot permit.
   v_signature := pg_temp.kiosk_signature(
     v_secret, 'admit', 'demo-phase12', v_client_key,
@@ -330,7 +356,7 @@ begin
     raise exception 'FAIL fresh-permit replay: %', v_result;
   end if;
 
-  -- Third permit: altered payload/submission and NULL fingerprint are rejected.
+  -- Third permit: altered submission or payload cannot reuse the signed binding.
   v_signature := pg_temp.kiosk_signature(
     v_secret, 'admit', 'demo-phase12', v_client_key,
     v_issued_at, 'request'
@@ -355,8 +381,9 @@ begin
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered submission reused signature: %', v_result;
   end if;
-  -- Keep the signed fingerprint but alter authorized fields: DB recomputation
-  -- must reject and consume the one-shot permit.
+  -- Alter authorized fields while reusing the original signature. This is
+  -- unauthenticated tampering: reject it without consuming the permit. The
+  -- admission rate was already charged before the body was parsed.
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
@@ -366,6 +393,17 @@ begin
   );
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered payload kept original fingerprint: %', v_result;
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, v_order, '200 tarjetas',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '200 tarjetas', null, 'Papel mate'
+  );
+  if v_result ->> 'status' <> 'replay' then
+    raise exception 'FAIL tampering consumed the valid one-shot permit: %', v_result;
   end if;
 
   -- Fourth admission is consumed by a correctly signed cross-tenant service.
@@ -416,6 +454,19 @@ begin
   end loop;
 
   execute 'reset role';
+
+  select count(*) into v_count
+  from kiosk_private.kiosk_request_permits p
+  where p.tenant_id = v_tenant_sur4;
+  if v_count <> 0 then
+    raise exception 'FAIL opt-out tenant received a permit';
+  end if;
+  select count(*) into v_count
+  from kiosk_private.kiosk_rate_limits rl
+  where rl.tenant_id = v_tenant_sur4;
+  if v_count <> 0 then
+    raise exception 'FAIL opt-out tenant exposed a rate lookup';
+  end if;
 
   select count(*) into v_count
   from public.orders o

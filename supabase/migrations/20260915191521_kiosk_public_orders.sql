@@ -247,6 +247,17 @@ BEGIN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
+  SELECT count(*)
+  INTO v_channel_count
+  FROM public.entry_channels ec
+  WHERE ec.tenant_id = v_tenant.id
+    AND ec.active = true
+    AND ec.code = 'kiosk';
+
+  IF v_channel_count <> 1 THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
   DELETE FROM kiosk_private.kiosk_rate_limits rl
   WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
 
@@ -263,13 +274,6 @@ BEGIN
     AND os.active = true
     AND os.is_initial = true;
 
-  SELECT count(*)
-  INTO v_channel_count
-  FROM public.entry_channels ec
-  WHERE ec.tenant_id = v_tenant.id
-    AND ec.active = true
-    AND ec.code = 'kiosk';
-
   SELECT coalesce(
     pg_catalog.jsonb_agg(
       pg_catalog.jsonb_build_object('id', s.id, 'name', s.name)
@@ -283,7 +287,6 @@ BEGIN
     AND s.active = true;
 
   IF v_status_count <> 1
-     OR v_channel_count <> 1
      OR pg_catalog.jsonb_array_length(v_services) = 0 THEN
     RETURN pg_catalog.jsonb_build_object('status', 'unavailable');
   END IF;
@@ -313,6 +316,7 @@ CREATE OR REPLACE FUNCTION kiosk_private.admit_kiosk_request(
 DECLARE
   v_tenant_id uuid;
   v_permit_id uuid;
+  v_channel_count integer;
 BEGIN
   IF p_purpose <> 'admit'
      OR p_binding <> 'request'
@@ -334,6 +338,17 @@ BEGIN
     AND t.active = true;
 
   IF v_tenant_id IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
+  SELECT count(*)
+  INTO v_channel_count
+  FROM public.entry_channels ec
+  WHERE ec.tenant_id = v_tenant_id
+    AND ec.active = true
+    AND ec.code = 'kiosk';
+
+  IF v_channel_count <> 1 THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
