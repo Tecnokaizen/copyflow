@@ -6,11 +6,17 @@ function firstLine(value: string) {
 }
 
 function clipTitle(value: string) {
-  if (value.length <= TITLE_MAX_LENGTH) {
-    return value;
+  const scalars: string[] = [];
+  for (const symbol of value) {
+    const codePoint = symbol.codePointAt(0) ?? 0;
+    scalars.push(
+      codePoint >= 0xd800 && codePoint <= 0xdfff ? "\uFFFD" : symbol
+    );
+    if (scalars.length === TITLE_MAX_LENGTH) {
+      break;
+    }
   }
-
-  return value.slice(0, TITLE_MAX_LENGTH).trimEnd();
+  return scalars.join("").trimEnd();
 }
 
 export function deriveOrderTitle(input: {
