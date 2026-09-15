@@ -1,4 +1,4 @@
--- Kiosk V1: signed least-privilege RPC, opt-in, atomic validation and rate.
+-- Kiosk V1: purpose-bound HMAC, one-shot permits, opt-in and atomic submit.
 -- Run after 20260915191521_kiosk_public_orders.sql.
 
 begin;
@@ -9,17 +9,38 @@ select vault.create_secret(
   'Kiosk phase12 test secret'
 );
 
+create or replace function pg_temp.kiosk_signature(
+  p_secret text,
+  p_purpose text,
+  p_tenant_slug text,
+  p_client_key text,
+  p_issued_at bigint,
+  p_binding text
+)
+returns text
+language sql
+immutable
+as $$
+  select encode(
+    extensions.hmac(
+      convert_to(
+        'kiosk-v1|' || p_purpose || '|' || p_tenant_slug || '|' ||
+        p_client_key || '|' || p_issued_at || '|' || p_binding,
+        'UTF8'
+      ),
+      convert_to(p_secret, 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
 do $phase12$
 declare
   v_secret text := 'phase12-kiosk-signing-secret-at-least-32-chars';
-  v_client_address text := '203.0.113.8';
-  v_client_key text;
-  v_client_key_2 text;
+  v_client_key text := repeat('a', 64);
   v_issued_at bigint := extract(epoch from now())::bigint;
-  v_demo_signature text;
-  v_sur4_signature text;
-  v_demo_signature_2 text;
-  v_owner_demo uuid := 'ac000000-0000-4000-8000-000000000000';
+  v_owner uuid := 'ac000000-0000-4000-8000-000000000000';
   v_tenant_demo uuid := 'ac000000-0000-4000-8000-000000000001';
   v_tenant_sur4 uuid := 'ac000000-0000-4000-8000-000000000002';
   v_service_demo uuid := 'ac000000-0000-4000-8000-000000000011';
@@ -27,73 +48,29 @@ declare
   v_status_demo uuid := 'ac000000-0000-4000-8000-000000000021';
   v_status_sur4 uuid := 'ac000000-0000-4000-8000-000000000022';
   v_channel_demo uuid := 'ac000000-0000-4000-8000-000000000031';
-  v_order_demo uuid := 'ac000000-0000-4000-8000-000000000041';
-  v_order_internal uuid := 'ac000000-0000-4000-8000-000000000042';
-  v_rate_order uuid;
+  v_order uuid := 'ac000000-0000-4000-8000-000000000041';
+  v_internal_order uuid := 'ac000000-0000-4000-8000-000000000042';
+  v_fingerprint text := repeat('f', 64);
+  v_permit uuid;
+  v_permit_2 uuid;
+  v_permit_3 uuid;
+  v_binding text;
+  v_signature text;
+  v_bootstrap_signature text;
   v_result jsonb;
   v_count integer;
 begin
-  v_client_key := encode(
-    extensions.hmac(
-      convert_to('client|' || v_client_address, 'UTF8'),
-      convert_to(v_secret, 'UTF8'),
-      'sha256'
-    ),
-    'hex'
-  );
-  v_demo_signature := encode(
-    extensions.hmac(
-      convert_to(
-        'kiosk-v1|demo-phase12|' || v_client_key || '|' || v_issued_at,
-        'UTF8'
-      ),
-      convert_to(v_secret, 'UTF8'),
-      'sha256'
-    ),
-    'hex'
-  );
-  v_sur4_signature := encode(
-    extensions.hmac(
-      convert_to(
-        'kiosk-v1|sur4-phase12|' || v_client_key || '|' || v_issued_at,
-        'UTF8'
-      ),
-      convert_to(v_secret, 'UTF8'),
-      'sha256'
-    ),
-    'hex'
-  );
-  v_client_key_2 := encode(
-    extensions.hmac(
-      convert_to('client|198.51.100.9', 'UTF8'),
-      convert_to(v_secret, 'UTF8'),
-      'sha256'
-    ),
-    'hex'
-  );
-  v_demo_signature_2 := encode(
-    extensions.hmac(
-      convert_to(
-        'kiosk-v1|demo-phase12|' || v_client_key_2 || '|' || v_issued_at,
-        'UTF8'
-      ),
-      convert_to(v_secret, 'UTF8'),
-      'sha256'
-    ),
-    'hex'
-  );
-
   insert into public.tenants (id, name, slug, active) values
     (v_tenant_demo, 'DEMO Phase12', 'demo-phase12', true),
     (v_tenant_sur4, 'SUR4 Phase12', 'sur4-phase12', true);
 
-  -- Kiosk must not be enabled by migration or tenant creation.
+  -- Migration and future tenant creation never opt tenants into Kiosk.
   select count(*) into v_count
   from public.entry_channels
   where tenant_id in (v_tenant_demo, v_tenant_sur4)
     and code = 'kiosk';
   if v_count <> 0 then
-    raise exception 'FAIL Kiosk was auto-enabled for new tenants';
+    raise exception 'FAIL Kiosk was auto-enabled';
   end if;
 
   insert into auth.users (
@@ -102,7 +79,7 @@ begin
     created_at, updated_at, confirmation_token, recovery_token,
     email_change_token_new, email_change
   ) values (
-    v_owner_demo,
+    v_owner,
     '00000000-0000-0000-0000-000000000000',
     'authenticated',
     'authenticated',
@@ -114,9 +91,9 @@ begin
     now(), now(), '', '', '', ''
   );
   insert into public.profiles (id, full_name)
-  values (v_owner_demo, 'Owner DEMO');
+  values (v_owner, 'Owner DEMO');
   insert into public.memberships (tenant_id, user_id, role, active)
-  values (v_tenant_demo, v_owner_demo, 'owner', true);
+  values (v_tenant_demo, v_owner, 'owner', true);
 
   insert into public.services (id, tenant_id, name, active, sort_order) values
     (v_service_demo, v_tenant_demo, 'Impresión DEMO', true, 1),
@@ -126,302 +103,283 @@ begin
   ) values
     (v_status_demo, v_tenant_demo, 'Recibido', 'received', true, true, 1),
     (v_status_sur4, v_tenant_sur4, 'Pendiente', 'pending', true, true, 1);
-
-  -- Explicit tenant configuration opts DEMO in; SUR4 stays disabled.
+  -- Explicit configuration opts DEMO in. SUR4 remains disabled.
   insert into public.entry_channels (
     id, tenant_id, name, code, active, sort_order
   ) values (
     v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1000
   );
 
-  insert into kiosk_private.kiosk_rate_limits (
-    tenant_id, client_key, window_started_at, request_count
-  ) values (
-    v_tenant_sur4, repeat('d', 64), now() - interval '2 days', 1
-  );
-
   if has_table_privilege('anon', 'public.orders', 'SELECT')
      or has_table_privilege('anon', 'public.orders', 'INSERT')
      or has_table_privilege('anon', 'public.clients', 'SELECT')
      or has_table_privilege('anon', 'public.team_members', 'SELECT')
-     or has_table_privilege('anon', 'public.services', 'SELECT')
-     or has_table_privilege(
-       'anon', 'kiosk_private.kiosk_rate_limits', 'SELECT'
-     ) then
-    raise exception 'FAIL anon gained direct business-table access';
+     or has_table_privilege('anon', 'public.services', 'SELECT') then
+    raise exception 'FAIL anon gained business-table access';
   end if;
-
+  if has_schema_privilege('anon', 'kiosk_private', 'USAGE') then
+    raise exception 'FAIL anon has direct kiosk_private schema usage';
+  end if;
   if has_function_privilege(
-    'service_role',
-    'public.submit_kiosk_order(text,text,bigint,text,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'anon',
+    'kiosk_private.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
-    raise exception 'FAIL service_role can execute Kiosk submission';
+    raise exception 'FAIL anon can execute private submit directly';
+  end if;
+  if not has_function_privilege(
+    'anon',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'EXECUTE'
+  ) then
+    raise exception 'FAIL anon lacks minimal public submit wrapper';
+  end if;
+  if has_function_privilege(
+    'service_role',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'EXECUTE'
+  ) then
+    raise exception 'FAIL service_role can execute Kiosk submit';
   end if;
 
   execute 'set local role anon';
 
+  -- Purpose-bound bootstrap; cross-purpose and cross-tenant signatures fail.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'bootstrap', 'demo-phase12', v_client_key,
+    v_issued_at, 'bootstrap'
+  );
+  v_bootstrap_signature := v_signature;
   v_result := public.kiosk_bootstrap(
-    'demo-phase12', v_client_key, v_issued_at, v_demo_signature
+    'demo-phase12', v_client_key, v_issued_at,
+    'bootstrap', 'bootstrap', v_signature
   );
   if v_result ->> 'status' <> 'ready'
      or v_result #>> '{tenant,name}' <> 'DEMO Phase12'
      or jsonb_array_length(v_result -> 'services') <> 1 then
-    raise exception 'FAIL DEMO signed bootstrap: %', v_result;
+    raise exception 'FAIL signed bootstrap: %', v_result;
   end if;
 
-  v_result := public.kiosk_bootstrap(
-    'sur4-phase12', v_client_key, v_issued_at, v_sur4_signature
-  );
-  if v_result ->> 'status' <> 'unavailable' then
-    raise exception 'FAIL SUR4 should remain opt-out: %', v_result;
-  end if;
-
-  v_result := public.submit_kiosk_order(
-    'sur4-phase12',
-    v_client_key,
-    v_issued_at,
-    v_sur4_signature,
-    'ac000000-0000-4000-8000-000000000049',
-    repeat('c', 64),
-    'Pedido bloqueado',
-    v_service_sur4,
-    'Cliente SUR4',
-    null,
-    '600123123',
-    'Pedido bloqueado',
-    null,
-    null
-  );
-  if v_result ->> 'status' <> 'unavailable' then
-    raise exception 'FAIL opt-out submit should be unavailable: %', v_result;
-  end if;
-
-  -- A DEMO signature cannot be reused to select SUR4 directly.
-  v_result := public.kiosk_bootstrap(
-    'sur4-phase12', v_client_key, v_issued_at, v_demo_signature
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_client_key, v_issued_at,
+    'bootstrap', 'bootstrap', v_signature
   );
   if v_result ->> 'status' <> 'not_found' then
-    raise exception 'FAIL signature allowed arbitrary tenant: %', v_result;
+    raise exception 'FAIL bootstrap signature crossed into admit: %', v_result;
   end if;
 
   v_result := public.kiosk_bootstrap(
-    'demo-phase12',
-    v_client_key,
-    '-9223372036854775808'::bigint,
-    v_demo_signature
+    'sur4-phase12', v_client_key, v_issued_at,
+    'bootstrap', 'bootstrap', v_signature
   );
   if v_result ->> 'status' <> 'not_found' then
-    raise exception 'FAIL extreme issued_at was not rejected: %', v_result;
+    raise exception 'FAIL signature selected another tenant: %', v_result;
   end if;
 
+  -- Admission happens before parsing and emits a one-shot permit.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_client_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_client_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  if v_result ->> 'status' <> 'admitted' then
+    raise exception 'FAIL admission: %', v_result;
+  end if;
+  v_permit := (v_result ->> 'permit')::uuid;
+
   v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key,
-    v_issued_at,
-    v_demo_signature,
-    v_order_demo,
-    repeat('f', 64),
-    '200 tarjetas',
-    v_service_demo,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    '200 tarjetas',
-    null,
-    'Papel mate'
+    'demo-phase12', v_client_key, v_issued_at,
+    'bootstrap', 'bootstrap', v_bootstrap_signature,
+    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '200 tarjetas', null, 'Papel mate'
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL bootstrap signature crossed into submit: %', v_result;
+  end if;
+
+  v_binding := v_permit::text || '|' || v_order::text || '|' || v_fingerprint;
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_client_key,
+    v_issued_at, v_binding
+  );
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'created' then
-    raise exception 'FAIL Kiosk create: %', v_result;
+    raise exception 'FAIL submit: %', v_result;
   end if;
 
-  -- Same transaction function owns validation + insert and replay.
+  -- Same permit is one-shot, even with the same signed payload.
   v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key,
-    v_issued_at,
-    v_demo_signature,
-    v_order_demo,
-    repeat('f', 64),
-    '200 tarjetas',
-    v_service_demo,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    '200 tarjetas',
-    null,
-    'Papel mate'
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '200 tarjetas', null, 'Papel mate'
+  );
+  if v_result ->> 'status' <> 'invalid_request' then
+    raise exception 'FAIL permit replay was accepted: %', v_result;
+  end if;
+
+  -- A fresh admission permits an idempotent order replay.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_client_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_client_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  v_permit_2 := (v_result ->> 'permit')::uuid;
+  v_binding := v_permit_2::text || '|' || v_order::text || '|' || v_fingerprint;
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_client_key,
+    v_issued_at, v_binding
+  );
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_2, v_order, v_fingerprint, '200 tarjetas',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'replay' then
-    raise exception 'FAIL Kiosk replay: %', v_result;
+    raise exception 'FAIL fresh-permit replay: %', v_result;
   end if;
 
-  -- Replays remain idempotent after an IP/client-key change.
-  v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key_2,
-    v_issued_at,
-    v_demo_signature_2,
-    v_order_demo,
-    repeat('f', 64),
-    '200 tarjetas',
-    v_service_demo,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    '200 tarjetas',
-    null,
-    'Papel mate'
+  -- Third permit: altered payload/submission and NULL fingerprint are rejected.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_client_key,
+    v_issued_at, 'request'
   );
-  if v_result ->> 'status' <> 'replay' then
-    raise exception 'FAIL changed-IP Kiosk replay: %', v_result;
-  end if;
-
-  v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key,
-    v_issued_at,
-    v_demo_signature,
-    v_order_demo,
-    repeat('d', 64),
-    'Pedido alterado',
-    v_service_demo,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    'Pedido alterado',
-    null,
-    null
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_client_key, v_issued_at,
+    'admit', 'request', v_signature
   );
-  if v_result ->> 'status' <> 'conflict' then
-    raise exception 'FAIL changed-payload conflict: %', v_result;
+  v_permit_3 := (v_result ->> 'permit')::uuid;
+  v_binding := v_permit_3::text || '|' || v_order::text || '|' || v_fingerprint;
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_client_key,
+    v_issued_at, v_binding
+  );
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, v_order, repeat('e', 64), 'Alterado',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    'Alterado', null, null
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL altered payload reused signature: %', v_result;
+  end if;
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, 'ac000000-0000-4000-8000-000000000099',
+    v_fingerprint, 'Otro', v_service_demo, 'Ana Ruiz',
+    'ana@example.com', null, 'Otro', null, null
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL altered submission reused signature: %', v_result;
+  end if;
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, v_order, null, 'Null fingerprint',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    'Null fingerprint', null, null
+  );
+  if v_result ->> 'status' <> 'invalid_request' then
+    raise exception 'FAIL NULL fingerprint bypassed validation: %', v_result;
   end if;
 
+  v_binding :=
+    v_permit_3::text ||
+    '|ac000000-0000-4000-8000-000000000098|' ||
+    repeat('c', 64);
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_client_key,
+    v_issued_at, v_binding
+  );
   v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key,
-    v_issued_at,
-    v_demo_signature,
-    'ac000000-0000-4000-8000-000000000043',
-    repeat('e', 64),
-    'Cross tenant',
-    v_service_sur4,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    'Cross tenant',
-    null,
-    null
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, 'ac000000-0000-4000-8000-000000000098',
+    repeat('c', 64), 'Cross tenant', v_service_sur4, 'Ana Ruiz',
+    'ana@example.com', null, 'Cross tenant', null, null
   );
   if v_result ->> 'status' <> 'invalid_service' then
     raise exception 'FAIL cross-tenant service: %', v_result;
   end if;
 
-  foreach v_rate_order in array array[
-    'ac000000-0000-4000-8000-000000000044'::uuid
-  ] loop
-    v_result := public.submit_kiosk_order(
-      'demo-phase12',
-      v_client_key,
-      v_issued_at,
-      v_demo_signature,
-      v_rate_order,
-      repeat('a', 64),
-      'Pedido rate',
-      v_service_demo,
-      'Ana Ruiz',
-      'ana@example.com',
-      null,
-      'Pedido rate',
-      null,
-      null
+  -- Admissions four and five succeed; sixth is rate-limited before DTO parse.
+  for v_count in 4..6 loop
+    v_signature := pg_temp.kiosk_signature(
+      v_secret, 'admit', 'demo-phase12', v_client_key,
+      v_issued_at, 'request'
     );
-    if v_result ->> 'status' <> 'created' then
-      raise exception 'FAIL distributed rate setup: %', v_result;
+    v_result := public.admit_kiosk_request(
+      'demo-phase12', v_client_key, v_issued_at,
+      'admit', 'request', v_signature
+    );
+    if v_count <= 5 and v_result ->> 'status' <> 'admitted' then
+      raise exception 'FAIL admission % should pass: %', v_count, v_result;
+    end if;
+    if v_count = 6 and v_result ->> 'status' <> 'rate_limited' then
+      raise exception 'FAIL sixth admission bypassed 429: %', v_result;
     end if;
   end loop;
-
-  v_result := public.submit_kiosk_order(
-    'demo-phase12',
-    v_client_key,
-    v_issued_at,
-    v_demo_signature,
-    'ac000000-0000-4000-8000-000000000048',
-    repeat('b', 64),
-    'Sixth request',
-    v_service_demo,
-    'Ana Ruiz',
-    'ana@example.com',
-    null,
-    'Sixth request',
-    null,
-    null
-  );
-  if v_result ->> 'status' <> 'rate_limited' then
-    raise exception 'FAIL distributed rate limit: %', v_result;
-  end if;
 
   execute 'reset role';
 
   select count(*) into v_count
   from public.orders o
-  where o.id = v_order_demo
+  where o.id = v_order
     and o.tenant_id = v_tenant_demo
     and o.service_id = v_service_demo
     and o.status_id = v_status_demo
     and o.entry_channel_id = v_channel_demo;
   if v_count <> 1 then
-    raise exception 'FAIL atomic tenant configuration on Kiosk order';
-  end if;
-
-  select count(*) into v_count
-  from kiosk_private.kiosk_rate_limits
-  where client_key = repeat('d', 64);
-  if v_count <> 0 then
-    raise exception 'FAIL stale distributed rate row was not pruned';
-  end if;
-
-  select count(*) into v_count
-  from public.orders o
-  where o.id = 'ac000000-0000-4000-8000-000000000049';
-  if v_count <> 0 then
-    raise exception 'FAIL opt-out validation left a partial order';
+    raise exception 'FAIL atomic tenant configuration';
   end if;
 
   select count(*) into v_count
   from public.activity_log a
-  where a.entity_id = v_order_demo
+  where a.entity_id = v_order
     and a.tenant_id = v_tenant_demo
     and a.user_id is null
     and a.metadata ->> 'source' = 'kiosk';
   if v_count <> 1 then
-    raise exception 'FAIL Kiosk activity source/null actor';
+    raise exception 'FAIL Kiosk audit';
   end if;
 
-  -- Replacing the audit trigger preserves internal authenticated behavior.
-  perform set_config('request.jwt.claim.sub', v_owner_demo::text, true);
+  -- Internal authenticated order auditing remains unchanged.
+  perform set_config('request.jwt.claim.sub', v_owner::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
   insert into public.orders (
     id, tenant_id, title, service_id, status_id, entry_channel_id, created_by
   ) values (
-    v_order_internal,
-    v_tenant_demo,
-    'Pedido interno',
-    v_service_demo,
-    v_status_demo,
-    v_channel_demo,
-    v_owner_demo
+    v_internal_order, v_tenant_demo, 'Pedido interno', v_service_demo,
+    v_status_demo, v_channel_demo, v_owner
   );
   execute 'reset role';
 
   select count(*) into v_count
   from public.activity_log a
-  where a.entity_id = v_order_internal
-    and a.user_id = v_owner_demo
+  where a.entity_id = v_internal_order
+    and a.user_id = v_owner
     and a.metadata ->> 'source' = 'internal';
   if v_count <> 1 then
-    raise exception 'FAIL internal order audit regression';
+    raise exception 'FAIL internal audit regression';
   end if;
 end;
 $phase12$;

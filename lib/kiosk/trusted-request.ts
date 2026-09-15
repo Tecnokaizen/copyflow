@@ -19,6 +19,8 @@ export type KioskCapability = {
   tenantSlug: string;
   clientKey: string;
   issuedAt: number;
+  purpose: "bootstrap" | "admit" | "submit";
+  binding: string;
   signature: string;
 };
 
@@ -76,23 +78,39 @@ export function trustedKioskRequestContext(
 
 export function createKioskCapability(
   context: TrustedKioskContext & { issuedAt: number },
+  authorization: {
+    purpose: KioskCapability["purpose"];
+    binding: string;
+  },
   secret: string
 ): KioskCapability {
   if (secret.length < 32) {
     throw new Error("Kiosk signing secret must contain at least 32 characters");
+  }
+  if (!authorization.binding || authorization.binding.length > 256) {
+    throw new Error("Kiosk capability binding is invalid");
   }
   const clientKey = createHmac("sha256", secret)
     .update(`client|${context.clientAddress}`)
     .digest("hex");
   const signature = createHmac("sha256", secret)
     .update(
-      `kiosk-v1|${context.tenantSlug}|${clientKey}|${context.issuedAt}`
+      [
+        "kiosk-v1",
+        authorization.purpose,
+        context.tenantSlug,
+        clientKey,
+        context.issuedAt,
+        authorization.binding,
+      ].join("|")
     )
     .digest("hex");
   return {
     tenantSlug: context.tenantSlug,
     clientKey,
     issuedAt: context.issuedAt,
+    purpose: authorization.purpose,
+    binding: authorization.binding,
     signature,
   };
 }

@@ -1,0 +1,47 @@
+name: Kiosk Supabase security
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/tests/phase12_kiosk_public_orders.sql"
+      - "supabase/rollbacks/**"
+      - ".github/workflows/kiosk-supabase.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kiosk-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_CLI_VERSION: 2.117.0
+      LOCAL_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start minimal local Supabase
+        run: >-
+          npx supabase@${SUPABASE_CLI_VERSION} start
+          --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Rebuild database from migrations
+        run: npx supabase@${SUPABASE_CLI_VERSION} db reset --local --no-seed
+
+      - name: Run Kiosk database security tests
+        run: >-
+          npx supabase@${SUPABASE_CLI_VERSION} test db --local
+          supabase/tests/phase12_kiosk_public_orders.sql
+
+      - name: Apply and verify exact rollback
+        run: |
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
+            -f supabase/rollbacks/20260915191521_kiosk_public_orders.sql
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
+            -f supabase/rollbacks/verify_20260915191521_kiosk_public_orders.sql
+
+      - name: Stop local Supabase
+        if: always()
+        run: npx supabase@${SUPABASE_CLI_VERSION} stop --no-backup

@@ -104,10 +104,13 @@ describe("createKioskCapability", () => {
         clientAddress: "203.0.113.8",
         issuedAt: 1_789_000_000,
       },
+      { purpose: "bootstrap", binding: "bootstrap" },
       "k".repeat(32)
     );
     assert.equal(capability.tenantSlug, "demo");
     assert.equal(capability.issuedAt, 1_789_000_000);
+    assert.equal(capability.purpose, "bootstrap");
+    assert.equal(capability.binding, "bootstrap");
     assert.match(capability.clientKey, /^[a-f0-9]{64}$/);
     assert.match(capability.signature, /^[a-f0-9]{64}$/);
     assert.equal(JSON.stringify(capability).includes("203.0.113.8"), false);
@@ -121,15 +124,42 @@ describe("createKioskCapability", () => {
     };
     const demo = createKioskCapability(
       { ...base, tenantSlug: "demo" },
+      { purpose: "bootstrap", binding: "bootstrap" },
       secret
     );
     const sur4 = createKioskCapability(
       { ...base, tenantSlug: "sur4" },
+      { purpose: "bootstrap", binding: "bootstrap" },
       secret
     );
     assert.notEqual(demo.signature, sur4.signature);
+    const submit = createKioskCapability(
+      { ...base, tenantSlug: "demo" },
+      {
+        purpose: "submit",
+        binding:
+          "permit|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa|" + "f".repeat(64),
+      },
+      secret
+    );
+    assert.notEqual(demo.signature, submit.signature);
+    const alteredSubmit = createKioskCapability(
+      { ...base, tenantSlug: "demo" },
+      {
+        purpose: "submit",
+        binding:
+          "permit|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa|" + "e".repeat(64),
+      },
+      secret
+    );
+    assert.notEqual(submit.signature, alteredSubmit.signature);
     assert.throws(
-      () => createKioskCapability({ ...base, tenantSlug: "demo" }, "short"),
+      () =>
+        createKioskCapability(
+          { ...base, tenantSlug: "demo" },
+          { purpose: "bootstrap", binding: "bootstrap" },
+          "short"
+        ),
       /signing secret/i
     );
   });

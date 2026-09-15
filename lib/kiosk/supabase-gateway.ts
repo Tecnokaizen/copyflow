@@ -9,8 +9,10 @@ export type KioskRpcClient = {
 
 export type KioskGateway = {
   bootstrap(capability: KioskCapability): Promise<unknown>;
+  admit(capability: KioskCapability): Promise<unknown>;
   submit(
     capability: KioskCapability,
+    permitId: string,
     input: KioskOrderInput,
     fingerprint: string,
     title: string
@@ -22,6 +24,8 @@ function capabilityArgs(capability: KioskCapability) {
     p_tenant_slug: capability.tenantSlug,
     p_client_key: capability.clientKey,
     p_issued_at: capability.issuedAt,
+    p_purpose: capability.purpose,
+    p_binding: capability.binding,
     p_signature: capability.signature,
   };
 }
@@ -41,10 +45,17 @@ export function createSupabaseKioskGateway(
       );
     },
 
-    async submit(capability, input, fingerprint, title) {
+    async admit(capability) {
+      return dataOrThrow(
+        await client.rpc("admit_kiosk_request", capabilityArgs(capability))
+      );
+    },
+
+    async submit(capability, permitId, input, fingerprint, title) {
       return dataOrThrow(
         await client.rpc("submit_kiosk_order", {
           ...capabilityArgs(capability),
+          p_permit_id: permitId,
           p_submission_id: input.submissionId,
           p_request_fingerprint: fingerprint,
           p_title: title,

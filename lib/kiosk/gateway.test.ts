@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { KioskOrderInput } from "./payload";
+import type { KioskCapability } from "./trusted-request";
 import {
   KioskServiceError,
+  admitKioskRequest,
   getKioskBootstrap,
   kioskInputFingerprint,
   mapKioskBootstrapResult,
+  mapKioskAdmissionResult,
   mapKioskSubmitResult,
   submitKioskOrder,
 } from "./service";
@@ -24,6 +27,22 @@ const INPUT: KioskOrderInput = {
 };
 
 describe("Kiosk database result mapping", () => {
+  it("maps a one-shot admission permit and rate rejection", () => {
+    assert.equal(
+      mapKioskAdmissionResult({
+        status: "admitted",
+        permit: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      }),
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    );
+    assert.throws(
+      () => mapKioskAdmissionResult({ status: "rate_limited" }),
+      (error: unknown) =>
+        error instanceof KioskServiceError &&
+        error.code === "rate_limited"
+    );
+  });
+
   it("returns a minimal bootstrap DTO and drops private fields", () => {
     assert.deepEqual(
       mapKioskBootstrapResult({
@@ -112,24 +131,42 @@ describe("signed Kiosk orchestration", () => {
     tenantSlug: "demo",
     clientKey: "a".repeat(64),
     issuedAt: 1_789_000_000,
+    purpose: "bootstrap" as const,
+    binding: "bootstrap",
     signature: "b".repeat(64),
   };
 
   it("delegates bootstrap and submit only through the gateway", async () => {
     let submittedFingerprint = "";
+    const permitId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const fingerprint = kioskInputFingerprint(INPUT);
+    const submitCapability: KioskCapability = {
+      ...capability,
+      purpose: "submit",
+      binding: `${permitId}|${INPUT.submissionId}|${fingerprint}`,
+    };
     const gateway = {
       bootstrap: async () => ({
         status: "ready",
         tenant: { name: "DEMO" },
         services: [{ id: INPUT.serviceId, name: "Impresión" }],
       }),
+      admit: async () => ({
+        status: "admitted",
+        permit: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      }),
       submit: async (
-        receivedCapability: typeof capability,
+        receivedCapability: KioskCapability,
+        receivedPermitId: string,
         receivedInput: KioskOrderInput,
         fingerprint: string,
         title: string
       ) => {
-        assert.deepEqual(receivedCapability, capability);
+        assert.deepEqual(receivedCapability, submitCapability);
+        assert.equal(
+          receivedPermitId,
+          permitId
+        );
         assert.deepEqual(receivedInput, INPUT);
         submittedFingerprint = fingerprint;
         assert.equal(title, "Tarjetas");
@@ -140,11 +177,26 @@ describe("signed Kiosk orchestration", () => {
       tenant: { name: "DEMO" },
       services: [{ id: INPUT.serviceId, name: "Impresión" }],
     });
-    assert.deepEqual(await submitKioskOrder(capability, INPUT, gateway), {
+    assert.equal(
+      await admitKioskRequest(
+        { ...capability, purpose: "admit", binding: "request" },
+        gateway
+      ),
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    );
+    assert.deepEqual(
+      await submitKioskOrder(
+        submitCapability,
+        permitId,
+        INPUT,
+        gateway
+      ),
+      {
       ok: true,
       reference: "DEMO-0042",
       replay: false,
-    });
+      }
+    );
     assert.equal(submittedFingerprint, kioskInputFingerprint(INPUT));
   });
 });

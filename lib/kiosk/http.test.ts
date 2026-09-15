@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { handleKioskOrderRequest } from "./http";
+import {
+  admitKioskHttpRequest,
+  handleKioskOrderRequest,
+} from "./http";
 import { KioskServiceError } from "./service";
 
 const VALID_BODY = {
@@ -23,7 +26,11 @@ const CONTEXT = {
 function request(body: unknown) {
   return new Request("https://demo.app.gestcopy.com/api/kiosk/orders", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://demo.app.gestcopy.com",
+      "Sec-Fetch-Site": "same-origin",
+    },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -167,5 +174,90 @@ describe("handleKioskOrderRequest", () => {
     assert.deepEqual(await unexpected.json(), {
       error: "No se pudo crear la solicitud",
     });
+  });
+});
+
+describe("admitKioskHttpRequest", () => {
+  it("rejects non-JSON and cross-site requests explicitly", async () => {
+    const plain = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Origin: "https://demo.app.gestcopy.com",
+          "Sec-Fetch-Site": "same-origin",
+        },
+        body: "{}",
+      }
+    );
+    const plainResult = await admitKioskHttpRequest(
+      plain,
+      CONTEXT,
+      async () => "permit"
+    );
+    assert.equal(plainResult.ok, false);
+    if (!plainResult.ok) assert.equal(plainResult.response.status, 415);
+
+    const crossSite = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.test",
+          "Sec-Fetch-Site": "cross-site",
+        },
+        body: "{}",
+      }
+    );
+    const crossResult = await admitKioskHttpRequest(
+      crossSite,
+      CONTEXT,
+      async () => "permit"
+    );
+    assert.equal(crossResult.ok, false);
+    if (!crossResult.ok) assert.equal(crossResult.response.status, 403);
+  });
+
+  it("consumes distributed admission before reading JSON", async () => {
+    let bodyPulls = 0;
+    let admissions = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        bodyPulls += 1;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(VALID_BODY)));
+        controller.close();
+      },
+    });
+    const incoming = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Origin: "https://demo.app.gestcopy.com",
+          "Sec-Fetch-Site": "same-origin",
+        },
+        body,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" }
+    );
+    const result = await admitKioskHttpRequest(
+      incoming,
+      CONTEXT,
+      async (context) => {
+        admissions += 1;
+        assert.deepEqual(context, CONTEXT);
+        return "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+      }
+    );
+    assert.deepEqual(result, {
+      ok: true,
+      permit: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+    assert.equal(admissions, 1);
+    assert.equal(incoming.bodyUsed, false);
+    assert.ok(bodyPulls <= 1);
   });
 });

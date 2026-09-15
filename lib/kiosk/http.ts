@@ -6,6 +6,9 @@ type SubmitKioskOrder = (
   context: TrustedKioskContext,
   input: KioskOrderInput
 ) => Promise<{ ok: true; reference: string; replay: boolean }>;
+type AdmitKioskRequest = (
+  context: TrustedKioskContext
+) => Promise<string>;
 
 const MAX_KIOSK_BODY_BYTES = 16 * 1024;
 
@@ -42,6 +45,68 @@ function kioskJson(data: unknown, status: number) {
       Pragma: "no-cache",
     },
   });
+}
+
+export async function admitKioskHttpRequest(
+  request: Request,
+  context: TrustedKioskContext | null,
+  admit: AdmitKioskRequest
+): Promise<
+  | { ok: true; permit: string }
+  | { ok: false; response: Response }
+> {
+  if (!context) {
+    return {
+      ok: false,
+      response: kioskJson({ error: "Kiosk no disponible" }, 404),
+    };
+  }
+
+  const mediaType = request.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (mediaType !== "application/json") {
+    return {
+      ok: false,
+      response: kioskJson(
+        { error: "Content-Type debe ser application/json" },
+        415
+      ),
+    };
+  }
+
+  const expectedOrigin = new URL(request.url).origin;
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (origin !== expectedOrigin || fetchSite !== "same-origin") {
+    return {
+      ok: false,
+      response: kioskJson({ error: "Solicitud cross-site rechazada" }, 403),
+    };
+  }
+
+  try {
+    return { ok: true, permit: await admit(context) };
+  } catch (error) {
+    if (
+      error instanceof KioskServiceError &&
+      error.code === "rate_limited"
+    ) {
+      return {
+        ok: false,
+        response: kioskJson(
+          { error: "Demasiadas solicitudes. Inténtalo de nuevo más tarde." },
+          429
+        ),
+      };
+    }
+    return {
+      ok: false,
+      response: kioskJson({ error: "Kiosk no disponible" }, 503),
+    };
+  }
 }
 
 export async function handleKioskOrderRequest(

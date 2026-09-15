@@ -7,6 +7,8 @@ const capability = {
   tenantSlug: "demo",
   clientKey: "a".repeat(64),
   issuedAt: 1_789_000_000,
+  purpose: "bootstrap" as const,
+  binding: "bootstrap",
   signature: "b".repeat(64),
 };
 
@@ -36,10 +38,37 @@ describe("createSupabaseKioskGateway", () => {
           p_tenant_slug: "demo",
           p_client_key: "a".repeat(64),
           p_issued_at: 1_789_000_000,
+          p_purpose: "bootstrap",
+          p_binding: "bootstrap",
           p_signature: "b".repeat(64),
         },
       },
     ]);
+  });
+
+  it("calls the signed admission RPC before body parsing", async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const gateway = createSupabaseKioskGateway({
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        calls.push({ name, args });
+        return {
+          data: {
+            status: "admitted",
+            permit: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          },
+          error: null,
+        };
+      },
+    });
+    await gateway.admit({
+      ...capability,
+      purpose: "admit",
+      binding: "request",
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, "admit_kiosk_request");
+    assert.equal(calls[0].args.p_purpose, "admit");
+    assert.equal(calls[0].args.p_binding, "request");
   });
 
   it("calls one transactional submit RPC with no tenant id", async () => {
@@ -51,7 +80,14 @@ describe("createSupabaseKioskGateway", () => {
       },
     });
     await gateway.submit(
-      capability,
+      {
+        ...capability,
+        purpose: "submit",
+        binding:
+          "dddddddd-dddd-4ddd-8ddd-dddddddddddd|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa|" +
+          "f".repeat(64),
+      },
+      "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       input,
       "f".repeat(64),
       "Tarjetas"
@@ -63,7 +99,12 @@ describe("createSupabaseKioskGateway", () => {
       p_tenant_slug: "demo",
       p_client_key: "a".repeat(64),
       p_issued_at: 1_789_000_000,
+      p_purpose: "submit",
+      p_binding:
+        "dddddddd-dddd-4ddd-8ddd-dddddddddddd|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa|" +
+        "f".repeat(64),
       p_signature: "b".repeat(64),
+      p_permit_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       p_submission_id: input.submissionId,
       p_request_fingerprint: "f".repeat(64),
       p_title: "Tarjetas",

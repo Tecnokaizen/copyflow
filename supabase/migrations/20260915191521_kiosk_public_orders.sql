@@ -3,9 +3,9 @@
 -- channel rows and changes no tenant configuration.
 --
 -- The browser cannot invoke the privileged functions directly: PostgREST only
--- exposes public, while SECURITY DEFINER functions live in kiosk_private. Public
--- SECURITY INVOKER wrappers require a short-lived HMAC capability minted by
--- the trusted Next.js/Vercel boundary.
+-- exposes public, while implementation functions live in kiosk_private.
+-- Hardened public SECURITY DEFINER wrappers have a fixed empty search_path,
+-- explicit grants and require a purpose-bound short-lived HMAC capability.
 --
 -- Operational prerequisite (not stored in Git):
 --   1. Store a >=32-char value in Vault as `kiosk_signing_secret`.
@@ -23,16 +23,34 @@ CREATE TABLE IF NOT EXISTS kiosk_private.kiosk_rate_limits (
     REFERENCES public.tenants(id) ON DELETE CASCADE,
   client_key text NOT NULL
     CHECK (client_key ~ '^[a-f0-9]{64}$'),
+  purpose text NOT NULL
+    CHECK (purpose IN ('bootstrap', 'submit')),
   window_started_at timestamptz NOT NULL,
   request_count integer NOT NULL
     CHECK (request_count > 0),
-  PRIMARY KEY (tenant_id, client_key)
+  PRIMARY KEY (tenant_id, client_key, purpose)
 );
 
 CREATE INDEX IF NOT EXISTS kiosk_rate_limits_window_idx
   ON kiosk_private.kiosk_rate_limits (window_started_at);
 
 REVOKE ALL ON TABLE kiosk_private.kiosk_rate_limits
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE TABLE IF NOT EXISTS kiosk_private.kiosk_request_permits (
+  id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
+  tenant_id uuid NOT NULL
+    REFERENCES public.tenants(id) ON DELETE CASCADE,
+  client_key text NOT NULL
+    CHECK (client_key ~ '^[a-f0-9]{64}$'),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS kiosk_request_permits_expiry_idx
+  ON kiosk_private.kiosk_request_permits (expires_at);
+
+REVOKE ALL ON TABLE kiosk_private.kiosk_request_permits
   FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION kiosk_private.constant_time_equal(
@@ -67,10 +85,74 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION kiosk_private.consume_kiosk_rate(
+  p_tenant_id uuid,
+  p_client_key text,
+  p_purpose text,
+  p_limit integer
+)
+  RETURNS boolean
+  LANGUAGE plpgsql
+  VOLATILE
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+DECLARE
+  v_count integer;
+BEGIN
+  IF p_tenant_id IS NULL
+     OR p_client_key !~ '^[a-f0-9]{64}$'
+     OR p_purpose NOT IN ('bootstrap', 'submit')
+     OR p_limit < 1 THEN
+    RETURN false;
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'kiosk-rate:' || p_tenant_id::text || ':' ||
+      p_client_key || ':' || p_purpose,
+      0
+    )
+  );
+
+  INSERT INTO kiosk_private.kiosk_rate_limits AS rl (
+    tenant_id,
+    client_key,
+    purpose,
+    window_started_at,
+    request_count
+  )
+  VALUES (
+    p_tenant_id,
+    p_client_key,
+    p_purpose,
+    pg_catalog.now(),
+    1
+  )
+  ON CONFLICT (tenant_id, client_key, purpose)
+  DO UPDATE SET
+    window_started_at = CASE
+      WHEN rl.window_started_at <= pg_catalog.now() - interval '1 minute'
+        THEN pg_catalog.now()
+      ELSE rl.window_started_at
+    END,
+    request_count = CASE
+      WHEN rl.window_started_at <= pg_catalog.now() - interval '1 minute'
+        THEN 1
+      ELSE rl.request_count + 1
+    END
+  RETURNING request_count INTO v_count;
+
+  RETURN v_count <= p_limit;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION kiosk_private.verify_kiosk_capability(
   p_tenant_slug text,
   p_client_key text,
   p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
   p_signature text
 )
   RETURNS boolean
@@ -88,6 +170,9 @@ BEGIN
      OR p_tenant_slug !~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'
      OR p_client_key IS NULL
      OR p_client_key !~ '^[a-f0-9]{64}$'
+     OR p_purpose NOT IN ('bootstrap', 'admit', 'submit')
+     OR p_binding IS NULL
+     OR pg_catalog.octet_length(p_binding) NOT BETWEEN 1 AND 256
      OR p_signature IS NULL
      OR p_signature !~ '^[a-f0-9]{64}$'
      OR p_issued_at IS NULL
@@ -109,7 +194,8 @@ BEGIN
   END IF;
 
   v_message :=
-    'kiosk-v1|' || p_tenant_slug || '|' || p_client_key || '|' || p_issued_at;
+    'kiosk-v1|' || p_purpose || '|' || p_tenant_slug || '|' ||
+    p_client_key || '|' || p_issued_at || '|' || p_binding;
   v_expected := pg_catalog.encode(
     extensions.hmac(
       pg_catalog.convert_to(v_message, 'UTF8'),
@@ -127,11 +213,13 @@ CREATE OR REPLACE FUNCTION kiosk_private.kiosk_bootstrap(
   p_tenant_slug text,
   p_client_key text,
   p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
   p_signature text
 )
   RETURNS jsonb
   LANGUAGE plpgsql
-  STABLE
+  VOLATILE
   SECURITY DEFINER
   SET search_path TO ''
   AS $function$
@@ -141,8 +229,10 @@ DECLARE
   v_channel_count integer;
   v_services jsonb;
 BEGIN
-  IF NOT kiosk_private.verify_kiosk_capability(
-    p_tenant_slug, p_client_key, p_issued_at, p_signature
+  IF p_purpose <> 'bootstrap'
+     OR p_binding <> 'bootstrap'
+     OR NOT kiosk_private.verify_kiosk_capability(
+    p_tenant_slug, p_client_key, p_issued_at, p_purpose, p_binding, p_signature
   ) THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
@@ -155,6 +245,15 @@ BEGIN
 
   IF v_tenant.id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
+  DELETE FROM kiosk_private.kiosk_rate_limits rl
+  WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
+
+  IF NOT kiosk_private.consume_kiosk_rate(
+    v_tenant.id, p_client_key, 'bootstrap', 30
+  ) THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
   END IF;
 
   SELECT count(*)
@@ -197,11 +296,85 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION kiosk_private.admit_kiosk_request(
+  p_tenant_slug text,
+  p_client_key text,
+  p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
+  p_signature text
+)
+  RETURNS jsonb
+  LANGUAGE plpgsql
+  VOLATILE
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+DECLARE
+  v_tenant_id uuid;
+  v_permit_id uuid;
+BEGIN
+  IF p_purpose <> 'admit'
+     OR p_binding <> 'request'
+     OR NOT kiosk_private.verify_kiosk_capability(
+       p_tenant_slug,
+       p_client_key,
+       p_issued_at,
+       p_purpose,
+       p_binding,
+       p_signature
+     ) THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
+  SELECT t.id
+  INTO v_tenant_id
+  FROM public.tenants t
+  WHERE t.slug = p_tenant_slug
+    AND t.active = true;
+
+  IF v_tenant_id IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
+  DELETE FROM kiosk_private.kiosk_rate_limits rl
+  WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
+  DELETE FROM kiosk_private.kiosk_request_permits p
+  WHERE p.expires_at < pg_catalog.now() - interval '1 day';
+
+  IF NOT kiosk_private.consume_kiosk_rate(
+    v_tenant_id, p_client_key, 'submit', 5
+  ) THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
+  END IF;
+
+  INSERT INTO kiosk_private.kiosk_request_permits (
+    tenant_id,
+    client_key,
+    expires_at
+  )
+  VALUES (
+    v_tenant_id,
+    p_client_key,
+    pg_catalog.now() + interval '5 minutes'
+  )
+  RETURNING id INTO v_permit_id;
+
+  RETURN pg_catalog.jsonb_build_object(
+    'status', 'admitted',
+    'permit', v_permit_id
+  );
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION kiosk_private.submit_kiosk_order(
   p_tenant_slug text,
   p_client_key text,
   p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
   p_signature text,
+  p_permit_id uuid,
   p_submission_id uuid,
   p_request_fingerprint text,
   p_title text,
@@ -226,19 +399,59 @@ DECLARE
   v_channel_ids uuid[];
   v_existing public.orders%rowtype;
   v_order public.orders%rowtype;
-  v_count integer;
+  v_consumed_permit uuid;
   v_locked_id uuid;
   v_notes text;
 BEGIN
-  IF NOT kiosk_private.verify_kiosk_capability(
-    p_tenant_slug, p_client_key, p_issued_at, p_signature
-  ) THEN
+  IF p_permit_id IS NULL
+     OR p_submission_id IS NULL
+     OR p_request_fingerprint IS NULL
+     OR p_request_fingerprint !~ '^[a-f0-9]{64}$' THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
+  END IF;
+
+  IF p_purpose <> 'submit'
+     OR p_binding <> (
+       p_permit_id::text || '|' ||
+       p_submission_id::text || '|' ||
+       p_request_fingerprint
+     )
+     OR NOT kiosk_private.verify_kiosk_capability(
+       p_tenant_slug,
+       p_client_key,
+       p_issued_at,
+       p_purpose,
+       p_binding,
+       p_signature
+     ) THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
-  IF p_submission_id IS NULL
-     OR p_request_fingerprint !~ '^[a-f0-9]{64}$'
-     OR nullif(pg_catalog.btrim(p_title), '') IS NULL
+  SELECT t.*
+  INTO v_tenant
+  FROM public.tenants t
+  WHERE t.slug = p_tenant_slug
+    AND t.active = true
+  FOR SHARE;
+
+  IF v_tenant.id IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
+  UPDATE kiosk_private.kiosk_request_permits p
+  SET consumed_at = pg_catalog.now()
+  WHERE p.id = p_permit_id
+    AND p.tenant_id = v_tenant.id
+    AND p.client_key = p_client_key
+    AND p.consumed_at IS NULL
+    AND p.expires_at >= pg_catalog.now()
+  RETURNING p.id INTO v_consumed_permit;
+
+  IF v_consumed_permit IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
+  END IF;
+
+  IF nullif(pg_catalog.btrim(p_title), '') IS NULL
      OR pg_catalog.char_length(pg_catalog.btrim(p_title)) > 80
      OR p_service_id IS NULL
      OR nullif(pg_catalog.btrim(p_contact_name), '') IS NULL
@@ -255,57 +468,11 @@ BEGIN
     RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
   END IF;
 
-  SELECT t.*
-  INTO v_tenant
-  FROM public.tenants t
-  WHERE t.slug = p_tenant_slug
-    AND t.active = true
-  FOR SHARE;
-
-  IF v_tenant.id IS NULL THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
-  END IF;
-
-  -- A submission lock makes replays deterministic even if the client IP
-  -- changes. The client lock serializes the distributed rate counter.
+  -- A submission lock makes retries deterministic even if the client IP
+  -- changes between separately admitted requests.
   PERFORM pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('kiosk-submission:' || p_submission_id, 0)
   );
-  PERFORM pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended(
-      'kiosk-client:' || v_tenant.id::text || ':' || p_client_key,
-      0
-    )
-  );
-
-  DELETE FROM kiosk_private.kiosk_rate_limits rl
-  WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
-
-  INSERT INTO kiosk_private.kiosk_rate_limits AS rl (
-    tenant_id,
-    client_key,
-    window_started_at,
-    request_count
-  )
-  VALUES (
-    v_tenant.id,
-    p_client_key,
-    pg_catalog.now(),
-    1
-  )
-  ON CONFLICT (tenant_id, client_key)
-  DO UPDATE SET
-    window_started_at = CASE
-      WHEN rl.window_started_at <= pg_catalog.now() - interval '1 minute'
-        THEN pg_catalog.now()
-      ELSE rl.window_started_at
-    END,
-    request_count = CASE
-      WHEN rl.window_started_at <= pg_catalog.now() - interval '1 minute'
-        THEN 1
-      ELSE rl.request_count + 1
-    END
-  RETURNING request_count INTO v_count;
 
   SELECT o.*
   INTO v_existing
@@ -322,14 +489,7 @@ BEGIN
         'reference', v_existing.reference
       );
     END IF;
-    IF v_count > 5 THEN
-      RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
-    END IF;
     RETURN pg_catalog.jsonb_build_object('status', 'conflict');
-  END IF;
-
-  IF v_count > 5 THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
   END IF;
 
   SELECT s.*
@@ -525,22 +685,44 @@ CREATE OR REPLACE FUNCTION public.kiosk_bootstrap(
   p_tenant_slug text,
   p_client_key text,
   p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
   p_signature text
 )
   RETURNS jsonb
   LANGUAGE sql
-  STABLE
-  SECURITY INVOKER
+  VOLATILE
+  SECURITY DEFINER
   SET search_path TO ''
   AS $function$
-    SELECT kiosk_private.kiosk_bootstrap($1, $2, $3, $4);
+    SELECT kiosk_private.kiosk_bootstrap($1, $2, $3, $4, $5, $6);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.admit_kiosk_request(
+  p_tenant_slug text,
+  p_client_key text,
+  p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
+  p_signature text
+)
+  RETURNS jsonb
+  LANGUAGE sql
+  VOLATILE
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+    SELECT kiosk_private.admit_kiosk_request($1, $2, $3, $4, $5, $6);
 $function$;
 
 CREATE OR REPLACE FUNCTION public.submit_kiosk_order(
   p_tenant_slug text,
   p_client_key text,
   p_issued_at bigint,
+  p_purpose text,
+  p_binding text,
   p_signature text,
+  p_permit_id uuid,
   p_submission_id uuid,
   p_request_fingerprint text,
   p_title text,
@@ -555,45 +737,66 @@ CREATE OR REPLACE FUNCTION public.submit_kiosk_order(
   RETURNS jsonb
   LANGUAGE sql
   VOLATILE
-  SECURITY INVOKER
+  SECURITY DEFINER
   SET search_path TO ''
   AS $function$
     SELECT kiosk_private.submit_kiosk_order(
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+      $15, $16, $17
     );
 $function$;
 
 REVOKE ALL ON FUNCTION kiosk_private.constant_time_equal(text, text)
   FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION kiosk_private.verify_kiosk_capability(text, text, bigint, text)
+REVOKE ALL ON FUNCTION kiosk_private.consume_kiosk_rate(uuid, text, text, integer)
   FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION kiosk_private.kiosk_bootstrap(text, text, bigint, text)
-  FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION kiosk_private.submit_kiosk_order(
-  text, text, bigint, text, uuid, text, text, uuid, text, text, text, text,
-  timestamptz, text
+REVOKE ALL ON FUNCTION kiosk_private.verify_kiosk_capability(
+  text, text, bigint, text, text, text
 ) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION kiosk_private.kiosk_bootstrap(
+  text, text, bigint, text, text, text
+) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION kiosk_private.admit_kiosk_request(
+  text, text, bigint, text, text, text
+) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION kiosk_private.submit_kiosk_order(
+  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, text, text, timestamptz, text
+) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SCHEMA kiosk_private
+  FROM PUBLIC, anon, authenticated, service_role;
 
-GRANT USAGE ON SCHEMA kiosk_private TO anon;
-GRANT EXECUTE ON FUNCTION kiosk_private.kiosk_bootstrap(text, text, bigint, text)
-  TO anon;
-GRANT EXECUTE ON FUNCTION kiosk_private.submit_kiosk_order(
-  text, text, bigint, text, uuid, text, text, uuid, text, text, text, text,
-  timestamptz, text
-) TO anon;
-
-REVOKE ALL ON FUNCTION public.kiosk_bootstrap(text, text, bigint, text)
-  FROM PUBLIC, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.submit_kiosk_order(
-  text, text, bigint, text, uuid, text, text, uuid, text, text, text, text,
-  timestamptz, text
+REVOKE ALL ON FUNCTION public.kiosk_bootstrap(
+  text, text, bigint, text, text, text
 ) FROM PUBLIC, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.kiosk_bootstrap(text, text, bigint, text)
-  TO anon;
-GRANT EXECUTE ON FUNCTION public.submit_kiosk_order(
-  text, text, bigint, text, uuid, text, text, uuid, text, text, text, text,
-  timestamptz, text
+REVOKE ALL ON FUNCTION public.admit_kiosk_request(
+  text, text, bigint, text, text, text
+) FROM PUBLIC, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.submit_kiosk_order(
+  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, text, text, timestamptz, text
+) FROM PUBLIC, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.kiosk_bootstrap(
+  text, text, bigint, text, text, text
 ) TO anon;
+GRANT EXECUTE ON FUNCTION public.admit_kiosk_request(
+  text, text, bigint, text, text, text
+) TO anon;
+GRANT EXECUTE ON FUNCTION public.submit_kiosk_order(
+  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, text, text, timestamptz, text
+) TO anon;
+
+COMMENT ON FUNCTION public.kiosk_bootstrap(
+  text, text, bigint, text, text, text
+) IS 'Hardened signed Kiosk bootstrap wrapper. No tenant is selected without a purpose-bound capability.';
+COMMENT ON FUNCTION public.admit_kiosk_request(
+  text, text, bigint, text, text, text
+) IS 'Hardened signed Kiosk admission wrapper. Applies distributed rate limiting before request-body parsing.';
+COMMENT ON FUNCTION public.submit_kiosk_order(
+  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, text, text, timestamptz, text
+) IS 'Hardened signed one-shot Kiosk submit wrapper. Validates payload and configuration transactionally.';
 
 REVOKE ALL ON FUNCTION public.tg_activity_log_order_created() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.tg_activity_log_order_created()

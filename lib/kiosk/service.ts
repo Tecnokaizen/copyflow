@@ -73,6 +73,27 @@ export function mapKioskBootstrapResult(
   };
 }
 
+export function mapKioskAdmissionResult(value: unknown) {
+  if (!value || typeof value !== "object") {
+    throw new KioskServiceError("could_not_create", 500);
+  }
+  const result = value as Record<string, unknown>;
+  if (
+    result.status === "admitted" &&
+    typeof result.permit === "string" &&
+    UUID_PATTERN.test(result.permit)
+  ) {
+    return result.permit;
+  }
+  if (result.status === "rate_limited") {
+    throw new KioskServiceError("rate_limited", 429);
+  }
+  if (result.status === "not_found") {
+    throw new KioskServiceError("not_found", 404);
+  }
+  throw new KioskServiceError("could_not_create", 503);
+}
+
 export function mapKioskSubmitResult(value: unknown) {
   if (!value || typeof value !== "object") {
     throw new KioskServiceError("could_not_create", 500);
@@ -110,14 +131,23 @@ export async function getKioskBootstrap(
   return mapKioskBootstrapResult(await gateway.bootstrap(capability));
 }
 
+export async function admitKioskRequest(
+  capability: KioskCapability,
+  gateway: KioskGateway
+) {
+  return mapKioskAdmissionResult(await gateway.admit(capability));
+}
+
 export async function submitKioskOrder(
   capability: KioskCapability,
+  permitId: string,
   input: KioskOrderInput,
   gateway: KioskGateway
 ) {
   return mapKioskSubmitResult(
     await gateway.submit(
       capability,
+      permitId,
       input,
       kioskInputFingerprint(input),
       deriveOrderTitle({ description: input.description })
