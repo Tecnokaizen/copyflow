@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/gestcopy/empty-state";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { formatPriority } from "@/lib/orders/format";
 import {
+  counterEmptyState,
   isOverdueCounterOrder,
   isUrgentCounterOrder,
   type CounterBucket,
@@ -68,19 +69,26 @@ export function CounterBoard({
   timezone,
   view = "list",
   filtersActive = false,
+  filteredCount,
 }: {
   buckets: CounterBucket[];
   today: string;
   timezone: string;
   view?: CounterViewMode;
   filtersActive?: boolean;
+  filteredCount?: number;
 }) {
-  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const emptyTitle = filtersActive
-    ? "Ningún pedido coincide con los filtros."
-    : "No hay pedidos en el mostrador ahora mismo.";
+  const bucketVisibleCount = buckets.reduce(
+    (sum, bucket) => sum + bucket.count,
+    0
+  );
+  const emptyTitle = counterEmptyState({
+    filteredCount: filteredCount ?? bucketVisibleCount,
+    bucketVisibleCount,
+    filtersActive,
+  });
 
-  if (total === 0) {
+  if (emptyTitle) {
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
         <EmptyState title={emptyTitle} />
@@ -88,9 +96,13 @@ export function CounterBoard({
     );
   }
 
+  const visibleBuckets = buckets.filter(
+    (bucket) => bucket.id !== "other_active" || bucket.count > 0
+  );
+
   return (
     <div className="space-y-8">
-      {buckets.map((bucket) => (
+      {visibleBuckets.map((bucket) => (
         <section key={bucket.id} className="space-y-3">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">

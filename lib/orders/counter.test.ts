@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   belongsToCounterTenant,
+  COUNTER_BUCKETS,
   COUNTER_VIEW_STORAGE_KEY,
+  counterEmptyState,
   filterOrdersForCounter,
   groupCounterBuckets,
   hasActiveCounterFilters,
   isNotifyPendingCounterOrder,
+  isOtherActiveCounterOrder,
   isOverdueCounterOrder,
   isReadyCounterOrder,
   isUpcomingCounterOrder,
@@ -52,6 +55,31 @@ function order(overrides: Partial<CounterOrder> = {}): CounterOrder {
 }
 
 describe("counter buckets", () => {
+  it("orders attention buckets with Retrasados first and leftover Otros activos last", () => {
+    assert.deepEqual(
+      COUNTER_BUCKETS.map((bucket) => bucket.id),
+      [
+        "overdue",
+        "urgent",
+        "ready",
+        "notify_pending",
+        "upcoming",
+        "other_active",
+      ]
+    );
+    assert.deepEqual(
+      COUNTER_BUCKETS.map((bucket) => bucket.label),
+      [
+        "Retrasados",
+        "Urgentes",
+        "Listos para entregar",
+        "Pendientes de avisar",
+        "Entregas próximas",
+        "Otros activos",
+      ]
+    );
+  });
+
   it("puts active urgent orders in Urgentes even if they are also ready", () => {
     const urgentReady = order({
       id: "urgent-ready",
@@ -424,5 +452,348 @@ describe("overdue classification", () => {
     assert.equal(isOverdueCounterOrder(overdue, TODAY, TIME_ZONE), true);
     assert.equal(isOverdueCounterOrder(dueTodayLateUtc, TODAY, TIME_ZONE), false);
     assert.equal(isOverdueCounterOrder(delivered, TODAY, TIME_ZONE), false);
+  });
+
+  it("puts active past-due high and normal orders in Retrasados", () => {
+    const high = order({
+      id: "overdue-high",
+      priority: "high",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const normal = order({
+      id: "overdue-normal",
+      priority: "normal",
+      due_at: "2026-09-14T08:00:00.000Z",
+    });
+
+    assert.equal(isOverdueCounterOrder(high, TODAY, TIME_ZONE), true);
+    assert.equal(isOverdueCounterOrder(normal, TODAY, TIME_ZONE), true);
+
+    const buckets = groupCounterBuckets([high, normal], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    const overdueIds = buckets
+      .find((bucket) => bucket.id === "overdue")
+      ?.orders.map((row) => row.id);
+    assert.deepEqual(overdueIds, ["overdue-high", "overdue-normal"]);
+    assert.equal(buckets.find((bucket) => bucket.id === "upcoming")?.count, 0);
+  });
+
+  it("keeps overdue + urgent in both Retrasados and Urgentes", () => {
+    const overdueUrgent = order({
+      id: "overdue-urgent",
+      priority: "urgent",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+
+    const buckets = groupCounterBuckets([overdueUrgent], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 1);
+    assert.equal(buckets.find((bucket) => bucket.id === "urgent")?.count, 1);
+    assert.equal(isUrgentCounterOrder(overdueUrgent), true);
+  });
+
+  it("keeps upcoming exclusive of overdue civil dates", () => {
+    const overdue = order({
+      id: "overdue",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const upcoming = order({
+      id: "upcoming",
+      due_at: "2026-09-16T10:00:00.000Z",
+    });
+
+    assert.equal(isUpcomingCounterOrder(overdue, TODAY, TIME_ZONE), false);
+    assert.equal(isUpcomingCounterOrder(upcoming, TODAY, TIME_ZONE), true);
+
+    const buckets = groupCounterBuckets([overdue, upcoming], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.deepEqual(
+      buckets.find((bucket) => bucket.id === "overdue")?.orders.map((row) => row.id),
+      ["overdue"]
+    );
+    assert.deepEqual(
+      buckets
+        .find((bucket) => bucket.id === "upcoming")
+        ?.orders.map((row) => row.id),
+      ["upcoming"]
+    );
+  });
+});
+
+describe("counter leftover other_active", () => {
+  it("places leftover active orders without due date only in Otros activos", () => {
+    const leftover = order({
+      id: "no-due",
+      due_at: null,
+      priority: "normal",
+    });
+
+    assert.equal(isOtherActiveCounterOrder(leftover, TODAY, TIME_ZONE), true);
+    assert.equal(isOverdueCounterOrder(leftover, TODAY, TIME_ZONE), false);
+    assert.equal(isUrgentCounterOrder(leftover), false);
+    assert.equal(isReadyCounterOrder(leftover), false);
+    assert.equal(isUpcomingCounterOrder(leftover, TODAY, TIME_ZONE), false);
+
+    const buckets = groupCounterBuckets([leftover], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "other_active")?.count, 1);
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 0);
+    assert.equal(buckets.find((bucket) => bucket.id === "urgent")?.count, 0);
+    assert.equal(buckets.find((bucket) => bucket.id === "ready")?.count, 0);
+    assert.equal(buckets.find((bucket) => bucket.id === "notify_pending")?.count, 0);
+    assert.equal(buckets.find((bucket) => bucket.id === "upcoming")?.count, 0);
+  });
+
+  it("does not duplicate classified orders into Otros activos", () => {
+    const overdue = order({
+      id: "overdue",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const urgent = order({ id: "urgent", priority: "urgent" });
+    const ready = order({
+      id: "ready",
+      status: {
+        name: "Listo",
+        is_ready: true,
+        is_closed: false,
+        is_cancelled: false,
+      },
+    });
+    const leftover = order({ id: "leftover", due_at: null });
+
+    assert.equal(isOtherActiveCounterOrder(overdue, TODAY, TIME_ZONE), false);
+    assert.equal(isOtherActiveCounterOrder(urgent, TODAY, TIME_ZONE), false);
+    assert.equal(isOtherActiveCounterOrder(ready, TODAY, TIME_ZONE), false);
+    assert.equal(isOtherActiveCounterOrder(leftover, TODAY, TIME_ZONE), true);
+
+    const buckets = groupCounterBuckets([overdue, urgent, ready, leftover], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.deepEqual(
+      buckets
+        .find((bucket) => bucket.id === "other_active")
+        ?.orders.map((row) => row.id),
+      ["leftover"]
+    );
+  });
+});
+
+describe("counter empty state copy", () => {
+  it("never claims filters matched nothing when filtered orders exist", () => {
+    assert.equal(
+      counterEmptyState({
+        filteredCount: 5,
+        bucketVisibleCount: 0,
+        filtersActive: true,
+      }),
+      null
+    );
+    assert.equal(
+      counterEmptyState({
+        filteredCount: 5,
+        bucketVisibleCount: 5,
+        filtersActive: true,
+      }),
+      null
+    );
+    assert.equal(
+      counterEmptyState({
+        filteredCount: 0,
+        bucketVisibleCount: 0,
+        filtersActive: true,
+      }),
+      "Ningún pedido coincide con los filtros."
+    );
+    assert.equal(
+      counterEmptyState({
+        filteredCount: 0,
+        bucketVisibleCount: 0,
+        filtersActive: false,
+      }),
+      "No hay pedidos en el mostrador ahora mismo."
+    );
+  });
+});
+
+describe("overdue visibility through id filters", () => {
+  const claraOverdue = Array.from({ length: 5 }, (_, index) =>
+    order({
+      id: `clara-overdue-${index}`,
+      assignee_id: "member-clara",
+      assignee_name: "Clara Ruiz",
+      store_id: index < 3 ? "store-centro" : "store-norte",
+      priority: index < 2 ? "high" : "normal",
+      due_at: "2026-09-14T10:00:00.000Z",
+    })
+  );
+  const otherOverdue = order({
+    id: "luis-overdue",
+    assignee_id: "member-luis",
+    assignee_name: "Luis",
+    store_id: "store-norte",
+    priority: "high",
+    due_at: "2026-09-14T09:00:00.000Z",
+  });
+  const claraUpcoming = order({
+    id: "clara-upcoming",
+    assignee_id: "member-clara",
+    assignee_name: "Clara Ruiz",
+    store_id: "store-centro",
+    priority: "normal",
+    due_at: "2026-09-16T10:00:00.000Z",
+  });
+
+  it("keeps overdue visible with assignee id filter and matching overdue count", () => {
+    const filtered = filterOrdersForCounter(
+      [...claraOverdue, otherOverdue, claraUpcoming],
+      {
+        tenantId: "tenant-a",
+        query: "",
+        assigneeId: "member-clara",
+      }
+    );
+    assert.equal(filtered.length, 6);
+
+    const buckets = groupCounterBuckets(filtered, {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 5);
+    assert.equal(
+      counterEmptyState({
+        filteredCount: filtered.length,
+        bucketVisibleCount: buckets.reduce((sum, bucket) => sum + bucket.count, 0),
+        filtersActive: true,
+      }),
+      null
+    );
+  });
+
+  it("keeps overdue visible with mine matching the session team_member id", () => {
+    const impostor = order({
+      id: "impostor-overdue",
+      assignee_id: "member-other",
+      assignee_name: "Clara Ruiz",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const filtered = filterOrdersForCounter([...claraOverdue, impostor], {
+      tenantId: "tenant-a",
+      query: "",
+      mine: true,
+      currentTeamMemberId: "member-clara",
+    });
+
+    assert.equal(filtered.length, 5);
+    assert.equal(
+      filtered.every((row) => row.assignee_id === "member-clara"),
+      true
+    );
+
+    const buckets = groupCounterBuckets(filtered, {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 5);
+  });
+
+  it("narrows assignee overdue by high priority without dropping the rest from identity match", () => {
+    const byAssignee = filterOrdersForCounter([...claraOverdue, otherOverdue], {
+      tenantId: "tenant-a",
+      query: "",
+      assigneeId: "member-clara",
+    });
+    const byAssigneeHigh = filterOrdersForCounter(
+      [...claraOverdue, otherOverdue],
+      {
+        tenantId: "tenant-a",
+        query: "",
+        assigneeId: "member-clara",
+        priority: "high",
+      }
+    );
+
+    assert.equal(byAssignee.length, 5);
+    assert.equal(byAssigneeHigh.length, 2);
+    assert.equal(
+      byAssigneeHigh.every((row) => row.priority === "high"),
+      true
+    );
+
+    const buckets = groupCounterBuckets(byAssigneeHigh, {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 2);
+  });
+
+  it("narrows assignee overdue by store id", () => {
+    const filtered = filterOrdersForCounter([...claraOverdue, otherOverdue], {
+      tenantId: "tenant-a",
+      query: "",
+      assigneeId: "member-clara",
+      storeId: "store-centro",
+    });
+
+    assert.equal(filtered.length, 3);
+    assert.equal(
+      filtered.every((row) => row.store_id === "store-centro"),
+      true
+    );
+    const buckets = groupCounterBuckets(filtered, {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "overdue")?.count, 3);
+  });
+
+  it("restores the full tenant counter when filters are cleared", () => {
+    const allRows = [...claraOverdue, otherOverdue, claraUpcoming];
+    const filtered = filterOrdersForCounter(allRows, {
+      tenantId: "tenant-a",
+      query: "",
+      assigneeId: "member-clara",
+      storeId: "store-centro",
+      priority: "high",
+    });
+    const cleared = filterOrdersForCounter(allRows, {
+      tenantId: "tenant-a",
+      query: "",
+    });
+
+    assert.equal(filtered.length, 2);
+    assert.equal(cleared.length, 7);
+    assert.deepEqual(
+      cleared.map((row) => row.id).sort(),
+      allRows.map((row) => row.id).sort()
+    );
+  });
+
+  it("keeps tenant isolation when overdue orders share an assignee id", () => {
+    const foreign = order({
+      id: "foreign-overdue",
+      tenant_id: "tenant-b",
+      assignee_id: "member-clara",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const filtered = filterOrdersForCounter([...claraOverdue, foreign], {
+      tenantId: "tenant-a",
+      query: "",
+      assigneeId: "member-clara",
+    });
+
+    assert.equal(filtered.length, 5);
+    assert.equal(
+      filtered.every((row) => row.tenant_id === "tenant-a"),
+      true
+    );
   });
 });

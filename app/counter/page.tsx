@@ -396,6 +396,7 @@ function CounterContent() {
           timezone={data?.timezone ?? "Europe/Madrid"}
           view={view}
           filtersActive={filtersActive}
+          filteredCount={data?.count ?? 0}
         />
       )}
     </AppShell>

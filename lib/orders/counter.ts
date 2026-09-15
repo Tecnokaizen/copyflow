@@ -2,10 +2,12 @@ import { isUuid } from "@/lib/team/payload";
 import { formatZonedCivilDate } from "@/lib/time/zoned-day";
 
 export const COUNTER_BUCKETS = [
+  { id: "overdue", label: "Retrasados" },
   { id: "urgent", label: "Urgentes" },
   { id: "ready", label: "Listos para entregar" },
   { id: "notify_pending", label: "Pendientes de avisar" },
   { id: "upcoming", label: "Entregas próximas" },
+  { id: "other_active", label: "Otros activos" },
 ] as const;
 
 export type CounterBucketId = (typeof COUNTER_BUCKETS)[number]["id"];
@@ -164,6 +166,42 @@ export function isOverdueCounterOrder(
   return formatZonedCivilDate(due, timeZone) < todayCivil;
 }
 
+export function isOtherActiveCounterOrder(
+  order: CounterOrder,
+  todayCivil: string,
+  timeZone: string
+) {
+  if (!isActive(order)) {
+    return false;
+  }
+  if (isOverdueCounterOrder(order, todayCivil, timeZone)) {
+    return false;
+  }
+  if (isUrgentCounterOrder(order)) {
+    return false;
+  }
+  if (isReadyCounterOrder(order)) {
+    return false;
+  }
+  if (isUpcomingCounterOrder(order, todayCivil, timeZone)) {
+    return false;
+  }
+  return true;
+}
+
+export function counterEmptyState(input: {
+  filteredCount: number;
+  bucketVisibleCount: number;
+  filtersActive?: boolean;
+}) {
+  if (input.filteredCount > 0 || input.bucketVisibleCount > 0) {
+    return null;
+  }
+  return input.filtersActive
+    ? "Ningún pedido coincide con los filtros."
+    : "No hay pedidos en el mostrador ahora mismo.";
+}
+
 export function parseCounterViewMode(
   raw: string | null | undefined
 ): CounterViewMode {
@@ -232,11 +270,15 @@ export function groupCounterBuckets(
   const limit = input.previewLimit ?? PREVIEW_LIMIT;
 
   const filters: Record<CounterBucketId, (order: CounterOrder) => boolean> = {
+    overdue: (order) =>
+      isOverdueCounterOrder(order, input.todayCivil, input.timeZone),
     urgent: isUrgentCounterOrder,
     ready: isReadyCounterOrder,
     notify_pending: isNotifyPendingCounterOrder,
     upcoming: (order) =>
       isUpcomingCounterOrder(order, input.todayCivil, input.timeZone),
+    other_active: (order) =>
+      isOtherActiveCounterOrder(order, input.todayCivil, input.timeZone),
   };
 
   return COUNTER_BUCKETS.map((bucket) => {
