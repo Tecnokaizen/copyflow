@@ -7,10 +7,11 @@ import {
   filterOrdersForCounter,
   groupCounterBuckets,
   mapCounterOrderRow,
-  normalizeCounterQuery,
+  parseCounterFilterParams,
   type CounterOrder,
 } from "@/lib/orders/counter";
 import { createClient } from "@/lib/supabase/server";
+import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
   getZonedDayBounds,
@@ -22,11 +23,15 @@ const COUNTER_SELECT = `
   tenant_id,
   reference,
   title,
+  description,
   priority,
   due_at,
   delivered_at,
   ready_at,
   customer_notification_status,
+  store_id,
+  assigned_team_member_id,
+  service_id,
   client:clients(name),
   service:services(name),
   store:stores(name),
@@ -110,9 +115,14 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const timezone = await resolveTenantTimeZone(supabase, context.tenant.id);
   const today = getZonedDayBounds(new Date(), timezone).date;
-  const query = normalizeCounterQuery(
-    request.nextUrl.searchParams.get("q")
-  );
+  const filters = parseCounterFilterParams(request.nextUrl.searchParams);
+  const teamMember = filters.mine
+    ? await resolveCurrentTeamMember(
+        supabase,
+        context.tenant.id,
+        context.user.id
+      )
+    : null;
 
   const result = await fetchActiveCounterOrders(
     supabase,
@@ -137,7 +147,13 @@ export async function GET(request: NextRequest) {
 
   const orders = filterOrdersForCounter(mapped, {
     tenantId: context.tenant.id,
-    query,
+    query: filters.query,
+    storeId: filters.storeId,
+    assigneeId: filters.assigneeId,
+    serviceId: filters.serviceId,
+    priority: filters.priority,
+    mine: filters.mine,
+    currentTeamMemberId: teamMember?.id ?? null,
   });
 
   const buckets = groupCounterBuckets(orders, {
@@ -149,8 +165,9 @@ export async function GET(request: NextRequest) {
     tenant: context.tenant.slug,
     timezone,
     today,
-    query,
+    query: filters.query,
     can_write: canWriteOrders(context.membership.role),
+    count: orders.length,
     buckets,
   });
 }

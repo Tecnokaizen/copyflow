@@ -1,3 +1,4 @@
+import { isUuid } from "@/lib/team/payload";
 import { formatZonedCivilDate } from "@/lib/time/zoned-day";
 
 export const COUNTER_BUCKETS = [
@@ -9,11 +10,17 @@ export const COUNTER_BUCKETS = [
 
 export type CounterBucketId = (typeof COUNTER_BUCKETS)[number]["id"];
 
+export const COUNTER_PRIORITIES = ["normal", "high", "urgent"] as const;
+export type CounterPriority = (typeof COUNTER_PRIORITIES)[number];
+export type CounterViewMode = "list" | "grid";
+export const COUNTER_VIEW_STORAGE_KEY = "gestcopy-counter-view";
+
 export type CounterOrder = {
   id: string;
   tenant_id?: string;
   reference: string;
   title: string;
+  description?: string | null;
   priority: string;
   due_at: string | null;
   delivered_at: string | null;
@@ -23,12 +30,35 @@ export type CounterOrder = {
   service_name: string | null;
   store_name: string | null;
   assignee_name: string | null;
+  store_id: string | null;
+  assignee_id: string | null;
+  service_id: string | null;
   status: {
     name: string;
     is_ready: boolean;
     is_closed: boolean;
     is_cancelled: boolean;
   } | null;
+};
+
+export type CounterFilterInput = {
+  tenantId: string;
+  query: string;
+  storeId?: string | null;
+  assigneeId?: string | null;
+  serviceId?: string | null;
+  priority?: string | null;
+  mine?: boolean;
+  currentTeamMemberId?: string | null;
+};
+
+export type CounterFilterParams = {
+  query: string;
+  storeId: string | null;
+  assigneeId: string | null;
+  serviceId: string | null;
+  priority: CounterPriority | null;
+  mine: boolean;
 };
 
 export type CounterBucket = {
@@ -119,6 +149,82 @@ export function isUpcomingCounterOrder(
   return formatZonedCivilDate(due, timeZone) >= todayCivil;
 }
 
+export function isOverdueCounterOrder(
+  order: CounterOrder,
+  todayCivil: string,
+  timeZone: string
+) {
+  if (!isActive(order) || !order.due_at) {
+    return false;
+  }
+  const due = new Date(order.due_at);
+  if (Number.isNaN(due.getTime())) {
+    return false;
+  }
+  return formatZonedCivilDate(due, timeZone) < todayCivil;
+}
+
+export function parseCounterViewMode(
+  raw: string | null | undefined
+): CounterViewMode {
+  return raw === "grid" ? "grid" : "list";
+}
+
+export function readStoredCounterView(
+  storage: { getItem(key: string): string | null } | null
+): CounterViewMode {
+  if (!storage) {
+    return "list";
+  }
+  return parseCounterViewMode(storage.getItem(COUNTER_VIEW_STORAGE_KEY));
+}
+
+export function hasActiveCounterFilters(filters: {
+  storeId?: string | null;
+  assigneeId?: string | null;
+  serviceId?: string | null;
+  priority?: string | null;
+  mine?: boolean;
+  query?: string | null;
+}) {
+  void filters.query;
+  return Boolean(
+    filters.storeId ||
+      filters.assigneeId ||
+      filters.serviceId ||
+      filters.priority ||
+      filters.mine
+  );
+}
+
+function parseUuidParam(raw: string | null) {
+  if (!raw || !isUuid(raw)) {
+    return null;
+  }
+  return raw;
+}
+
+function parsePriorityParam(raw: string | null): CounterPriority | null {
+  if (raw === "normal" || raw === "high" || raw === "urgent") {
+    return raw;
+  }
+  return null;
+}
+
+export function parseCounterFilterParams(
+  searchParams: URLSearchParams
+): CounterFilterParams {
+  const mineRaw = searchParams.get("mine");
+  return {
+    query: normalizeCounterQuery(searchParams.get("q")),
+    storeId: parseUuidParam(searchParams.get("store_id")),
+    assigneeId: parseUuidParam(searchParams.get("assignee_id")),
+    serviceId: parseUuidParam(searchParams.get("service_id")),
+    priority: parsePriorityParam(searchParams.get("priority")),
+    mine: mineRaw === "1" || mineRaw === "true",
+  };
+}
+
 export function groupCounterBuckets(
   orders: CounterOrder[],
   input: { todayCivil: string; timeZone: string; previewLimit?: number }
@@ -193,10 +299,19 @@ export function mapCounterOrderRow(row: unknown): CounterOrder | null {
       typeof record.customer_notification_status === "string"
         ? record.customer_notification_status
         : null,
+    description:
+      typeof record.description === "string" ? record.description : null,
     client_name: typeof client?.name === "string" ? client.name : null,
     service_name: typeof service?.name === "string" ? service.name : null,
     store_name: typeof store?.name === "string" ? store.name : null,
     assignee_name: typeof assignee?.name === "string" ? assignee.name : null,
+    store_id: typeof record.store_id === "string" ? record.store_id : null,
+    assignee_id:
+      typeof record.assigned_team_member_id === "string"
+        ? record.assigned_team_member_id
+        : null,
+    service_id:
+      typeof record.service_id === "string" ? record.service_id : null,
     status:
       typeof status?.name === "string"
         ? {
@@ -211,13 +326,36 @@ export function mapCounterOrderRow(row: unknown): CounterOrder | null {
 
 export function filterOrdersForCounter(
   orders: CounterOrder[],
-  input: { tenantId: string; query: string }
+  input: CounterFilterInput
 ) {
-  return orders.filter(
-    (order) =>
-      belongsToCounterTenant(order, input.tenantId) &&
-      matchesCounterSearch(order, input.query)
-  );
+  if (input.mine && !input.currentTeamMemberId) {
+    return [];
+  }
+
+  return orders.filter((order) => {
+    if (!belongsToCounterTenant(order, input.tenantId)) {
+      return false;
+    }
+    if (!matchesCounterSearch(order, input.query)) {
+      return false;
+    }
+    if (input.storeId && order.store_id !== input.storeId) {
+      return false;
+    }
+    if (input.assigneeId && order.assignee_id !== input.assigneeId) {
+      return false;
+    }
+    if (input.serviceId && order.service_id !== input.serviceId) {
+      return false;
+    }
+    if (input.priority && order.priority !== input.priority) {
+      return false;
+    }
+    if (input.mine && order.assignee_id !== input.currentTeamMemberId) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function normalizeCounterQuery(raw: string | null | undefined) {

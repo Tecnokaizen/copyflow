@@ -4,20 +4,26 @@ export function FactRow({
   label,
   children,
   className,
+  emphasis = false,
 }: {
   label: string;
   children: React.ReactNode;
   className?: string;
+  emphasis?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "grid gap-1 border-b border-border/60 py-3.5 last:border-b-0 sm:grid-cols-[10.5rem_1fr] sm:gap-4",
+        "grid gap-1 border-b border-border/60 py-3.5 last:border-b-0 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:items-start sm:gap-4",
         className
       )}
     >
-      <div className="text-sm font-medium text-muted-foreground">{label}</div>
-      <div className="min-w-0 text-sm text-foreground">{children}</div>
+      <div className="gc-fact-label">{label}</div>
+      <div
+        className={cn("gc-fact-value", emphasis && "gc-fact-value-emphasis")}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -30,7 +36,7 @@ export function FactValue({
   empty?: string;
 }) {
   if (!value || !String(value).trim()) {
-    return <span className="text-muted-foreground">{empty}</span>;
+    return <span className="font-normal text-muted-foreground">{empty}</span>;
   }
   return <span className="whitespace-pre-wrap break-words">{value}</span>;
 }

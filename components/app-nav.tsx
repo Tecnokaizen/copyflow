@@ -5,7 +5,12 @@ import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
+import { SessionIdentity } from "@/components/session-identity";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import {
+  headerIdentityFromContext,
+  type HeaderIdentity,
+} from "@/lib/nav/identity";
 import { navItemIsActive, navItemsForRole } from "@/lib/nav/items";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +23,13 @@ function AppNavFrame({
   pathname,
   role,
   tenant,
+  identity,
   ready,
 }: {
   pathname: string;
   role: string | null;
   tenant: TenantLabel | null;
+  identity: HeaderIdentity | null;
   ready: boolean;
 }) {
   return (
@@ -45,9 +52,13 @@ function AppNavFrame({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 sm:justify-end">
+        <div className="flex min-w-0 shrink-0 items-center justify-between gap-2 sm:justify-end">
           <ThemeSwitcher />
-          <LogoutButton className="text-muted-foreground" />
+          {ready ? (
+            <SessionIdentity identity={identity} />
+          ) : (
+            <LogoutButton className="text-muted-foreground" />
+          )}
         </div>
       </div>
 
@@ -82,6 +93,7 @@ function AppNavContent() {
   const pathname = usePathname() || "/";
   const [role, setRole] = useState<string | null>(null);
   const [tenant, setTenant] = useState<TenantLabel | null>(null);
+  const [identity, setIdentity] = useState<HeaderIdentity | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -91,6 +103,7 @@ function AppNavContent() {
         if (response.ok) {
           const context = await response.json();
           setRole(context?.membership?.role ?? null);
+          setIdentity(headerIdentityFromContext(context));
           const name =
             typeof context?.tenant?.name === "string"
               ? context.tenant.name
@@ -118,6 +131,7 @@ function AppNavContent() {
       pathname={pathname}
       role={role}
       tenant={tenant}
+      identity={identity}
       ready={ready}
     />
   );
@@ -127,7 +141,13 @@ export function AppNav() {
   return (
     <Suspense
       fallback={
-        <AppNavFrame pathname="/" role={null} tenant={null} ready={false} />
+        <AppNavFrame
+          pathname="/"
+          role={null}
+          tenant={null}
+          identity={null}
+          ready={false}
+        />
       }
     >
       <AppNavContent />

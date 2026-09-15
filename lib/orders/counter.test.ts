@@ -2,14 +2,21 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   belongsToCounterTenant,
+  COUNTER_VIEW_STORAGE_KEY,
+  filterOrdersForCounter,
   groupCounterBuckets,
+  hasActiveCounterFilters,
   isNotifyPendingCounterOrder,
+  isOverdueCounterOrder,
   isReadyCounterOrder,
   isUpcomingCounterOrder,
   isUrgentCounterOrder,
   mapCounterOrderRow,
   matchesCounterSearch,
   normalizeCounterQuery,
+  parseCounterFilterParams,
+  parseCounterViewMode,
+  readStoredCounterView,
   type CounterOrder,
 } from "./counter";
 
@@ -31,6 +38,9 @@ function order(overrides: Partial<CounterOrder> = {}): CounterOrder {
     service_name: "Copias",
     store_name: "Centro",
     assignee_name: "Ana",
+    store_id: "store-1",
+    assignee_id: "member-ana",
+    service_id: "service-1",
     status: {
       name: "En producción",
       is_ready: false,
@@ -220,6 +230,9 @@ describe("mapCounterOrderRow", () => {
       delivered_at: null,
       ready_at: null,
       customer_notification_status: "not_notified",
+      store_id: "store-1",
+      assigned_team_member_id: "member-1",
+      service_id: "service-1",
       client: { name: "Acme" },
       service: { name: "Copias" },
       store: { name: "Centro" },
@@ -235,6 +248,181 @@ describe("mapCounterOrderRow", () => {
     assert.equal(mapped?.client_name, "Acme");
     assert.equal(mapped?.assignee_name, "Ana");
     assert.equal(mapped?.status?.is_ready, true);
+    assert.equal(mapped?.store_id, "store-1");
+    assert.equal(mapped?.assignee_id, "member-1");
+    assert.equal(mapped?.service_id, "service-1");
     assert.equal(mapCounterOrderRow({ title: "x" }), null);
+  });
+});
+
+describe("counter filter composition", () => {
+  const ana = order({
+    id: "ana-centro",
+    store_id: "store-centro",
+    assignee_id: "member-ana",
+    service_id: "service-copias",
+    priority: "urgent",
+  });
+  const luis = order({
+    id: "luis-norte",
+    store_id: "store-norte",
+    assignee_id: "member-luis",
+    service_id: "service-plot",
+    priority: "high",
+    title: "Plotter",
+  });
+  const unassigned = order({
+    id: "unassigned",
+    store_id: "store-centro",
+    assignee_id: null,
+    service_id: "service-copias",
+    priority: "normal",
+  });
+
+  it("applies mine + store + assignee + service + priority before grouping", () => {
+    const filtered = filterOrdersForCounter([ana, luis, unassigned], {
+      tenantId: "tenant-a",
+      query: "",
+      mine: true,
+      currentTeamMemberId: "member-ana",
+      storeId: "store-centro",
+      assigneeId: "member-ana",
+      serviceId: "service-copias",
+      priority: "urgent",
+    });
+
+    assert.deepEqual(
+      filtered.map((row) => row.id),
+      ["ana-centro"]
+    );
+
+    const buckets = groupCounterBuckets(filtered, {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "urgent")?.count, 1);
+    assert.equal(buckets.find((bucket) => bucket.id === "ready")?.count, 0);
+  });
+
+  it("mine matches only the session team_member id, never by name", () => {
+    const sameName = order({
+      id: "impostor",
+      assignee_id: "member-other",
+      assignee_name: "Ana",
+    });
+    const filtered = filterOrdersForCounter([ana, sameName], {
+      tenantId: "tenant-a",
+      query: "",
+      mine: true,
+      currentTeamMemberId: "member-ana",
+    });
+
+    assert.deepEqual(
+      filtered.map((row) => row.id),
+      ["ana-centro"]
+    );
+  });
+
+  it("mine with no session team_member yields no orders", () => {
+    const filtered = filterOrdersForCounter([ana, luis], {
+      tenantId: "tenant-a",
+      query: "",
+      mine: true,
+      currentTeamMemberId: null,
+    });
+    assert.deepEqual(filtered, []);
+  });
+
+  it("keeps tenant isolation while composing filters", () => {
+    const foreign = order({
+      id: "foreign",
+      tenant_id: "tenant-b",
+      store_id: "store-centro",
+      assignee_id: "member-ana",
+      service_id: "service-copias",
+      priority: "urgent",
+    });
+    const filtered = filterOrdersForCounter([ana, foreign], {
+      tenantId: "tenant-a",
+      query: "",
+      storeId: "store-centro",
+      priority: "urgent",
+    });
+    assert.deepEqual(
+      filtered.map((row) => row.id),
+      ["ana-centro"]
+    );
+  });
+});
+
+describe("counter filter params and view mode", () => {
+  it("parses mine, uuids and known priorities from the query string", () => {
+    const parsed = parseCounterFilterParams(
+      new URLSearchParams(
+        "mine=1&store_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&assignee_id=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb&service_id=cccccccc-cccc-4ccc-8ccc-cccccccccccc&priority=high&q=acme"
+      )
+    );
+
+    assert.equal(parsed.mine, true);
+    assert.equal(parsed.storeId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    assert.equal(parsed.assigneeId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    assert.equal(parsed.serviceId, "cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+    assert.equal(parsed.priority, "high");
+    assert.equal(parsed.query, "acme");
+  });
+
+  it("ignores invalid uuids and unknown priorities instead of matching them", () => {
+    const parsed = parseCounterFilterParams(
+      new URLSearchParams("store_id=not-a-uuid&priority=critical&mine=yes")
+    );
+
+    assert.equal(parsed.storeId, null);
+    assert.equal(parsed.priority, null);
+    assert.equal(parsed.mine, false);
+  });
+
+  it("treats mine=1 as an active filter", () => {
+    assert.equal(hasActiveCounterFilters({ mine: true }), true);
+    assert.equal(hasActiveCounterFilters({ storeId: "store-1" }), true);
+    assert.equal(hasActiveCounterFilters({}), false);
+    assert.equal(hasActiveCounterFilters({ query: "acme" }), false);
+  });
+
+  it("parses list/grid view and reads localStorage without a database", () => {
+    assert.equal(parseCounterViewMode("grid"), "grid");
+    assert.equal(parseCounterViewMode("list"), "list");
+    assert.equal(parseCounterViewMode("cards"), "list");
+    assert.equal(parseCounterViewMode(null), "list");
+
+    const storage = {
+      getItem(key: string) {
+        assert.equal(key, COUNTER_VIEW_STORAGE_KEY);
+        return "grid";
+      },
+    };
+    assert.equal(readStoredCounterView(storage), "grid");
+    assert.equal(readStoredCounterView(null), "list");
+  });
+});
+
+describe("overdue classification", () => {
+  it("marks an active past due date as overdue in the tenant civil day", () => {
+    const overdue = order({
+      id: "overdue",
+      due_at: "2026-09-14T10:00:00.000Z",
+    });
+    const dueTodayLateUtc = order({
+      id: "late-utc",
+      due_at: "2026-09-14T22:30:00.000Z",
+    });
+    const delivered = order({
+      id: "delivered",
+      due_at: "2026-09-14T10:00:00.000Z",
+      delivered_at: "2026-09-14T12:00:00.000Z",
+    });
+
+    assert.equal(isOverdueCounterOrder(overdue, TODAY, TIME_ZONE), true);
+    assert.equal(isOverdueCounterOrder(dueTodayLateUtc, TODAY, TIME_ZONE), false);
+    assert.equal(isOverdueCounterOrder(delivered, TODAY, TIME_ZONE), false);
   });
 });

@@ -31,10 +31,19 @@ export async function getCurrentContext() {
     return null;
   }
 
+  const metadata = user.user_metadata ?? {};
+  const fullName =
+    (typeof metadata.full_name === "string" && metadata.full_name.trim()
+      ? metadata.full_name
+      : typeof metadata.name === "string" && metadata.name.trim()
+        ? metadata.name
+        : null) ?? null;
+
   return {
     user: {
       id: user.id,
       email: user.email,
+      ...(fullName ? { full_name: fullName } : {}),
     },
     tenant,
     membership: {

@@ -144,21 +144,25 @@ export function OrderSummary({
         </>
       ) : (
         <>
-          <FactRow label="Cliente">
+          <FactRow label="Cliente" emphasis>
             {client ? (
               <div className="space-y-1">
-                <div className="font-medium">{client.name}</div>
+                <div>{client.name}</div>
                 {client.company_name ? (
-                  <div className="text-muted-foreground">{client.company_name}</div>
+                  <div className="text-sm font-normal text-muted-foreground">
+                    {client.company_name}
+                  </div>
                 ) : null}
                 {client.contact_name ? (
-                  <div className="text-muted-foreground">
+                  <div className="text-sm font-normal text-muted-foreground">
                     Contacto: {client.contact_name}
                   </div>
                 ) : null}
               </div>
             ) : (
-              <span className="text-muted-foreground">Sin cliente</span>
+              <span className="font-normal text-muted-foreground">
+                Sin cliente
+              </span>
             )}
           </FactRow>
           {hasContact ? (
@@ -183,13 +187,13 @@ export function OrderSummary({
           <FactRow label="Recepción">
             <FactValue value={formatDate(order.received_at)} />
           </FactRow>
-          <FactRow label="Entrega prevista">
+          <FactRow label="Entrega prevista" emphasis>
             <FactValue value={formatDate(dueAt)} />
           </FactRow>
-          <FactRow label="Responsable">
+          <FactRow label="Responsable" emphasis>
             <FactValue value={assigneeName} empty="Sin responsable" />
           </FactRow>
-          <FactRow label="Prioridad">
+          <FactRow label="Prioridad" emphasis>
             <FactValue value={formatPriority(priority)} />
           </FactRow>
           {contextName ? (
@@ -202,21 +206,25 @@ export function OrderSummary({
 
       {editing ? (
         <>
-          <FactRow label="Cliente">
+          <FactRow label="Cliente" emphasis>
             {client ? (
               <div className="space-y-1">
-                <div className="font-medium">{client.name}</div>
+                <div>{client.name}</div>
                 {client.company_name ? (
-                  <div className="text-muted-foreground">{client.company_name}</div>
+                  <div className="text-sm font-normal text-muted-foreground">
+                    {client.company_name}
+                  </div>
                 ) : null}
                 {client.contact_name ? (
-                  <div className="text-muted-foreground">
+                  <div className="text-sm font-normal text-muted-foreground">
                     Contacto: {client.contact_name}
                   </div>
                 ) : null}
               </div>
             ) : (
-              <span className="text-muted-foreground">Sin cliente</span>
+              <span className="font-normal text-muted-foreground">
+                Sin cliente
+              </span>
             )}
           </FactRow>
           <FactRow label="Contacto">
