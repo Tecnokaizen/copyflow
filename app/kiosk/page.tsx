@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
+import { connection } from "next/server";
+import { Suspense } from "react";
 import { KioskOrderForm } from "@/components/kiosk/kiosk-order-form";
 import { loadKioskBootstrap } from "@/lib/kiosk/server";
 import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
@@ -23,7 +25,8 @@ function KioskUnavailable() {
   );
 }
 
-export default async function KioskPage() {
+async function KioskContent() {
+  await connection();
   const tenantSlug = await resolveRequestTenantSlug();
   let bootstrap = null;
 
@@ -61,5 +64,21 @@ export default async function KioskPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function KioskPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-svh place-items-center bg-muted/25 px-4 py-10">
+          <p className="text-sm font-medium text-muted-foreground">
+            Preparando el Kiosk…
+          </p>
+        </main>
+      }
+    >
+      <KioskContent />
+    </Suspense>
   );
 }
