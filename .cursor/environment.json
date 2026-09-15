@@ -1,0 +1,13 @@
+{
+  "name": "copyflow (Next.js + local Supabase)",
+  "user": "ubuntu",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "start": "bash scripts/cloud-agent-start.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [3000, 54321, 54323, 54324]
+}
