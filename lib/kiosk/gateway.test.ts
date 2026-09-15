@@ -155,7 +155,6 @@ describe("signed Kiosk orchestration", () => {
   };
 
   it("delegates bootstrap and submit only through the gateway", async () => {
-    let submittedFingerprint = "";
     const permitId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const fingerprint = kioskInputFingerprint(INPUT);
     const submitCapability: KioskCapability = {
@@ -177,7 +176,6 @@ describe("signed Kiosk orchestration", () => {
         receivedCapability: KioskCapability,
         receivedPermitId: string,
         receivedInput: KioskOrderInput,
-        fingerprint: string,
         title: string
       ) => {
         assert.deepEqual(receivedCapability, submitCapability);
@@ -186,7 +184,6 @@ describe("signed Kiosk orchestration", () => {
           permitId
         );
         assert.deepEqual(receivedInput, INPUT);
-        submittedFingerprint = fingerprint;
         assert.equal(title, "Tarjetas");
         return { status: "created", reference: "DEMO-0042" };
       },
@@ -215,6 +212,5 @@ describe("signed Kiosk orchestration", () => {
       replay: false,
       }
     );
-    assert.equal(submittedFingerprint, kioskInputFingerprint(INPUT));
   });
 });

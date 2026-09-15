@@ -14,7 +14,6 @@ export type KioskGateway = {
     capability: KioskCapability,
     permitId: string,
     input: KioskOrderInput,
-    fingerprint: string,
     title: string
   ): Promise<unknown>;
 };
@@ -51,13 +50,12 @@ export function createSupabaseKioskGateway(
       );
     },
 
-    async submit(capability, permitId, input, fingerprint, title) {
+    async submit(capability, permitId, input, title) {
       return dataOrThrow(
         await client.rpc("submit_kiosk_order", {
           ...capabilityArgs(capability),
           p_permit_id: permitId,
           p_submission_id: input.submissionId,
-          p_request_fingerprint: fingerprint,
           p_title: title,
           p_service_id: input.serviceId,
           p_contact_name: input.contact.name,

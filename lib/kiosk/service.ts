@@ -161,7 +161,6 @@ export async function submitKioskOrder(
       capability,
       permitId,
       input,
-      kioskInputFingerprint(input),
       deriveOrderTitle({ description: input.description })
     )
   );

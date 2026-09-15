@@ -433,7 +433,6 @@ CREATE OR REPLACE FUNCTION kiosk_private.submit_kiosk_order(
   p_signature text,
   p_permit_id uuid,
   p_submission_id uuid,
-  p_request_fingerprint text,
   p_title text,
   p_service_id uuid,
   p_contact_name text,
@@ -462,17 +461,47 @@ DECLARE
   v_notes text;
 BEGIN
   IF p_permit_id IS NULL
-     OR p_submission_id IS NULL
-     OR p_request_fingerprint IS NULL
-     OR p_request_fingerprint !~ '^[a-f0-9]{64}$' THEN
+     OR p_submission_id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
   END IF;
+
+  IF nullif(pg_catalog.btrim(p_title), '') IS NULL
+     OR pg_catalog.char_length(pg_catalog.btrim(p_title)) > 80
+     OR p_service_id IS NULL
+     OR nullif(pg_catalog.btrim(p_contact_name), '') IS NULL
+     OR pg_catalog.char_length(pg_catalog.btrim(p_contact_name)) > 120
+     OR (
+       nullif(pg_catalog.btrim(p_contact_email), '') IS NULL
+       AND nullif(pg_catalog.btrim(p_contact_phone), '') IS NULL
+     )
+     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_contact_email), '')) > 254
+     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_contact_phone), '')) > 40
+     OR nullif(pg_catalog.btrim(p_description), '') IS NULL
+     OR pg_catalog.char_length(pg_catalog.btrim(p_description)) > 4000
+     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_observations), '')) > 2000
+     OR (
+       p_due_at IS NOT NULL
+       AND pg_catalog.date_trunc('milliseconds', p_due_at) <> p_due_at
+     ) THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
+  END IF;
+
+  v_actual_fingerprint := kiosk_private.kiosk_payload_fingerprint(
+    p_title,
+    p_service_id,
+    p_contact_name,
+    p_contact_email,
+    p_contact_phone,
+    p_description,
+    p_due_at,
+    p_observations
+  );
 
   IF p_purpose <> 'submit'
      OR p_binding <> (
        p_permit_id::text || '|' ||
        p_submission_id::text || '|' ||
-       p_request_fingerprint
+       v_actual_fingerprint
      )
      OR NOT kiosk_private.verify_kiosk_capability(
        p_tenant_slug,
@@ -509,45 +538,6 @@ BEGIN
     RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
   END IF;
 
-  IF p_due_at IS NOT NULL
-     AND pg_catalog.date_trunc('milliseconds', p_due_at) <> p_due_at THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
-  END IF;
-
-  v_actual_fingerprint := kiosk_private.kiosk_payload_fingerprint(
-    p_title,
-    p_service_id,
-    p_contact_name,
-    p_contact_email,
-    p_contact_phone,
-    p_description,
-    p_due_at,
-    p_observations
-  );
-  IF NOT kiosk_private.constant_time_equal(
-    v_actual_fingerprint,
-    p_request_fingerprint
-  ) THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
-  END IF;
-
-  IF nullif(pg_catalog.btrim(p_title), '') IS NULL
-     OR pg_catalog.char_length(pg_catalog.btrim(p_title)) > 80
-     OR p_service_id IS NULL
-     OR nullif(pg_catalog.btrim(p_contact_name), '') IS NULL
-     OR pg_catalog.char_length(pg_catalog.btrim(p_contact_name)) > 120
-     OR (
-       nullif(pg_catalog.btrim(p_contact_email), '') IS NULL
-       AND nullif(pg_catalog.btrim(p_contact_phone), '') IS NULL
-     )
-     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_contact_email), '')) > 254
-     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_contact_phone), '')) > 40
-     OR nullif(pg_catalog.btrim(p_description), '') IS NULL
-     OR pg_catalog.char_length(pg_catalog.btrim(p_description)) > 4000
-     OR pg_catalog.char_length(coalesce(pg_catalog.btrim(p_observations), '')) > 2000 THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
-  END IF;
-
   -- A submission lock makes retries deterministic even if the client IP
   -- changes between separately admitted requests.
   PERFORM pg_catalog.pg_advisory_xact_lock(
@@ -563,7 +553,7 @@ BEGIN
     IF v_existing.tenant_id = v_tenant.id
        AND v_existing.metadata ->> 'source' = 'kiosk'
        AND v_existing.metadata #>> '{kiosk,request_fingerprint}'
-         = p_request_fingerprint THEN
+         = v_actual_fingerprint THEN
       RETURN pg_catalog.jsonb_build_object(
         'status', 'replay',
         'reference', v_existing.reference
@@ -664,7 +654,7 @@ BEGIN
       'source', 'kiosk',
       'kiosk', pg_catalog.jsonb_build_object(
         'submission_id', p_submission_id,
-        'request_fingerprint', p_request_fingerprint,
+        'request_fingerprint', v_actual_fingerprint,
         'client_key', p_client_key,
         'contact', pg_catalog.jsonb_build_object(
           'name', pg_catalog.btrim(p_contact_name),
@@ -804,7 +794,6 @@ CREATE OR REPLACE FUNCTION public.submit_kiosk_order(
   p_signature text,
   p_permit_id uuid,
   p_submission_id uuid,
-  p_request_fingerprint text,
   p_title text,
   p_service_id uuid,
   p_contact_name text,
@@ -822,7 +811,7 @@ CREATE OR REPLACE FUNCTION public.submit_kiosk_order(
   AS $function$
     SELECT kiosk_private.submit_kiosk_order(
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-      $15, $16, $17
+      $15, $16
     );
 $function$;
 
@@ -845,7 +834,7 @@ REVOKE ALL ON FUNCTION kiosk_private.kiosk_payload_fingerprint(
   text, uuid, text, text, text, text, timestamptz, text
 ) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION kiosk_private.submit_kiosk_order(
-  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, bigint, text, text, text, uuid, uuid, text, uuid,
   text, text, text, text, timestamptz, text
 ) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SCHEMA kiosk_private
@@ -858,7 +847,7 @@ REVOKE ALL ON FUNCTION public.admit_kiosk_request(
   text, text, bigint, text, text, text
 ) FROM PUBLIC, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.submit_kiosk_order(
-  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, bigint, text, text, text, uuid, uuid, text, uuid,
   text, text, text, text, timestamptz, text
 ) FROM PUBLIC, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.kiosk_bootstrap(
@@ -868,7 +857,7 @@ GRANT EXECUTE ON FUNCTION public.admit_kiosk_request(
   text, text, bigint, text, text, text
 ) TO anon;
 GRANT EXECUTE ON FUNCTION public.submit_kiosk_order(
-  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, bigint, text, text, text, uuid, uuid, text, uuid,
   text, text, text, text, timestamptz, text
 ) TO anon;
 
@@ -879,7 +868,7 @@ COMMENT ON FUNCTION public.admit_kiosk_request(
   text, text, bigint, text, text, text
 ) IS 'Hardened signed Kiosk admission wrapper. Applies distributed rate limiting before request-body parsing.';
 COMMENT ON FUNCTION public.submit_kiosk_order(
-  text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,
+  text, text, bigint, text, text, text, uuid, uuid, text, uuid,
   text, text, text, text, timestamptz, text
 ) IS 'Hardened signed one-shot Kiosk submit wrapper. Validates payload and configuration transactionally.';
 

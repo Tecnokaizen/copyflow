@@ -195,21 +195,21 @@ begin
   end if;
   if has_function_privilege(
     'anon',
-    'kiosk_private.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'kiosk_private.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL anon can execute private submit directly';
   end if;
   if not has_function_privilege(
     'anon',
-    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL anon lacks minimal public submit wrapper';
   end if;
   if has_function_privilege(
     'service_role',
-    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,text,uuid,text,text,text,text,timestamptz,text)',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL service_role can execute Kiosk submit';
@@ -268,7 +268,7 @@ begin
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'bootstrap', 'bootstrap', v_bootstrap_signature,
-    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
     '200 tarjetas', null, 'Papel mate'
   );
@@ -284,7 +284,7 @@ begin
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
-    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
     '200 tarjetas', null, 'Papel mate'
   );
@@ -296,7 +296,7 @@ begin
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
-    v_permit, v_order, v_fingerprint, '200 tarjetas',
+    v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
     '200 tarjetas', null, 'Papel mate'
   );
@@ -322,7 +322,7 @@ begin
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
-    v_permit_2, v_order, v_fingerprint, '200 tarjetas',
+    v_permit_2, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
     '200 tarjetas', null, 'Papel mate'
   );
@@ -349,33 +349,22 @@ begin
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000099',
-    v_fingerprint, 'Otro', v_service_demo, 'Ana Ruiz',
+    'Otro', v_service_demo, 'Ana Ruiz',
     'ana@example.com', null, 'Otro', null, null
   );
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered submission reused signature: %', v_result;
   end if;
-  v_result := public.submit_kiosk_order(
-    'demo-phase12', v_client_key, v_issued_at,
-    'submit', v_binding, v_signature,
-    v_permit_3, v_order, null, 'Null fingerprint',
-    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    'Null fingerprint', null, null
-  );
-  if v_result ->> 'status' <> 'invalid_request' then
-    raise exception 'FAIL NULL fingerprint bypassed validation: %', v_result;
-  end if;
-
   -- Keep the signed fingerprint but alter authorized fields: DB recomputation
   -- must reject and consume the one-shot permit.
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
-    v_permit_3, v_order, v_fingerprint, 'Alterado',
+    v_permit_3, v_order, 'Alterado',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
     'Alterado', null, null
   );
-  if v_result ->> 'status' <> 'invalid_request' then
+  if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered payload kept original fingerprint: %', v_result;
   end if;
 
@@ -401,7 +390,7 @@ begin
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000098',
-    v_cross_fingerprint, 'Cross tenant', v_service_sur4, 'Ana Ruiz',
+    'Cross tenant', v_service_sur4, 'Ana Ruiz',
     'ana@example.com', null, 'Cross tenant', null, null
   );
   if v_result ->> 'status' <> 'invalid_service' then

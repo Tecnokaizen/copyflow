@@ -3,8 +3,9 @@
 ## Estado de merge
 
 No mergear mientras `Kiosk Supabase security` no esté verde. Ese workflow
-reconstruye PostgreSQL desde migraciones, ejecuta las pruebas de seguridad y
-aplica/verifica el rollback en una base efímera.
+ejecuta tests/lint/typecheck/build, reconstruye PostgreSQL desde migraciones,
+ejecuta las pruebas de seguridad y aplica/verifica el rollback en una base
+efímera.
 
 ## Prerrequisitos por entorno
 
@@ -78,3 +79,7 @@ El rollback elimina wrappers, tablas y funciones Kiosk; elimina el esquema
 `kiosk_private`; y restaura exactamente
 `public.tg_activity_log_order_created()` al contrato anterior. No elimina ni
 modifica canales porque la migración nunca los crea.
+
+En CI se captura antes de Kiosk y después del rollback un snapshot de
+`pg_get_functiondef`, owner, ACL, config, `pg_get_triggerdef` y estado del
+trigger. Un `diff` no vacío falla el gate.

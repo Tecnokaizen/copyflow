@@ -89,7 +89,6 @@ describe("createSupabaseKioskGateway", () => {
       },
       "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       input,
-      "f".repeat(64),
       "Tarjetas"
     );
     assert.equal(calls.length, 1);
@@ -106,7 +105,6 @@ describe("createSupabaseKioskGateway", () => {
       p_signature: "b".repeat(64),
       p_permit_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       p_submission_id: input.submissionId,
-      p_request_fingerprint: "f".repeat(64),
       p_title: "Tarjetas",
       p_service_id: input.serviceId,
       p_contact_name: "Ana",
