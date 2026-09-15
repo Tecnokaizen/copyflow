@@ -58,8 +58,9 @@ En un runner con Docker:
 npx supabase@2.117.0 start \
   --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
 npx supabase@2.117.0 db reset --local --no-seed
-npx supabase@2.117.0 test db --local \
-  supabase/tests/phase12_kiosk_public_orders.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -v ON_ERROR_STOP=1 \
+  -f supabase/tests/phase12_kiosk_public_orders.sql
 ```
 
 ## Rollback exacto
