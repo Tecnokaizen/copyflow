@@ -1,8 +1,10 @@
 import { LAST_OWNER_REQUIRED_MESSAGE } from "@/lib/access/owner-protection";
+import { INVITATION_EMAIL_MISMATCH } from "@/lib/invitations/copy";
 
 type AccessErrorKind =
   | "unauthorized"
   | "forbidden"
+  | "email_mismatch"
   | "not_found"
   | "conflict"
   | "gone"
@@ -14,6 +16,30 @@ type AccessErrorKind =
 
 function normalizeMessage(message: string | undefined) {
   return (message ?? "").toLowerCase();
+}
+
+export function rpcErrorDigest(
+  error:
+    | {
+        code?: string;
+        message?: string;
+        details?: string;
+        hint?: string;
+      }
+    | null
+    | undefined
+) {
+  const parts = [error?.message, error?.details, error?.hint]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim() !== ""
+    )
+    .join(" ");
+
+  return {
+    code: error?.code,
+    message: parts || undefined,
+  };
 }
 
 export function classifyAccessRpcError(
@@ -28,6 +54,13 @@ export function classifyAccessRpcError(
 
   if (code === "GTO01" || normalized.includes("last owner required")) {
     return "last_owner";
+  }
+
+  if (
+    code === "GTI01" ||
+    normalized.includes("invitation email mismatch")
+  ) {
+    return "email_mismatch";
   }
 
   if (code === "42501") {
@@ -79,6 +112,7 @@ export function statusForAccessRpcError(
     case "unauthorized":
       return 401;
     case "forbidden":
+    case "email_mismatch":
     case "last_owner":
       return 403;
     case "not_found":
@@ -107,6 +141,8 @@ export function publicMessageForAccessRpcError(
       return "Unauthorized";
     case "forbidden":
       return "Unauthorized or tenant access denied";
+    case "email_mismatch":
+      return "Esta invitación es para otra cuenta";
     case "last_owner":
       return LAST_OWNER_REQUIRED_MESSAGE;
     case "not_found":
@@ -123,5 +159,19 @@ export function publicMessageForAccessRpcError(
       return "Invitation resend limit reached";
     default:
       return fallback;
+  }
+}
+
+export function publicApiErrorCode(
+  code: string | undefined,
+  message?: string
+) {
+  switch (classifyAccessRpcError(code, message)) {
+    case "email_mismatch":
+      return INVITATION_EMAIL_MISMATCH;
+    case "last_owner":
+      return "GTO01";
+    default:
+      return undefined;
   }
 }

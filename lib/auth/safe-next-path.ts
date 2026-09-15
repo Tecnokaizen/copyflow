@@ -1,3 +1,5 @@
+import { INVITATION_TOKEN_RE } from "@/lib/invitations/token";
+
 /**
  * Returns an internal relative path only.
  * Rejects protocol-relative URLs, absolute URLs, and scheme handlers.
@@ -87,8 +89,6 @@ export function buildAuthConfirmUrl(
   url.searchParams.set("next", destination);
   return url.toString();
 }
-
-const INVITATION_TOKEN_RE = /^[0-9a-f]{64}$/i;
 
 /**
  * True when `next` is a safe invitation accept path with a hex token.

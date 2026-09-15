@@ -105,6 +105,29 @@ export function parseInvitationAcceptPayload(
   return { ok: true, token };
 }
 
+export function parseInvitationSignupPayload(
+  payload: unknown
+): { ok: true; token: string; password: string } | { ok: false } {
+  if (!isPlainObject(payload)) {
+    return { ok: false };
+  }
+
+  if (typeof payload.token !== "string" || typeof payload.password !== "string") {
+    return { ok: false };
+  }
+
+  const token = payload.token.trim();
+  if (!token || token.length !== 64 || !/^[0-9a-f]+$/i.test(token)) {
+    return { ok: false };
+  }
+
+  if (payload.password.length < 8) {
+    return { ok: false };
+  }
+
+  return { ok: true, token, password: payload.password };
+}
+
 export function parseAccessPatchPayload(
   payload: unknown
 ):

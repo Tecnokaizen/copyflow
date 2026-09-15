@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { tenantOrigin } from "@/lib/tenant/domains";
 import { parseInvitationAcceptPayload } from "@/lib/access/payload";
-import {
-  publicMessageForAccessRpcError,
-  statusForAccessRpcError,
-} from "@/lib/access/rpc-error";
 import { mapAcceptInvitationResult } from "@/lib/access/types";
+import { invitationAcceptRpcFailure } from "@/lib/invitations/accept-error";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -15,7 +12,10 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Inicia sesión para aceptar la invitación." },
+      { status: 401 }
+    );
   }
 
   let body: unknown;
@@ -48,15 +48,14 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    const failure = invitationAcceptRpcFailure(error);
+
     return NextResponse.json(
       {
-        error: publicMessageForAccessRpcError(
-          error?.code,
-          error?.message,
-          "Could not accept invitation"
-        ),
+        error: failure.error,
+        ...(failure.code ? { code: failure.code } : {}),
       },
-      { status: statusForAccessRpcError(error?.code, error?.message) }
+      { status: failure.status }
     );
   }
 

@@ -7,6 +7,7 @@ import {
   isTenantOverrideAllowed,
   parsePreviewTenantSlug,
 } from "@/lib/tenant/preview-tenant";
+import { allowsUnauthenticatedPath } from "@/lib/invitations/public-path";
 
 function copyCookies(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((cookie) => {
@@ -98,11 +99,9 @@ export async function updateSession(request: NextRequest) {
   const isApiRoute = request.nextUrl.pathname.startsWith("/api/");
 
   if (
-    request.nextUrl.pathname !== "/" &&
     !isApiRoute &&
     !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
+    !allowsUnauthenticatedPath(request.nextUrl.pathname)
   ) {
     // no user, potentially respond by redirecting the user to the login page
     // API routes are excluded: handlers return their own 401/403 JSON.
