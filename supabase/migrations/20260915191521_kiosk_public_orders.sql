@@ -367,6 +367,63 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION kiosk_private.canonical_part(p_value text)
+  RETURNS text
+  LANGUAGE sql
+  IMMUTABLE
+  SECURITY INVOKER
+  SET search_path TO ''
+  AS $function$
+    SELECT
+      pg_catalog.octet_length(
+        pg_catalog.convert_to(coalesce($1, ''), 'UTF8')
+      )::text || ':' || coalesce($1, '');
+$function$;
+
+CREATE OR REPLACE FUNCTION kiosk_private.kiosk_payload_fingerprint(
+  p_title text,
+  p_service_id uuid,
+  p_contact_name text,
+  p_contact_email text,
+  p_contact_phone text,
+  p_description text,
+  p_due_at timestamptz,
+  p_observations text
+)
+  RETURNS text
+  LANGUAGE sql
+  STABLE
+  SECURITY INVOKER
+  SET search_path TO ''
+  AS $function$
+    SELECT pg_catalog.encode(
+      extensions.digest(
+        pg_catalog.convert_to(
+          'kiosk-payload-v1|' ||
+          kiosk_private.canonical_part($1) || '|' ||
+          kiosk_private.canonical_part($2::text) || '|' ||
+          kiosk_private.canonical_part($3) || '|' ||
+          kiosk_private.canonical_part($4) || '|' ||
+          kiosk_private.canonical_part($5) || '|' ||
+          kiosk_private.canonical_part($6) || '|' ||
+          kiosk_private.canonical_part(
+            CASE
+              WHEN $7 IS NULL THEN NULL
+              ELSE pg_catalog.to_char(
+                $7 AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              )
+            END
+          ) || '|' ||
+          kiosk_private.canonical_part($8),
+          'UTF8'
+        ),
+        'sha256'
+      ),
+      'hex'
+    );
+$function$;
+
 CREATE OR REPLACE FUNCTION kiosk_private.submit_kiosk_order(
   p_tenant_slug text,
   p_client_key text,
@@ -400,6 +457,7 @@ DECLARE
   v_existing public.orders%rowtype;
   v_order public.orders%rowtype;
   v_consumed_permit uuid;
+  v_actual_fingerprint text;
   v_locked_id uuid;
   v_notes text;
 BEGIN
@@ -448,6 +506,28 @@ BEGIN
   RETURNING p.id INTO v_consumed_permit;
 
   IF v_consumed_permit IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
+  END IF;
+
+  IF p_due_at IS NOT NULL
+     AND pg_catalog.date_trunc('milliseconds', p_due_at) <> p_due_at THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
+  END IF;
+
+  v_actual_fingerprint := kiosk_private.kiosk_payload_fingerprint(
+    p_title,
+    p_service_id,
+    p_contact_name,
+    p_contact_email,
+    p_contact_phone,
+    p_description,
+    p_due_at,
+    p_observations
+  );
+  IF NOT kiosk_private.constant_time_equal(
+    v_actual_fingerprint,
+    p_request_fingerprint
+  ) THEN
     RETURN pg_catalog.jsonb_build_object('status', 'invalid_request');
   END IF;
 
@@ -758,6 +838,11 @@ REVOKE ALL ON FUNCTION kiosk_private.kiosk_bootstrap(
 ) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION kiosk_private.admit_kiosk_request(
   text, text, bigint, text, text, text
+) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION kiosk_private.canonical_part(text)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION kiosk_private.kiosk_payload_fingerprint(
+  text, uuid, text, text, text, text, timestamptz, text
 ) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION kiosk_private.submit_kiosk_order(
   text, text, bigint, text, text, text, uuid, uuid, text, text, uuid,

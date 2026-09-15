@@ -51,7 +51,8 @@ declare
   v_channel_demo uuid := 'ac000000-0000-4000-8000-000000000031';
   v_order uuid := 'ac000000-0000-4000-8000-000000000041';
   v_internal_order uuid := 'ac000000-0000-4000-8000-000000000042';
-  v_fingerprint text := repeat('f', 64);
+  v_fingerprint text;
+  v_cross_fingerprint text;
   v_permit uuid;
   v_permit_2 uuid;
   v_permit_3 uuid;
@@ -135,6 +136,40 @@ begin
     v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1000
   );
   execute 'reset role';
+
+  if kiosk_private.kiosk_payload_fingerprint(
+    'Tarjetas',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    'Ana',
+    'ana@example.com',
+    null,
+    'Tarjetas',
+    null,
+    'Mate'
+  ) <> 'f5822604bd71e597cb043d7bc8fa41548e0cd9f9e1c4faf66feaa74f4b75f58f' then
+    raise exception 'FAIL Node/Postgres canonical fingerprint vector';
+  end if;
+
+  v_fingerprint := kiosk_private.kiosk_payload_fingerprint(
+    '200 tarjetas',
+    v_service_demo,
+    'Ana Ruiz',
+    'ana@example.com',
+    null,
+    '200 tarjetas',
+    null,
+    'Papel mate'
+  );
+  v_cross_fingerprint := kiosk_private.kiosk_payload_fingerprint(
+    'Cross tenant',
+    v_service_sur4,
+    'Ana Ruiz',
+    'ana@example.com',
+    null,
+    'Cross tenant',
+    null,
+    null
+  );
 
   perform set_config('request.jwt.claim.sub', v_owner_sur4::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
@@ -313,16 +348,6 @@ begin
   v_result := public.submit_kiosk_order(
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
-    v_permit_3, v_order, repeat('e', 64), 'Alterado',
-    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    'Alterado', null, null
-  );
-  if v_result ->> 'status' <> 'not_found' then
-    raise exception 'FAIL altered payload reused signature: %', v_result;
-  end if;
-  v_result := public.submit_kiosk_order(
-    'demo-phase12', v_client_key, v_issued_at,
-    'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000099',
     v_fingerprint, 'Otro', v_service_demo, 'Ana Ruiz',
     'ana@example.com', null, 'Otro', null, null
@@ -341,10 +366,33 @@ begin
     raise exception 'FAIL NULL fingerprint bypassed validation: %', v_result;
   end if;
 
+  -- Keep the signed fingerprint but alter authorized fields: DB recomputation
+  -- must reject and consume the one-shot permit.
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_client_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_3, v_order, v_fingerprint, 'Alterado',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    'Alterado', null, null
+  );
+  if v_result ->> 'status' <> 'invalid_request' then
+    raise exception 'FAIL altered payload kept original fingerprint: %', v_result;
+  end if;
+
+  -- Fourth admission is consumed by a correctly signed cross-tenant service.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_client_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_client_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  v_permit_3 := (v_result ->> 'permit')::uuid;
   v_binding :=
     v_permit_3::text ||
     '|ac000000-0000-4000-8000-000000000098|' ||
-    repeat('c', 64);
+    v_cross_fingerprint;
   v_signature := pg_temp.kiosk_signature(
     v_secret, 'submit', 'demo-phase12', v_client_key,
     v_issued_at, v_binding
@@ -353,15 +401,15 @@ begin
     'demo-phase12', v_client_key, v_issued_at,
     'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000098',
-    repeat('c', 64), 'Cross tenant', v_service_sur4, 'Ana Ruiz',
+    v_cross_fingerprint, 'Cross tenant', v_service_sur4, 'Ana Ruiz',
     'ana@example.com', null, 'Cross tenant', null, null
   );
   if v_result ->> 'status' <> 'invalid_service' then
     raise exception 'FAIL cross-tenant service: %', v_result;
   end if;
 
-  -- Admissions four and five succeed; sixth is rate-limited before DTO parse.
-  for v_count in 4..6 loop
+  -- Admission five succeeds; sixth is rate-limited before DTO parse.
+  for v_count in 5..6 loop
     v_signature := pg_temp.kiosk_signature(
       v_secret, 'admit', 'demo-phase12', v_client_key,
       v_issued_at, 'request'

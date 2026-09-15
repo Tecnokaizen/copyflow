@@ -6,6 +6,7 @@ import {
   KioskServiceError,
   admitKioskRequest,
   getKioskBootstrap,
+  kioskCanonicalPayload,
   kioskInputFingerprint,
   mapKioskBootstrapResult,
   mapKioskAdmissionResult,
@@ -117,12 +118,29 @@ describe("Kiosk database result mapping", () => {
 
 describe("kioskInputFingerprint", () => {
   it("binds normalized request content", () => {
+    assert.equal(
+      kioskCanonicalPayload(INPUT),
+      "kiosk-payload-v1|8:Tarjetas|36:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb|3:Ana|15:ana@example.com|0:|8:Tarjetas|0:|4:Mate"
+    );
     const fingerprint = kioskInputFingerprint(INPUT);
-    assert.match(fingerprint, /^[a-f0-9]{64}$/);
+    assert.equal(
+      fingerprint,
+      "f5822604bd71e597cb043d7bc8fa41548e0cd9f9e1c4faf66feaa74f4b75f58f"
+    );
     assert.notEqual(
       fingerprint,
       kioskInputFingerprint({ ...INPUT, description: "Otro pedido" })
     );
+    for (const altered of [
+      { ...INPUT, serviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" },
+      { ...INPUT, contact: { ...INPUT.contact, name: "Luis" } },
+      { ...INPUT, contact: { ...INPUT.contact, email: "otro@example.com" } },
+      { ...INPUT, contact: { ...INPUT.contact, phone: "600123123" } },
+      { ...INPUT, dueAt: "2026-09-20T10:30:00.000Z" },
+      { ...INPUT, observations: "Brillo" },
+    ]) {
+      assert.notEqual(fingerprint, kioskInputFingerprint(altered));
+    }
   });
 });
 

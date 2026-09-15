@@ -28,16 +28,28 @@ const UUID_PATTERN =
 
 export function kioskInputFingerprint(input: KioskOrderInput) {
   return createHash("sha256")
-    .update(
-      JSON.stringify({
-        contact: input.contact,
-        serviceId: input.serviceId,
-        description: input.description,
-        dueAt: input.dueAt,
-        observations: input.observations,
-      })
-    )
+    .update(kioskCanonicalPayload(input))
     .digest("hex");
+}
+
+function canonicalPart(value: string | null) {
+  const text = value ?? "";
+  return `${Buffer.byteLength(text, "utf8")}:${text}`;
+}
+
+export function kioskCanonicalPayload(input: KioskOrderInput) {
+  const title = deriveOrderTitle({ description: input.description });
+  return [
+    "kiosk-payload-v1",
+    canonicalPart(title),
+    canonicalPart(input.serviceId),
+    canonicalPart(input.contact.name),
+    canonicalPart(input.contact.email),
+    canonicalPart(input.contact.phone),
+    canonicalPart(input.description),
+    canonicalPart(input.dueAt),
+    canonicalPart(input.observations),
+  ].join("|");
 }
 
 export function mapKioskBootstrapResult(
