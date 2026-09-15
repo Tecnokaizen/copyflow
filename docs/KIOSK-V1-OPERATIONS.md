@@ -72,9 +72,10 @@ bash supabase/tests/phase12_kiosk_concurrency.sh \
 
 La prueba concurrente abre dos sesiones reales para bootstrap, admisión y
 submit. Una sesión mantiene el lock compartido del canal mientras otra intenta
-desactivarlo; timeouts y tiempos de bloqueo verifican serialización sin
-deadlock. Tras el commit de opt-out comprueba que no cambian rate rows,
-permisos, pedidos ni actividad.
+desactivarlo. Una FIFO marca determinísticamente que la primera sesión ya
+obtuvo el lock; timeouts y tiempos de bloqueo verifican serialización sin
+deadlock. Tras el commit de opt-out comprueba que no cambian rate rows, permisos,
+pedidos ni actividad.
 
 ## Rollback exacto
 

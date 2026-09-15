@@ -178,6 +178,22 @@ describe("handleKioskOrderRequest", () => {
 });
 
 describe("admitKioskHttpRequest", () => {
+  it("preserves indistinguishable 404 for unknown or opt-out tenants", async () => {
+    const result = await admitKioskHttpRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new KioskServiceError("not_found", 404);
+      }
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.response.status, 404);
+    assert.deepEqual(await result.response.json(), {
+      error: "Kiosk no disponible",
+    });
+  });
+
   it("rejects non-JSON and cross-site requests explicitly", async () => {
     const plain = new Request(
       "https://demo.app.gestcopy.com/api/kiosk/orders",

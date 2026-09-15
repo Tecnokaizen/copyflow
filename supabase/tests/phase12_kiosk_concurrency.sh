@@ -44,6 +44,9 @@ run_lock_race() {
   local expected="$3"
   local sql_file="/tmp/kiosk-${label}-session-a.sql"
   local output_file="/tmp/kiosk-${label}-session-a.out"
+  local ready_fifo="/tmp/kiosk-${label}-session-a.ready"
+  rm -f "$ready_fifo"
+  mkfifo "$ready_fifo"
 
   cat >"$sql_file" <<SQL
 \set ON_ERROR_STOP on
@@ -51,13 +54,24 @@ begin;
 set local role anon;
 set local statement_timeout = '8s';
 $call_sql
+\! printf 'ready\n' > '$ready_fifo'
 select pg_sleep(3);
 commit;
 SQL
 
   psql "$DB_URL" -qAtf "$sql_file" >"$output_file" &
   local session_a_pid=$!
-  sleep 0.5
+  local marker
+  if ! marker="$(timeout 10s cat "$ready_fifo")"; then
+    kill "$session_a_pid" 2>/dev/null || true
+    wait "$session_a_pid" 2>/dev/null || true
+    echo "$label: session A never reached the lock barrier" >&2
+    exit 1
+  fi
+  if [[ "$marker" != "ready" ]]; then
+    echo "$label: invalid session barrier marker: $marker" >&2
+    exit 1
+  fi
 
   local started_at
   started_at="$(date +%s%3N)"
@@ -69,6 +83,7 @@ SQL
   "
   local elapsed_ms=$(( $(date +%s%3N) - started_at ))
   wait "$session_a_pid"
+  rm -f "$ready_fifo"
 
   if ! grep -qx "$expected" "$output_file"; then
     echo "$label: session A did not return $expected" >&2

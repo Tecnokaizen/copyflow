@@ -92,6 +92,15 @@ export async function admitKioskHttpRequest(
   } catch (error) {
     if (
       error instanceof KioskServiceError &&
+      error.code === "not_found"
+    ) {
+      return {
+        ok: false,
+        response: kioskJson({ error: "Kiosk no disponible" }, 404),
+      };
+    }
+    if (
+      error instanceof KioskServiceError &&
       error.code === "rate_limited"
     ) {
       return {
