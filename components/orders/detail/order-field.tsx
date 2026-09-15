@@ -1,3 +1,4 @@
+import { formatFactLabel } from "@/lib/orders/fact-label";
 import { cn } from "@/lib/utils";
 
 export function FactRow({
@@ -14,13 +15,16 @@ export function FactRow({
   return (
     <div
       className={cn(
-        "grid gap-1 border-b border-border/60 py-3.5 last:border-b-0 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:items-start sm:gap-4",
+        "grid gap-1 border-b border-border/60 py-3.5 last:border-b-0 sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:items-stretch sm:gap-0",
         className
       )}
     >
-      <div className="gc-fact-label">{label}</div>
+      <div className="gc-fact-label sm:pr-4">{formatFactLabel(label)}</div>
       <div
-        className={cn("gc-fact-value", emphasis && "gc-fact-value-emphasis")}
+        className={cn(
+          "gc-fact-value sm:border-l sm:border-border/60 sm:pl-4",
+          emphasis && "gc-fact-value-emphasis"
+        )}
       >
         {children}
       </div>

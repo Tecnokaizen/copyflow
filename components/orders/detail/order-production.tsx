@@ -6,6 +6,7 @@ import {
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
+import { formatFactLabel } from "@/lib/orders/fact-label";
 import {
   fromDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -144,7 +145,7 @@ export function OrderProduction({
   return (
     <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
       <div className="border-b border-border/60 py-4">
-        <div className="gc-fact-label">Instrucciones</div>
+        <div className="gc-fact-label">{formatFactLabel("Instrucciones")}</div>
         {description ? (
           <p className="gc-fact-value mt-1.5 whitespace-pre-wrap break-words text-base font-medium leading-relaxed">
             {description}
