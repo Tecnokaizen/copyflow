@@ -282,6 +282,26 @@ begin
     v_client_key,
     v_issued_at,
     v_demo_signature,
+    v_order_demo,
+    repeat('d', 64),
+    'Pedido alterado',
+    v_service_demo,
+    'Ana Ruiz',
+    'ana@example.com',
+    null,
+    'Pedido alterado',
+    null,
+    null
+  );
+  if v_result ->> 'status' <> 'conflict' then
+    raise exception 'FAIL changed-payload conflict: %', v_result;
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12',
+    v_client_key,
+    v_issued_at,
+    v_demo_signature,
     'ac000000-0000-4000-8000-000000000043',
     repeat('e', 64),
     'Cross tenant',
@@ -298,9 +318,7 @@ begin
   end if;
 
   foreach v_rate_order in array array[
-    'ac000000-0000-4000-8000-000000000044'::uuid,
-    'ac000000-0000-4000-8000-000000000045'::uuid,
-    'ac000000-0000-4000-8000-000000000046'::uuid
+    'ac000000-0000-4000-8000-000000000044'::uuid
   ] loop
     v_result := public.submit_kiosk_order(
       'demo-phase12',

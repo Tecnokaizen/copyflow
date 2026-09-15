@@ -278,24 +278,6 @@ BEGIN
     )
   );
 
-  SELECT o.*
-  INTO v_existing
-  FROM public.orders o
-  WHERE o.id = p_submission_id
-    AND o.tenant_id = v_tenant.id;
-
-  IF v_existing.id IS NOT NULL THEN
-    IF v_existing.metadata ->> 'source' = 'kiosk'
-       AND v_existing.metadata #>> '{kiosk,request_fingerprint}'
-         = p_request_fingerprint THEN
-      RETURN pg_catalog.jsonb_build_object(
-        'status', 'replay',
-        'reference', v_existing.reference
-      );
-    END IF;
-    RETURN pg_catalog.jsonb_build_object('status', 'conflict');
-  END IF;
-
   DELETE FROM kiosk_private.kiosk_rate_limits rl
   WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
 
@@ -324,6 +306,27 @@ BEGIN
       ELSE rl.request_count + 1
     END
   RETURNING request_count INTO v_count;
+
+  SELECT o.*
+  INTO v_existing
+  FROM public.orders o
+  WHERE o.id = p_submission_id;
+
+  IF v_existing.id IS NOT NULL THEN
+    IF v_existing.tenant_id = v_tenant.id
+       AND v_existing.metadata ->> 'source' = 'kiosk'
+       AND v_existing.metadata #>> '{kiosk,request_fingerprint}'
+         = p_request_fingerprint THEN
+      RETURN pg_catalog.jsonb_build_object(
+        'status', 'replay',
+        'reference', v_existing.reference
+      );
+    END IF;
+    IF v_count > 5 THEN
+      RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
+    END IF;
+    RETURN pg_catalog.jsonb_build_object('status', 'conflict');
+  END IF;
 
   IF v_count > 5 THEN
     RETURN pg_catalog.jsonb_build_object('status', 'rate_limited');
@@ -438,9 +441,6 @@ BEGIN
     'status', 'created',
     'reference', v_order.reference
   );
-EXCEPTION
-  WHEN unique_violation THEN
-    RETURN pg_catalog.jsonb_build_object('status', 'conflict');
 END;
 $function$;
 
