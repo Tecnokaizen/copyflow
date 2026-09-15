@@ -10,6 +10,11 @@ import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamMemberLinkModal } from "@/components/team/team-member-link-modal";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
+import {
+  PERSONAL_HAS_ACCESS_LABEL,
+  PERSONAL_NO_ACCESS_LABEL,
+  personalAccessActionLabel,
+} from "@/lib/team/access-copy";
 import { assignedGestcopyUser } from "@/lib/team/assigned-user";
 import { publicTeamLinkError, type TeamAccessUser } from "@/lib/team/link";
 import {
@@ -400,7 +405,9 @@ export default function TeamPage() {
                         <td className="px-4 py-4">
                           {member.has_access ? (
                             <div className="space-y-1">
-                              <StatusBadge tone="success">Con acceso</StatusBadge>
+                              <StatusBadge tone="success">
+                                {PERSONAL_HAS_ACCESS_LABEL}
+                              </StatusBadge>
                               <div className="text-xs text-muted-foreground">
                                 {assignedUser?.email ||
                                   assignedUser?.full_name ||
@@ -408,7 +415,9 @@ export default function TeamPage() {
                               </div>
                             </div>
                           ) : (
-                            <StatusBadge tone="warning">Sin acceso</StatusBadge>
+                            <StatusBadge tone="warning">
+                              {PERSONAL_NO_ACCESS_LABEL}
+                            </StatusBadge>
                           )}
                         </td>
                         {canWrite && (
@@ -432,9 +441,7 @@ export default function TeamPage() {
                                 }}
                                 className="rounded-md border bg-background px-3 py-2 text-sm"
                               >
-                                {member.has_access
-                                  ? "Cambiar usuario"
-                                  : "Asignar usuario"}
+                                {personalAccessActionLabel(member.has_access)}
                               </button>
                             </div>
                           </td>

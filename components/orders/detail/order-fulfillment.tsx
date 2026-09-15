@@ -76,7 +76,7 @@ export function OrderFulfillment({
             <option value="notified_no_pickup">Avisado pero no viene</option>
           </DraftSelect>
         </FactRow>
-        <FactRow label="Fecha prevista">
+        <FactRow label="Fecha prevista" emphasis>
           <FactValue value={formatDate(draft.due_at)} />
         </FactRow>
         <FactRow label="Terminado">
@@ -104,7 +104,7 @@ export function OrderFulfillment({
           )}
         />
       </FactRow>
-      <FactRow label="Fecha prevista">
+      <FactRow label="Fecha prevista" emphasis>
         <FactValue value={formatDate(order.due_at)} />
       </FactRow>
       <FactRow label="Terminado">

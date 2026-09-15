@@ -6,6 +6,7 @@ import {
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
+import { formatFactLabel } from "@/lib/orders/fact-label";
 import {
   fromDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -65,7 +66,7 @@ export function OrderProduction({
             ))}
           </DraftSelect>
         </FactRow>
-        <FactRow label="Prioridad">
+        <FactRow label="Prioridad" emphasis>
           <DraftSelect
             value={draft.priority}
             onChange={(value) => onDraftChange({ priority: value })}
@@ -75,7 +76,7 @@ export function OrderProduction({
             <option value="urgent">Urgente</option>
           </DraftSelect>
         </FactRow>
-        <FactRow label="Responsable">
+        <FactRow label="Responsable" emphasis>
           <DraftSelect
             value={draft.assigned_team_member_id ?? ""}
             disabled={orderOptionsLoading}
@@ -123,7 +124,7 @@ export function OrderProduction({
             ))}
           </DraftSelect>
         </FactRow>
-        <FactRow label="Entrega prevista">
+        <FactRow label="Entrega prevista" emphasis>
           <DraftInput
             type="datetime-local"
             value={toDateTimeLocalValue(draft.due_at)}
@@ -144,11 +145,9 @@ export function OrderProduction({
   return (
     <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
       <div className="border-b border-border/60 py-4">
-        <div className="text-sm font-medium text-muted-foreground">
-          Instrucciones
-        </div>
+        <div className="gc-fact-label">{formatFactLabel("Instrucciones")}</div>
         {description ? (
-          <p className="mt-1.5 whitespace-pre-wrap break-words text-base leading-relaxed text-foreground">
+          <p className="gc-fact-value mt-1.5 whitespace-pre-wrap break-words text-base font-medium leading-relaxed">
             {description}
           </p>
         ) : (

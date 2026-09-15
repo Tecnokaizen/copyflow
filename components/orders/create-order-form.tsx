@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientForm } from "@/components/clients/client-form";
@@ -27,22 +28,47 @@ import {
   deriveOrderTitle,
   userFacingCreateOrderError,
 } from "@/lib/orders/create";
+import {
+  buildCreateOrderPayload,
+} from "@/lib/orders/create-form";
+import {
+  defaultSingleCatalogId,
+  isQuickCreateMode,
+  shouldStayOnCreateForm,
+  showEntryChannelInMainForm,
+  showEntryChannelInMoreOptions,
+  suggestedAssigneeId,
+} from "@/lib/orders/create-form-layout";
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
+import { fetchLive } from "@/lib/refresh/fetch-live";
 import { defaultActiveStoreId } from "@/lib/stores/scope";
 
 type CreateOrderFormProps = {
+  mode?: "full" | "quick";
+  fromCounter?: boolean;
   onCancel: () => void;
 };
 
-export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
+type CreatedOrder = {
+  id: string;
+  reference: string;
+};
+
+export function CreateOrderForm({
+  mode = "full",
+  fromCounter = false,
+  onCancel,
+}: CreateOrderFormProps) {
   const router = useRouter();
+  const isQuick = isQuickCreateMode(mode);
   const [options, setOptions] = useState<OrderOptionsResponse | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsReload, setOptionsReload] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreatedOrder | null>(null);
 
   const [title, setTitle] = useState("");
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(
@@ -70,10 +96,58 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
   const [storeId, setStoreId] = useState("");
   const [notes, setNotes] = useState("");
 
+  function applyCatalogDefaults(nextOptions: OrderOptionsResponse) {
+    setStoreId((current) => {
+      if (current) {
+        return current;
+      }
+      return defaultActiveStoreId(nextOptions.stores) ?? "";
+    });
+
+    if (!isQuick) {
+      return;
+    }
+
+    setAssignedTeamMemberId((current) =>
+      suggestedAssigneeId({
+        currentAssigneeId: current,
+        role: nextOptions.actor_role,
+        sessionTeamMemberId: nextOptions.current_team_member?.id,
+        availableMemberIds: nextOptions.team_members.map((member) => member.id),
+      })
+    );
+    setEntryChannelId((current) => {
+      if (current) {
+        return current;
+      }
+      return defaultSingleCatalogId(nextOptions.entry_channels) ?? "";
+    });
+  }
+
+  function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
+    setTitle("");
+    setSelectedClient(null);
+    setServiceId("");
+    setDescription("");
+    setDueAt("");
+    setEntryChannelId("");
+    setOrderContextId("");
+    setPriority("normal");
+    setAssignedTeamMemberId("");
+    setStoreId("");
+    setNotes("");
+    setError(null);
+    setCreated(null);
+    setSubmitting(false);
+    if (nextOptions) {
+      applyCatalogDefaults(nextOptions);
+    }
+  }
+
   useEffect(() => {
     async function loadOptions() {
       try {
-        const response = await fetch("/api/orders/options");
+        const response = await fetchLive("/api/orders/options");
         const result = await response.json();
 
         if (!response.ok) {
@@ -89,15 +163,12 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
           order_contexts: result.order_contexts ?? [],
           team_members: result.team_members ?? [],
           stores: result.stores ?? [],
+          actor_role:
+            typeof result.actor_role === "string" ? result.actor_role : null,
+          current_team_member: result.current_team_member ?? null,
         };
         setOptions(nextOptions);
-        setStoreId((current) => {
-          if (current) {
-            return current;
-          }
-
-          return defaultActiveStoreId(nextOptions.stores) ?? "";
-        });
+        applyCatalogDefaults(nextOptions);
         setOptionsError(null);
       } catch (err) {
         setOptions(null);
@@ -112,7 +183,9 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
     }
 
     void loadOptions();
-  }, [optionsReload]);
+    // Defaults depend on the form mode, not on changing handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionsReload, isQuick]);
 
   const serviceName =
     options?.services.find((item) => item.id === serviceId)?.name ?? null;
@@ -121,6 +194,12 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
     description,
     serviceName,
   });
+  const channelCount = options?.entry_channels.length ?? 0;
+  const showChannelInMoreOptions = showEntryChannelInMoreOptions(
+    mode,
+    channelCount
+  );
+  const showChannelInMain = showEntryChannelInMainForm(mode, channelCount);
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -229,19 +308,21 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: derivedTitle,
-          client_id: existingClientId,
-          service_id: serviceId || null,
-          description: description.trim() || null,
-          due_at: dueAtIso,
-          entry_channel_id: entryChannelId || null,
-          order_context_id: orderContextId || null,
-          priority,
-          assigned_team_member_id: assignedTeamMemberId || null,
-          store_id: storeId || null,
-          notes: notes.trim() || null,
-        }),
+        body: JSON.stringify(
+          buildCreateOrderPayload({
+            title: derivedTitle,
+            clientId: existingClientId,
+            serviceId,
+            description,
+            dueAtIso,
+            entryChannelId,
+            orderContextId,
+            priority,
+            assignedTeamMemberId,
+            storeId,
+            notes,
+          })
+        ),
       });
 
       const result = await response.json();
@@ -256,6 +337,18 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
         throw new Error("No se pudo crear el pedido");
       }
 
+      if (shouldStayOnCreateForm(mode)) {
+        setCreated({
+          id: result.order.id,
+          reference:
+            typeof result.order.reference === "string"
+              ? result.order.reference
+              : "Pedido",
+        });
+        setSubmitting(false);
+        return;
+      }
+
       router.push(`/orders/${result.order.id}?created=1`);
     } catch (err) {
       setError(
@@ -265,10 +358,123 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
     }
   }
 
+  function renderChannelField() {
+    if ((options?.entry_channels.length ?? 0) === 0) {
+      return null;
+    }
+
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Canal de entrada
+        <DraftSelect
+          value={entryChannelId}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setEntryChannelId}
+        >
+          <option value="">Sin canal</option>
+          {options?.entry_channels.map((channel) => (
+            <option key={channel.id} value={channel.id}>
+              {channel.name}
+            </option>
+          ))}
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  function renderStoreField() {
+    if ((options?.stores.length ?? 0) === 0) {
+      return null;
+    }
+
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Tienda
+        <DraftSelect
+          value={storeId}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setStoreId}
+        >
+          <option value="">Sin tienda</option>
+          {options?.stores.map((store) => (
+            <option key={store.id} value={store.id}>
+              {store.name}
+            </option>
+          ))}
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  const clientModal = clientModalOpen ? (
+    <ClientModal>
+      <ClientForm
+        title="Crear cliente"
+        initialValues={clientFormInitial}
+        submitting={savingClient}
+        error={clientActionError}
+        duplicate={clientDuplicate}
+        submitLabel="Crear cliente"
+        onCancel={closeClientModal}
+        onSubmit={saveNewClient}
+        onUseDuplicate={(clientId) => {
+          void selectClientById(clientId).catch((err: unknown) => {
+            setClientActionError(
+              err instanceof Error
+                ? err.message
+                : "No se pudo usar el cliente existente"
+            );
+          });
+        }}
+      />
+    </ClientModal>
+  ) : null;
+
+  if (shouldStayOnCreateForm(mode) && created) {
+    return (
+      <SectionCard
+        title="Pedido creado"
+        description={`${created.reference} ya está registrado.`}
+        className="mb-6"
+        bodyClassName="px-5 py-5 sm:px-6"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Link
+            href={`/orders/${created.id}`}
+            className="gc-cta min-h-11 w-full sm:w-auto"
+          >
+            Abrir pedido
+          </Link>
+          <button
+            type="button"
+            onClick={() => resetQuickForm(options)}
+            className="gc-action min-h-11 w-full sm:w-auto"
+          >
+            Crear otro
+          </button>
+          {fromCounter ? (
+            <Link
+              href="/counter"
+              className="gc-action min-h-11 w-full sm:w-auto"
+            >
+              Volver a Mostrador
+            </Link>
+          ) : null}
+        </div>
+      </SectionCard>
+    );
+  }
+
   return (
     <SectionCard
-      title="Nuevo pedido"
-      description="Datos mínimos para registrar el trabajo. El resto se puede completar en la ficha."
+      title={isQuick ? "Pedido rápido" : "Nuevo pedido"}
+      description={
+        isQuick
+          ? "Cliente, servicio y lo imprescindible para dejarlo apuntado."
+          : "Datos mínimos para registrar el trabajo. El resto se puede completar en la ficha."
+      }
       className="mb-6"
       bodyClassName="px-5 py-5 sm:px-6"
     >
@@ -300,52 +506,71 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
             </span>
           </label>
 
-          {(options?.stores.length ?? 0) > 0 ? (
+          {isQuick ? (
             <label className="grid gap-2 text-sm font-medium text-foreground">
-              Tienda
+              Servicio
               <DraftSelect
-                value={storeId}
+                value={serviceId}
                 disabled={submitting}
                 className="max-w-none text-base"
-                onChange={setStoreId}
+                onChange={setServiceId}
               >
-                <option value="">Sin tienda</option>
-                {options?.stores.map((store) => (
-                  <option key={store.id} value={store.id}>
-                    {store.name}
+                <option value="">Sin servicio</option>
+                {options?.services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
                   </option>
                 ))}
               </DraftSelect>
             </label>
           ) : null}
 
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Servicio
-            <DraftSelect
-              value={serviceId}
-              disabled={submitting}
-              className="max-w-none text-base"
-              onChange={setServiceId}
-            >
-              <option value="">Sin servicio</option>
-              {options?.services.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
-            </DraftSelect>
-          </label>
+          {isQuick ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Descripción
+              <DraftTextarea
+                value={description}
+                disabled={submitting}
+                rows={4}
+                className="min-h-28 text-base"
+                onChange={setDescription}
+              />
+            </label>
+          ) : null}
 
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Instrucciones
-            <DraftTextarea
-              value={description}
-              disabled={submitting}
-              rows={5}
-              className="min-h-32 text-base"
-              onChange={setDescription}
-            />
-          </label>
+          {renderStoreField()}
+
+          {!isQuick ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Servicio
+              <DraftSelect
+                value={serviceId}
+                disabled={submitting}
+                className="max-w-none text-base"
+                onChange={setServiceId}
+              >
+                <option value="">Sin servicio</option>
+                {options?.services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </DraftSelect>
+            </label>
+          ) : null}
+
+          {!isQuick ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Instrucciones
+              <DraftTextarea
+                value={description}
+                disabled={submitting}
+                rows={5}
+                className="min-h-32 text-base"
+                onChange={setDescription}
+              />
+            </label>
+          ) : null}
 
           <label className="grid gap-2 text-sm font-medium text-foreground">
             Entrega prevista
@@ -358,22 +583,24 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
             />
           </label>
 
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Responsable
-            <DraftSelect
-              value={assignedTeamMemberId}
-              disabled={submitting}
-              className="max-w-none text-base"
-              onChange={setAssignedTeamMemberId}
-            >
-              <option value="">Sin asignar</option>
-              {options?.team_members.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))}
-            </DraftSelect>
-          </label>
+          {!isQuick ? (
+            <label className="grid gap-2 text-sm font-medium text-foreground">
+              Responsable
+              <DraftSelect
+                value={assignedTeamMemberId}
+                disabled={submitting}
+                className="max-w-none text-base"
+                onChange={setAssignedTeamMemberId}
+              >
+                <option value="">Sin asignar</option>
+                {options?.team_members.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </DraftSelect>
+            </label>
+          ) : null}
 
           <label className="grid gap-2 text-sm font-medium text-foreground">
             Prioridad
@@ -391,30 +618,34 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
             </DraftSelect>
           </label>
 
-          {(options?.entry_channels.length ?? 0) > 0 ? (
+          {isQuick ? (
             <label className="grid gap-2 text-sm font-medium text-foreground">
-              Canal de entrada
+              Responsable
               <DraftSelect
-                value={entryChannelId}
+                value={assignedTeamMemberId}
                 disabled={submitting}
                 className="max-w-none text-base"
-                onChange={setEntryChannelId}
+                onChange={setAssignedTeamMemberId}
               >
-                <option value="">Sin canal</option>
-                {options?.entry_channels.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    {channel.name}
+                <option value="">Sin asignar</option>
+                {options?.team_members.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
                   </option>
                 ))}
               </DraftSelect>
             </label>
           ) : null}
 
+          {showChannelInMain ? renderChannelField() : null}
+
           <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
             <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
               Más opciones
             </summary>
             <div className="mt-4 grid gap-5">
+              {showChannelInMoreOptions ? renderChannelField() : null}
+
               <label className="grid gap-2 text-sm font-medium text-foreground">
                 Nombre del pedido
                 <DraftInput
@@ -488,29 +719,7 @@ export function CreateOrderForm({ onCancel }: CreateOrderFormProps) {
         </form>
       )}
 
-      {clientModalOpen ? (
-        <ClientModal>
-          <ClientForm
-            title="Crear cliente"
-            initialValues={clientFormInitial}
-            submitting={savingClient}
-            error={clientActionError}
-            duplicate={clientDuplicate}
-            submitLabel="Crear cliente"
-            onCancel={closeClientModal}
-            onSubmit={saveNewClient}
-            onUseDuplicate={(clientId) => {
-              void selectClientById(clientId).catch((err: unknown) => {
-                setClientActionError(
-                  err instanceof Error
-                    ? err.message
-                    : "No se pudo usar el cliente existente"
-                );
-              });
-            }}
-          />
-        </ClientModal>
-      ) : null}
+      {clientModal}
     </SectionCard>
   );
 }

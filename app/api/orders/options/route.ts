@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 
 export async function GET() {
   const context = await getCurrentContext();
@@ -14,6 +15,11 @@ export async function GET() {
 
   const supabase = await createClient();
   const tenantId = context.tenant.id;
+  const currentTeamMember = await resolveCurrentTeamMember(
+    supabase,
+    tenantId,
+    context.user.id
+  );
 
   const [
     servicesResult,
@@ -80,5 +86,7 @@ export async function GET() {
     order_contexts: orderContextsResult.data ?? [],
     team_members: teamMembersResult.data ?? [],
     stores: storesResult.data ?? [],
+    actor_role: context.membership.role,
+    current_team_member: currentTeamMember,
   });
 }

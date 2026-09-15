@@ -19,14 +19,18 @@ describe("fetchLive", () => {
       });
     }) as typeof fetch;
 
-    const response = await fetchLive("/api/orders/mine", {
+    const mine = await fetchLive("/api/orders/mine", { signal: undefined });
+    const counter = await fetchLive("/api/orders/counter", {
       signal: undefined,
     });
-    const body = (await response.json()) as { tenant: string };
+    const body = (await mine.json()) as { tenant: string };
 
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.equal(calls[0]?.input, "/api/orders/mine");
+    assert.equal(calls[1]?.input, "/api/orders/counter");
     assert.equal(calls[0]?.init?.cache, "no-store");
+    assert.equal(calls[1]?.init?.cache, "no-store");
     assert.equal(body.tenant, "sur4");
+    assert.equal(counter.ok, true);
   });
 });

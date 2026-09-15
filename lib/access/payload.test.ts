@@ -42,14 +42,14 @@ describe("invitation create payload", () => {
     });
   });
 
-  it("accepts Encargado (manager)", () => {
+  it("accepts Responsable (manager)", () => {
     const parsed = parseInvitationCreatePayload({
-      email: "encargado@sur4.es",
+      email: "responsable@sur4.es",
       role: "manager",
     });
     assert.deepEqual(parsed, {
       ok: true,
-      email: "encargado@sur4.es",
+      email: "responsable@sur4.es",
       role: "manager",
       name: null,
       add_to_personal: true,
@@ -154,7 +154,7 @@ describe("accept invitation keeps the chosen access role", () => {
     assert.equal(mapped?.team_member_id ?? null, null);
   });
 
-  it("preserves Personal, Administrador, Encargado and Solo lectura", () => {
+  it("preserves Personal, Administrador, Responsable and Solo lectura", () => {
     for (const role of INVITABLE_ROLES) {
       const mapped = mapAcceptInvitationResult({
         tenant: { id: "t1", name: "SUR4", slug: "sur4" },

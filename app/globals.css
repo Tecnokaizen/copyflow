@@ -167,6 +167,15 @@
   .gc-filter-bar {
     @apply mb-4 flex flex-col gap-3 rounded-[var(--radius)] border border-border/70 bg-card p-3 sm:p-4;
   }
+  .gc-fact-label {
+    @apply text-[0.75rem] font-medium leading-5 text-muted-foreground sm:text-[0.8125rem];
+  }
+  .gc-fact-value {
+    @apply min-w-0 break-words text-sm font-medium leading-6 text-foreground;
+  }
+  .gc-fact-value-emphasis {
+    @apply font-semibold text-foreground;
+  }
   .gc-field {
     @apply flex flex-col gap-1 text-sm;
   }

@@ -194,6 +194,8 @@ export type OrderOptionsResponse = {
   order_contexts: CodedOrderOption[];
   team_members: OrderOption[];
   stores: OrderOption[];
+  actor_role?: string | null;
+  current_team_member?: OrderOption | null;
 };
 
 /** Editable snapshot used while the workspace is in edit mode. */

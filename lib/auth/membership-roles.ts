@@ -11,7 +11,7 @@ export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
 export const MEMBERSHIP_ROLE_LABELS = {
   owner: "Propietario",
   admin: "Administrador",
-  manager: "Encargado",
+  manager: "Responsable",
   staff: "Personal",
   viewer: "Solo lectura",
 } as const satisfies Record<MembershipRole, string>;

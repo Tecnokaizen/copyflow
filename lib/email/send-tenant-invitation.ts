@@ -2,9 +2,9 @@ import "server-only";
 
 import { Resend } from "resend";
 import {
-  MEMBERSHIP_ROLE_LABELS,
   type InvitableRole,
-  isInvitableRole,
+  isMembershipRole,
+  membershipRoleLabel,
 } from "@/lib/auth/membership-roles";
 import {
   assertEmailConfigForResend,
@@ -28,8 +28,8 @@ export type SendTenantInvitationResult =
     };
 
 function roleLabel(role: string) {
-  if (isInvitableRole(role) || role in MEMBERSHIP_ROLE_LABELS) {
-    return MEMBERSHIP_ROLE_LABELS[role as keyof typeof MEMBERSHIP_ROLE_LABELS];
+  if (isMembershipRole(role)) {
+    return membershipRoleLabel(role);
   }
   return "Miembro";
 }

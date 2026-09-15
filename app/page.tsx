@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/logout-button";
 import { TenantDashboard } from "@/components/dashboard/tenant-dashboard";
+import { homePathForRole } from "@/lib/nav/items";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
@@ -82,6 +83,11 @@ export default async function Home() {
         </div>
       </main>
     );
+  }
+
+  const homePath = homePathForRole(context.membership.role);
+  if (homePath !== "/") {
+    redirect(homePath);
   }
 
   return <TenantDashboard />;
