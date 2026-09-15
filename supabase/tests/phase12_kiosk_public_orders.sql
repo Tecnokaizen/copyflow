@@ -134,6 +134,12 @@ begin
     v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1000
   );
 
+  insert into kiosk_private.kiosk_rate_limits (
+    tenant_id, client_key, window_started_at, request_count
+  ) values (
+    v_tenant_sur4, repeat('d', 64), now() - interval '2 days', 1
+  );
+
   if has_table_privilege('anon', 'public.orders', 'SELECT')
      or has_table_privilege('anon', 'public.orders', 'INSERT')
      or has_table_privilege('anon', 'public.clients', 'SELECT')
@@ -348,6 +354,13 @@ begin
     and o.entry_channel_id = v_channel_demo;
   if v_count <> 1 then
     raise exception 'FAIL atomic tenant configuration on Kiosk order';
+  end if;
+
+  select count(*) into v_count
+  from kiosk_private.kiosk_rate_limits
+  where client_key = repeat('d', 64);
+  if v_count <> 0 then
+    raise exception 'FAIL stale distributed rate row was not pruned';
   end if;
 
   select count(*) into v_count

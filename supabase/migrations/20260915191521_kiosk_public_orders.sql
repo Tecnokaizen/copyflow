@@ -29,8 +29,43 @@ CREATE TABLE IF NOT EXISTS kiosk_private.kiosk_rate_limits (
   PRIMARY KEY (tenant_id, client_key)
 );
 
+CREATE INDEX IF NOT EXISTS kiosk_rate_limits_window_idx
+  ON kiosk_private.kiosk_rate_limits (window_started_at);
+
 REVOKE ALL ON TABLE kiosk_private.kiosk_rate_limits
   FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION kiosk_private.constant_time_equal(
+  p_left text,
+  p_right text
+)
+  RETURNS boolean
+  LANGUAGE plpgsql
+  IMMUTABLE
+  SECURITY INVOKER
+  SET search_path TO ''
+  AS $function$
+DECLARE
+  v_left bytea := pg_catalog.convert_to(coalesce(p_left, ''), 'UTF8');
+  v_right bytea := pg_catalog.convert_to(coalesce(p_right, ''), 'UTF8');
+  v_diff integer := 0;
+  v_index integer;
+BEGIN
+  IF pg_catalog.octet_length(v_left) <> pg_catalog.octet_length(v_right) THEN
+    RETURN false;
+  END IF;
+  IF pg_catalog.octet_length(v_left) = 0 THEN
+    RETURN false;
+  END IF;
+  FOR v_index IN 0..pg_catalog.octet_length(v_left) - 1 LOOP
+    v_diff := v_diff | (
+      pg_catalog.get_byte(v_left, v_index)
+      # pg_catalog.get_byte(v_right, v_index)
+    );
+  END LOOP;
+  RETURN v_diff = 0;
+END;
+$function$;
 
 CREATE OR REPLACE FUNCTION kiosk_private.verify_kiosk_capability(
   p_tenant_slug text,
@@ -84,7 +119,7 @@ BEGIN
     'hex'
   );
 
-  RETURN v_expected = p_signature;
+  RETURN kiosk_private.constant_time_equal(v_expected, p_signature);
 END;
 $function$;
 
@@ -224,7 +259,8 @@ BEGIN
   INTO v_tenant
   FROM public.tenants t
   WHERE t.slug = p_tenant_slug
-    AND t.active = true;
+    AND t.active = true
+  FOR SHARE;
 
   IF v_tenant.id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
@@ -259,6 +295,9 @@ BEGIN
     END IF;
     RETURN pg_catalog.jsonb_build_object('status', 'conflict');
   END IF;
+
+  DELETE FROM kiosk_private.kiosk_rate_limits rl
+  WHERE rl.window_started_at < pg_catalog.now() - interval '1 day';
 
   INSERT INTO kiosk_private.kiosk_rate_limits AS rl (
     tenant_id,
@@ -524,6 +563,8 @@ CREATE OR REPLACE FUNCTION public.submit_kiosk_order(
     );
 $function$;
 
+REVOKE ALL ON FUNCTION kiosk_private.constant_time_equal(text, text)
+  FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION kiosk_private.verify_kiosk_capability(text, text, bigint, text)
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION kiosk_private.kiosk_bootstrap(text, text, bigint, text)
