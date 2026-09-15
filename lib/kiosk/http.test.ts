@@ -15,6 +15,10 @@ const VALID_BODY = {
   due_at: null,
   observations: null,
 };
+const CONTEXT = {
+  tenantSlug: "demo",
+  clientAddress: "203.0.113.8",
+};
 
 function request(body: unknown) {
   return new Request("https://demo.app.gestcopy.com/api/kiosk/orders", {
@@ -31,14 +35,14 @@ describe("handleKioskOrderRequest", () => {
     };
     const invalidJson = await handleKioskOrderRequest(
       request("{"),
-      "demo",
+      CONTEXT,
       submit
     );
     assert.equal(invalidJson.status, 400);
 
     const foreignTenant = await handleKioskOrderRequest(
       request({ ...VALID_BODY, tenant_id: "tenant-sur4" }),
-      "demo",
+      CONTEXT,
       submit
     );
     assert.equal(foreignTenant.status, 400);
@@ -47,7 +51,7 @@ describe("handleKioskOrderRequest", () => {
   it("rejects oversized request bodies before parsing", async () => {
     const response = await handleKioskOrderRequest(
       request(JSON.stringify({ payload: "x".repeat(20_000) })),
-      "demo",
+      CONTEXT,
       async () => {
         throw new Error("must not submit");
       }
@@ -81,7 +85,7 @@ describe("handleKioskOrderRequest", () => {
     );
     const response = await handleKioskOrderRequest(
       streamed,
-      "demo",
+      CONTEXT,
       async () => {
         throw new Error("must not submit");
       }
@@ -111,9 +115,9 @@ describe("handleKioskOrderRequest", () => {
     ]) {
       const response = await handleKioskOrderRequest(
         request(VALID_BODY),
-        "demo",
-        async (slug, input) => {
-          assert.equal(slug, "demo");
+        CONTEXT,
+        async (context, input) => {
+          assert.deepEqual(context, CONTEXT);
           assert.equal(input.serviceId, VALID_BODY.service_id);
           return { ok: true, reference: "DEMO-0042", replay: row.replay };
         }
@@ -130,7 +134,7 @@ describe("handleKioskOrderRequest", () => {
   it("maps safe service errors and hides unexpected details", async () => {
     const invalidService = await handleKioskOrderRequest(
       request(VALID_BODY),
-      "demo",
+      CONTEXT,
       async () => {
         throw new KioskServiceError("invalid_configuration", 400);
       }
@@ -140,9 +144,21 @@ describe("handleKioskOrderRequest", () => {
       error: "El servicio seleccionado no está disponible",
     });
 
+    const rateLimited = await handleKioskOrderRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new KioskServiceError("rate_limited", 429);
+      }
+    );
+    assert.equal(rateLimited.status, 429);
+    assert.deepEqual(await rateLimited.json(), {
+      error: "Demasiadas solicitudes. Inténtalo de nuevo más tarde.",
+    });
+
     const unexpected = await handleKioskOrderRequest(
       request(VALID_BODY),
-      "demo",
+      CONTEXT,
       async () => {
         throw new Error("postgres secret detail");
       }

@@ -1,8 +1,9 @@
 import { parseKioskOrderPayload, type KioskOrderInput } from "./payload";
 import { KioskServiceError } from "./service";
+import type { TrustedKioskContext } from "./trusted-request";
 
 type SubmitKioskOrder = (
-  slug: string,
+  context: TrustedKioskContext,
   input: KioskOrderInput
 ) => Promise<{ ok: true; reference: string; replay: boolean }>;
 
@@ -45,10 +46,10 @@ function kioskJson(data: unknown, status: number) {
 
 export async function handleKioskOrderRequest(
   request: Request,
-  tenantSlug: string | null,
+  context: TrustedKioskContext | null,
   submit: SubmitKioskOrder
 ) {
-  if (!tenantSlug) {
+  if (!context) {
     return kioskJson({ error: "Kiosk no disponible" }, 404);
   }
 
@@ -69,7 +70,7 @@ export async function handleKioskOrderRequest(
   }
 
   try {
-    const result = await submit(tenantSlug, parsed.data);
+    const result = await submit(context, parsed.data);
     return kioskJson(
       { ok: true, reference: result.reference },
       result.replay ? 200 : 201
@@ -89,6 +90,12 @@ export async function handleKioskOrderRequest(
         return kioskJson(
           { error: "Kiosk no disponible temporalmente" },
           503
+        );
+      }
+      if (error.code === "rate_limited") {
+        return kioskJson(
+          { error: "Demasiadas solicitudes. Inténtalo de nuevo más tarde." },
+          429
         );
       }
       if (error.code === "could_not_create") {

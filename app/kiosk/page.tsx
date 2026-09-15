@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { KioskOrderForm } from "@/components/kiosk/kiosk-order-form";
 import { loadKioskBootstrap } from "@/lib/kiosk/server";
-import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
+import { trustedKioskRequestContext } from "@/lib/kiosk/trusted-request";
 
 export const metadata: Metadata = {
   title: "Solicitar un pedido",
@@ -27,11 +28,14 @@ function KioskUnavailable() {
 
 async function KioskContent() {
   await connection();
-  const tenantSlug = await resolveRequestTenantSlug();
+  const context = trustedKioskRequestContext(
+    new Headers(await headers()),
+    process.env
+  );
   let bootstrap = null;
 
   try {
-    bootstrap = await loadKioskBootstrap(tenantSlug);
+    bootstrap = context ? await loadKioskBootstrap(context) : null;
   } catch (error) {
     console.error("[GET /kiosk] Could not load public Kiosk", { error });
   }
