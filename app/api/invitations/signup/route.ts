@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseInvitationSignupPayload } from "@/lib/access/payload";
-import {
-  publicApiErrorCode,
-  publicMessageForAccessRpcError,
-  statusForAccessRpcError,
-} from "@/lib/access/rpc-error";
 import { mapAcceptInvitationResult } from "@/lib/access/types";
+import { invitationAcceptRpcFailure } from "@/lib/invitations/accept-error";
 import { completeInvitationSignup } from "@/lib/invitations/complete-signup";
 import { ACCOUNT_EXISTS } from "@/lib/invitations/copy";
 import { mapInvitationPreview } from "@/lib/invitations/preview";
@@ -46,7 +42,7 @@ export async function POST(request: NextRequest) {
   } catch {
     console.error("[POST /api/invitations/signup] missing service role");
     return NextResponse.json(
-      { error: "No se pudo crear la cuenta." },
+      { error: "No se pudo activar el acceso." },
       { status: 500 }
     );
   }
@@ -69,6 +65,26 @@ export async function POST(request: NextRequest) {
           }
           return mapInvitationPreview(data);
         },
+        resolveExistingAuthUser: async (token) => {
+          const { data, error } = await admin.rpc(
+            "resolve_invitation_auth_user",
+            { p_token: token }
+          );
+          if (error) {
+            throw error;
+          }
+          return parseResolvedInvitationAuthUserId(data);
+        },
+        userHasMembership: async (userId) => {
+          const { count, error } = await admin
+            .from("memberships")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", userId);
+          if (error) {
+            throw error;
+          }
+          return (count ?? 0) > 0;
+        },
         createConfirmedUser: async (input) => {
           const { data, error } = await admin.auth.admin.createUser({
             email: input.email,
@@ -83,7 +99,7 @@ export async function POST(request: NextRequest) {
           }
           return { id: data.user.id };
         },
-        recoverUnconfirmedUser: async (input) => {
+        recoverOrphanUser: async (input) => {
           const { data, error } = await admin.rpc(
             "resolve_invitation_auth_user",
             { p_token: input.token }
@@ -118,15 +134,13 @@ export async function POST(request: NextRequest) {
             { p_token: token }
           );
           if (error || !data) {
-            const err = new Error(
-              publicMessageForAccessRpcError(
-                error?.code,
-                error?.message,
-                "No se pudo aceptar la invitación."
-              )
-            ) as Error & { status?: number; code?: string };
-            err.status = statusForAccessRpcError(error?.code, error?.message);
-            err.code = publicApiErrorCode(error?.code, error?.message);
+            const failure = invitationAcceptRpcFailure(error);
+            const err = new Error(failure.error) as Error & {
+              status?: number;
+              code?: string;
+            };
+            err.status = failure.status;
+            err.code = failure.code;
             throw err;
           }
           const mapped = mapAcceptInvitationResult(data);
@@ -189,8 +203,8 @@ export async function POST(request: NextRequest) {
       {
         error:
           status >= 500
-            ? "No se pudo crear la cuenta."
-            : message || "No se pudo crear la cuenta.",
+            ? "No se pudo activar el acceso."
+            : message || "No se pudo activar el acceso.",
         ...(code ? { code } : {}),
       },
       { status }

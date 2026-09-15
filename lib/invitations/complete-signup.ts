@@ -11,13 +11,15 @@ export type InvitationAcceptResult = {
 
 export type InvitationSignupDeps = {
   preview: (token: string) => Promise<InvitationPreview | null>;
+  resolveExistingAuthUser: (token: string) => Promise<string | null>;
+  userHasMembership: (userId: string) => Promise<boolean>;
   createConfirmedUser: (input: {
     email: string;
     password: string;
     emailConfirm: boolean;
     name: string | null;
   }) => Promise<{ id: string }>;
-  recoverUnconfirmedUser: (input: {
+  recoverOrphanUser: (input: {
     token: string;
     email: string;
     password: string;
@@ -79,14 +81,22 @@ export async function completeInvitationSignup(
     };
   }
 
-  if (plan.action === "recover_unconfirmed") {
-    await deps.recoverUnconfirmedUser({
+  const existingId = await deps.resolveExistingAuthUser(input.token);
+  if (existingId) {
+    if (await deps.userHasMembership(existingId)) {
+      return {
+        ok: false,
+        code: ACCOUNT_EXISTS,
+        error: "Ya tienes una cuenta. Inicia sesión para continuar.",
+        status: 409,
+      };
+    }
+    await deps.recoverOrphanUser({
       token: input.token,
       email: plan.email,
       password: plan.password,
       emailConfirm: plan.emailConfirm,
     });
-    await deps.signIn({ email: plan.email, password: plan.password });
   } else {
     await deps.createConfirmedUser({
       email: plan.email,
@@ -94,8 +104,9 @@ export async function completeInvitationSignup(
       emailConfirm: plan.emailConfirm,
       name: plan.name,
     });
-    await deps.signIn({ email: plan.email, password: plan.password });
   }
+
+  await deps.signIn({ email: plan.email, password: plan.password });
 
   const accepted = await deps.accept(input.token);
 

@@ -20,14 +20,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  CREATE_ACCOUNT_AND_CONTINUE,
-  CREATE_ACCOUNT_TITLE,
+  ACTIVATE_ACCESS_AND_CONTINUE,
+  ACTIVATE_ACCESS_TITLE,
   EMAIL_LABEL,
   INVITATION_INVALID,
   PASSWORD_LABEL,
   PASSWORDS_DO_NOT_MATCH,
   REPEAT_PASSWORD_LABEL,
   SIGN_IN_TITLE,
+  invitationActivateDescription,
   invitationWrongAccountCopy,
 } from "@/lib/invitations/copy";
 import {
@@ -211,8 +212,7 @@ export function AcceptInvitationClient() {
               token,
               preview: {
                 ...preview,
-                account_exists: true,
-                email_confirmed: true,
+                requires_login: true,
               },
               sessionEmail: null,
             })
@@ -222,7 +222,7 @@ export function AcceptInvitationClient() {
           );
           return;
         }
-        setFormError(payload?.error ?? "No se pudo crear la cuenta.");
+        setFormError(payload?.error ?? "No se pudo activar el acceso.");
         return;
       }
 
@@ -256,11 +256,14 @@ export function AcceptInvitationClient() {
         setFormError("No se pudo iniciar sesión. Revisa la contraseña.");
         return;
       }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setScreen({ kind: "accepting" });
       const nextScreen = await postAcceptInvitation(
         token,
         preview,
-        preview.email
+        user?.email ?? preview.email
       );
       setScreen(nextScreen);
       if (nextScreen.kind === "success") {
@@ -286,15 +289,13 @@ export function AcceptInvitationClient() {
     );
   }
 
-  if (screen.kind === "signup") {
+  if (screen.kind === "activate") {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">{CREATE_ACCOUNT_TITLE}</CardTitle>
+          <CardTitle className="text-2xl">{ACTIVATE_ACCESS_TITLE}</CardTitle>
           <CardDescription>
-            {screen.tenantName
-              ? `Te han invitado a ${screen.tenantName}. Elige una contraseña para entrar.`
-              : "Elige una contraseña para entrar en la organización."}
+            {invitationActivateDescription(screen.tenantName)}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -342,7 +343,7 @@ export function AcceptInvitationClient() {
               <p className="text-sm text-red-500">{formError}</p>
             ) : null}
             <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Creando cuenta…" : CREATE_ACCOUNT_AND_CONTINUE}
+              {busy ? "Activando acceso…" : ACTIVATE_ACCESS_AND_CONTINUE}
             </Button>
           </form>
         </CardContent>

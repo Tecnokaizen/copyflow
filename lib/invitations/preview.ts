@@ -18,8 +18,7 @@ export type InvitationPreview = {
   email: string | null;
   name: string | null;
   tenant: InvitationPreviewTenant | null;
-  account_exists: boolean;
-  email_confirmed: boolean;
+  requires_login: boolean;
   role: string | null;
   add_to_personal: boolean;
 };
@@ -93,8 +92,7 @@ export function mapInvitationPreview(data: unknown): InvitationPreview | null {
     email: asNullableString(record.email),
     name: asNullableString(record.name),
     tenant: mapTenant(record.tenant),
-    account_exists: asBoolean(record.account_exists, false),
-    email_confirmed: asBoolean(record.email_confirmed, false),
+    requires_login: asBoolean(record.requires_login, false),
     role: asNullableString(record.role),
     add_to_personal: asBoolean(record.add_to_personal, false),
   };
@@ -108,8 +106,7 @@ export function toPublicInvitationPreview(
     email: preview.email,
     name: preview.name,
     tenant: preview.tenant,
-    account_exists: preview.account_exists,
-    email_confirmed: preview.email_confirmed,
+    requires_login: preview.requires_login,
     role: preview.role,
     add_to_personal: preview.add_to_personal,
   };

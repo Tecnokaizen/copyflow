@@ -2,16 +2,10 @@ import type { InvitationPreview } from "./preview";
 
 export type InvitationSignupPlan =
   | {
-      action: "create_confirmed";
+      action: "activate";
       email: string;
       password: string;
       name: string | null;
-      emailConfirm: true;
-    }
-  | {
-      action: "recover_unconfirmed";
-      email: string;
-      password: string;
       emailConfirm: true;
     }
   | { action: "login_required"; email: string }
@@ -62,24 +56,12 @@ export function planInvitationSignup(input: {
     };
   }
 
-  if (input.preview.account_exists && input.preview.email_confirmed) {
+  if (input.preview.requires_login) {
     return { action: "login_required", email };
   }
 
-  if (
-    input.preview.account_exists &&
-    !input.preview.email_confirmed
-  ) {
-    return {
-      action: "recover_unconfirmed",
-      email,
-      password: input.password,
-      emailConfirm: true,
-    };
-  }
-
   return {
-    action: "create_confirmed",
+    action: "activate",
     email,
     password: input.password,
     name: input.preview.name,

@@ -18,6 +18,30 @@ function normalizeMessage(message: string | undefined) {
   return (message ?? "").toLowerCase();
 }
 
+export function rpcErrorDigest(
+  error:
+    | {
+        code?: string;
+        message?: string;
+        details?: string;
+        hint?: string;
+      }
+    | null
+    | undefined
+) {
+  const parts = [error?.message, error?.details, error?.hint]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim() !== ""
+    )
+    .join(" ");
+
+  return {
+    code: error?.code,
+    message: parts || undefined,
+  };
+}
+
 export function classifyAccessRpcError(
   code: string | undefined,
   message?: string

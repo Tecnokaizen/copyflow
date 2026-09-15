@@ -4,7 +4,6 @@ import {
   parseInvitationToken,
 } from "./token";
 import {
-  INVITATION_GENERIC_FORBIDDEN,
   INVITATION_INVALID,
   INVITATION_EMAIL_MISMATCH,
   invitationStatusMessage,
@@ -19,7 +18,7 @@ export type InvitationAcceptView =
       returnTo: string;
     }
   | {
-      kind: "signup";
+      kind: "activate";
       email: string;
       emailReadOnly: true;
       name: string | null;
@@ -78,7 +77,7 @@ export function invitationAcceptView(input: {
     return { kind: "auto_accept", email: invitedEmail };
   }
 
-  if (preview.account_exists && preview.email_confirmed) {
+  if (preview.requires_login) {
     return {
       kind: "login",
       email: invitedEmail,
@@ -88,7 +87,7 @@ export function invitationAcceptView(input: {
   }
 
   return {
-    kind: "signup",
+    kind: "activate",
     email: invitedEmail,
     emailReadOnly: true,
     name: preview.name,
@@ -113,7 +112,7 @@ export function invitationAcceptFailureView(input: {
   if (input.payload?.code === INVITATION_EMAIL_MISMATCH) {
     const invitedEmail = normalizeEmail(input.invitedEmail);
     const sessionEmail = normalizeEmail(input.sessionEmail);
-    if (invitedEmail && sessionEmail) {
+    if (invitedEmail && sessionEmail && invitedEmail !== sessionEmail) {
       return {
         kind: "wrong_account",
         invitedEmail,
@@ -121,13 +120,6 @@ export function invitationAcceptFailureView(input: {
         returnTo: input.returnTo,
       };
     }
-  }
-
-  if (input.status === 403) {
-    return {
-      kind: "error",
-      message: INVITATION_GENERIC_FORBIDDEN,
-    };
   }
 
   return {

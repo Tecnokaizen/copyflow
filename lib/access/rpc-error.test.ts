@@ -4,6 +4,7 @@ import { LAST_OWNER_REQUIRED_MESSAGE } from "@/lib/access/owner-protection";
 import {
   classifyAccessRpcError,
   publicMessageForAccessRpcError,
+  rpcErrorDigest,
   statusForAccessRpcError,
 } from "./rpc-error";
 import { publicAccessUiError } from "./ui";
@@ -22,6 +23,21 @@ describe("last owner protection errors", () => {
         error: LAST_OWNER_REQUIRED_MESSAGE,
       }),
       LAST_OWNER_REQUIRED_MESSAGE
+    );
+  });
+
+  it("joins message, details and hint for classification", () => {
+    const digest = rpcErrorDigest({
+      code: "42501",
+      message: "permission denied",
+      details: "invitation email mismatch",
+      hint: "check jwt email",
+    });
+    assert.equal(digest.code, "42501");
+    assert.match(digest.message ?? "", /invitation email mismatch/);
+    assert.equal(
+      classifyAccessRpcError(digest.code, digest.message),
+      "email_mismatch"
     );
   });
 

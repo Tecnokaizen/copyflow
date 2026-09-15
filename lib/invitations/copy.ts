@@ -6,16 +6,20 @@ export const INVITATION_EXPIRED = "Esta invitación ha caducado.";
 export const INVITATION_CANCELLED = "Esta invitación fue cancelada.";
 export const INVITATION_SUPERSEDED = "Esta invitación ya no está vigente.";
 export const INVITATION_ACCEPTED = "Esta invitación ya fue aceptada.";
-export const INVITATION_GENERIC_FORBIDDEN =
-  "No tienes acceso a esta invitación.";
 
-export const CREATE_ACCOUNT_TITLE = "Crear cuenta";
-export const CREATE_ACCOUNT_AND_CONTINUE = "Crear cuenta y continuar";
+export const ACTIVATE_ACCESS_TITLE = "Activa tu acceso";
+export const ACTIVATE_ACCESS_AND_CONTINUE = "Activar acceso y continuar";
 export const SIGN_IN_TITLE = "Iniciar sesión";
 export const PASSWORD_LABEL = "Contraseña";
 export const REPEAT_PASSWORD_LABEL = "Repetir contraseña";
 export const EMAIL_LABEL = "Correo";
 export const PASSWORDS_DO_NOT_MATCH = "Las contraseñas no coinciden.";
+
+export function invitationActivateDescription(tenantName: string | null) {
+  return tenantName
+    ? `Te han invitado a ${tenantName}. Elige una contraseña para empezar.`
+    : "Elige una contraseña para empezar.";
+}
 
 export function invitationWrongAccountCopy(
   invitedEmail: string,

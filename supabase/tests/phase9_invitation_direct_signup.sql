@@ -50,7 +50,7 @@ begin
   v_result := public.preview_tenant_invitation(v_token);
   if (v_result ->> 'status') is distinct from 'pending'
      or (v_result ->> 'email') is distinct from 'reservas@phase9.test'
-     or (v_result ->> 'account_exists') is distinct from 'false'
+     or (v_result ->> 'requires_login') is distinct from 'false'
      or (v_result #>> '{tenant,slug}') is distinct from 'tenant-a-phase9'
      or v_result ? 'auth_user_id' then
     raise exception 'FAIL preview new user: %', v_result;
