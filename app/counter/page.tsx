@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { ErrorState } from "@/components/gestcopy/error-state";
@@ -40,6 +40,33 @@ type OptionsResponse = {
   error?: string;
 };
 
+const emptySubscribe = () => () => {};
+
+function useCounterViewMode(): [
+  CounterViewMode,
+  (next: CounterViewMode) => void,
+] {
+  const isClient = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+  const [, bump] = useState(0);
+  const view = isClient
+    ? readStoredCounterView(window.localStorage)
+    : "list";
+
+  function changeView(next: CounterViewMode) {
+    window.localStorage.setItem(
+      COUNTER_VIEW_STORAGE_KEY,
+      parseCounterViewMode(next)
+    );
+    bump((value) => value + 1);
+  }
+
+  return [view, changeView];
+}
+
 function FilterSelect({
   label,
   value,
@@ -77,7 +104,7 @@ function CounterContent() {
   const [assigneeId, setAssigneeId] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [priority, setPriority] = useState("");
-  const [view, setView] = useState<CounterViewMode>("list");
+  const [view, changeView] = useCounterViewMode();
   const [reloadToken, setReloadToken] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -87,10 +114,6 @@ function CounterContent() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [query]);
-
-  useEffect(() => {
-    setView(readStoredCounterView(window.localStorage));
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,11 +223,6 @@ function CounterContent() {
     serviceId: serviceId || null,
     priority: priority || null,
   });
-
-  function changeView(next: CounterViewMode) {
-    setView(parseCounterViewMode(next));
-    window.localStorage.setItem(COUNTER_VIEW_STORAGE_KEY, next);
-  }
 
   function clearFilters() {
     setMine(false);
