@@ -58,11 +58,19 @@ export function mapKioskOrderRow(row: unknown) {
     value.metadata && typeof value.metadata === "object"
       ? (value.metadata as Record<string, unknown>)
       : null;
+  const kiosk =
+    metadata?.kiosk && typeof metadata.kiosk === "object"
+      ? (metadata.kiosk as Record<string, unknown>)
+      : null;
   return {
     id: value.id,
     tenantId: value.tenant_id,
     reference: value.reference,
     source: typeof metadata?.source === "string" ? metadata.source : null,
+    fingerprint:
+      typeof kiosk?.request_fingerprint === "string"
+        ? kiosk.request_fingerprint
+        : null,
   };
 }
 
@@ -139,10 +147,11 @@ export function createSupabaseKioskRepository(
       );
     },
 
-    async findOrderById(id) {
+    async findOrderById(tenantId, id) {
       const { data, error } = await supabase
         .from("orders")
         .select("id, tenant_id, reference, metadata")
+        .eq("tenant_id", tenantId)
         .eq("id", id)
         .maybeSingle();
       throwIfError(error);

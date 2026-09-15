@@ -44,6 +44,20 @@ describe("handleKioskOrderRequest", () => {
     assert.equal(foreignTenant.status, 400);
   });
 
+  it("rejects oversized request bodies before parsing", async () => {
+    const response = await handleKioskOrderRequest(
+      request(JSON.stringify({ payload: "x".repeat(20_000) })),
+      "demo",
+      async () => {
+        throw new Error("must not submit");
+      }
+    );
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), {
+      error: "Solicitud demasiado grande",
+    });
+  });
+
   it("fails closed when hostname context has no tenant", async () => {
     const response = await handleKioskOrderRequest(
       request(VALID_BODY),

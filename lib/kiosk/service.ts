@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { deriveOrderTitle } from "@/lib/orders/create";
 import {
   buildKioskOrderNotes,
@@ -33,6 +34,7 @@ export type KioskOrderInsert = {
     source: "kiosk";
     kiosk: {
       submission_id: string;
+      request_fingerprint: string;
       contact: KioskOrderInput["contact"];
     };
   };
@@ -48,10 +50,11 @@ export type KioskRepository = {
   ): Promise<KioskService | null>;
   listInitialStatuses(tenantId: string): Promise<Array<{ id: string }>>;
   listKioskChannels(tenantId: string): Promise<Array<{ id: string }>>;
-  findOrderById(id: string): Promise<{
+  findOrderById(tenantId: string, id: string): Promise<{
     id: string;
     tenantId: string;
     source: string | null;
+    fingerprint: string | null;
     reference: string;
   } | null>;
   insertOrder(order: KioskOrderInsert): Promise<{ reference: string }>;
@@ -73,6 +76,20 @@ export class KioskServiceError extends Error {
     super(code);
     this.name = "KioskServiceError";
   }
+}
+
+export function kioskInputFingerprint(input: KioskOrderInput) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        contact: input.contact,
+        serviceId: input.serviceId,
+        description: input.description,
+        dueAt: input.dueAt,
+        observations: input.observations,
+      })
+    )
+    .digest("hex");
 }
 
 async function activeTenant(
@@ -119,11 +136,16 @@ export async function submitKioskOrder(
     throw new KioskServiceError("not_found", 404);
   }
 
-  const existing = await repository.findOrderById(input.submissionId);
+  const fingerprint = kioskInputFingerprint(input);
+  const existing = await repository.findOrderById(
+    tenant.id,
+    input.submissionId
+  );
   if (existing) {
     if (
       existing.tenantId === tenant.id &&
-      existing.source === "kiosk"
+      existing.source === "kiosk" &&
+      existing.fingerprint === fingerprint
     ) {
       return { ok: true as const, reference: existing.reference, replay: true };
     }
@@ -170,6 +192,7 @@ export async function submitKioskOrder(
         source: "kiosk",
         kiosk: {
           submission_id: input.submissionId,
+          request_fingerprint: fingerprint,
           contact: input.contact,
         },
       },
@@ -184,10 +207,14 @@ export async function submitKioskOrder(
       "code" in error &&
       error.code === "23505"
     ) {
-      const concurrent = await repository.findOrderById(input.submissionId);
+      const concurrent = await repository.findOrderById(
+        tenant.id,
+        input.submissionId
+      );
       if (
         concurrent?.tenantId === tenant.id &&
-        concurrent.source === "kiosk"
+        concurrent.source === "kiosk" &&
+        concurrent.fingerprint === fingerprint
       ) {
         return {
           ok: true as const,

@@ -6,6 +6,8 @@ type SubmitKioskOrder = (
   input: KioskOrderInput
 ) => Promise<{ ok: true; reference: string; replay: boolean }>;
 
+const MAX_KIOSK_BODY_BYTES = 16 * 1024;
+
 function kioskJson(data: unknown, status: number) {
   return Response.json(data, {
     status,
@@ -27,7 +29,11 @@ export async function handleKioskOrderRequest(
 
   let body: unknown;
   try {
-    body = await request.json();
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).byteLength > MAX_KIOSK_BODY_BYTES) {
+      return kioskJson({ error: "Solicitud demasiado grande" }, 413);
+    }
+    body = JSON.parse(raw) as unknown;
   } catch {
     return kioskJson({ error: "Solicitud no válida" }, 400);
   }

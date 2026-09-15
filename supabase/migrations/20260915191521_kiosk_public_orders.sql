@@ -21,6 +21,48 @@ SELECT
 FROM public.tenants t
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
+CREATE OR REPLACE FUNCTION public.tg_seed_kiosk_entry_channel()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+BEGIN
+  INSERT INTO public.entry_channels (
+    tenant_id,
+    name,
+    code,
+    active,
+    sort_order
+  )
+  VALUES (
+    new.id,
+    'Kiosk',
+    'kiosk',
+    true,
+    1000
+  )
+  ON CONFLICT (tenant_id, code) DO NOTHING;
+
+  RETURN new;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.tg_seed_kiosk_entry_channel() IS
+  'Creates the tenant-owned Kiosk entry channel for every new tenant.';
+
+REVOKE ALL ON FUNCTION public.tg_seed_kiosk_entry_channel() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.tg_seed_kiosk_entry_channel() FROM anon;
+REVOKE ALL ON FUNCTION public.tg_seed_kiosk_entry_channel() FROM authenticated;
+REVOKE ALL ON FUNCTION public.tg_seed_kiosk_entry_channel() FROM service_role;
+GRANT EXECUTE ON FUNCTION public.tg_seed_kiosk_entry_channel() TO postgres;
+
+DROP TRIGGER IF EXISTS tenants_seed_kiosk_entry_channel ON public.tenants;
+CREATE TRIGGER tenants_seed_kiosk_entry_channel
+  AFTER INSERT ON public.tenants
+  FOR EACH ROW
+  EXECUTE FUNCTION public.tg_seed_kiosk_entry_channel();
+
 CREATE OR REPLACE FUNCTION public.tg_activity_log_order_created()
   RETURNS trigger
   LANGUAGE plpgsql

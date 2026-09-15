@@ -4,6 +4,7 @@ import type { KioskOrderInput } from "./payload";
 import {
   KioskServiceError,
   getKioskBootstrap,
+  kioskInputFingerprint,
   submitKioskOrder,
   type KioskRepository,
   type KioskOrderInsert,
@@ -128,6 +129,7 @@ describe("submitKioskOrder", () => {
         source: "kiosk",
         kiosk: {
           submission_id: SUBMISSION,
+          request_fingerprint: kioskInputFingerprint(input()),
           contact: input().contact,
         },
       },
@@ -182,6 +184,7 @@ describe("submitKioskOrder", () => {
         tenantId: DEMO.id,
         source: "kiosk",
         reference: "DEMO-0041",
+        fingerprint: kioskInputFingerprint(input()),
       }),
     });
     assert.deepEqual(await submitKioskOrder("demo", input(), repo), {
@@ -204,6 +207,7 @@ describe("submitKioskOrder", () => {
               tenantId: DEMO.id,
               source: "kiosk",
               reference: "DEMO-0043",
+              fingerprint: kioskInputFingerprint(input()),
             };
       },
       insertOrder: async () => {
@@ -218,6 +222,30 @@ describe("submitKioskOrder", () => {
     assert.equal(lookups, 2);
   });
 
+  it("rejects changed payload under an existing submission id", async () => {
+    const { repo } = repository({
+      findOrderById: async () => ({
+        id: SUBMISSION,
+        tenantId: DEMO.id,
+        source: "kiosk",
+        reference: "DEMO-0041",
+        fingerprint: kioskInputFingerprint(input()),
+      }),
+    });
+    await assert.rejects(
+      () =>
+        submitKioskOrder(
+          "demo",
+          input({ description: "Un pedido diferente" }),
+          repo
+        ),
+      (error: unknown) =>
+        error instanceof KioskServiceError &&
+        error.code === "could_not_create" &&
+        error.status === 409
+    );
+  });
+
   it("does not reveal an id collision from SUR4", async () => {
     const { repo, inserts } = repository({
       findOrderById: async () => ({
@@ -225,6 +253,7 @@ describe("submitKioskOrder", () => {
         tenantId: SUR4.id,
         source: "kiosk",
         reference: "SUR4-0001",
+        fingerprint: kioskInputFingerprint(input()),
       }),
     });
     await assert.rejects(

@@ -5,15 +5,17 @@ begin;
 
 do $phase12$
 declare
+  v_owner_demo uuid := 'ac000000-0000-4000-8000-000000000000';
   v_tenant_demo uuid := 'ac000000-0000-4000-8000-000000000001';
   v_tenant_sur4 uuid := 'ac000000-0000-4000-8000-000000000002';
   v_service_demo uuid := 'ac000000-0000-4000-8000-000000000011';
   v_service_sur4 uuid := 'ac000000-0000-4000-8000-000000000012';
   v_status_demo uuid := 'ac000000-0000-4000-8000-000000000021';
   v_status_sur4 uuid := 'ac000000-0000-4000-8000-000000000022';
-  v_channel_demo uuid := 'ac000000-0000-4000-8000-000000000031';
-  v_channel_sur4 uuid := 'ac000000-0000-4000-8000-000000000032';
+  v_channel_demo uuid;
+  v_channel_sur4 uuid;
   v_order_demo uuid := 'ac000000-0000-4000-8000-000000000041';
+  v_order_internal uuid := 'ac000000-0000-4000-8000-000000000042';
   v_sqlstate text;
   v_count integer;
   v_reference text;
@@ -21,6 +23,30 @@ begin
   insert into public.tenants (id, name, slug, active) values
     (v_tenant_demo, 'DEMO Phase12', 'demo-phase12', true),
     (v_tenant_sur4, 'SUR4 Phase12', 'sur4-phase12', true);
+
+  insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at, confirmation_token, recovery_token,
+    email_change_token_new, email_change
+  ) values (
+    v_owner_demo,
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated',
+    'authenticated',
+    'owner-demo@phase12.test',
+    crypt('pw', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"full_name":"Owner DEMO"}'::jsonb,
+    now(), now(), '', '', '', ''
+  );
+
+  insert into public.profiles (id, full_name)
+  values (v_owner_demo, 'Owner DEMO');
+
+  insert into public.memberships (tenant_id, user_id, role, active)
+  values (v_tenant_demo, v_owner_demo, 'owner', true);
 
   insert into public.services (id, tenant_id, name, active, sort_order) values
     (v_service_demo, v_tenant_demo, 'Impresión DEMO', true, 1),
@@ -32,11 +58,17 @@ begin
     (v_status_demo, v_tenant_demo, 'Recibido', 'received', true, true, 1),
     (v_status_sur4, v_tenant_sur4, 'Pendiente', 'pending', true, true, 1);
 
-  insert into public.entry_channels (
-    id, tenant_id, name, code, active, sort_order
-  ) values
-    (v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1),
-    (v_channel_sur4, v_tenant_sur4, 'Kiosk', 'kiosk', true, 1);
+  select id into v_channel_demo
+  from public.entry_channels
+  where tenant_id = v_tenant_demo and code = 'kiosk' and active = true;
+
+  select id into v_channel_sur4
+  from public.entry_channels
+  where tenant_id = v_tenant_sur4 and code = 'kiosk' and active = true;
+
+  if v_channel_demo is null or v_channel_sur4 is null then
+    raise exception 'FAIL new tenants did not receive Kiosk channels';
+  end if;
 
   -- Browser role has no direct read/write access to business tables.
   if has_table_privilege('anon', 'public.orders', 'SELECT')
@@ -110,6 +142,39 @@ begin
     and a.metadata ->> 'source' = 'kiosk';
   if v_count <> 1 then
     raise exception 'FAIL Kiosk activity source or null actor';
+  end if;
+
+  -- Replacing the trigger must preserve normal authenticated order auditing.
+  perform set_config('request.jwt.claim.sub', v_owner_demo::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  insert into public.orders (
+    id,
+    tenant_id,
+    title,
+    service_id,
+    status_id,
+    entry_channel_id,
+    created_by
+  ) values (
+    v_order_internal,
+    v_tenant_demo,
+    'Pedido interno',
+    v_service_demo,
+    v_status_demo,
+    v_channel_demo,
+    v_owner_demo
+  );
+  execute 'reset role';
+
+  select count(*) into v_count
+  from public.activity_log a
+  where a.entity_id = v_order_internal
+    and a.tenant_id = v_tenant_demo
+    and a.user_id = v_owner_demo
+    and a.metadata ->> 'source' = 'internal';
+  if v_count <> 1 then
+    raise exception 'FAIL authenticated internal order audit regression';
   end if;
 
   -- Composite tenant FKs reject a SUR4 service on a DEMO order.

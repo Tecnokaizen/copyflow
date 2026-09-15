@@ -42,13 +42,18 @@ describe("Kiosk Supabase row mapping", () => {
         id: "order-1",
         tenant_id: "tenant-demo",
         reference: "DEMO-0001",
-        metadata: { source: "kiosk", private: "not returned" },
+        metadata: {
+          source: "kiosk",
+          kiosk: { request_fingerprint: "fingerprint-1" },
+          private: "not returned",
+        },
       }),
       {
         id: "order-1",
         tenantId: "tenant-demo",
         reference: "DEMO-0001",
         source: "kiosk",
+        fingerprint: "fingerprint-1",
       }
     );
     assert.equal(mapKioskOrderRow({ reference: "DEMO-0001" }), null);
