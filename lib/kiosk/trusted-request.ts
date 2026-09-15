@@ -22,32 +22,50 @@ export type KioskCapability = {
   signature: string;
 };
 
+function parseAuthority(raw: string | null) {
+  if (!raw || raw.length > 260) return null;
+  const match = raw.match(
+    /^(([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.?)(?::([0-9]{1,5}))?$/i
+  );
+  if (!match) return null;
+  const port = match[3] ? Number(match[3]) : null;
+  if (port !== null && (port < 1 || port > 65_535)) return null;
+  const hostname = normalizeHostname(match[1]);
+  return {
+    hostname,
+    canonical: port === null ? hostname : `${hostname}:${port}`,
+  };
+}
+
 export function trustedKioskRequestContext(
   headers: Headers,
   environment: KioskEnvironment
 ): TrustedKioskContext | null {
   if (environment.VERCEL === "1") {
-    const host = headers.get("host");
-    const forwardedHost = headers.get("x-forwarded-host");
+    const host = parseAuthority(headers.get("host"));
+    const forwardedHost = parseAuthority(headers.get("x-forwarded-host"));
     const forwardedFor = headers.get("x-vercel-forwarded-for");
     if (
       !host ||
       !forwardedHost ||
-      normalizeHostname(host) !== normalizeHostname(forwardedHost) ||
+      host.canonical !== forwardedHost.canonical ||
       !forwardedFor ||
       forwardedFor.includes(",") ||
       isIP(forwardedFor.trim()) === 0
     ) {
       return null;
     }
-    const tenantSlug = getSubdomainFromHostname(host);
+    const tenantSlug = getSubdomainFromHostname(host.hostname);
     return tenantSlug
       ? { tenantSlug, clientAddress: forwardedFor.trim() }
       : null;
   }
 
   if (environment.NODE_ENV === "development") {
-    const tenantSlug = getSubdomainFromHostname(headers.get("host") ?? "");
+    const host = parseAuthority(headers.get("host"));
+    const tenantSlug = host
+      ? getSubdomainFromHostname(host.hostname)
+      : null;
     return tenantSlug
       ? { tenantSlug, clientAddress: "local-development" }
       : null;

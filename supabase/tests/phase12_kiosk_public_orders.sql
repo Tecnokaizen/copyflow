@@ -14,9 +14,11 @@ declare
   v_secret text := 'phase12-kiosk-signing-secret-at-least-32-chars';
   v_client_address text := '203.0.113.8';
   v_client_key text;
+  v_client_key_2 text;
   v_issued_at bigint := extract(epoch from now())::bigint;
   v_demo_signature text;
   v_sur4_signature text;
+  v_demo_signature_2 text;
   v_owner_demo uuid := 'ac000000-0000-4000-8000-000000000000';
   v_tenant_demo uuid := 'ac000000-0000-4000-8000-000000000001';
   v_tenant_sur4 uuid := 'ac000000-0000-4000-8000-000000000002';
@@ -54,6 +56,25 @@ begin
     extensions.hmac(
       convert_to(
         'kiosk-v1|sur4-phase12|' || v_client_key || '|' || v_issued_at,
+        'UTF8'
+      ),
+      convert_to(v_secret, 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  );
+  v_client_key_2 := encode(
+    extensions.hmac(
+      convert_to('client|198.51.100.9', 'UTF8'),
+      convert_to(v_secret, 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  );
+  v_demo_signature_2 := encode(
+    extensions.hmac(
+      convert_to(
+        'kiosk-v1|demo-phase12|' || v_client_key_2 || '|' || v_issued_at,
         'UTF8'
       ),
       convert_to(v_secret, 'UTF8'),
@@ -117,7 +138,10 @@ begin
      or has_table_privilege('anon', 'public.orders', 'INSERT')
      or has_table_privilege('anon', 'public.clients', 'SELECT')
      or has_table_privilege('anon', 'public.team_members', 'SELECT')
-     or has_table_privilege('anon', 'public.services', 'SELECT') then
+     or has_table_privilege('anon', 'public.services', 'SELECT')
+     or has_table_privilege(
+       'anon', 'kiosk_private.kiosk_rate_limits', 'SELECT'
+     ) then
     raise exception 'FAIL anon gained direct business-table access';
   end if;
 
@@ -175,6 +199,16 @@ begin
     raise exception 'FAIL signature allowed arbitrary tenant: %', v_result;
   end if;
 
+  v_result := public.kiosk_bootstrap(
+    'demo-phase12',
+    v_client_key,
+    '-9223372036854775808'::bigint,
+    v_demo_signature
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL extreme issued_at was not rejected: %', v_result;
+  end if;
+
   v_result := public.submit_kiosk_order(
     'demo-phase12',
     v_client_key,
@@ -216,6 +250,27 @@ begin
     raise exception 'FAIL Kiosk replay: %', v_result;
   end if;
 
+  -- Replays remain idempotent after an IP/client-key change.
+  v_result := public.submit_kiosk_order(
+    'demo-phase12',
+    v_client_key_2,
+    v_issued_at,
+    v_demo_signature_2,
+    v_order_demo,
+    repeat('f', 64),
+    '200 tarjetas',
+    v_service_demo,
+    'Ana Ruiz',
+    'ana@example.com',
+    null,
+    '200 tarjetas',
+    null,
+    'Papel mate'
+  );
+  if v_result ->> 'status' <> 'replay' then
+    raise exception 'FAIL changed-IP Kiosk replay: %', v_result;
+  end if;
+
   v_result := public.submit_kiosk_order(
     'demo-phase12',
     v_client_key,
@@ -239,8 +294,7 @@ begin
   foreach v_rate_order in array array[
     'ac000000-0000-4000-8000-000000000044'::uuid,
     'ac000000-0000-4000-8000-000000000045'::uuid,
-    'ac000000-0000-4000-8000-000000000046'::uuid,
-    'ac000000-0000-4000-8000-000000000047'::uuid
+    'ac000000-0000-4000-8000-000000000046'::uuid
   ] loop
     v_result := public.submit_kiosk_order(
       'demo-phase12',

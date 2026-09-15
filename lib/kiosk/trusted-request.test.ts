@@ -49,6 +49,16 @@ describe("trustedKioskRequestContext", () => {
         "x-forwarded-host": "deep.demo.app.gestcopy.com",
         "x-vercel-forwarded-for": "203.0.113.8",
       },
+      {
+        host: "demo.app.gestcopy.com:443,evil.test",
+        "x-forwarded-host": "demo.app.gestcopy.com:443,evil.test",
+        "x-vercel-forwarded-for": "203.0.113.8",
+      },
+      {
+        host: "demo.app.gestcopy.com@evil.test",
+        "x-forwarded-host": "demo.app.gestcopy.com@evil.test",
+        "x-vercel-forwarded-for": "203.0.113.8",
+      },
     ];
     for (const value of cases) {
       assert.equal(
