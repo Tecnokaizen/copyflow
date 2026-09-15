@@ -226,7 +226,7 @@ CREATE OR REPLACE FUNCTION kiosk_private.kiosk_bootstrap(
 DECLARE
   v_tenant public.tenants%rowtype;
   v_status_count integer;
-  v_channel_count integer;
+  v_channel_id uuid;
   v_services jsonb;
 BEGIN
   IF p_purpose <> 'bootstrap'
@@ -241,20 +241,22 @@ BEGIN
   INTO v_tenant
   FROM public.tenants t
   WHERE t.slug = p_tenant_slug
-    AND t.active = true;
+    AND t.active = true
+  FOR SHARE;
 
   IF v_tenant.id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
-  SELECT count(*)
-  INTO v_channel_count
+  SELECT ec.id
+  INTO v_channel_id
   FROM public.entry_channels ec
   WHERE ec.tenant_id = v_tenant.id
     AND ec.active = true
-    AND ec.code = 'kiosk';
+    AND ec.code = 'kiosk'
+  FOR SHARE;
 
-  IF v_channel_count <> 1 THEN
+  IF v_channel_id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
@@ -316,7 +318,7 @@ CREATE OR REPLACE FUNCTION kiosk_private.admit_kiosk_request(
 DECLARE
   v_tenant_id uuid;
   v_permit_id uuid;
-  v_channel_count integer;
+  v_channel_id uuid;
 BEGIN
   IF p_purpose <> 'admit'
      OR p_binding <> 'request'
@@ -335,20 +337,22 @@ BEGIN
   INTO v_tenant_id
   FROM public.tenants t
   WHERE t.slug = p_tenant_slug
-    AND t.active = true;
+    AND t.active = true
+  FOR SHARE;
 
   IF v_tenant_id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
-  SELECT count(*)
-  INTO v_channel_count
+  SELECT ec.id
+  INTO v_channel_id
   FROM public.entry_channels ec
   WHERE ec.tenant_id = v_tenant_id
     AND ec.active = true
-    AND ec.code = 'kiosk';
+    AND ec.code = 'kiosk'
+  FOR SHARE;
 
-  IF v_channel_count <> 1 THEN
+  IF v_channel_id IS NULL THEN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
@@ -467,7 +471,7 @@ DECLARE
   v_tenant public.tenants%rowtype;
   v_service public.services%rowtype;
   v_status_ids uuid[];
-  v_channel_ids uuid[];
+  v_channel_id uuid;
   v_existing public.orders%rowtype;
   v_order public.orders%rowtype;
   v_consumed_permit uuid;
@@ -540,6 +544,18 @@ BEGIN
     RETURN pg_catalog.jsonb_build_object('status', 'not_found');
   END IF;
 
+  SELECT ec.id
+  INTO v_channel_id
+  FROM public.entry_channels ec
+  WHERE ec.tenant_id = v_tenant.id
+    AND ec.active = true
+    AND ec.code = 'kiosk'
+  FOR SHARE;
+
+  IF v_channel_id IS NULL THEN
+    RETURN pg_catalog.jsonb_build_object('status', 'not_found');
+  END IF;
+
   UPDATE kiosk_private.kiosk_request_permits p
   SET consumed_at = pg_catalog.now()
   WHERE p.id = p_permit_id
@@ -601,20 +617,7 @@ BEGIN
     v_status_ids := pg_catalog.array_append(v_status_ids, v_locked_id);
   END LOOP;
 
-  v_channel_ids := ARRAY[]::uuid[];
-  FOR v_locked_id IN
-    SELECT ec.id
-    FROM public.entry_channels ec
-    WHERE ec.tenant_id = v_tenant.id
-      AND ec.active = true
-      AND ec.code = 'kiosk'
-    FOR SHARE
-  LOOP
-    v_channel_ids := pg_catalog.array_append(v_channel_ids, v_locked_id);
-  END LOOP;
-
-  IF coalesce(pg_catalog.cardinality(v_status_ids), 0) <> 1
-     OR coalesce(pg_catalog.cardinality(v_channel_ids), 0) <> 1 THEN
+  IF coalesce(pg_catalog.cardinality(v_status_ids), 0) <> 1 THEN
     RETURN pg_catalog.jsonb_build_object('status', 'unavailable');
   END IF;
 
@@ -661,7 +664,7 @@ BEGIN
     pg_catalog.btrim(p_description),
     v_service.id,
     v_status_ids[1],
-    v_channel_ids[1],
+    v_channel_id,
     'normal',
     p_due_at,
     v_notes,

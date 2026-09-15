@@ -66,7 +66,15 @@ npx supabase@2.117.0 db reset --local --no-seed
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -v ON_ERROR_STOP=1 \
   -f supabase/tests/phase12_kiosk_public_orders.sql
+bash supabase/tests/phase12_kiosk_concurrency.sh \
+  "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 ```
+
+La prueba concurrente abre dos sesiones reales para bootstrap, admisión y
+submit. Una sesión mantiene el lock compartido del canal mientras otra intenta
+desactivarlo; timeouts y tiempos de bloqueo verifican serialización sin
+deadlock. Tras el commit de opt-out comprueba que no cambian rate rows,
+permisos, pedidos ni actividad.
 
 ## Rollback exacto
 

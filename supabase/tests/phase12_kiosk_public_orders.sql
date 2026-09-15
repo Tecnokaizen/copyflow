@@ -512,4 +512,6 @@ begin
 end;
 $phase12$;
 
-rollback;
+-- CI concurrency tests reuse these deterministic fixtures, then the database
+-- is discarded after rollback verification.
+commit;
