@@ -4,6 +4,10 @@ import { useMemo, useState } from "react";
 import { TeamModal } from "@/components/team/team-modal";
 import { membershipRoleLabel } from "@/lib/auth/membership-roles";
 import {
+  personalAccessActionLabel,
+  personalAccessModalTitle,
+} from "@/lib/team/access-copy";
+import {
   accessUsersAvailableForMember,
   type TeamAccessUser,
 } from "@/lib/team/link";
@@ -39,7 +43,7 @@ export function TeamMemberLinkModal({
       <div className="space-y-5">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">
-            Asignar usuario
+            {personalAccessModalTitle(hasAssignedUser)}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Selecciona qué usuario de Gestcopy corresponde a este miembro del
@@ -125,9 +129,7 @@ export function TeamMemberLinkModal({
           >
             {busy
               ? "Guardando…"
-              : hasAssignedUser
-                ? "Cambiar usuario"
-                : "Asignar usuario"}
+              : personalAccessActionLabel(hasAssignedUser)}
           </button>
         </div>
       </div>

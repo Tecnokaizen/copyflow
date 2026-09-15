@@ -445,7 +445,7 @@ export function CreateOrderForm({
             href={`/orders/${created.id}`}
             className="gc-cta min-h-11 w-full sm:w-auto"
           >
-            Abrir
+            Abrir pedido
           </Link>
           <button
             type="button"
