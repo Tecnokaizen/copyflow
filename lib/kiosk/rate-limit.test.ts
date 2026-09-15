@@ -30,4 +30,20 @@ describe("Kiosk request rate limiting", () => {
     });
     assert.equal(kioskClientKey(request), "203.0.113.10");
   });
+
+  it("caps unique client keys and prunes expired entries", () => {
+    let now = 1_000;
+    const limiter = createKioskRateLimiter({
+      limit: 2,
+      windowMs: 60_000,
+      maxKeys: 2,
+      now: () => now,
+    });
+    assert.equal(limiter.allow("client-a"), true);
+    assert.equal(limiter.allow("client-b"), true);
+    assert.equal(limiter.allow("client-c"), false);
+
+    now += 60_001;
+    assert.equal(limiter.allow("client-c"), true);
+  });
 });

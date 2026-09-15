@@ -1,6 +1,7 @@
 type RateLimitOptions = {
   limit: number;
   windowMs: number;
+  maxKeys?: number;
   now?: () => number;
 };
 
@@ -13,6 +14,16 @@ export function createKioskRateLimiter(options: RateLimitOptions) {
       const currentTime = now();
       const current = entries.get(key);
       if (!current || current.resetAt <= currentTime) {
+        if (!current && entries.size >= (options.maxKeys ?? 10_000)) {
+          for (const [entryKey, entry] of entries) {
+            if (entry.resetAt <= currentTime) {
+              entries.delete(entryKey);
+            }
+          }
+          if (entries.size >= (options.maxKeys ?? 10_000)) {
+            return false;
+          }
+        }
         entries.set(key, {
           count: 1,
           resetAt: currentTime + options.windowMs,
@@ -31,9 +42,9 @@ export function createKioskRateLimiter(options: RateLimitOptions) {
 export function kioskClientKey(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for");
   const firstForwarded = forwarded?.split(",", 1)[0]?.trim();
-  return (
-    firstForwarded ||
-    request.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
+  const candidate =
+    firstForwarded || request.headers.get("x-real-ip")?.trim() || "";
+  return candidate.length <= 64 && /^[0-9a-f:.]+$/i.test(candidate)
+    ? candidate
+    : "unknown";
 }

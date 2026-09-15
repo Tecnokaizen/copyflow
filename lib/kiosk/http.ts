@@ -8,6 +8,31 @@ type SubmitKioskOrder = (
 
 const MAX_KIOSK_BODY_BYTES = 16 * 1024;
 
+async function readKioskBody(request: Request) {
+  if (!request.body) {
+    return { ok: true as const, raw: "" };
+  }
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let raw = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      raw += decoder.decode();
+      return { ok: true as const, raw };
+    }
+    bytes += value.byteLength;
+    if (bytes > MAX_KIOSK_BODY_BYTES) {
+      await reader.cancel();
+      return { ok: false as const };
+    }
+    raw += decoder.decode(value, { stream: true });
+  }
+}
+
 function kioskJson(data: unknown, status: number) {
   return Response.json(data, {
     status,
@@ -29,11 +54,11 @@ export async function handleKioskOrderRequest(
 
   let body: unknown;
   try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).byteLength > MAX_KIOSK_BODY_BYTES) {
+    const bodyResult = await readKioskBody(request);
+    if (!bodyResult.ok) {
       return kioskJson({ error: "Solicitud demasiado grande" }, 413);
     }
-    body = JSON.parse(raw) as unknown;
+    body = JSON.parse(bodyResult.raw) as unknown;
   } catch {
     return kioskJson({ error: "Solicitud no válida" }, 400);
   }
