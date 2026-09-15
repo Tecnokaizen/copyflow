@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
@@ -9,8 +10,10 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { MyOrdersQueue } from "@/components/orders/my-orders-queue";
 import {
   canManageTenantAccess,
+  canWriteOrders,
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
+import { canAccessCounter } from "@/lib/nav/items";
 import type { MineQueueSection } from "@/lib/orders/mine";
 import {
   MINE_ORDERS_PAGE_DESCRIPTION,
@@ -116,6 +119,26 @@ function MyOrdersContent() {
         title="Mis pedidos"
         description={MINE_ORDERS_PAGE_DESCRIPTION}
         className="mb-5 sm:mb-6"
+        actions={
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            {canWriteOrders(actorRole) ? (
+              <Link
+                href="/orders/quick"
+                className="gc-cta min-h-11 w-full sm:w-auto"
+              >
+                Pedido rápido
+              </Link>
+            ) : null}
+            {canAccessCounter(actorRole) ? (
+              <Link
+                href="/counter"
+                className="gc-action min-h-11 w-full sm:w-auto"
+              >
+                Mostrador
+              </Link>
+            ) : null}
+          </div>
+        }
       />
       {loading && !data ? (
         <LoadingState label="Cargando tus pedidos…" />

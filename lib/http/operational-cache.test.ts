@@ -10,6 +10,7 @@ describe("operational API cache policy", () => {
   it("marks orders and dashboard paths as operational", () => {
     assert.equal(isOperationalApiPath("/api/orders"), true);
     assert.equal(isOperationalApiPath("/api/orders/mine"), true);
+    assert.equal(isOperationalApiPath("/api/orders/counter"), true);
     assert.equal(isOperationalApiPath("/api/orders/abc/activity"), true);
     assert.equal(isOperationalApiPath("/api/dashboard"), true);
     assert.equal(isOperationalApiPath("/api/clients"), false);

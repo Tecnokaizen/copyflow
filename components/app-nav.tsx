@@ -6,65 +6,8 @@ import { Suspense, useEffect, useState } from "react";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { canViewActivity } from "@/lib/auth/membership-roles";
+import { navItemIsActive, navItemsForRole } from "@/lib/nav/items";
 import { cn } from "@/lib/utils";
-
-type NavItem = {
-  href: string;
-  label: string;
-  visible: (role: string | null) => boolean;
-  match: (pathname: string) => boolean;
-};
-
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/",
-    label: "Inicio",
-    visible: () => true,
-    match: (pathname) => pathname === "/",
-  },
-  {
-    href: "/orders/mine",
-    label: "Mis pedidos",
-    visible: () => true,
-    match: (pathname) =>
-      pathname === "/orders/mine" || pathname.startsWith("/orders/mine/"),
-  },
-  {
-    href: "/orders",
-    label: "Pedidos",
-    visible: () => true,
-    match: (pathname) =>
-      (pathname === "/orders" || pathname.startsWith("/orders/")) &&
-      pathname !== "/orders/mine" &&
-      !pathname.startsWith("/orders/mine/"),
-  },
-  {
-    href: "/clients",
-    label: "Clientes",
-    visible: () => true,
-    match: (pathname) =>
-      pathname === "/clients" || pathname.startsWith("/clients/"),
-  },
-  {
-    href: "/services",
-    label: "Servicios",
-    visible: () => true,
-    match: (pathname) => pathname === "/services",
-  },
-  {
-    href: "/team",
-    label: "Equipo",
-    visible: () => true,
-    match: (pathname) => pathname === "/team" || pathname.startsWith("/team/"),
-  },
-  {
-    href: "/activity",
-    label: "Actividad",
-    visible: (role) => canViewActivity(role),
-    match: (pathname) => pathname === "/activity",
-  },
-];
 
 type TenantLabel = {
   name: string;
@@ -112,26 +55,24 @@ function AppNavFrame({
         className="mt-3 flex flex-wrap items-center gap-1"
         aria-label="Navegación principal"
       >
-        {NAV_ITEMS.filter((item) => item.visible(ready ? role : null)).map(
-          (item) => {
-            const active = item.match(pathname);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          }
-        )}
+        {navItemsForRole(ready ? role : null).map((item) => {
+          const active = navItemIsActive(item, pathname);
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
     </header>
   );
