@@ -1,3 +1,5 @@
+import { membershipRoleLabel } from "@/lib/auth/membership-roles";
+
 export type HeaderIdentity = {
   name: string;
   email: string | null;
@@ -5,14 +7,6 @@ export type HeaderIdentity = {
   roleLabel: string;
   initials: string;
 };
-
-const HEADER_ROLE_LABELS = {
-  owner: "Propietario",
-  admin: "Administrador",
-  manager: "Responsable",
-  staff: "Personal",
-  viewer: "Solo lectura",
-} as const;
 
 export function initialsFromDisplayName(name: string) {
   const trimmed = name.trim();
@@ -42,10 +36,7 @@ export function initialsFromDisplayName(name: string) {
 }
 
 export function headerRoleLabel(role: string | null | undefined) {
-  if (role && role in HEADER_ROLE_LABELS) {
-    return HEADER_ROLE_LABELS[role as keyof typeof HEADER_ROLE_LABELS];
-  }
-  return "Rol desconocido";
+  return membershipRoleLabel(role);
 }
 
 export function headerDisplayName(input: {

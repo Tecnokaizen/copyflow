@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { membershipRoleLabel } from "@/lib/auth/membership-roles";
 import {
   headerDisplayName,
   headerIdentityFromContext,
@@ -25,16 +26,13 @@ describe("initialsFromDisplayName", () => {
 });
 
 describe("headerRoleLabel", () => {
-  it("maps product roles for the header chip", () => {
-    assert.equal(headerRoleLabel("owner"), "Propietario");
-    assert.equal(headerRoleLabel("admin"), "Administrador");
+  it("uses the shared membership labels", () => {
+    assert.equal(headerRoleLabel("owner"), membershipRoleLabel("owner"));
+    assert.equal(headerRoleLabel("admin"), membershipRoleLabel("admin"));
+    assert.equal(headerRoleLabel("manager"), membershipRoleLabel("manager"));
+    assert.equal(headerRoleLabel("staff"), membershipRoleLabel("staff"));
+    assert.equal(headerRoleLabel("viewer"), membershipRoleLabel("viewer"));
     assert.equal(headerRoleLabel("manager"), "Responsable");
-    assert.equal(headerRoleLabel("staff"), "Personal");
-    assert.equal(headerRoleLabel("viewer"), "Solo lectura");
-  });
-
-  it("does not reuse Encargado for manager in the header", () => {
-    assert.notEqual(headerRoleLabel("manager"), "Encargado");
   });
 
   it("returns a fallback for unknown roles", () => {
