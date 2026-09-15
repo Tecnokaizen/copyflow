@@ -41,6 +41,7 @@ declare
   v_client_key text := repeat('a', 64);
   v_issued_at bigint := extract(epoch from now())::bigint;
   v_owner uuid := 'ac000000-0000-4000-8000-000000000000';
+  v_owner_sur4 uuid := 'ac000000-0000-4000-8000-000000000010';
   v_tenant_demo uuid := 'ac000000-0000-4000-8000-000000000001';
   v_tenant_sur4 uuid := 'ac000000-0000-4000-8000-000000000002';
   v_service_demo uuid := 'ac000000-0000-4000-8000-000000000011';
@@ -95,20 +96,57 @@ begin
   insert into public.memberships (tenant_id, user_id, role, active)
   values (v_tenant_demo, v_owner, 'owner', true);
 
-  insert into public.services (id, tenant_id, name, active, sort_order) values
-    (v_service_demo, v_tenant_demo, 'Impresión DEMO', true, 1),
-    (v_service_sur4, v_tenant_sur4, 'Impresión SUR4', true, 1);
+  insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at, confirmation_token, recovery_token,
+    email_change_token_new, email_change
+  ) values (
+    v_owner_sur4,
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated',
+    'authenticated',
+    'owner-sur4@phase12.test',
+    crypt('pw', gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"full_name":"Owner SUR4"}'::jsonb,
+    now(), now(), '', '', '', ''
+  );
+  insert into public.profiles (id, full_name)
+  values (v_owner_sur4, 'Owner SUR4');
+  insert into public.memberships (tenant_id, user_id, role, active)
+  values (v_tenant_sur4, v_owner_sur4, 'owner', true);
+
+  perform set_config('request.jwt.claim.sub', v_owner::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  insert into public.services (id, tenant_id, name, active, sort_order)
+  values (v_service_demo, v_tenant_demo, 'Impresión DEMO', true, 1);
   insert into public.order_statuses (
     id, tenant_id, name, code, is_initial, active, sort_order
-  ) values
-    (v_status_demo, v_tenant_demo, 'Recibido', 'received', true, true, 1),
-    (v_status_sur4, v_tenant_sur4, 'Pendiente', 'pending', true, true, 1);
+  ) values (
+    v_status_demo, v_tenant_demo, 'Recibido', 'received', true, true, 1
+  );
   -- Explicit configuration opts DEMO in. SUR4 remains disabled.
   insert into public.entry_channels (
     id, tenant_id, name, code, active, sort_order
   ) values (
     v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1000
   );
+  execute 'reset role';
+
+  perform set_config('request.jwt.claim.sub', v_owner_sur4::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  insert into public.services (id, tenant_id, name, active, sort_order)
+  values (v_service_sur4, v_tenant_sur4, 'Impresión SUR4', true, 1);
+  insert into public.order_statuses (
+    id, tenant_id, name, code, is_initial, active, sort_order
+  ) values (
+    v_status_sur4, v_tenant_sur4, 'Pendiente', 'pending', true, true, 1
+  );
+  execute 'reset role';
 
   if has_table_privilege('anon', 'public.orders', 'SELECT')
      or has_table_privilege('anon', 'public.orders', 'INSERT')
@@ -142,6 +180,8 @@ begin
     raise exception 'FAIL service_role can execute Kiosk submit';
   end if;
 
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claim.role', 'anon', true);
   execute 'set local role anon';
 
   -- Purpose-bound bootstrap; cross-purpose and cross-tenant signatures fail.
