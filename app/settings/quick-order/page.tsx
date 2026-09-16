@@ -22,8 +22,8 @@ export default async function QuickOrderSettingsPage() {
     <AppShell>
       <AppNav />
       <PageHeader
-        title="Configuración"
-        description="Ajustes de la organización."
+        title="Pedido rápido"
+        description="Elige qué campos quieres ver siempre al crear un pedido rápido. Los campos que no selecciones seguirán disponibles dentro de Más opciones."
         className="mb-5 sm:mb-6"
       />
       <QuickOrderLayoutSettings />

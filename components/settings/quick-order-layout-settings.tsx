@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
@@ -9,19 +8,24 @@ import {
   DEFAULT_QUICK_ORDER_LAYOUT,
   QUICK_ORDER_FIELDS,
   QUICK_ORDER_FIELD_LABELS,
+  layoutsEqual,
+  toggleQuickOrderField,
+  userFacingQuickOrderLayoutSaveError,
   type QuickOrderLayout,
-  type QuickOrderPlacement,
 } from "@/lib/settings/quick-order-layout";
 import { cn } from "@/lib/utils";
 
 type SettingsResponse = {
+  ok?: boolean;
   layout?: QuickOrderLayout;
   revision?: string;
   error?: string;
 };
 
 async function fetchQuickOrderSettings() {
-  const response = await fetch("/api/settings/quick-order-layout");
+  const response = await fetch("/api/settings/quick-order-layout", {
+    cache: "no-store",
+  });
   const result = (await response.json()) as SettingsResponse;
 
   if (!response.ok || !result.layout || !result.revision) {
@@ -36,11 +40,27 @@ async function fetchQuickOrderSettings() {
 
 export function QuickOrderLayoutSettings() {
   const [layout, setLayout] = useState<QuickOrderLayout | null>(null);
+  const [savedLayout, setSavedLayout] = useState<QuickOrderLayout | null>(
+    null
+  );
   const [revision, setRevision] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const dirty = useMemo(() => {
+    if (!layout || !savedLayout) {
+      return false;
+    }
+    return !layoutsEqual(layout, savedLayout);
+  }, [layout, savedLayout]);
+
+  function applyLoaded(result: { layout: QuickOrderLayout; revision: string }) {
+    setLayout(result.layout);
+    setSavedLayout(result.layout);
+    setRevision(result.revision);
+  }
 
   async function load() {
     setLoading(true);
@@ -48,11 +68,10 @@ export function QuickOrderLayoutSettings() {
     setSaved(false);
 
     try {
-      const result = await fetchQuickOrderSettings();
-      setLayout(result.layout);
-      setRevision(result.revision);
+      applyLoaded(await fetchQuickOrderSettings());
     } catch (err) {
       setLayout(null);
+      setSavedLayout(null);
       setRevision(null);
       setError(
         err instanceof Error
@@ -71,8 +90,7 @@ export function QuickOrderLayoutSettings() {
       try {
         const result = await fetchQuickOrderSettings();
         if (!active) return;
-        setLayout(result.layout);
-        setRevision(result.revision);
+        applyLoaded(result);
       } catch (err) {
         if (!active) return;
         setError(
@@ -93,19 +111,19 @@ export function QuickOrderLayoutSettings() {
     };
   }, []);
 
-  function place(
-    field: (typeof QUICK_ORDER_FIELDS)[number],
-    placement: QuickOrderPlacement
-  ) {
+  function toggle(field: (typeof QUICK_ORDER_FIELDS)[number], checked: boolean) {
     setSaved(false);
     setError(null);
     setLayout((current) =>
-      current ? { ...current, [field]: placement } : current
+      current ? toggleQuickOrderField(current, field, checked) : current
     );
   }
 
   async function save() {
-    if (!layout || !revision || saving) {
+    if (!layout || !revision || saving || !dirty) {
+      if (!revision && !saving) {
+        setError("No se pudo guardar porque falta la revisión de la configuración.");
+      }
       return;
     }
 
@@ -117,44 +135,52 @@ export function QuickOrderLayoutSettings() {
       const response = await fetch("/api/settings/quick-order-layout", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({ layout, revision }),
       });
-      const result = (await response.json()) as SettingsResponse;
-
-      if (response.status === 409) {
-        await load();
-        setError(
-          "La configuración cambió en otra sesión. Se ha cargado la versión más reciente."
-        );
+      let result: SettingsResponse = {};
+      try {
+        result = (await response.json()) as SettingsResponse;
+      } catch {
+        setError("No se pudo guardar la configuración. Inténtalo de nuevo.");
         return;
       }
 
       if (!response.ok || !result.layout || !result.revision) {
-        throw new Error(
-          result.error ?? "No se pudo guardar la configuración"
+        if (response.status === 409) {
+          try {
+            applyLoaded(await fetchQuickOrderSettings());
+          } catch {
+            /* keep the PATCH error below */
+          }
+        }
+        setError(
+          userFacingQuickOrderLayoutSaveError(response.status) ??
+            "No se pudo guardar la configuración. Inténtalo de nuevo."
         );
+        return;
       }
 
-      setLayout(result.layout);
-      setRevision(result.revision);
+      const confirmed = await fetchQuickOrderSettings();
+      if (!layoutsEqual(confirmed.layout, layout)) {
+        applyLoaded(confirmed);
+        setError(
+          "El servidor no confirmó la configuración guardada. Revisa la selección e inténtalo de nuevo."
+        );
+        return;
+      }
+
+      applyLoaded(confirmed);
       setSaved(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo guardar la configuración"
-      );
+    } catch {
+      setError("No se pudo guardar la configuración. Inténtalo de nuevo.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <SectionCard
-      title="Pedido rápido"
-      description="Elige qué datos aparecen primero. Todos los campos siguen disponibles y mantienen un orden fijo."
-      bodyClassName="px-5 py-5 sm:px-6"
-    >
+    <SectionCard bodyClassName="px-5 py-5 sm:px-6">
       {loading ? (
         <LoadingState label="Cargando configuración…" className="px-0 py-8" />
       ) : !layout ? (
@@ -166,80 +192,73 @@ export function QuickOrderLayoutSettings() {
         />
       ) : (
         <div className="grid gap-5">
-          <div className="divide-y divide-border/70 rounded-lg border border-border/70">
-            {QUICK_ORDER_FIELDS.map((field) => (
-              <fieldset
-                key={field}
-                className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5"
-              >
-                <legend className="contents">
-                  <span className="text-sm font-medium text-foreground">
+          <div className="-mx-5 overflow-hidden border-y border-border/70 sm:-mx-6">
+            {QUICK_ORDER_FIELDS.map((field) => {
+              const checked = layout[field] === "primary";
+              return (
+                <label
+                  key={field}
+                  className={cn(
+                    "flex min-h-12 cursor-pointer items-center gap-3.5 border-b border-border/60 px-5 py-3.5 last:border-b-0 transition-colors hover:bg-secondary/35 sm:px-6",
+                    checked ? "bg-secondary/25" : "bg-transparent"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={saving}
+                    onChange={(event) => toggle(field, event.target.checked)}
+                    className="size-5 shrink-0 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
+                  />
+                  <span className="text-[0.975rem] font-medium leading-snug text-foreground">
                     {QUICK_ORDER_FIELD_LABELS[field]}
                   </span>
-                </legend>
-                <div
-                  className="grid grid-cols-2 rounded-md border border-border bg-muted/30 p-1"
-                  aria-label={`Posición de ${QUICK_ORDER_FIELD_LABELS[field]}`}
-                >
-                  {(
-                    [
-                      ["primary", "Principal"],
-                      ["more", "Más opciones"],
-                    ] as const
-                  ).map(([placement, label]) => (
-                    <label
-                      key={placement}
-                      className={cn(
-                        "cursor-pointer rounded px-3 py-2 text-center text-sm font-medium transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
-                        layout[field] === placement
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name={`placement-${field}`}
-                        value={placement}
-                        checked={layout[field] === placement}
-                        disabled={saving}
-                        onChange={() => place(field, placement)}
-                        className="sr-only"
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            ))}
+                </label>
+              );
+            })}
           </div>
 
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
-          {saved ? (
-            <p className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
-              Configuración guardada.
-            </p>
-          ) : null}
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="button" disabled={saving} onClick={() => void save()}>
-              {saving ? "Guardando…" : "Guardar"}
-            </Button>
-            <Button
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <button
               type="button"
-              variant="outline"
-              disabled={saving}
+              disabled={saving || !dirty}
+              onClick={() => void save()}
+              className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
+            >
+              {saving ? "Guardando…" : "Guardar"}
+            </button>
+            <button
+              type="button"
+              disabled={saving || layoutsEqual(layout, DEFAULT_QUICK_ORDER_LAYOUT)}
               onClick={() => {
                 setLayout({ ...DEFAULT_QUICK_ORDER_LAYOUT });
                 setSaved(false);
                 setError(null);
               }}
+              className="gc-action min-h-11 w-full sm:w-auto"
             >
               Restaurar distribución actual
-            </Button>
+            </button>
+            <div className="grid gap-1 sm:ml-1" aria-live="polite">
+              {dirty ? (
+                <p className="text-sm font-medium text-foreground">
+                  Cambios sin guardar
+                </p>
+              ) : null}
+              {error ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              {saved && !dirty ? (
+                <p
+                  className="text-sm font-medium text-[hsl(var(--gc-success))]"
+                  role="status"
+                >
+                  Configuración guardada
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       )}

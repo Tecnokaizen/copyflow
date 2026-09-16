@@ -109,6 +109,135 @@ export function fieldsForPlacement(
   return QUICK_ORDER_FIELDS.filter((field) => layout[field] === placement);
 }
 
+export function layoutsEqual(
+  left: QuickOrderLayout,
+  right: QuickOrderLayout
+): boolean {
+  return QUICK_ORDER_FIELDS.every((field) => left[field] === right[field]);
+}
+
+export const layoutsMatch = layoutsEqual;
+
+export function placementFromChecked(checked: boolean): QuickOrderPlacement {
+  return checked ? "primary" : "more";
+}
+
+export function layoutFromCheckedFields(
+  checked: Iterable<QuickOrderField>
+): QuickOrderLayout {
+  const selected = new Set(checked);
+
+  return Object.fromEntries(
+    QUICK_ORDER_FIELDS.map((field) => [
+      field,
+      placementFromChecked(selected.has(field)),
+    ])
+  ) as QuickOrderLayout;
+}
+
+export function toggleQuickOrderField(
+  layout: QuickOrderLayout,
+  field: QuickOrderField,
+  checked: boolean
+): QuickOrderLayout {
+  return {
+    ...layout,
+    [field]: placementFromChecked(checked),
+  };
+}
+
+export function sameSettingsRevision(left: string, right: string): boolean {
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+
+  if (Number.isNaN(leftTime) || Number.isNaN(rightTime)) {
+    return left === right;
+  }
+
+  return leftTime === rightTime;
+}
+
+export function revisionsMatch(
+  left: string | null | undefined,
+  right: string | null | undefined
+): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  return sameSettingsRevision(left, right);
+}
+
+export function serializeSettingsRevision(value: unknown): string {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+
+  return String(value ?? "");
+}
+
+export function userFacingQuickOrderLayoutSaveError(
+  status: number
+): string | null {
+  if (status === 200 || status === 204) {
+    return null;
+  }
+
+  if (status === 409) {
+    return "La configuración cambió en otra sesión. Se ha cargado la versión más reciente.";
+  }
+
+  if (status === 403) {
+    return "No tienes permiso para guardar esta configuración.";
+  }
+
+  if (status === 400) {
+    return "No se pudo guardar porque los datos no son válidos.";
+  }
+
+  return "No se pudo guardar la configuración. Inténtalo de nuevo.";
+}
+
+export function planQuickOrderLayoutUpdate(input: {
+  currentUpdatedAt: string | null | undefined;
+  submittedRevision: string;
+  currentPreferences: unknown;
+  layout: QuickOrderLayout;
+  now: Date;
+}):
+  | { ok: false; status: 409; error: "Quick order settings changed" }
+  | {
+      ok: true;
+      values: { preferences: Record<string, unknown>; updated_at: string };
+      filters: { tenant_id: true };
+    } {
+  const currentRevision = serializeSettingsRevision(input.currentUpdatedAt);
+
+  if (!revisionsMatch(currentRevision, input.submittedRevision)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Quick order settings changed",
+    };
+  }
+
+  return {
+    ok: true,
+    values: {
+      preferences: mergeQuickOrderLayoutPreference(
+        input.currentPreferences,
+        input.layout
+      ),
+      updated_at: input.now.toISOString(),
+    },
+    filters: { tenant_id: true },
+  };
+}
+
 export function parseQuickOrderLayoutPatch(
   value: unknown
 ):
