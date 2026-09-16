@@ -12,6 +12,8 @@ Cruce de las cinco auditorías READ-ONLY B–F.
 | Kiosk | PR [#10](https://github.com/Tecnokaizen/copyflow/pull/10) · CODE FREEZE · HEAD `0c9d20a72ffe7bb0ccaf322ca62e17444ba5f08f` |
 | Spec Lifecycle | `docs/superpowers/specs/2026-09-16-gestcopy-lifecycle-v1-design.md` |
 | Plan Lifecycle | `docs/superpowers/plans/2026-09-16-gestcopy-lifecycle-v1.md` |
+| Spec Quick Order Layout | `docs/superpowers/specs/2026-09-16-gestcopy-quick-order-layout-v1-design.md` |
+| Plan Quick Order Layout | `docs/superpowers/plans/2026-09-16-gestcopy-quick-order-layout-v1.md` |
 | Estado operativo | ver `docs/GESTCOPY_PROJECT_NOTES.md` |
 
 ---
@@ -23,6 +25,7 @@ CURRENT_BLOCK:   Kiosk V1 — Release Candidate / smoke pendiente
 OPEN_PR:         #10
 ARCHITECT:       decisiones 1–12 aceptadas (PR #11)
 PREPARED:        spec + plan Lifecycle V1 (gated a merge #10)
+                 QUICK_ORDER_LAYOUT_V1 (paralelo posible; espera arquitecto)
 NEXT_GATE:       Smoke DEMO correcto → merge #10 → hotspots → implementar Lifecycle
 ```
 
