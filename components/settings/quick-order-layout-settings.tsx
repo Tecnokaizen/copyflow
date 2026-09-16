@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
@@ -20,6 +20,20 @@ type SettingsResponse = {
   error?: string;
 };
 
+async function fetchQuickOrderSettings() {
+  const response = await fetch("/api/settings/quick-order-layout");
+  const result = (await response.json()) as SettingsResponse;
+
+  if (!response.ok || !result.layout || !result.revision) {
+    throw new Error(result.error ?? "No se pudo cargar la configuración");
+  }
+
+  return {
+    layout: result.layout,
+    revision: result.revision,
+  };
+}
+
 export function QuickOrderLayoutSettings() {
   const [layout, setLayout] = useState<QuickOrderLayout | null>(null);
   const [revision, setRevision] = useState<string | null>(null);
@@ -28,21 +42,13 @@ export function QuickOrderLayoutSettings() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const load = useCallback(async () => {
+  async function load() {
     setLoading(true);
     setError(null);
     setSaved(false);
 
     try {
-      const response = await fetch("/api/settings/quick-order-layout");
-      const result = (await response.json()) as SettingsResponse;
-
-      if (!response.ok || !result.layout || !result.revision) {
-        throw new Error(
-          result.error ?? "No se pudo cargar la configuración"
-        );
-      }
-
+      const result = await fetchQuickOrderSettings();
       setLayout(result.layout);
       setRevision(result.revision);
     } catch (err) {
@@ -56,11 +62,36 @@ export function QuickOrderLayoutSettings() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+
+    async function loadInitial() {
+      try {
+        const result = await fetchQuickOrderSettings();
+        if (!active) return;
+        setLayout(result.layout);
+        setRevision(result.revision);
+      } catch (err) {
+        if (!active) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar la configuración"
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadInitial();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function place(
     field: (typeof QUICK_ORDER_FIELDS)[number],
