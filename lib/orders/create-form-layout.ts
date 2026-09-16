@@ -1,4 +1,28 @@
+import type { QuickOrderField } from "@/lib/settings/quick-order-layout";
+
 export type CreateOrderFormMode = "full" | "quick";
+
+type QuickCatalogCounts = {
+  stores: number;
+  entryChannels: number;
+  orderContexts: number;
+};
+
+export function quickFieldIsAvailable(
+  field: QuickOrderField,
+  counts: QuickCatalogCounts
+) {
+  if (field === "store") {
+    return counts.stores > 0;
+  }
+  if (field === "entry_channel") {
+    return counts.entryChannels > 1;
+  }
+  if (field === "order_context") {
+    return counts.orderContexts > 0;
+  }
+  return true;
+}
 
 export function isQuickCreateMode(
   mode: CreateOrderFormMode | null | undefined

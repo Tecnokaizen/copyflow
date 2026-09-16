@@ -7,6 +7,7 @@ import {
   showEntryChannelInMainForm,
   showEntryChannelInMoreOptions,
   suggestedAssigneeId,
+  quickFieldIsAvailable,
 } from "./create-form-layout";
 
 describe("create order form layout", () => {
@@ -67,6 +68,27 @@ describe("create order form layout", () => {
         availableMemberIds: ["member-b"],
       }),
       ""
+    );
+  });
+
+  it("keeps legacy catalog availability independent from placement", () => {
+    const counts = {
+      stores: 0,
+      entryChannels: 1,
+      orderContexts: 0,
+    };
+
+    assert.equal(quickFieldIsAvailable("client", counts), true);
+    assert.equal(quickFieldIsAvailable("service", counts), true);
+    assert.equal(quickFieldIsAvailable("store", counts), false);
+    assert.equal(quickFieldIsAvailable("entry_channel", counts), false);
+    assert.equal(quickFieldIsAvailable("order_context", counts), false);
+    assert.equal(
+      quickFieldIsAvailable("entry_channel", {
+        ...counts,
+        entryChannels: 2,
+      }),
+      true
     );
   });
 });
