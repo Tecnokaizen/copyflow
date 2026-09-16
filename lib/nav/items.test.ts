@@ -25,17 +25,20 @@ describe("staff and management navigation", () => {
       "Servicios",
       "Equipo",
       "Actividad",
+      "Configuración",
     ]);
   });
 
-  it("2. admin keeps the full navigation plus Mostrador and Pedido rápido", () => {
-    assert.deepEqual(labels("admin"), labels("owner"));
+  it("2. admin keeps operative navigation but cannot access Configuración", () => {
+    assert.equal(labels("admin").includes("Configuración"), false);
+    assert.equal(isNavItemVisible("settings", "admin"), false);
   });
 
   it("3. manager keeps operative navigation including Equipo and Actividad", () => {
-    assert.deepEqual(labels("manager"), labels("owner"));
+    assert.deepEqual(labels("manager"), labels("admin"));
     assert.equal(isNavItemVisible("team", "manager"), true);
     assert.equal(isNavItemVisible("activity", "manager"), true);
+    assert.equal(isNavItemVisible("settings", "manager"), false);
   });
 
   it("4. staff sees a simplified work navigation", () => {
@@ -50,6 +53,7 @@ describe("staff and management navigation", () => {
     assert.equal(isNavItemVisible("services", "staff"), false);
     assert.equal(isNavItemVisible("team", "staff"), false);
     assert.equal(isNavItemVisible("activity", "staff"), false);
+    assert.equal(isNavItemVisible("settings", "staff"), false);
     assert.equal(homePathForRole("staff"), "/orders/mine");
   });
 
@@ -57,6 +61,7 @@ describe("staff and management navigation", () => {
     assert.equal(isNavItemVisible("quick", "viewer"), false);
     assert.equal(canUseQuickOrder("viewer"), false);
     assert.equal(isNavItemVisible("team", "viewer"), false);
+    assert.equal(isNavItemVisible("settings", "viewer"), false);
     assert.equal(isNavItemVisible("counter", "viewer"), true);
     assert.equal(canAccessCounter("viewer"), true);
     assert.deepEqual(labels("viewer"), [
@@ -99,5 +104,20 @@ describe("staff and management navigation", () => {
       ),
       true
     );
+  });
+
+  it("highlights only the owner settings route", () => {
+    assert.equal(
+      navItemIsActive(
+        {
+          id: "settings",
+          href: "/settings/quick-order",
+          label: "Configuración",
+        },
+        "/settings/quick-order"
+      ),
+      true
+    );
+    assert.equal(isNavItemVisible("settings", "owner"), true);
   });
 });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
+import { resolveQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 
 export async function GET() {
   const context = await getCurrentContext();
@@ -27,6 +28,7 @@ export async function GET() {
     orderContextsResult,
     teamMembersResult,
     storesResult,
+    settingsResult,
   ] = await Promise.all([
     supabase
       .from("services")
@@ -58,6 +60,11 @@ export async function GET() {
       .eq("tenant_id", tenantId)
       .eq("active", true)
       .order("name", { ascending: true }),
+    supabase
+      .from("tenant_settings")
+      .select("preferences")
+      .eq("tenant_id", tenantId)
+      .maybeSingle(),
   ]);
 
   const firstError =
@@ -65,7 +72,8 @@ export async function GET() {
     entryChannelsResult.error ??
     orderContextsResult.error ??
     teamMembersResult.error ??
-    storesResult.error;
+    storesResult.error ??
+    settingsResult.error;
 
   if (firstError) {
     console.error("[GET /api/orders/options] Could not load order options", {
@@ -88,5 +96,8 @@ export async function GET() {
     stores: storesResult.data ?? [],
     actor_role: context.membership.role,
     current_team_member: currentTeamMember,
+    quick_order_layout: resolveQuickOrderLayout(
+      settingsResult.data?.preferences
+    ),
   });
 }
