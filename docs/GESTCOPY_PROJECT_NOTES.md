@@ -1,6 +1,6 @@
 # Gestcopy — Project Notes
 
-Documento de estado operativo. No es una especificación. No autoriza implementación.
+Documento de estado operativo. No es una especificación. No autoriza escribir código de Lifecycle todavía.
 
 Actualizado: 2026-09-16
 
@@ -13,35 +13,52 @@ Kiosk V1 — Release Candidate / smoke pendiente
 OPEN_PR:
 #10  https://github.com/Tecnokaizen/copyflow/pull/10
 HEAD: 0c9d20a72ffe7bb0ccaf322ca62e17444ba5f08f
-Estado: CODE FREEZE · MERGEABLE · 259/259 · lint/typecheck/build OK · CI 3/3
+Estado: CODE FREEZE · MERGEABLE
 No mergear hasta confirmación humana de smoke DEMO correcto.
 
-PARALLEL_RESEARCH:
-Lifecycle   AUDIT_ORDER_LIFECYCLE_V1   (completo, solo lectura)
-Editing     AUDIT_ORDER_EDITING_V1     (completo, solo lectura)
-Files       AUDIT_FILES_V1             (completo, solo lectura)
-Settings    AUDIT_SETTINGS_V1          (completo, solo lectura)
-Permissions AUDIT_PERMISSIONS_V1       (completo, solo lectura)
+ARCHITECT_REVIEW:
+Aceptada en PR #11 (revisión Tecnokaizen).
+Auditorías B–F = mapa técnico.
+Antes de implementar: revalidar solo hotspots contra main post-#10.
 
-Cruce:
-docs/GESTCOPY_V1_AUDIT_SUMMARY.md
+PREPARED_NOT_STARTED:
+Lifecycle V1 spec + plan (escritura gated a merge #10)
+  docs/superpowers/specs/2026-09-16-gestcopy-lifecycle-v1-design.md
+  docs/superpowers/plans/2026-09-16-gestcopy-lifecycle-v1.md
+
+OUT_OF_LIFECYCLE_BLOCK:
+Settings · Storage/Files · Editing concurrency · create_organization seed
+(van en su bloque; no mezclar)
 
 NEXT_GATE:
-Smoke DEMO correcto → merge #10 → revisión arquitectónica de auditorías.
+Smoke DEMO correcto → merge #10 → revalidar hotspots → implementar Lifecycle V1
+en una sola rama/PR (cursor/order-lifecycle-v1-5d7f).
 ```
 
-## Gate operativo Kiosk (humano)
+## Decisiones del arquitecto (congeladas)
 
-Pendiente. No es trabajo de agente.
+1. Viewer lee actividad de un pedido que ya puede consultar; `/activity` global sigue siendo gestión.
+2. Bypass `status_id`/timestamps = deuda V1 a cerrar vía RPC; mecanismo mínimo; no romper otros PATCH ni Kiosk.
+3. `is_ready` = activo preparado; `is_closed` / `is_cancelled` = terminales. `archived_at` no es estado de producción.
+4. Mostrador, Mis pedidos y atención: mismo criterio operativo (`!closed && !cancelled && !archived`). `delivered_at` es auditoría.
+5. Archivo V1: solo terminales; histórico consultable; no hard delete.
+6. Cancelar, archivar y entregar/terminal: confirmación explícita.
+7. Seed `create_organization`: otro bloque (no Lifecycle).
+8. Settings estructural: owner+admin; manager opera. RLS se alinea cuando llegue Settings.
+9. `file_status` manual; no acoplar Lifecycle a Storage/`requires_file`.
+10. Concurrencia: banner en Editing V1, no `row_version` ahora.
+11. Kiosk (#10) fuera de alcance salvo defecto de smoke.
+12. Sin tabla capabilities ni rediseño de schema.
+
+## Gate operativo Kiosk (humano)
 
 - **A.** Supabase Vault: `kiosk_signing_secret` ≥ 32 caracteres
 - **B.** Vercel: `KIOSK_SIGNING_SECRET` = exactamente el mismo secreto
 - **C.** DEMO: canal activo `code = kiosk`
-- **D.** Smoke casos 1–6 (opt-in, hostname desconocido, DEMO, replay, aislamiento, móvil)
+- **D.** Smoke casos 1–6
 
 ## Bloqueos explícitos
 
-- PR #10 permanece en CODE FREEZE. No modificar código, migraciones, RLS ni tests de Kiosk salvo defecto real detectado en smoke.
-- No mergear #10 sin confirmación humana.
-- No iniciar implementación del bloque 1 (Lifecycle / Editing / Files / Settings / Permissions).
-- Esperar revisión del arquitecto sobre `docs/GESTCOPY_V1_AUDIT_SUMMARY.md`.
+- PR #10 CODE FREEZE. No mergear sin smoke humano.
+- No implementar Lifecycle hasta merge #10 + revalidación de hotspots.
+- No mezclar Settings, Storage ni edición completa en el PR de Lifecycle.

@@ -1,7 +1,8 @@
 # GESTCOPY_V1_AUDIT_SUMMARY
 
-Cruce de las cinco auditorías READ-ONLY B–F. **No es un plan de implementación.**  
-No inicia el bloque 1. Espera revisión del arquitecto.
+Cruce de las cinco auditorías READ-ONLY B–F.
+
+**Revisión arquitectónica (2026-09-16):** aceptada en [PR #11](https://github.com/Tecnokaizen/copyflow/pull/11#pullrequestreview-5223885331). Este documento permanece como mapa técnico. El plan de Lifecycle está preparado y **no se implementa** hasta el merge de #10.
 
 | Campo | Valor |
 |--------|--------|
@@ -9,6 +10,8 @@ No inicia el bloque 1. Espera revisión del arquitecto.
 | Rama inspeccionada por los agentes | principalmente `cursor/order-work-card-ux-5d7f` / workspace local; Kiosk documentado desde PR #10 |
 | Informes fuente | Lifecycle, Editing, Files, Settings, Permissions |
 | Kiosk | PR [#10](https://github.com/Tecnokaizen/copyflow/pull/10) · CODE FREEZE · HEAD `0c9d20a72ffe7bb0ccaf322ca62e17444ba5f08f` |
+| Spec Lifecycle | `docs/superpowers/specs/2026-09-16-gestcopy-lifecycle-v1-design.md` |
+| Plan Lifecycle | `docs/superpowers/plans/2026-09-16-gestcopy-lifecycle-v1.md` |
 | Estado operativo | ver `docs/GESTCOPY_PROJECT_NOTES.md` |
 
 ---
@@ -18,8 +21,9 @@ No inicia el bloque 1. Espera revisión del arquitecto.
 ```text
 CURRENT_BLOCK:   Kiosk V1 — Release Candidate / smoke pendiente
 OPEN_PR:         #10
-PARALLEL_RESEARCH: Lifecycle · Editing · Files · Settings · Permissions
-NEXT_GATE:       Smoke DEMO correcto → merge #10 → revisión arquitectónica de auditorías
+ARCHITECT:       decisiones 1–12 aceptadas (PR #11)
+PREPARED:        spec + plan Lifecycle V1 (gated a merge #10)
+NEXT_GATE:       Smoke DEMO correcto → merge #10 → hotspots → implementar Lifecycle
 ```
 
 ---
@@ -36,7 +40,7 @@ Tres hallazgos que cruzan más de un informe y no deben tratarse como “deuda l
 2. **`list_order_activity` (SECURITY DEFINER + `is_tenant_member`) abre el historial del pedido a viewer**, mientras `/activity` y `activity_log_select_supervisors` son solo gestión. Permissions lo prioriza; Editing y Lifecycle lo registran como asimetría.
 3. **`create_organization` no siembra catálogos de gestión** (`file_statuses`, `quote_statuses`, `payment_statuses`, `delivery_methods`, `order_contexts`). Files y Settings lo marcan como hueco de onboarding; Editing lo ve como “defaults que parecen no persistir”; Lifecycle lo ve como riesgo de configuración (cero `is_initial` rompe create y kiosk).
 
-Recomendación de investigación (no implementar): **no abrir Storage, no editor de `order_statuses`, no tabla `capabilities`, no transacción multi-campo**, hasta cerrar el freeze de Kiosk y las dos decisiones de producto anteriores.
+**Cierre de decisiones (arquitecto):** el bypass de `status_id`/timestamps **sí** se cierra en Lifecycle V1. Viewer **conserva** el historial del pedido; no se iguala a `/activity`. El seed de `create_organization` **no** va en Lifecycle. Storage, Settings y `row_version` quedan fuera. Ver spec.
 
 ---
 
@@ -250,26 +254,27 @@ Pueden avanzar en **ramas distintas** si no tocan la zona caliente de la §6 ni 
 6. Alinear fallbacks de TZ de invitaciones con `tenant_settings.timezone` (Settings, acotado).
 7. Docs SUR4: Terminado = `is_ready` activo; Entregado = `is_closed`; no acoplar a `file_status`.
 
-Estos ítems **no** son el bloque 1. Están listados para que el arquitecto recorte, no para arrancar.
+Estos ítems **no** son Lifecycle V1. Settings/Files/Editing siguen en sus bloques.
 
 ---
 
 ## 10. Trabajo que debe serializarse
 
-Orden propuesto para **cuando** el arquitecto autorice implementación. Hoy **no se ejecuta**.
+Orden **actualizado tras la revisión arquitectónica**. Lifecycle no arranca hasta merge #10.
 
 ```text
 0. Humano: Vault + Vercel secret + canal DEMO kiosk + smoke 1–6
 1. Merge PR #10 (Kiosk) — único writer de tg_activity_log_order_created / kiosk_private
-2. Decisión producto: ¿viewer ve historial del pedido?
-3. (Opcional, alta integridad) Lockdown RLS de status_id/timestamps → solo SECURITY DEFINER
-        ↳ re-verificar kiosk INSERT y staff PATCH status
-4. Contrato de flags por tenant (un is_initial, ready, closed, cancelled) — ops/docs, no UI editor
-5. Seed mínimo de catálogos de gestión en create_organization  XOR  Settings V1
-        ↳ no las dos a la vez sobre el mismo RPC
-6. Recién entonces: Settings IA / editor de canales / editor de order_statuses
-7. Recién entonces: Storage / order_files (V2), si el producto lo pide
-8. Atomic draft RPC / row_version — solo si 3 y Editing lo exigen
+2. Revalidar hotspots Lifecycle/Permissions contra ese main (no rehacer B–F)
+3. Lifecycle V1 (una rama/PR):
+     - lockdown status_id / ready_at / delivered_at / archived_at vía trigger+GUC+RPC
+     - predicado operativo unificado (flags + archived_at; no delivered_at)
+     - archivo solo terminales + confirmaciones
+     - viewer conserva list_order_activity en ficha
+4. Seed create_organization (otro bloque) XOR Settings V1 — no en el PR Lifecycle
+5. Settings IA / RLS owner+admin en catálogos
+6. Editing: banner de conflicto (no row_version salvo evidencia)
+7. Files V1: decisión Storage/Drive; file_status sigue manual hasta entonces
 ```
 
 **No paralelizar nunca:**
@@ -282,30 +287,27 @@ Orden propuesto para **cuando** el arquitecto autorice implementación. Hoy **no
 
 ---
 
-## 11. Decisiones que el arquitecto debe tomar
+## 11. Decisiones del arquitecto (cerradas)
 
-Antes de abrir el bloque 1:
+Registradas en la revisión de PR #11. Spec: `docs/superpowers/specs/2026-09-16-gestcopy-lifecycle-v1-design.md`.
 
-1. **Viewer × `list_order_activity`:** ¿solo lectura de la ficha incluye historial, o se alinea con `/activity` (gestión)?
-2. **Bypass RLS de `status_id`:** ¿se cierra en V1 (column-level / trigger BEFORE UPDATE) o se acepta mientras la app solo hable por RPC?
-3. **Tenants nuevos:** ¿se completa `create_organization` con catálogos de gestión, o se espera a Settings?
-4. **Quién edita catálogos:** ¿owner+admin (Settings) aunque RLS hoy permita manager?
-5. **«Archivos»:** ¿se mantiene catálogo manual con copy clarificado, confirmando Storage diferido?
-6. **Concurrencia en ficha:** ¿banner suave (sin schema) o `row_version`?
-7. **Mostrador vs Mis pedidos:** ¿se unifica el criterio `delivered_at IS NULL`?
-8. **Kiosk:** confirmar que el bloque 1 **no** toca #10 hasta smoke humano.
+1. Viewer conserva historial del pedido; `/activity` sigue gestión.
+2. Bypass `status_id`/timestamps se cierra en Lifecycle V1 (mecanismo mínimo / RPC).
+3. Seed `create_organization`: otro bloque, no Lifecycle.
+4. Settings estructural: owner+admin; manager opera; RLS se alinea en Settings.
+5. `file_status` manual; Storage en Files V1.
+6. Concurrencia: banner en Editing; no `row_version` aún.
+7. Colas unificadas por flags + no archivado; `delivered_at` no filtra.
+8. Kiosk #10 fuera de Lifecycle salvo defecto de smoke.
 
 ---
 
-## 12. Lo que este cruce no autoriza
+## 12. Lo que sigue sin autorizar
 
-- Implementar Lifecycle, Editing, Files, Settings o Permissions.
-- Abrir ramas funcionales, migraciones, PRs de producto o cambios en `main`.
-- Modificar PR #10 (código, RLS, tests) salvo defecto real de smoke.
-- Mergear #10.
-- Diseñar un producto Storage.
-- Introducir tabla de capabilities.
-- Reinterpretar staff como viewer o Personal como rol de acceso.
+- Escribir código de Lifecycle **antes** del merge de #10.
+- Mezclar Settings, Storage o Editing completo en el PR Lifecycle.
+- Modificar o mergear PR #10 sin smoke humano.
+- Tabla `capabilities` o rediseño de schema.
 
 ---
 
@@ -326,3 +328,5 @@ Contrato de producto ya cerrado en repo:
 - `docs/Arquitectura inmutable de Copyflow.md`
 - `docs/COPYFLOW-MVP-CHECKPOINT.md` (§7 Pedidos, §13 activity)
 - `docs/GESTCOPY_PROJECT_NOTES.md` (estado operativo actual)
+- `docs/superpowers/specs/2026-09-16-gestcopy-lifecycle-v1-design.md`
+- `docs/superpowers/plans/2026-09-16-gestcopy-lifecycle-v1.md`
