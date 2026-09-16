@@ -87,17 +87,24 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({
-    tenant: context.tenant.slug,
-    services: servicesResult.data ?? [],
-    entry_channels: entryChannelsResult.data ?? [],
-    order_contexts: orderContextsResult.data ?? [],
-    team_members: teamMembersResult.data ?? [],
-    stores: storesResult.data ?? [],
-    actor_role: context.membership.role,
-    current_team_member: currentTeamMember,
-    quick_order_layout: resolveQuickOrderLayout(
-      settingsResult.data?.preferences
-    ),
-  });
+  return NextResponse.json(
+    {
+      tenant: context.tenant.slug,
+      services: servicesResult.data ?? [],
+      entry_channels: entryChannelsResult.data ?? [],
+      order_contexts: orderContextsResult.data ?? [],
+      team_members: teamMembersResult.data ?? [],
+      stores: storesResult.data ?? [],
+      actor_role: context.membership.role,
+      current_team_member: currentTeamMember,
+      quick_order_layout: resolveQuickOrderLayout(
+        settingsResult.data?.preferences
+      ),
+    },
+    {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      },
+    }
+  );
 }

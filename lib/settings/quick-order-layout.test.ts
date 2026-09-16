@@ -16,6 +16,7 @@ import {
   resolveQuickOrderLayout,
   revisionsMatch,
   sameSettingsRevision,
+  serializeSettingsRevision,
   toggleQuickOrderField,
   userFacingQuickOrderLayoutSaveError,
 } from "./quick-order-layout";
@@ -192,6 +193,13 @@ describe("quick order layout preferences", () => {
     );
     assert.equal(
       sameSettingsRevision(
+        "2026-09-16T12:00:00.123456+00",
+        "2026-09-16T12:00:00.123Z"
+      ),
+      true
+    );
+    assert.equal(
+      sameSettingsRevision(
         "2026-09-16T12:00:00.000Z",
         "2026-09-16T12:00:01.000Z"
       ),
@@ -268,11 +276,18 @@ describe("quick order layout preferences", () => {
     const fromPostgres = "2026-09-16T15:57:56.123456+00:00";
     const fromJsonDate = new Date(fromPostgres).toISOString();
     const fromSpaceOffset = "2026-09-16 15:57:56.123456+00";
+    const fromShortOffset = "2026-09-16T15:57:56.123456+00";
 
     assert.notEqual(fromPostgres, fromJsonDate);
+    assert.equal(
+      serializeSettingsRevision(fromPostgres),
+      "2026-09-16T15:57:56.123Z"
+    );
+    assert.equal(serializeSettingsRevision(fromShortOffset), fromJsonDate);
     assert.equal(revisionsMatch(fromPostgres, fromPostgres), true);
     assert.equal(revisionsMatch(fromPostgres, fromJsonDate), true);
     assert.equal(revisionsMatch(fromPostgres, fromSpaceOffset), true);
+    assert.equal(revisionsMatch(fromPostgres, fromShortOffset), true);
     assert.equal(
       revisionsMatch(fromPostgres, "2026-09-16T15:57:57.123456+00:00"),
       false

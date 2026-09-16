@@ -10,6 +10,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
 const ACCESS_DENIED = "Unauthorized or tenant access denied";
+const NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+} as const;
+
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: NO_STORE_HEADERS,
+  });
+}
 
 export async function GET() {
   const context = await getCurrentContext();
@@ -18,7 +28,7 @@ export async function GET() {
     !context ||
     !canManageQuickOrderLayout(context.membership.role)
   ) {
-    return NextResponse.json({ error: ACCESS_DENIED }, { status: 403 });
+    return json({ error: ACCESS_DENIED }, 403);
   }
 
   const supabase = await createClient();
@@ -37,20 +47,14 @@ export async function GET() {
         error,
       }
     );
-    return NextResponse.json(
-      { error: "Could not load quick order settings" },
-      { status: 500 }
-    );
+    return json({ error: "Could not load quick order settings" }, 500);
   }
 
   if (!data) {
-    return NextResponse.json(
-      { error: "Tenant settings not found" },
-      { status: 404 }
-    );
+    return json({ error: "Tenant settings not found" }, 404);
   }
 
-  return NextResponse.json({
+  return json({
     layout: resolveQuickOrderLayout(data.preferences),
     revision: serializeSettingsRevision(data.updated_at),
   });
@@ -63,22 +67,19 @@ export async function PATCH(request: NextRequest) {
     !context ||
     !canManageQuickOrderLayout(context.membership.role)
   ) {
-    return NextResponse.json({ error: ACCESS_DENIED }, { status: 403 });
+    return json({ error: ACCESS_DENIED }, 403);
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body" },
-      { status: 400 }
-    );
+    return json({ error: "Invalid JSON body" }, 400);
   }
 
   const parsed = parseQuickOrderLayoutPatch(body);
   if (!parsed.ok) {
-    return NextResponse.json({ error: "Invalid value" }, { status: 400 });
+    return json({ error: "Invalid value" }, 400);
   }
 
   const supabase = await createClient();
@@ -97,17 +98,11 @@ export async function PATCH(request: NextRequest) {
         error: loadError,
       }
     );
-    return NextResponse.json(
-      { error: "Could not update quick order settings" },
-      { status: 500 }
-    );
+    return json({ error: "Could not update quick order settings" }, 500);
   }
 
   if (!current) {
-    return NextResponse.json(
-      { error: "Tenant settings not found" },
-      { status: 404 }
-    );
+    return json({ error: "Tenant settings not found" }, 404);
   }
 
   const currentRevision = serializeSettingsRevision(current.updated_at);
@@ -130,10 +125,7 @@ export async function PATCH(request: NextRequest) {
         updateResult: "skipped",
       }
     );
-    return NextResponse.json(
-      { error: planned.error },
-      { status: planned.status }
-    );
+    return json({ error: planned.error }, planned.status);
   }
 
   const { data: updated, error: updateError } = await supabase
@@ -155,10 +147,7 @@ export async function PATCH(request: NextRequest) {
         error: updateError,
       }
     );
-    return NextResponse.json(
-      { error: "Could not update quick order settings" },
-      { status: 500 }
-    );
+    return json({ error: "Could not update quick order settings" }, 500);
   }
 
   if (!updated) {
@@ -172,10 +161,7 @@ export async function PATCH(request: NextRequest) {
         updateResult: "zero-rows",
       }
     );
-    return NextResponse.json(
-      { error: "Could not update quick order settings" },
-      { status: 500 }
-    );
+    return json({ error: "Could not update quick order settings" }, 500);
   }
 
   const { data: persistedRow, error: persistError } = await supabase
@@ -195,10 +181,7 @@ export async function PATCH(request: NextRequest) {
         updateResult: persistError ?? "missing-row",
       }
     );
-    return NextResponse.json(
-      { error: "Could not update quick order settings" },
-      { status: 500 }
-    );
+    return json({ error: "Could not update quick order settings" }, 500);
   }
 
   const persisted = resolveQuickOrderLayout(persistedRow.preferences);
@@ -216,7 +199,7 @@ export async function PATCH(request: NextRequest) {
     preferences: persisted,
   });
 
-  return NextResponse.json({
+  return json({
     ok: true,
     layout: persisted,
     revision: persistedRevision,

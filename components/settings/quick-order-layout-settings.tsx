@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DEFAULT_QUICK_ORDER_LAYOUT,
   QUICK_ORDER_FIELDS,
@@ -24,9 +23,13 @@ type SettingsResponse = {
 };
 
 async function fetchQuickOrderSettings() {
-  const response = await fetch("/api/settings/quick-order-layout", {
-    cache: "no-store",
-  });
+  const response = await fetch(
+    `/api/settings/quick-order-layout?ts=${Date.now()}`,
+    {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
+    }
+  );
   const result = (await response.json()) as SettingsResponse;
 
   if (!response.ok || !result.layout || !result.revision) {
@@ -198,16 +201,10 @@ export function QuickOrderLayoutSettings() {
             className="-mx-5 overflow-hidden border-y border-border/70 sm:-mx-6"
           >
             <legend className="sr-only">
-              Campos visibles en el formulario de pedido rápido
+              Campos visibles al crear un pedido rápido
             </legend>
-            <p className="border-b border-border/60 bg-muted/20 px-5 py-3 text-sm leading-snug text-muted-foreground sm:px-6">
-              Marca cada campo que quieras ver siempre al crear un pedido rápido.
-              Los no marcados seguirán disponibles en{" "}
-              <span className="font-medium text-foreground">Más opciones</span>.
-            </p>
             {QUICK_ORDER_FIELDS.map((field) => {
               const checked = layout[field] === "primary";
-              const placementLabel = checked ? "Principal" : "Más opciones";
               return (
                 <label
                   key={field}
@@ -216,28 +213,15 @@ export function QuickOrderLayoutSettings() {
                     checked ? "bg-secondary/25" : "bg-transparent"
                   )}
                 >
-                  <Checkbox
+                  <input
+                    type="checkbox"
                     checked={checked}
                     disabled={saving}
-                    onCheckedChange={(value) =>
-                      toggle(field, value === true)
-                    }
-                    className="size-5 rounded-md"
-                    aria-describedby={`quick-order-field-${field}-placement`}
+                    onChange={(event) => toggle(field, event.target.checked)}
+                    className="size-5 shrink-0 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
                   />
-                  <span className="min-w-0 flex-1 text-[0.975rem] font-medium leading-snug text-foreground">
+                  <span className="text-[0.975rem] font-medium leading-snug text-foreground">
                     {QUICK_ORDER_FIELD_LABELS[field]}
-                  </span>
-                  <span
-                    id={`quick-order-field-${field}-placement`}
-                    className={cn(
-                      "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
-                      checked
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {placementLabel}
                   </span>
                 </label>
               );

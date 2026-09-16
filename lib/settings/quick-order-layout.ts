@@ -146,15 +146,44 @@ export function toggleQuickOrderField(
   };
 }
 
-export function sameSettingsRevision(left: string, right: string): boolean {
-  const leftTime = Date.parse(left);
-  const rightTime = Date.parse(right);
-
-  if (Number.isNaN(leftTime) || Number.isNaN(rightTime)) {
-    return left === right;
+function parseSettingsRevisionMs(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return Number.NaN;
   }
 
-  return leftTime === rightTime;
+  const candidates = [trimmed];
+  if (!trimmed.includes("T") && trimmed.includes(" ")) {
+    candidates.push(trimmed.replace(" ", "T"));
+  }
+
+  for (const candidate of candidates) {
+    const direct = Date.parse(candidate);
+    if (!Number.isNaN(direct)) {
+      return direct;
+    }
+
+    const withColonOffset = candidate.replace(/([+-]\d{2})$/, "$1:00");
+    if (withColonOffset !== candidate) {
+      const parsed = Date.parse(withColonOffset);
+      if (!Number.isNaN(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return Number.NaN;
+}
+
+export function sameSettingsRevision(left: string, right: string): boolean {
+  const leftTime = parseSettingsRevisionMs(left);
+  const rightTime = parseSettingsRevisionMs(right);
+
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime)) {
+    return leftTime === rightTime;
+  }
+
+  return left === right;
 }
 
 export function revisionsMatch(
@@ -169,12 +198,17 @@ export function revisionsMatch(
 }
 
 export function serializeSettingsRevision(value: unknown): string {
-  if (typeof value === "string" && value.trim()) {
-    return value;
-  }
-
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString();
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = parseSettingsRevisionMs(value);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+
+    return value.trim();
   }
 
   return String(value ?? "");
