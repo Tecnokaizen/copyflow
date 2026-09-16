@@ -15,6 +15,7 @@ declare
   v_demo_viewer uuid := gen_random_uuid();
   v_sur4_owner uuid := gen_random_uuid();
   v_count integer;
+  v_sqlstate text;
   v_original_demo jsonb;
   v_original_sur4 jsonb;
 begin
@@ -112,8 +113,8 @@ begin
     raise exception 'FAIL DEMO owner update: expected 1 row, got %', v_count;
   end if;
 
-  -- Admin, manager, staff and viewer can read preferences for operative use,
-  -- but the structural settings policy does not let them write.
+  -- Admin can read and retain historical writes to unrelated preferences,
+  -- but the trigger rejects changes to quick_order_layout_v1.
   perform set_config('request.jwt.claim.sub', v_demo_admin::text, true);
   execute 'set local role authenticated';
   select count(*) into v_count
@@ -123,14 +124,38 @@ begin
     raise exception 'FAIL DEMO admin read: expected 1 row, got %', v_count;
   end if;
   update public.tenant_settings
-  set preferences = '{}'::jsonb
+  set preferences = jsonb_set(
+    preferences,
+    '{quick_layout_admin_unrelated_test}',
+    '"allowed"'::jsonb,
+    true
+  )
   where tenant_id = v_demo;
   get diagnostics v_count = row_count;
   execute 'reset role';
-  if v_count <> 0 then
-    raise exception 'FAIL DEMO admin update: expected 0 rows, got %', v_count;
+  if v_count <> 1 then
+    raise exception 'FAIL DEMO admin unrelated update: expected 1 row, got %', v_count;
   end if;
 
+  v_sqlstate := null;
+  begin
+    perform set_config('request.jwt.claim.sub', v_demo_admin::text, true);
+    execute 'set local role authenticated';
+    update public.tenant_settings
+    set preferences = preferences - 'quick_order_layout_v1'
+    where tenant_id = v_demo;
+    execute 'reset role';
+  exception when others then
+    v_sqlstate := sqlstate;
+    execute 'reset role';
+  end;
+  if v_sqlstate is distinct from '42501' then
+    raise exception 'FAIL DEMO admin quick layout update: expected 42501, got %',
+      v_sqlstate;
+  end if;
+
+  -- Manager, staff and viewer can read preferences for operative use,
+  -- but cannot update tenant settings.
   perform set_config('request.jwt.claim.sub', v_demo_manager::text, true);
   execute 'set local role authenticated';
   select count(*) into v_count
@@ -206,6 +231,14 @@ begin
     @> (v_original_demo - 'quick_order_layout_v1')
   ) then
     raise exception 'FAIL DEMO neighboring preferences changed';
+  end if;
+
+  if (
+    select preferences ->> 'quick_layout_admin_unrelated_test'
+    from public.tenant_settings
+    where tenant_id = v_demo
+  ) is distinct from 'allowed' then
+    raise exception 'FAIL DEMO admin unrelated preference was not preserved';
   end if;
 
   if (select preferences from public.tenant_settings where tenant_id = v_sur4)
