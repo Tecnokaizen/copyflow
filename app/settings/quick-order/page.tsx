@@ -6,6 +6,8 @@ import { QuickOrderLayoutSettings } from "@/components/settings/quick-order-layo
 import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
+export const instant = false;
+
 export default async function QuickOrderSettingsPage() {
   const context = await getCurrentContext();
 
