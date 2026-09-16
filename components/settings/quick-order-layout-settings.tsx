@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DEFAULT_QUICK_ORDER_LAYOUT,
   QUICK_ORDER_FIELDS,
@@ -192,9 +193,21 @@ export function QuickOrderLayoutSettings() {
         />
       ) : (
         <div className="grid gap-5">
-          <div className="-mx-5 overflow-hidden border-y border-border/70 sm:-mx-6">
+          <fieldset
+            disabled={saving}
+            className="-mx-5 overflow-hidden border-y border-border/70 sm:-mx-6"
+          >
+            <legend className="sr-only">
+              Campos visibles en el formulario de pedido rápido
+            </legend>
+            <p className="border-b border-border/60 bg-muted/20 px-5 py-3 text-sm leading-snug text-muted-foreground sm:px-6">
+              Marca cada campo que quieras ver siempre al crear un pedido rápido.
+              Los no marcados seguirán disponibles en{" "}
+              <span className="font-medium text-foreground">Más opciones</span>.
+            </p>
             {QUICK_ORDER_FIELDS.map((field) => {
               const checked = layout[field] === "primary";
+              const placementLabel = checked ? "Principal" : "Más opciones";
               return (
                 <label
                   key={field}
@@ -203,20 +216,33 @@ export function QuickOrderLayoutSettings() {
                     checked ? "bg-secondary/25" : "bg-transparent"
                   )}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={checked}
                     disabled={saving}
-                    onChange={(event) => toggle(field, event.target.checked)}
-                    className="size-5 shrink-0 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
+                    onCheckedChange={(value) =>
+                      toggle(field, value === true)
+                    }
+                    className="size-5 rounded-md"
+                    aria-describedby={`quick-order-field-${field}-placement`}
                   />
-                  <span className="text-[0.975rem] font-medium leading-snug text-foreground">
+                  <span className="min-w-0 flex-1 text-[0.975rem] font-medium leading-snug text-foreground">
                     {QUICK_ORDER_FIELD_LABELS[field]}
+                  </span>
+                  <span
+                    id={`quick-order-field-${field}-placement`}
+                    className={cn(
+                      "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                      checked
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {placementLabel}
                   </span>
                 </label>
               );
             })}
-          </div>
+          </fieldset>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
