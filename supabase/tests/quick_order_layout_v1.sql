@@ -246,6 +246,17 @@ begin
     raise exception 'FAIL SUR4 preferences changed';
   end if;
 
+  -- PostgreSQL maintenance (including the existing DEMO seed) can replace
+  -- preferences without impersonating an application owner.
+  update public.tenant_settings
+  set preferences = v_original_demo
+  where tenant_id = v_demo;
+  get diagnostics v_count = row_count;
+  if v_count <> 1 then
+    raise exception 'FAIL postgres seed-style restore: expected 1 row, got %',
+      v_count;
+  end if;
+
   raise notice 'quick order layout RLS DEMO/SUR4 OK';
 end;
 $quick_order_layout$;

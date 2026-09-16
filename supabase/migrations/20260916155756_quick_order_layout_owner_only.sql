@@ -10,6 +10,7 @@ as $function$
 begin
   if new.preferences -> 'quick_order_layout_v1'
        is distinct from old.preferences -> 'quick_order_layout_v1'
+     and current_user not in ('postgres', 'service_role')
      and not public.has_tenant_role(
        old.tenant_id,
        array['owner'::text]
