@@ -9,6 +9,7 @@ declare
   v_demo uuid;
   v_sur4 uuid;
   v_demo_owner uuid := gen_random_uuid();
+  v_demo_admin uuid := gen_random_uuid();
   v_demo_manager uuid := gen_random_uuid();
   v_demo_staff uuid := gen_random_uuid();
   v_demo_viewer uuid := gen_random_uuid();
@@ -43,6 +44,10 @@ begin
      'quick-layout-owner-demo@test.invalid', crypt('pw', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
      now(), now(), '', '', '', ''),
+    (v_demo_admin, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+     'quick-layout-admin-demo@test.invalid', crypt('pw', gen_salt('bf')), now(),
+     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+     now(), now(), '', '', '', ''),
     (v_demo_manager, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
      'quick-layout-manager-demo@test.invalid', crypt('pw', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
@@ -62,6 +67,7 @@ begin
 
   insert into public.profiles (id, full_name) values
     (v_demo_owner, 'Quick Layout DEMO Owner'),
+    (v_demo_admin, 'Quick Layout DEMO Admin'),
     (v_demo_manager, 'Quick Layout DEMO Manager'),
     (v_demo_staff, 'Quick Layout DEMO Staff'),
     (v_demo_viewer, 'Quick Layout DEMO Viewer'),
@@ -69,6 +75,7 @@ begin
 
   insert into public.memberships (tenant_id, user_id, role, active) values
     (v_demo, v_demo_owner, 'owner', true),
+    (v_demo, v_demo_admin, 'admin', true),
     (v_demo, v_demo_manager, 'manager', true),
     (v_demo, v_demo_staff, 'staff', true),
     (v_demo, v_demo_viewer, 'viewer', true),
@@ -105,7 +112,25 @@ begin
     raise exception 'FAIL DEMO owner update: expected 1 row, got %', v_count;
   end if;
 
-  -- Manager, staff and viewer can read the resolved preference but cannot write.
+  -- Admin, manager, staff and viewer can read preferences for operative use,
+  -- but the structural settings policy does not let them write.
+  perform set_config('request.jwt.claim.sub', v_demo_admin::text, true);
+  execute 'set local role authenticated';
+  select count(*) into v_count
+  from public.tenant_settings
+  where tenant_id = v_demo;
+  if v_count <> 1 then
+    raise exception 'FAIL DEMO admin read: expected 1 row, got %', v_count;
+  end if;
+  update public.tenant_settings
+  set preferences = '{}'::jsonb
+  where tenant_id = v_demo;
+  get diagnostics v_count = row_count;
+  execute 'reset role';
+  if v_count <> 0 then
+    raise exception 'FAIL DEMO admin update: expected 0 rows, got %', v_count;
+  end if;
+
   perform set_config('request.jwt.claim.sub', v_demo_manager::text, true);
   execute 'set local role authenticated';
   select count(*) into v_count
@@ -125,6 +150,12 @@ begin
 
   perform set_config('request.jwt.claim.sub', v_demo_staff::text, true);
   execute 'set local role authenticated';
+  select count(*) into v_count
+  from public.tenant_settings
+  where tenant_id = v_demo;
+  if v_count <> 1 then
+    raise exception 'FAIL DEMO staff read: expected 1 row, got %', v_count;
+  end if;
   update public.tenant_settings
   set preferences = '{}'::jsonb
   where tenant_id = v_demo;
@@ -136,6 +167,12 @@ begin
 
   perform set_config('request.jwt.claim.sub', v_demo_viewer::text, true);
   execute 'set local role authenticated';
+  select count(*) into v_count
+  from public.tenant_settings
+  where tenant_id = v_demo;
+  if v_count <> 1 then
+    raise exception 'FAIL DEMO viewer read: expected 1 row, got %', v_count;
+  end if;
   update public.tenant_settings
   set preferences = '{}'::jsonb
   where tenant_id = v_demo;

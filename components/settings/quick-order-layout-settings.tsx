@@ -190,7 +190,7 @@ export function QuickOrderLayoutSettings() {
                     <label
                       key={placement}
                       className={cn(
-                        "cursor-pointer rounded px-3 py-2 text-center text-sm font-medium transition-colors",
+                        "cursor-pointer rounded px-3 py-2 text-center text-sm font-medium transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                         layout[field] === placement
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
