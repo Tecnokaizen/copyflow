@@ -3,6 +3,7 @@ import {
   canWriteOrders,
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
+import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 
 export type AppNavItemId =
   | "home"
@@ -13,7 +14,8 @@ export type AppNavItemId =
   | "clients"
   | "services"
   | "team"
-  | "activity";
+  | "activity"
+  | "settings";
 
 export type AppNavItem = {
   id: AppNavItemId;
@@ -31,6 +33,11 @@ const NAV_CATALOG: AppNavItem[] = [
   { id: "services", href: "/services", label: "Servicios" },
   { id: "team", href: "/team", label: "Equipo" },
   { id: "activity", href: "/activity", label: "Actividad" },
+  {
+    id: "settings",
+    href: "/settings/quick-order",
+    label: "Configuración",
+  },
 ];
 
 export function canAccessCounter(role: string | null | undefined) {
@@ -76,6 +83,8 @@ export function isNavItemVisible(
       return canWriteTeam(role);
     case "activity":
       return canViewActivity(role);
+    case "settings":
+      return canManageQuickOrderLayout(role);
     default:
       return false;
   }
@@ -121,6 +130,9 @@ export function navItemIsActive(
   }
   if (item.id === "activity") {
     return pathname === "/activity";
+  }
+  if (item.id === "settings") {
+    return pathname === "/settings/quick-order";
   }
   return false;
 }

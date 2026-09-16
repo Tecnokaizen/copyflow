@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { Fragment, FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
@@ -34,14 +34,20 @@ import {
 import {
   defaultSingleCatalogId,
   isQuickCreateMode,
+  quickFieldIsAvailable,
   shouldStayOnCreateForm,
   showEntryChannelInMainForm,
-  showEntryChannelInMoreOptions,
   suggestedAssigneeId,
 } from "@/lib/orders/create-form-layout";
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
 import { fetchLive } from "@/lib/refresh/fetch-live";
+import {
+  DEFAULT_QUICK_ORDER_LAYOUT,
+  fieldsForPlacement,
+  type QuickOrderField,
+  type QuickOrderLayout,
+} from "@/lib/settings/quick-order-layout";
 import { defaultActiveStoreId } from "@/lib/stores/scope";
 
 type CreateOrderFormProps = {
@@ -55,6 +61,10 @@ type CreatedOrder = {
   reference: string;
 };
 
+type QuickOrderOptionsResponse = OrderOptionsResponse & {
+  quick_order_layout: QuickOrderLayout;
+};
+
 export function CreateOrderForm({
   mode = "full",
   fromCounter = false,
@@ -62,7 +72,8 @@ export function CreateOrderForm({
 }: CreateOrderFormProps) {
   const router = useRouter();
   const isQuick = isQuickCreateMode(mode);
-  const [options, setOptions] = useState<OrderOptionsResponse | null>(null);
+  const [options, setOptions] =
+    useState<QuickOrderOptionsResponse | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsReload, setOptionsReload] = useState(0);
@@ -166,6 +177,8 @@ export function CreateOrderForm({
           actor_role:
             typeof result.actor_role === "string" ? result.actor_role : null,
           current_team_member: result.current_team_member ?? null,
+          quick_order_layout:
+            result.quick_order_layout ?? DEFAULT_QUICK_ORDER_LAYOUT,
         };
         setOptions(nextOptions);
         applyCatalogDefaults(nextOptions);
@@ -195,11 +208,21 @@ export function CreateOrderForm({
     serviceName,
   });
   const channelCount = options?.entry_channels.length ?? 0;
-  const showChannelInMoreOptions = showEntryChannelInMoreOptions(
-    mode,
-    channelCount
-  );
   const showChannelInMain = showEntryChannelInMainForm(mode, channelCount);
+  const quickLayout =
+    options?.quick_order_layout ?? DEFAULT_QUICK_ORDER_LAYOUT;
+  const quickCatalogCounts = {
+    stores: options?.stores.length ?? 0,
+    entryChannels: channelCount,
+    orderContexts: options?.order_contexts.length ?? 0,
+  };
+  const quickPrimaryFields = fieldsForPlacement(
+    quickLayout,
+    "primary"
+  ).filter((field) => quickFieldIsAvailable(field, quickCatalogCounts));
+  const quickMoreFields = fieldsForPlacement(quickLayout, "more").filter(
+    (field) => quickFieldIsAvailable(field, quickCatalogCounts)
+  );
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -408,6 +431,217 @@ export function CreateOrderForm({
     );
   }
 
+  function renderClientField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Cliente
+        <ClientSelector
+          value={selectedClient}
+          disabled={submitting}
+          allowNoClient
+          onChange={setSelectedClient}
+          onCreateNew={openCreateClient}
+        />
+        <span className="text-xs font-normal text-muted-foreground">
+          Busca por nombre, empresa o teléfono, o créalo sin salir.
+        </span>
+      </label>
+    );
+  }
+
+  function renderServiceField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Servicio
+        <DraftSelect
+          value={serviceId}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setServiceId}
+        >
+          <option value="">Sin servicio</option>
+          {options?.services.map((service) => (
+            <option key={service.id} value={service.id}>
+              {service.name}
+            </option>
+          ))}
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  function renderQuickDescriptionField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Descripción
+        <DraftTextarea
+          value={description}
+          disabled={submitting}
+          rows={4}
+          className="min-h-28 text-base"
+          onChange={setDescription}
+        />
+      </label>
+    );
+  }
+
+  function renderFullDescriptionField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Instrucciones
+        <DraftTextarea
+          value={description}
+          disabled={submitting}
+          rows={5}
+          className="min-h-32 text-base"
+          onChange={setDescription}
+        />
+      </label>
+    );
+  }
+
+  function renderDueAtField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Entrega prevista
+        <DraftInput
+          type="datetime-local"
+          value={dueAt}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setDueAt}
+        />
+      </label>
+    );
+  }
+
+  function renderAssigneeField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Responsable
+        <DraftSelect
+          value={assignedTeamMemberId}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setAssignedTeamMemberId}
+        >
+          <option value="">Sin asignar</option>
+          {options?.team_members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  function renderPriorityField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Prioridad
+        <DraftSelect
+          value={priority}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={(value) =>
+            setPriority(value as "normal" | "high" | "urgent")
+          }
+        >
+          <option value="normal">Normal</option>
+          <option value="high">Alta</option>
+          <option value="urgent">Urgente</option>
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  function renderTitleField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Nombre del pedido
+        <DraftInput
+          value={title}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setTitle}
+        />
+        <span className="text-xs font-normal text-muted-foreground">
+          {title.trim()
+            ? "Este nombre es el que verás en la ficha y en la lista."
+            : `Si lo dejas vacío se usará «${derivedTitle}».`}
+        </span>
+      </label>
+    );
+  }
+
+  function renderContextField() {
+    if ((options?.order_contexts.length ?? 0) === 0) {
+      return null;
+    }
+
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Contexto
+        <DraftSelect
+          value={orderContextId}
+          disabled={submitting}
+          className="max-w-none text-base"
+          onChange={setOrderContextId}
+        >
+          <option value="">Sin contexto</option>
+          {options?.order_contexts.map((context) => (
+            <option key={context.id} value={context.id}>
+              {context.name}
+            </option>
+          ))}
+        </DraftSelect>
+      </label>
+    );
+  }
+
+  function renderNotesField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Notas internas
+        <DraftTextarea
+          value={notes}
+          disabled={submitting}
+          rows={3}
+          className="text-base"
+          onChange={setNotes}
+        />
+      </label>
+    );
+  }
+
+  function renderQuickField(field: QuickOrderField) {
+    switch (field) {
+      case "client":
+        return renderClientField();
+      case "service":
+        return renderServiceField();
+      case "description":
+        return renderQuickDescriptionField();
+      case "store":
+        return renderStoreField();
+      case "due_at":
+        return renderDueAtField();
+      case "priority":
+        return renderPriorityField();
+      case "assigned_team_member":
+        return renderAssigneeField();
+      case "entry_channel":
+        return renderChannelField();
+      case "title":
+        return renderTitleField();
+      case "order_context":
+        return renderContextField();
+      case "notes":
+        return renderNotesField();
+    }
+  }
+
   const clientModal = clientModalOpen ? (
     <ClientModal>
       <ClientForm
@@ -492,206 +726,48 @@ export function CreateOrderForm({
         />
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-5">
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Cliente
-            <ClientSelector
-              value={selectedClient}
-              disabled={submitting}
-              allowNoClient
-              onChange={setSelectedClient}
-              onCreateNew={openCreateClient}
-            />
-            <span className="text-xs font-normal text-muted-foreground">
-              Busca por nombre, empresa o teléfono, o créalo sin salir.
-            </span>
-          </label>
-
           {isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Servicio
-              <DraftSelect
-                value={serviceId}
-                disabled={submitting}
-                className="max-w-none text-base"
-                onChange={setServiceId}
-              >
-                <option value="">Sin servicio</option>
-                {options?.services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.name}
-                  </option>
-                ))}
-              </DraftSelect>
-            </label>
-          ) : null}
-
-          {isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Descripción
-              <DraftTextarea
-                value={description}
-                disabled={submitting}
-                rows={4}
-                className="min-h-28 text-base"
-                onChange={setDescription}
-              />
-            </label>
-          ) : null}
-
-          {renderStoreField()}
-
-          {!isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Servicio
-              <DraftSelect
-                value={serviceId}
-                disabled={submitting}
-                className="max-w-none text-base"
-                onChange={setServiceId}
-              >
-                <option value="">Sin servicio</option>
-                {options?.services.map((service) => (
-                  <option key={service.id} value={service.id}>
-                    {service.name}
-                  </option>
-                ))}
-              </DraftSelect>
-            </label>
-          ) : null}
-
-          {!isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Instrucciones
-              <DraftTextarea
-                value={description}
-                disabled={submitting}
-                rows={5}
-                className="min-h-32 text-base"
-                onChange={setDescription}
-              />
-            </label>
-          ) : null}
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Entrega prevista
-            <DraftInput
-              type="datetime-local"
-              value={dueAt}
-              disabled={submitting}
-              className="max-w-none text-base"
-              onChange={setDueAt}
-            />
-          </label>
-
-          {!isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Responsable
-              <DraftSelect
-                value={assignedTeamMemberId}
-                disabled={submitting}
-                className="max-w-none text-base"
-                onChange={setAssignedTeamMemberId}
-              >
-                <option value="">Sin asignar</option>
-                {options?.team_members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </DraftSelect>
-            </label>
-          ) : null}
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Prioridad
-            <DraftSelect
-              value={priority}
-              disabled={submitting}
-              className="max-w-none text-base"
-              onChange={(value) =>
-                setPriority(value as "normal" | "high" | "urgent")
-              }
-            >
-              <option value="normal">Normal</option>
-              <option value="high">Alta</option>
-              <option value="urgent">Urgente</option>
-            </DraftSelect>
-          </label>
-
-          {isQuick ? (
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              Responsable
-              <DraftSelect
-                value={assignedTeamMemberId}
-                disabled={submitting}
-                className="max-w-none text-base"
-                onChange={setAssignedTeamMemberId}
-              >
-                <option value="">Sin asignar</option>
-                {options?.team_members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </DraftSelect>
-            </label>
-          ) : null}
-
-          {showChannelInMain ? renderChannelField() : null}
-
-          <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
-            <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
-              Más opciones
-            </summary>
-            <div className="mt-4 grid gap-5">
-              {showChannelInMoreOptions ? renderChannelField() : null}
-
-              <label className="grid gap-2 text-sm font-medium text-foreground">
-                Nombre del pedido
-                <DraftInput
-                  value={title}
-                  disabled={submitting}
-                  className="max-w-none text-base"
-                  onChange={setTitle}
-                />
-                <span className="text-xs font-normal text-muted-foreground">
-                  {title.trim()
-                    ? "Este nombre es el que verás en la ficha y en la lista."
-                    : `Si lo dejas vacío se usará «${derivedTitle}».`}
-                </span>
-              </label>
-
-              {(options?.order_contexts.length ?? 0) > 0 ? (
-                <label className="grid gap-2 text-sm font-medium text-foreground">
-                  Contexto
-                  <DraftSelect
-                    value={orderContextId}
-                    disabled={submitting}
-                    className="max-w-none text-base"
-                    onChange={setOrderContextId}
-                  >
-                    <option value="">Sin contexto</option>
-                    {options?.order_contexts.map((context) => (
-                      <option key={context.id} value={context.id}>
-                        {context.name}
-                      </option>
+            <>
+              {quickPrimaryFields.map((field) => (
+                <Fragment key={field}>{renderQuickField(field)}</Fragment>
+              ))}
+              {quickMoreFields.length > 0 ? (
+                <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
+                  <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                    Más opciones
+                  </summary>
+                  <div className="mt-4 grid gap-5">
+                    {quickMoreFields.map((field) => (
+                      <Fragment key={field}>
+                        {renderQuickField(field)}
+                      </Fragment>
                     ))}
-                  </DraftSelect>
-                </label>
+                  </div>
+                </details>
               ) : null}
-
-              <label className="grid gap-2 text-sm font-medium text-foreground">
-                Notas internas
-                <DraftTextarea
-                  value={notes}
-                  disabled={submitting}
-                  rows={3}
-                  className="text-base"
-                  onChange={setNotes}
-                />
-              </label>
-            </div>
-          </details>
+            </>
+          ) : (
+            <>
+              {renderClientField()}
+              {renderStoreField()}
+              {renderServiceField()}
+              {renderFullDescriptionField()}
+              {renderDueAtField()}
+              {renderAssigneeField()}
+              {renderPriorityField()}
+              {showChannelInMain ? renderChannelField() : null}
+              <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
+                <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                  Más opciones
+                </summary>
+                <div className="mt-4 grid gap-5">
+                  {renderTitleField()}
+                  {renderContextField()}
+                  {renderNotesField()}
+                </div>
+              </details>
+            </>
+          )}
 
           {error ? (
             <p className="text-sm text-destructive" role="alert">
