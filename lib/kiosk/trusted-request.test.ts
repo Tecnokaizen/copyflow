@@ -9,20 +9,111 @@ function headers(values: Record<string, string>) {
   return new Headers(values);
 }
 
+function withEnv(
+  values: Record<string, string | undefined>,
+  fn: () => void
+) {
+  const previous = new Map<string, string | undefined>();
+  for (const key of Object.keys(values)) {
+    previous.set(key, process.env[key]);
+    const next = values[key];
+    if (next === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = next;
+    }
+  }
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 describe("trustedKioskRequestContext", () => {
   it("accepts Vercel-overwritten host and client IP headers", () => {
-    assert.deepEqual(
-      trustedKioskRequestContext(
-        headers({
-          host: "demo.app.gestcopy.com",
-          "x-forwarded-host": "demo.app.gestcopy.com",
-          "x-vercel-forwarded-for": "203.0.113.8",
-        }),
-        { VERCEL: "1", NODE_ENV: "production" }
-      ),
+    withEnv(
+      { VERCEL_ENV: undefined, TENANT_PREVIEW_BASE_DOMAIN: undefined },
+      () => {
+        assert.deepEqual(
+          trustedKioskRequestContext(
+            headers({
+              host: "demo.app.gestcopy.com",
+              "x-forwarded-host": "demo.app.gestcopy.com",
+              "x-vercel-forwarded-for": "203.0.113.8",
+            }),
+            { VERCEL: "1", NODE_ENV: "production" }
+          ),
+          {
+            tenantSlug: "demo",
+            clientAddress: "203.0.113.8",
+          }
+        );
+      }
+    );
+  });
+
+  it("accepts preview base domain only under VERCEL_ENV=preview", () => {
+    withEnv(
       {
-        tenantSlug: "demo",
-        clientAddress: "203.0.113.8",
+        VERCEL_ENV: "preview",
+        TENANT_PREVIEW_BASE_DOMAIN: "preview.app.gestcopy.com",
+      },
+      () => {
+        assert.deepEqual(
+          trustedKioskRequestContext(
+            headers({
+              host: "demo.preview.app.gestcopy.com",
+              "x-forwarded-host": "demo.preview.app.gestcopy.com",
+              "x-vercel-forwarded-for": "203.0.113.8",
+            }),
+            { VERCEL: "1", NODE_ENV: "production" }
+          ),
+          {
+            tenantSlug: "demo",
+            clientAddress: "203.0.113.8",
+          }
+        );
+        assert.deepEqual(
+          trustedKioskRequestContext(
+            headers({
+              host: "demo.app.gestcopy.com",
+              "x-forwarded-host": "demo.app.gestcopy.com",
+              "x-vercel-forwarded-for": "203.0.113.8",
+            }),
+            { VERCEL: "1", NODE_ENV: "production" }
+          ),
+          {
+            tenantSlug: "demo",
+            clientAddress: "203.0.113.8",
+          }
+        );
+      }
+    );
+
+    withEnv(
+      {
+        VERCEL_ENV: "production",
+        TENANT_PREVIEW_BASE_DOMAIN: "preview.app.gestcopy.com",
+      },
+      () => {
+        assert.equal(
+          trustedKioskRequestContext(
+            headers({
+              host: "demo.preview.app.gestcopy.com",
+              "x-forwarded-host": "demo.preview.app.gestcopy.com",
+              "x-vercel-forwarded-for": "203.0.113.8",
+            }),
+            { VERCEL: "1", NODE_ENV: "production" }
+          ),
+          null
+        );
       }
     );
   });
@@ -59,16 +150,34 @@ describe("trustedKioskRequestContext", () => {
         "x-forwarded-host": "demo.app.gestcopy.com@evil.test",
         "x-vercel-forwarded-for": "203.0.113.8",
       },
+      {
+        host: "demo.preview.app.gestcopy.com",
+        "x-forwarded-host": "sur4.preview.app.gestcopy.com",
+        "x-vercel-forwarded-for": "203.0.113.8",
+      },
+      {
+        host: "deep.demo.preview.app.gestcopy.com",
+        "x-forwarded-host": "deep.demo.preview.app.gestcopy.com",
+        "x-vercel-forwarded-for": "203.0.113.8",
+      },
     ];
-    for (const value of cases) {
-      assert.equal(
-        trustedKioskRequestContext(
-          headers(value),
-          { VERCEL: "1", NODE_ENV: "production" }
-        ),
-        null
-      );
-    }
+    withEnv(
+      {
+        VERCEL_ENV: "preview",
+        TENANT_PREVIEW_BASE_DOMAIN: "preview.app.gestcopy.com",
+      },
+      () => {
+        for (const value of cases) {
+          assert.equal(
+            trustedKioskRequestContext(
+              headers(value),
+              { VERCEL: "1", NODE_ENV: "production" }
+            ),
+            null
+          );
+        }
+      }
+    );
   });
 
   it("uses only Host with a fixed client key in local development", () => {

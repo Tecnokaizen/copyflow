@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { getSubdomainFromHostname } from "../lib/tenant/hostname.ts";
 
 const originalNodeEnv = process.env.NODE_ENV;
+const originalVercelEnv = process.env.VERCEL_ENV;
+const originalPreviewBase = process.env.TENANT_PREVIEW_BASE_DOMAIN;
 
 function withNodeEnv(env, fn) {
   process.env.NODE_ENV = env;
@@ -13,6 +15,30 @@ function withNodeEnv(env, fn) {
     fn();
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
+  }
+}
+
+function withPreviewEnv(enabled, fn) {
+  if (enabled) {
+    process.env.VERCEL_ENV = "preview";
+    process.env.TENANT_PREVIEW_BASE_DOMAIN = "preview.app.gestcopy.com";
+  } else {
+    delete process.env.VERCEL_ENV;
+    delete process.env.TENANT_PREVIEW_BASE_DOMAIN;
+  }
+  try {
+    fn();
+  } finally {
+    if (originalVercelEnv === undefined) {
+      delete process.env.VERCEL_ENV;
+    } else {
+      process.env.VERCEL_ENV = originalVercelEnv;
+    }
+    if (originalPreviewBase === undefined) {
+      delete process.env.TENANT_PREVIEW_BASE_DOMAIN;
+    } else {
+      process.env.TENANT_PREVIEW_BASE_DOMAIN = originalPreviewBase;
+    }
   }
 }
 
@@ -45,6 +71,17 @@ withNodeEnv("development", () => {
   expectSlug("prueba-final.app.gestcopy.com", "prueba-final", "dev-prod-host");
   expectSlug("app.gestcopy.com", null, "dev-apex");
   expectSlug("sur4.copyflow.com", null, "dev-legacy");
+});
+
+withPreviewEnv(true, () => {
+  expectSlug("demo.preview.app.gestcopy.com", "demo", "preview-base");
+  expectSlug("demo.app.gestcopy.com", "demo", "preview-still-prod-base");
+  expectSlug("deep.demo.preview.app.gestcopy.com", null, "preview-nested");
+  expectSlug("preview.app.gestcopy.com", null, "preview-apex");
+});
+
+withPreviewEnv(false, () => {
+  expectSlug("demo.preview.app.gestcopy.com", null, "preview-off");
 });
 
 console.log("PASS scripts/verify-hostname.mjs");
