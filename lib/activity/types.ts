@@ -15,6 +15,7 @@ export const ACTIVITY_ACTIONS = [
   "client.updated",
   "order.created",
   "order.status_changed",
+  "order.archived",
   "order.client_changed",
   "order.content_changed",
   "order.details_changed",
@@ -91,6 +92,7 @@ export const ENTITY_TYPE_OPTIONS: { value: ActivityEntityType; label: string }[]
 export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "order.created", label: "Pedido creado" },
   { value: "order.status_changed", label: "Cambio de estado" },
+  { value: "order.archived", label: "Pedido archivado" },
   { value: "order.client_changed", label: "Cambio de cliente" },
   { value: "order.content_changed", label: "Cambio de contenido" },
   { value: "order.details_changed", label: "Cambio de detalles" },

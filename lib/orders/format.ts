@@ -154,6 +154,10 @@ export function formatActivityText(item: ActivityItem) {
     return "Pedido creado";
   }
 
+  if (item.action === "order.archived") {
+    return "Pedido archivado";
+  }
+
   if (item.action === "order.management_changed") {
     const field = formatManagementField(item.metadata.field);
     const from = item.previous_values?.option_name ?? "Sin definir";

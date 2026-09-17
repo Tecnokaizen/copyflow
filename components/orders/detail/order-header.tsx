@@ -6,6 +6,10 @@ import { OrderQuickActions } from "@/components/orders/detail/order-quick-action
 import { getOrderAttentionSignals } from "@/lib/orders/attention";
 import { formatDate, formatPriority } from "@/lib/orders/format";
 import { resolveOrderStatusId } from "@/lib/orders/draft";
+import {
+  canMutateOrderActions,
+} from "@/lib/orders/lifecycle-ux";
+import { isOrderArchived } from "@/lib/orders/operational";
 import type {
   Order,
   OrderDraft,
@@ -63,6 +67,7 @@ export function OrderHeader({
   onQuickStatus,
   onQuickAssignee,
   onQuickNote,
+  onArchive,
 }: {
   order: Order;
   draft: OrderDraft | null;
@@ -80,6 +85,7 @@ export function OrderHeader({
   onQuickStatus: (statusId: string) => Promise<void>;
   onQuickAssignee: (memberId: string | null) => Promise<void>;
   onQuickNote: (note: string) => Promise<void>;
+  onArchive: () => Promise<void>;
 }) {
   const priority = draft && editing ? draft.priority : order.priority;
   const dueAt = draft && editing ? draft.due_at : order.due_at;
@@ -88,6 +94,11 @@ export function OrderHeader({
     (draft && editing
       ? (statuses.find((item) => item.id === draft.status_id) ?? null)
       : order.status) ?? null;
+  const archived = isOrderArchived(order);
+  const mutate = canMutateOrderActions({
+    canWrite,
+    archived_at: order.archived_at,
+  });
 
   const signals = getOrderAttentionSignals({
     ...order,
@@ -151,7 +162,7 @@ export function OrderHeader({
                 </p>
               ) : null}
             </>
-          ) : canWrite ? (
+          ) : mutate ? (
             <OrderQuickActions
               busy={quickSaving}
               statuses={statuses}
@@ -159,16 +170,22 @@ export function OrderHeader({
               optionsLoading={orderOptionsLoading}
               currentStatusId={resolveOrderStatusId(order, statuses)}
               currentAssigneeId={order.assigned_team_member_id}
+              archivedAt={order.archived_at}
+              currentStatus={order.status}
               onEdit={onEdit}
               onSaveStatus={onQuickStatus}
               onSaveAssignee={onQuickAssignee}
               onSaveNote={onQuickNote}
+              onArchive={onArchive}
             />
           ) : null}
         </div>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
+        {archived ? (
+          <StatusBadge tone="neutral">Archivado</StatusBadge>
+        ) : null}
         <StatusBadge status={statusForBadge} />
         <StatusBadge tone={priorityTone(priority)}>
           {formatPriority(priority)}

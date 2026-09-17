@@ -391,6 +391,9 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
         humanValue("status_name", next, "status_id")
       );
 
+    case "order.archived":
+      return [];
+
     case "order.client_changed":
       return singleChange(
         "Cliente",
@@ -475,6 +478,8 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Creó el pedido ${entity}`;
     case "order.status_changed":
       return `Cambió el estado de ${entity}`;
+    case "order.archived":
+      return `Archivó el pedido ${entity}`;
     case "order.client_changed": {
       const prev = asRecord(event.previous_values);
       const next = asRecord(event.new_values);
@@ -546,6 +551,10 @@ function headlineFor(event: ActivityEvent, entity: string) {
 }
 
 function cardSummary(event: ActivityEvent, changes: FormattedChange[]) {
+  if (event.action === "order.archived") {
+    return "Pedido archivado";
+  }
+
   if (
     event.action === "client.updated" ||
     event.action === "service.updated" ||
@@ -575,6 +584,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
   const known = [
     "order.created",
     "order.status_changed",
+    "order.archived",
     "order.client_changed",
     "order.content_changed",
     "order.details_changed",
