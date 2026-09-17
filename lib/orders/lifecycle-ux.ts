@@ -146,3 +146,31 @@ export function parseLifecycleApiError(body: unknown, fallback: string): string 
   const apiError = typeof record.error === "string" ? record.error : null;
   return lifecycleUxErrorMessage(code, apiError ?? fallback);
 }
+
+/**
+ * Archive RPC/API returns a partial order row. Merge onto the loaded ficha
+ * snapshot so nested relations are not wiped.
+ */
+export function mergeArchivedOrderResult<T extends { archived_at?: string | null }>(
+  current: T,
+  partial: unknown
+): T {
+  if (!partial || typeof partial !== "object" || Array.isArray(partial)) {
+    return current;
+  }
+
+  const patch = partial as Record<string, unknown>;
+  const next = {
+    ...current,
+    ...patch,
+  } as T;
+
+  const archivedAt = patch.archived_at;
+  if (typeof archivedAt === "string" || archivedAt === null) {
+    next.archived_at = archivedAt;
+  } else {
+    next.archived_at = current.archived_at ?? null;
+  }
+
+  return next;
+}

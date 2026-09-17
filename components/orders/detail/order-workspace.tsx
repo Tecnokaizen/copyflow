@@ -39,6 +39,7 @@ import {
 import {
   archiveOrderPath,
   canMutateOrderActions,
+  mergeArchivedOrderResult,
   parseLifecycleApiError,
   planStatusSave,
   type ConfirmCopy,
@@ -758,15 +759,14 @@ export function OrderWorkspace() {
         );
       }
 
-      const nextOrder =
-        result.order && typeof result.order === "object"
-          ? normalizeLoadedOrder(result.order as Order)
-          : {
-              ...order,
-              archived_at: new Date().toISOString(),
-            };
-
-      setOrder(nextOrder);
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+        return normalizeLoadedOrder(
+          mergeArchivedOrderResult(current, result.order)
+        );
+      });
       setEditing(false);
       setDraft(null);
       await loadActivity();
