@@ -1,0 +1,279 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  admitKioskHttpRequest,
+  handleKioskOrderRequest,
+} from "./http";
+import { KioskServiceError } from "./service";
+
+const VALID_BODY = {
+  submission_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  contact: {
+    name: "Ana",
+    email: "ana@example.com",
+    phone: null,
+  },
+  service_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  description: "Tarjetas",
+  due_at: null,
+  observations: null,
+};
+const CONTEXT = {
+  tenantSlug: "demo",
+  clientAddress: "203.0.113.8",
+};
+
+function request(body: unknown) {
+  return new Request("https://demo.app.gestcopy.com/api/kiosk/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://demo.app.gestcopy.com",
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+describe("handleKioskOrderRequest", () => {
+  it("rejects invalid JSON and tenant authority", async () => {
+    const submit = async () => {
+      throw new Error("must not submit");
+    };
+    const invalidJson = await handleKioskOrderRequest(
+      request("{"),
+      CONTEXT,
+      submit
+    );
+    assert.equal(invalidJson.status, 400);
+
+    const foreignTenant = await handleKioskOrderRequest(
+      request({ ...VALID_BODY, tenant_id: "tenant-sur4" }),
+      CONTEXT,
+      submit
+    );
+    assert.equal(foreignTenant.status, 400);
+  });
+
+  it("rejects oversized request bodies before parsing", async () => {
+    const response = await handleKioskOrderRequest(
+      request(JSON.stringify({ payload: "x".repeat(20_000) })),
+      CONTEXT,
+      async () => {
+        throw new Error("must not submit");
+      }
+    );
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), {
+      error: "Solicitud demasiado grande",
+    });
+  });
+
+  it("stops reading the stream as soon as the body limit is exceeded", async () => {
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls === 1) {
+          controller.enqueue(new TextEncoder().encode("x".repeat(17_000)));
+          return;
+        }
+        controller.error(new Error("must not read another chunk"));
+      },
+    });
+    const streamed = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" }
+    );
+    const response = await handleKioskOrderRequest(
+      streamed,
+      CONTEXT,
+      async () => {
+        throw new Error("must not submit");
+      }
+    );
+    assert.equal(response.status, 413);
+    assert.equal(pulls, 1);
+  });
+
+  it("fails closed when hostname context has no tenant", async () => {
+    const response = await handleKioskOrderRequest(
+      request(VALID_BODY),
+      null,
+      async () => {
+        throw new Error("must not submit");
+      }
+    );
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), {
+      error: "Kiosk no disponible",
+    });
+  });
+
+  it("returns only a reference for create and replay", async () => {
+    for (const row of [
+      { replay: false, status: 201 },
+      { replay: true, status: 200 },
+    ]) {
+      const response = await handleKioskOrderRequest(
+        request(VALID_BODY),
+        CONTEXT,
+        async (context, input) => {
+          assert.deepEqual(context, CONTEXT);
+          assert.equal(input.serviceId, VALID_BODY.service_id);
+          return { ok: true, reference: "DEMO-0042", replay: row.replay };
+        }
+      );
+      assert.equal(response.status, row.status);
+      assert.deepEqual(await response.json(), {
+        ok: true,
+        reference: "DEMO-0042",
+      });
+      assert.equal(response.headers.get("Cache-Control"), "no-store");
+    }
+  });
+
+  it("maps safe service errors and hides unexpected details", async () => {
+    const invalidService = await handleKioskOrderRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new KioskServiceError("invalid_configuration", 400);
+      }
+    );
+    assert.equal(invalidService.status, 400);
+    assert.deepEqual(await invalidService.json(), {
+      error: "El servicio seleccionado no está disponible",
+    });
+
+    const rateLimited = await handleKioskOrderRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new KioskServiceError("rate_limited", 429);
+      }
+    );
+    assert.equal(rateLimited.status, 429);
+    assert.deepEqual(await rateLimited.json(), {
+      error: "Demasiadas solicitudes. Inténtalo de nuevo más tarde.",
+    });
+
+    const unexpected = await handleKioskOrderRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new Error("postgres secret detail");
+      }
+    );
+    assert.equal(unexpected.status, 500);
+    assert.deepEqual(await unexpected.json(), {
+      error: "No se pudo crear la solicitud",
+    });
+  });
+});
+
+describe("admitKioskHttpRequest", () => {
+  it("preserves indistinguishable 404 for unknown or opt-out tenants", async () => {
+    const result = await admitKioskHttpRequest(
+      request(VALID_BODY),
+      CONTEXT,
+      async () => {
+        throw new KioskServiceError("not_found", 404);
+      }
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.response.status, 404);
+    assert.deepEqual(await result.response.json(), {
+      error: "Kiosk no disponible",
+    });
+  });
+
+  it("rejects non-JSON and cross-site requests explicitly", async () => {
+    const plain = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          Origin: "https://demo.app.gestcopy.com",
+          "Sec-Fetch-Site": "same-origin",
+        },
+        body: "{}",
+      }
+    );
+    const plainResult = await admitKioskHttpRequest(
+      plain,
+      CONTEXT,
+      async () => "permit"
+    );
+    assert.equal(plainResult.ok, false);
+    if (!plainResult.ok) assert.equal(plainResult.response.status, 415);
+
+    const crossSite = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.test",
+          "Sec-Fetch-Site": "cross-site",
+        },
+        body: "{}",
+      }
+    );
+    const crossResult = await admitKioskHttpRequest(
+      crossSite,
+      CONTEXT,
+      async () => "permit"
+    );
+    assert.equal(crossResult.ok, false);
+    if (!crossResult.ok) assert.equal(crossResult.response.status, 403);
+  });
+
+  it("consumes distributed admission before reading JSON", async () => {
+    let bodyPulls = 0;
+    let admissions = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        bodyPulls += 1;
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(VALID_BODY)));
+        controller.close();
+      },
+    });
+    const incoming = new Request(
+      "https://demo.app.gestcopy.com/api/kiosk/orders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Origin: "https://demo.app.gestcopy.com",
+          "Sec-Fetch-Site": "same-origin",
+        },
+        body,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" }
+    );
+    const result = await admitKioskHttpRequest(
+      incoming,
+      CONTEXT,
+      async (context) => {
+        admissions += 1;
+        assert.deepEqual(context, CONTEXT);
+        return "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+      }
+    );
+    assert.deepEqual(result, {
+      ok: true,
+      permit: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+    assert.equal(admissions, 1);
+    assert.equal(incoming.bodyUsed, false);
+    assert.ok(bodyPulls <= 1);
+  });
+});
