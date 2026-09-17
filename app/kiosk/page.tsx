@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
+import { Suspense } from "react";
 import { KioskOrderForm } from "@/components/kiosk/kiosk-order-form";
 import { loadKioskBootstrap } from "@/lib/kiosk/server";
 import { trustedKioskRequestContext } from "@/lib/kiosk/trusted-request";
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function KioskPage() {
+async function KioskContent() {
   await connection();
   const context = trustedKioskRequestContext(
     new Headers(await headers()),
@@ -28,6 +29,7 @@ export default async function KioskPage() {
   }
 
   if (!bootstrap) {
+    // Defense in depth: proxy already returns HTTP 404 before streaming.
     notFound();
   }
 
@@ -55,5 +57,21 @@ export default async function KioskPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function KioskPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-svh place-items-center bg-muted/25 px-4 py-10">
+          <p className="text-sm font-medium text-muted-foreground">
+            Preparando el Kiosk…
+          </p>
+        </main>
+      }
+    >
+      <KioskContent />
+    </Suspense>
   );
 }

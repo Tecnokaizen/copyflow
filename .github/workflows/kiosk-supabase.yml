@@ -11,6 +11,7 @@ on:
       - "app/kiosk/**"
       - "components/kiosk/**"
       - "lib/kiosk/**"
+      - "proxy.ts"
       - "lib/orders/create.ts"
       - "lib/orders/create.test.ts"
       - "lib/tenant/hostname.ts"
