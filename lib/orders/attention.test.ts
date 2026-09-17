@@ -14,6 +14,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     received_at: null,
     ready_at: null,
     delivered_at: null,
+    archived_at: null,
     customer_notification_status: "not_notified",
     notes: null,
     client_id: null,
@@ -66,10 +67,7 @@ describe("getOrderAttentionSignals", () => {
     );
   });
 
-  it("does not warn about assignee on delivered or closed jobs", () => {
-    const delivered = getOrderAttentionSignals(
-      makeOrder({ delivered_at: "2026-09-01T10:00:00.000Z" })
-    );
+  it("does not warn about assignee on closed, cancelled or archived jobs", () => {
     const closed = getOrderAttentionSignals(
       makeOrder({
         status: {
@@ -88,11 +86,10 @@ describe("getOrderAttentionSignals", () => {
         },
       })
     );
-
-    assert.equal(
-      delivered.some((signal) => signal.id === "unassigned"),
-      false
+    const archived = getOrderAttentionSignals(
+      makeOrder({ archived_at: "2026-09-01T10:00:00.000Z" })
     );
+
     assert.equal(
       closed.some((signal) => signal.id === "unassigned"),
       false
@@ -101,6 +98,32 @@ describe("getOrderAttentionSignals", () => {
       cancelled.some((signal) => signal.id === "unassigned"),
       false
     );
+    assert.equal(
+      archived.some((signal) => signal.id === "unassigned"),
+      false
+    );
+  });
+
+  it("still warns on inconsistent delivered_at without terminal/archive", () => {
+    const signals = getOrderAttentionSignals(
+      makeOrder({
+        delivered_at: "2026-09-01T10:00:00.000Z",
+        archived_at: null,
+        status: {
+          name: "Listo",
+          code: "ready",
+          is_ready: true,
+          is_closed: false,
+          is_cancelled: false,
+        },
+      })
+    );
+
+    assert.equal(
+      signals.some((signal) => signal.id === "unassigned"),
+      true
+    );
+    assert.equal(signals.some((signal) => signal.id === "ready"), true);
   });
 
   it("keeps overdue as a separate danger signal alongside unassigned", () => {

@@ -10,6 +10,7 @@ import {
   parseCounterFilterParams,
   type CounterOrder,
 } from "@/lib/orders/counter";
+import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -27,6 +28,7 @@ const COUNTER_SELECT = `
   priority,
   due_at,
   delivered_at,
+  archived_at,
   ready_at,
   customer_notification_status,
   store_id,
@@ -50,14 +52,12 @@ async function fetchActiveCounterOrders(
   let total: number | null = null;
 
   while (true) {
-    const { data, error, count } = await supabase
-      .from("orders")
-      .select(COUNTER_SELECT, { count: "exact" })
-      .eq("tenant_id", tenantId)
-      .is("archived_at", null)
-      .is("delivered_at", null)
-      .eq("status.is_closed", false)
-      .eq("status.is_cancelled", false)
+    const { data, error, count } = await applyOperationalOrdersFilter(
+      supabase
+        .from("orders")
+        .select(COUNTER_SELECT, { count: "exact" })
+        .eq("tenant_id", tenantId)
+    )
       .order("due_at", { ascending: true, nullsFirst: false })
       .order("reference", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);

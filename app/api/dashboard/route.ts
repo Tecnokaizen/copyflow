@@ -1,4 +1,5 @@
 import { operationalJson } from "@/lib/http/operational-cache";
+import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
@@ -30,16 +31,15 @@ function activeOrdersQuery(
   tenantId: string,
   options?: { head?: boolean; select?: string }
 ) {
-  return supabase
-    .from("orders")
-    .select(options?.select ?? ACTIVE_COUNT_SELECT, {
-      count: "exact",
-      head: options?.head ?? true,
-    })
-    .eq("tenant_id", tenantId)
-    .is("archived_at", null)
-    .eq("status.is_closed", false)
-    .eq("status.is_cancelled", false);
+  return applyOperationalOrdersFilter(
+    supabase
+      .from("orders")
+      .select(options?.select ?? ACTIVE_COUNT_SELECT, {
+        count: "exact",
+        head: options?.head ?? true,
+      })
+      .eq("tenant_id", tenantId)
+  );
 }
 
 function asPreviewOrder(row: unknown): DashboardUpcomingOrder | null {
