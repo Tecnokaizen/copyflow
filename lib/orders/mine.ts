@@ -1,3 +1,4 @@
+import { isOrderOperational } from "@/lib/orders/operational";
 import {
   formatZonedCivilDate,
   getZonedDayBounds,
@@ -19,7 +20,9 @@ export type MineOrder = {
   title: string;
   priority: string;
   due_at: string | null;
+  /** Audit only — not part of the operational predicate. */
   delivered_at: string | null;
+  archived_at: string | null;
   ready_at: string | null;
   assigned_team_member_id: string | null;
   client_name: string | null;
@@ -86,14 +89,8 @@ function dueCivilDate(dueAt: string | null, timeZone: string): string | null {
   return formatZonedCivilDate(due, timeZone);
 }
 
-function isClosedOrCancelled(order: MineOrder) {
-  return (
-    order.status?.is_closed === true || order.status?.is_cancelled === true
-  );
-}
-
 function isReady(order: MineOrder) {
-  if (order.delivered_at) {
+  if (!isOrderOperational(order)) {
     return false;
   }
 
@@ -109,7 +106,7 @@ export function classifyMineOrder(
   todayCivil: string,
   timeZone: string
 ): MineQueueSectionId | null {
-  if (isClosedOrCancelled(order)) {
+  if (!isOrderOperational(order)) {
     return null;
   }
 
@@ -230,6 +227,8 @@ export function mapMineOrderRow(row: unknown): MineOrder | null {
     due_at: typeof record.due_at === "string" ? record.due_at : null,
     delivered_at:
       typeof record.delivered_at === "string" ? record.delivered_at : null,
+    archived_at:
+      typeof record.archived_at === "string" ? record.archived_at : null,
     ready_at: typeof record.ready_at === "string" ? record.ready_at : null,
     assigned_team_member_id:
       typeof record.assigned_team_member_id === "string"

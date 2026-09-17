@@ -20,6 +20,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     received_at: null,
     ready_at: null,
     delivered_at: null,
+    archived_at: null,
     customer_notification_status: "not_notified",
     notes: null,
     client_id: null,

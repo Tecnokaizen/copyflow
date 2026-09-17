@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { executeChangeOrderStatus } from "@/lib/orders/change-status-api";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-
-function statusForRpcError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return 401;
-    case "42501":
-      return 403;
-    case "22023":
-      return 400;
-    case "P0002":
-      return 404;
-    default:
-      return 500;
-  }
-}
 
 export async function GET(
   request: NextRequest,
@@ -34,6 +20,8 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
+  // Archived orders remain readable for authorized members.
+  // Do not filter on archived_at — ficha must stay consultable.
   const { data: order, error } = await supabase
     .from("orders")
     .select(`
@@ -72,54 +60,30 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const context = await getCurrentContext();
-
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
-  }
-
   const { id } = await params;
   const body = await request.json();
   const { status_id } = body;
-
-  if (!status_id) {
-    return NextResponse.json(
-      { error: "status_id is required" },
-      { status: 400 }
-    );
-  }
-
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("change_order_status", {
-    p_order_id: id,
-    p_status_id: status_id,
-    p_tenant_id: context.tenant.id,
+  const result = await executeChangeOrderStatus({
+    orderId: id,
+    statusId: typeof status_id === "string" ? status_id : "",
+    context,
+    changeOrderStatus: async (args) => {
+      const { data, error } = await supabase.rpc("change_order_status", args);
+      return { data, error };
+    },
   });
 
-  if (error || !data) {
+  if (result.status >= 400) {
     console.error("[PATCH /api/orders/:id] change_order_status failed", {
-      tenantId: context.tenant.id,
-      userId: context.user.id,
+      tenantId: context?.tenant.id,
+      userId: context?.user.id,
       orderId: id,
-      code: error?.code,
-      message: error?.message,
-      details: error?.details,
-      hint: error?.hint,
+      status: result.status,
+      body: result.body,
     });
-
-    return NextResponse.json(
-      { error: "Could not update order" },
-      { status: statusForRpcError(error?.code) }
-    );
   }
 
-  return NextResponse.json({
-    ok: true,
-    tenant: context.tenant.slug,
-    order: data.order,
-    status: data.status,
-  });
+  return NextResponse.json(result.body, { status: result.status });
 }

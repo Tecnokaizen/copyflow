@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
+import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
@@ -276,10 +277,7 @@ async function fetchOrdersByDueAtRange(
     }
 
     if (activeOnly) {
-      query = query
-        .is("archived_at", null)
-        .eq("status.is_closed", false)
-        .eq("status.is_cancelled", false);
+      query = applyOperationalOrdersFilter(query);
     }
 
     if (options?.assignedTeamMemberId) {
@@ -336,13 +334,12 @@ async function fetchActiveOrders(
 
   while (true) {
     const { data, error, count } = await applyStoreListFilter(
-      supabase
-        .from("orders")
-        .select(ORDER_SELECT_ACTIVE, { count: "exact" })
-        .eq("tenant_id", tenantId)
-        .is("archived_at", null)
-        .eq("status.is_closed", false)
-        .eq("status.is_cancelled", false),
+      applyOperationalOrdersFilter(
+        supabase
+          .from("orders")
+          .select(ORDER_SELECT_ACTIVE, { count: "exact" })
+          .eq("tenant_id", tenantId)
+      ),
       storeFilter
     )
       .order("service_id", { ascending: true, nullsFirst: false })
@@ -703,10 +700,7 @@ export async function GET(request: NextRequest) {
     .eq("tenant_id", context.tenant.id);
 
   if (needsStatusInner) {
-    query = query
-      .is("archived_at", null)
-      .eq("status.is_closed", false)
-      .eq("status.is_cancelled", false);
+    query = applyOperationalOrdersFilter(query);
   }
 
   if (effectiveFilter === "urgent") {

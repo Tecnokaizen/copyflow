@@ -40,6 +40,8 @@ export type Order = {
   received_at: string | null;
   ready_at: string | null;
   delivered_at: string | null;
+  /** Organizational archive timestamp; null means not archived. */
+  archived_at: string | null;
   customer_notification_status: string;
   notes: string | null;
   client_id: string | null;

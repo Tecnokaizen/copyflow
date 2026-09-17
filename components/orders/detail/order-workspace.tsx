@@ -7,6 +7,7 @@ import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
 import { AppShell } from "@/components/gestcopy/app-shell";
+import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
@@ -35,7 +36,16 @@ import {
   resolveOrderStatusId,
   type DraftSaveStep,
 } from "@/lib/orders/draft";
+import {
+  archiveOrderPath,
+  canMutateOrderActions,
+  mergeArchivedOrderResult,
+  parseLifecycleApiError,
+  planStatusSave,
+  type ConfirmCopy,
+} from "@/lib/orders/lifecycle-ux";
 import { appendOrderNote } from "@/lib/orders/notes";
+import { isOrderArchived } from "@/lib/orders/operational";
 import type {
   ActivityItem,
   ActivityResponse,
@@ -55,8 +65,32 @@ import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
 function normalizeLoadedOrder(order: Order): Order {
   return {
     ...order,
+    archived_at: order.archived_at ?? null,
     client:
       order.client_id && order.client?.id ? order.client : null,
+  };
+}
+
+function mapOrderStatusPayload(
+  status: unknown,
+  fallback: Order["status"]
+): Order["status"] {
+  if (!status || typeof status !== "object") {
+    return fallback;
+  }
+  const record = status as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : fallback?.name;
+  const code = typeof record.code === "string" ? record.code : fallback?.code;
+  if (!name || !code) {
+    return fallback;
+  }
+  return {
+    name,
+    code,
+    is_initial: record.is_initial === true,
+    is_ready: record.is_ready === true,
+    is_closed: record.is_closed === true,
+    is_cancelled: record.is_cancelled === true,
   };
 }
 
@@ -99,6 +133,9 @@ export function OrderWorkspace() {
   const [clientDuplicate, setClientDuplicate] =
     useState<ClientDuplicate | null>(null);
   const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
+  const [draftTerminalConfirm, setDraftTerminalConfirm] =
+    useState<ConfirmCopy | null>(null);
+  const draftTerminalConfirmedRef = useRef(false);
   const orderAbortRef = useRef<AbortController | null>(null);
   const activityAbortRef = useRef<AbortController | null>(null);
   const orderRef = useRef<Order | null>(null);
@@ -355,7 +392,9 @@ export function OrderWorkspace() {
   }
 
   function startEditing() {
-    if (!order || !canWrite) return;
+    if (!order || !canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      return;
+    }
     setSaveMessage(null);
     setError(null);
     setClientSavedDuringEdit(false);
@@ -372,6 +411,8 @@ export function OrderWorkspace() {
     setError(null);
     setConfirmRemoveClient(false);
     setClientUiMode(null);
+    draftTerminalConfirmedRef.current = false;
+    setDraftTerminalConfirm(null);
   }
 
   async function applySaveStep(
@@ -386,14 +427,24 @@ export function OrderWorkspace() {
       });
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.error ?? "No se pudo actualizar el estado");
+        throw new Error(
+          parseLifecycleApiError(
+            result,
+            result.error ?? "No se pudo actualizar el estado"
+          )
+        );
       }
+      const nextOrder =
+        result.order && typeof result.order === "object"
+          ? (result.order as Partial<Order>)
+          : null;
       return {
         ...current,
         status_id: step.status_id,
-        status: result.status ?? current.status,
-        ready_at: result.order?.ready_at ?? current.ready_at,
-        delivered_at: result.order?.delivered_at ?? current.delivered_at,
+        status: mapOrderStatusPayload(result.status, current.status),
+        ready_at: nextOrder?.ready_at ?? current.ready_at,
+        delivered_at: nextOrder?.delivered_at ?? current.delivered_at,
+        archived_at: nextOrder?.archived_at ?? current.archived_at,
       };
     }
 
@@ -553,12 +604,31 @@ export function OrderWorkspace() {
       setDraft(null);
       setSaveMessage(null);
       setError(null);
+      draftTerminalConfirmedRef.current = false;
+      setDraftTerminalConfirm(null);
       return;
+    }
+
+    const statusStep = steps.find((step) => step.kind === "status");
+    if (statusStep && statusStep.kind === "status") {
+      const nextStatus =
+        statuses.find((item) => item.id === statusStep.status_id) ?? null;
+      const plan = planStatusSave({
+        currentStatusId: resolveOrderStatusId(order, statuses),
+        nextStatusId: statusStep.status_id,
+        nextStatus,
+        terminalConfirmed: draftTerminalConfirmedRef.current,
+      });
+      if (plan.type === "require_terminal_confirm") {
+        setDraftTerminalConfirm(plan.copy);
+        return;
+      }
     }
 
     setSaving(true);
     setError(null);
     setSaveMessage(null);
+    setDraftTerminalConfirm(null);
 
     let working = order;
     const succeeded: string[] = [];
@@ -580,6 +650,7 @@ export function OrderWorkspace() {
 
     await loadActivity();
     setSaving(false);
+    draftTerminalConfirmedRef.current = false;
 
     if (failed.length === 0) {
       setEditing(false);
@@ -605,6 +676,12 @@ export function OrderWorkspace() {
     } else {
       setError(`No se pudieron guardar los cambios. ${failed.join(" · ")}`);
     }
+  }
+
+  async function confirmDraftTerminalSave() {
+    draftTerminalConfirmedRef.current = true;
+    setDraftTerminalConfirm(null);
+    await saveEditing();
   }
 
   async function runQuickSave(
@@ -659,6 +736,51 @@ export function OrderWorkspace() {
       value: nextNotes,
       label: "Notas",
     });
+  }
+
+  async function archiveOrder() {
+    if (!order || quickSaving) return;
+
+    setQuickSaving(true);
+    setError(null);
+    setSaveMessage(null);
+
+    try {
+      const response = await fetch(archiveOrderPath(order.id), {
+        method: "PATCH",
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          parseLifecycleApiError(
+            result,
+            result.error ?? "No se pudo archivar el pedido"
+          )
+        );
+      }
+
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+        return normalizeLoadedOrder(
+          mergeArchivedOrderResult(current, result.order)
+        );
+      });
+      setEditing(false);
+      setDraft(null);
+      await loadActivity();
+      setSaveMessage(
+        result.replay === true ? "Pedido ya archivado" : "Pedido archivado"
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo archivar el pedido"
+      );
+      throw err;
+    } finally {
+      setQuickSaving(false);
+    }
   }
 
   function closeClientUi() {
@@ -961,6 +1083,10 @@ export function OrderWorkspace() {
 
         {!canWrite ? (
           <p className="mb-4 text-sm text-muted-foreground">Solo lectura</p>
+        ) : order && isOrderArchived(order) ? (
+          <p className="mb-4 text-sm text-muted-foreground">
+            Pedido archivado · solo consulta
+          </p>
         ) : null}
 
         {error ? (
@@ -992,6 +1118,7 @@ export function OrderWorkspace() {
           onQuickStatus={saveQuickStatus}
           onQuickAssignee={saveQuickAssignee}
           onQuickNote={saveQuickNote}
+          onArchive={archiveOrder}
         />
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -1034,6 +1161,24 @@ export function OrderWorkspace() {
         <div className="mt-6">
           <OrderActivity activity={activity} loading={activityLoading} />
         </div>
+
+      {draftTerminalConfirm ? (
+        <ConfirmDialog
+          title={draftTerminalConfirm.title}
+          description={draftTerminalConfirm.description}
+          confirmLabel={draftTerminalConfirm.confirmLabel}
+          destructive={
+            draftTerminalConfirm.confirmLabel === "Confirmar cancelación"
+          }
+          busy={saving}
+          onCancel={() => {
+            if (saving) return;
+            draftTerminalConfirmedRef.current = false;
+            setDraftTerminalConfirm(null);
+          }}
+          onConfirm={() => void confirmDraftTerminalSave()}
+        />
+      ) : null}
 
       {canWrite && editing && (clientUiMode === "assign" || clientUiMode === "change") && (
         <ClientModal>

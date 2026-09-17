@@ -1,3 +1,4 @@
+import { isOrderOperational } from "@/lib/orders/operational";
 import { isUuid } from "@/lib/team/payload";
 import { formatZonedCivilDate } from "@/lib/time/zoned-day";
 
@@ -25,7 +26,9 @@ export type CounterOrder = {
   description?: string | null;
   priority: string;
   due_at: string | null;
+  /** Audit only — not part of the operational predicate. */
   delivered_at: string | null;
+  archived_at: string | null;
   ready_at: string | null;
   customer_notification_status: string | null;
   client_name: string | null;
@@ -72,14 +75,8 @@ export type CounterBucket = {
 
 const PREVIEW_LIMIT = 8;
 
-function isClosed(order: CounterOrder) {
-  return (
-    order.status?.is_closed === true || order.status?.is_cancelled === true
-  );
-}
-
 function isActive(order: CounterOrder) {
-  return !isClosed(order) && order.delivered_at === null;
+  return isOrderOperational(order);
 }
 
 function isReady(order: CounterOrder) {
@@ -336,6 +333,8 @@ export function mapCounterOrderRow(row: unknown): CounterOrder | null {
     due_at: typeof record.due_at === "string" ? record.due_at : null,
     delivered_at:
       typeof record.delivered_at === "string" ? record.delivered_at : null,
+    archived_at:
+      typeof record.archived_at === "string" ? record.archived_at : null,
     ready_at: typeof record.ready_at === "string" ? record.ready_at : null,
     customer_notification_status:
       typeof record.customer_notification_status === "string"

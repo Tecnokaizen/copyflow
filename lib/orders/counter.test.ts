@@ -35,6 +35,7 @@ function order(overrides: Partial<CounterOrder> = {}): CounterOrder {
     priority: "normal",
     due_at: "2026-09-15T16:00:00.000Z",
     delivered_at: null,
+    archived_at: null,
     ready_at: null,
     customer_notification_status: "not_notified",
     client_name: "Acme",
@@ -105,7 +106,7 @@ describe("counter buckets", () => {
     assert.equal(ready?.count, 1);
   });
 
-  it("excludes closed, cancelled and delivered orders from every bucket", () => {
+  it("excludes closed, cancelled and archived orders from every bucket", () => {
     const closed = order({
       id: "closed",
       priority: "urgent",
@@ -126,10 +127,10 @@ describe("counter buckets", () => {
         is_cancelled: true,
       },
     });
-    const delivered = order({
-      id: "delivered",
+    const archived = order({
+      id: "archived",
       priority: "urgent",
-      delivered_at: "2026-09-14T10:00:00.000Z",
+      archived_at: "2026-09-14T10:00:00.000Z",
       status: {
         name: "Listo",
         is_ready: true,
@@ -138,13 +139,37 @@ describe("counter buckets", () => {
       },
     });
 
-    const buckets = groupCounterBuckets([closed, cancelled, delivered], {
+    const buckets = groupCounterBuckets([closed, cancelled, archived], {
       todayCivil: TODAY,
       timeZone: TIME_ZONE,
     });
     for (const bucket of buckets) {
       assert.equal(bucket.count, 0, bucket.id);
     }
+  });
+
+  it("keeps inconsistent delivered_at (non-terminal, not archived) operational", () => {
+    const inconsistent = order({
+      id: "inconsistent-delivered",
+      priority: "urgent",
+      delivered_at: "2026-09-14T10:00:00.000Z",
+      archived_at: null,
+      status: {
+        name: "Listo",
+        is_ready: true,
+        is_closed: false,
+        is_cancelled: false,
+      },
+    });
+
+    assert.equal(isUrgentCounterOrder(inconsistent), true);
+    assert.equal(isReadyCounterOrder(inconsistent), true);
+
+    const buckets = groupCounterBuckets([inconsistent], {
+      todayCivil: TODAY,
+      timeZone: TIME_ZONE,
+    });
+    assert.equal(buckets.find((bucket) => bucket.id === "urgent")?.count, 1);
   });
 
   it("lists ready undelivered orders and pending notifications as a subset", () => {
@@ -256,6 +281,7 @@ describe("mapCounterOrderRow", () => {
       priority: "urgent",
       due_at: "2026-09-15T16:00:00.000Z",
       delivered_at: null,
+      archived_at: null,
       ready_at: null,
       customer_notification_status: "not_notified",
       store_id: "store-1",
@@ -274,6 +300,7 @@ describe("mapCounterOrderRow", () => {
     });
 
     assert.equal(mapped?.client_name, "Acme");
+    assert.equal(mapped?.archived_at, null);
     assert.equal(mapped?.assignee_name, "Ana");
     assert.equal(mapped?.status?.is_ready, true);
     assert.equal(mapped?.store_id, "store-1");
@@ -443,15 +470,30 @@ describe("overdue classification", () => {
       id: "late-utc",
       due_at: "2026-09-14T22:30:00.000Z",
     });
-    const delivered = order({
-      id: "delivered",
+    const closedPastDue = order({
+      id: "closed-past-due",
+      due_at: "2026-09-14T10:00:00.000Z",
+      status: {
+        name: "Entregado",
+        is_ready: true,
+        is_closed: true,
+        is_cancelled: false,
+      },
+    });
+    const inconsistentDelivered = order({
+      id: "inconsistent-delivered",
       due_at: "2026-09-14T10:00:00.000Z",
       delivered_at: "2026-09-14T12:00:00.000Z",
+      archived_at: null,
     });
 
     assert.equal(isOverdueCounterOrder(overdue, TODAY, TIME_ZONE), true);
     assert.equal(isOverdueCounterOrder(dueTodayLateUtc, TODAY, TIME_ZONE), false);
-    assert.equal(isOverdueCounterOrder(delivered, TODAY, TIME_ZONE), false);
+    assert.equal(isOverdueCounterOrder(closedPastDue, TODAY, TIME_ZONE), false);
+    assert.equal(
+      isOverdueCounterOrder(inconsistentDelivered, TODAY, TIME_ZONE),
+      true
+    );
   });
 
   it("puts active past-due high and normal orders in Retrasados", () => {

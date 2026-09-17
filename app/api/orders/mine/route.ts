@@ -9,6 +9,7 @@ import {
   resolveMineQueryScope,
   type MineOrder,
 } from "@/lib/orders/mine";
+import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import {
   getZonedDayBounds,
   resolveTimeZone,
@@ -21,6 +22,7 @@ const MINE_SELECT = `
   priority,
   due_at,
   delivered_at,
+  archived_at,
   ready_at,
   assigned_team_member_id,
   client:clients(name),
@@ -41,14 +43,13 @@ async function fetchAssignedActiveOrders(
   let total: number | null = null;
 
   while (true) {
-    const { data, error, count } = await supabase
-      .from("orders")
-      .select(MINE_SELECT, { count: "exact" })
-      .eq("tenant_id", tenantId)
-      .eq("assigned_team_member_id", assignedTeamMemberId)
-      .is("archived_at", null)
-      .eq("status.is_closed", false)
-      .eq("status.is_cancelled", false)
+    const { data, error, count } = await applyOperationalOrdersFilter(
+      supabase
+        .from("orders")
+        .select(MINE_SELECT, { count: "exact" })
+        .eq("tenant_id", tenantId)
+        .eq("assigned_team_member_id", assignedTeamMemberId)
+    )
       .order("due_at", { ascending: true, nullsFirst: false })
       .order("reference", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);

@@ -34,3 +34,37 @@ describe("membership.role_changed activity", () => {
     );
   });
 });
+
+describe("order.archived activity", () => {
+  it("M. formats archive events without exposing raw IDs", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "order.archived",
+        entity_type: "order",
+        entity_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        entity_label: "PED-42",
+        changed_field: null,
+        previous_values: null,
+        new_values: {
+          archived_at: "2026-09-17T12:00:00.000Z",
+        },
+        metadata: {
+          reference: "PED-42",
+          status_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        },
+      })
+    );
+
+    assert.match(formatted.headline, /archiv/i);
+    assert.equal(formatted.summary, "Pedido archivado");
+    assert.equal(formatted.href, "/orders/cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+    assert.equal(
+      formatted.changes.some((change) =>
+        /dddddddd-dddd-4ddd-8ddd-dddddddddddd/i.test(
+          `${change.from}${change.to}${change.label}`
+        )
+      ),
+      false
+    );
+  });
+});

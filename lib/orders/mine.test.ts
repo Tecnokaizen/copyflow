@@ -22,6 +22,7 @@ function order(overrides: Partial<MineOrder> = {}): MineOrder {
     priority: "normal",
     due_at: null,
     delivered_at: null,
+    archived_at: null,
     ready_at: null,
     assigned_team_member_id: MEMBER_A,
     client_name: "Cliente",
@@ -147,7 +148,7 @@ describe("classifyMineOrder", () => {
     );
   });
 
-  it("drops closed or cancelled orders", () => {
+  it("drops closed, cancelled or archived orders", () => {
     assert.equal(
       classifyMineOrder(
         order({
@@ -163,6 +164,51 @@ describe("classifyMineOrder", () => {
         TIME_ZONE
       ),
       null
+    );
+    assert.equal(
+      classifyMineOrder(
+        order({
+          status: {
+            name: "Cancelado",
+            code: "cancelled",
+            is_ready: false,
+            is_closed: false,
+            is_cancelled: true,
+          },
+        }),
+        "2026-09-14",
+        TIME_ZONE
+      ),
+      null
+    );
+    assert.equal(
+      classifyMineOrder(
+        order({ archived_at: "2026-09-14T10:00:00.000Z" }),
+        "2026-09-14",
+        TIME_ZONE
+      ),
+      null
+    );
+  });
+
+  it("keeps inconsistent delivered_at without terminal/archive as active", () => {
+    assert.equal(
+      classifyMineOrder(
+        order({
+          delivered_at: "2026-09-14T10:00:00.000Z",
+          archived_at: null,
+          status: {
+            name: "Listo",
+            code: "ready",
+            is_ready: true,
+            is_closed: false,
+            is_cancelled: false,
+          },
+        }),
+        "2026-09-14",
+        TIME_ZONE
+      ),
+      "ready"
     );
   });
 });
