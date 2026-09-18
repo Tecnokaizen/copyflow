@@ -411,20 +411,24 @@ begin
       v_version, v_version_2, v_result->>'version';
   end if;
 
-  -- 15) v1 y v2 coexistentes
+  -- 15) v2 works sequentially (v1 retired in E2B; v2-only chain)
   perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
-  perform public.change_order_content(
-    v_order_v1, 'title', 'Via v1', v_tenant_a
-  );
   select row_version into v_version from public.orders where id = v_order_v1;
   v_result := public.change_order_content_v2(
-    v_order_v1, 'title', 'Via v2', v_tenant_a, v_version
+    v_order_v1, 'title', 'Via v2 first', v_tenant_a, v_version
+  );
+  if v_result->>'version' is distinct from (v_version + 1)::text then
+    raise exception 'FAIL 15 v2 first call version';
+  end if;
+  v_version_2 := (v_result->>'version')::bigint;
+  v_result := public.change_order_content_v2(
+    v_order_v1, 'title', 'Via v2 second', v_tenant_a, v_version_2
   );
   execute 'reset role';
-  if v_result->>'version' is distinct from (v_version + 1)::text then
-    raise exception 'FAIL 15 v1/v2 coexistence version';
+  if v_result->>'version' is distinct from (v_version_2 + 1)::text then
+    raise exception 'FAIL 15 v2 chain second version';
   end if;
 
   -- 16) archive_order sin cambio de firma
@@ -491,8 +495,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_status(
-      v_order_archived, v_status_initial_a, v_tenant_a
+    perform public.change_order_status_v2(
+      v_order_archived, v_status_initial_a, v_tenant_a, 0
     );
     execute 'reset role';
   exception when others then

@@ -196,7 +196,8 @@ begin
   perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
-  v_result := public.change_order_status(v_order_to_close, v_status_ready_a, v_tenant_a);
+  v_result := public.change_order_status_v2(v_order_to_close, v_status_ready_a, v_tenant_a,
+    (SELECT row_version FROM public.orders WHERE id = v_order_to_close));
   execute 'reset role';
 
   if v_result #>> '{order,status_id}' is distinct from v_status_ready_a::text then
@@ -212,7 +213,8 @@ begin
   perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
-  v_result := public.change_order_status(v_order_to_close, v_status_closed_a, v_tenant_a);
+  v_result := public.change_order_status_v2(v_order_to_close, v_status_closed_a, v_tenant_a,
+    (SELECT row_version FROM public.orders WHERE id = v_order_to_close));
   execute 'reset role';
 
   select ready_at, delivered_at, status_id
@@ -323,7 +325,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_status(v_order_terminal, v_status_ready_a, v_tenant_a);
+    perform public.change_order_status_v2(v_order_terminal, v_status_ready_a, v_tenant_a, 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate;
