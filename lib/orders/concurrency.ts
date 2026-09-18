@@ -73,13 +73,7 @@ export function omitRowVersionFromList(rows: unknown[]) {
   });
 }
 
-export function toPublicOrderDto<T extends Record<string, unknown>>(row: T) {
-  const { row_version: rowVersion } = row;
-  return {
-    ...omitRowVersion(row),
-    version: String(rowVersion),
-  };
-}
+export { toPublicOrderDto } from "@/lib/files/dto";
 
 export function staleSaveMessage(succeededCount: number): string {
   if (succeededCount <= 0) {
