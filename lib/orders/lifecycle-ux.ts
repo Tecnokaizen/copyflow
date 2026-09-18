@@ -119,6 +119,36 @@ export function canMutateOrderActions(input: {
   return input.canWrite === true && !isOrderArchived(input);
 }
 
+/** Stable API code for "this order is archived" conflicts (HTTP 409). */
+export const ORDER_ARCHIVED_CODE = "ORDER_ARCHIVED";
+
+/**
+ * True when an API error body is the archived-order conflict.
+ * Used to stop a multi-step save as soon as the order became archived
+ * under us, instead of pushing the remaining steps against the server.
+ */
+export function isArchivedApiError(body: unknown): boolean {
+  if (!body || typeof body !== "object") {
+    return false;
+  }
+
+  return (body as { code?: unknown }).code === ORDER_ARCHIVED_CODE;
+}
+
+/**
+ * Thrown when a mutation lost the race against another actor archiving the
+ * order. Carries the Lifecycle copy and tells the workspace to stop mutating
+ * and resync from the server.
+ */
+export class OrderArchivedError extends Error {
+  readonly code = ORDER_ARCHIVED_CODE;
+
+  constructor(message = lifecycleUxErrorMessage(ORDER_ARCHIVED_CODE)) {
+    super(message);
+    this.name = "OrderArchivedError";
+  }
+}
+
 export function archiveOrderPath(orderId: string) {
   return `/api/orders/${orderId}/archive`;
 }
@@ -129,7 +159,7 @@ export function lifecycleUxErrorMessage(
 ): string {
   switch (code) {
     case "ORDER_ARCHIVED":
-      return "Este pedido ya está archivado y no puede cambiar de estado.";
+      return "Este pedido está archivado y no admite cambios.";
     case "ORDER_NOT_TERMINAL":
       return "Solo puedes archivar un pedido entregado o cancelado.";
     default:

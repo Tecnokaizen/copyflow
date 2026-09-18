@@ -1,25 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
 const CONTENT_FIELDS = ["title", "description", "notes"] as const;
 
 type ContentField = (typeof CONTENT_FIELDS)[number];
-
-function statusForRpcError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return 401;
-    case "42501":
-      return 403;
-    case "22023":
-      return 400;
-    case "P0002":
-      return 404;
-    default:
-      return 500;
-  }
-}
 
 function normalizeContentValue(
   field: ContentField,
@@ -132,10 +118,9 @@ export async function PATCH(
       hint: error?.hint,
     });
 
-    return NextResponse.json(
-      { error: "Could not update order content" },
-      { status: statusForRpcError(error?.code) }
-    );
+    const mapped = mapLifecycleRpcError(error, "Could not update order content");
+
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
   return NextResponse.json({

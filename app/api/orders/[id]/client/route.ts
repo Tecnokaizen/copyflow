@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { archivedOrderConflict } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { parseClientPayload, UUID_PATTERN } from "@/lib/clients/payload";
@@ -89,6 +90,11 @@ export async function POST(
   });
 
   if (error || !data) {
+    const archived = archivedOrderConflict(error);
+    if (archived) {
+      return NextResponse.json(archived.body, { status: archived.status });
+    }
+
     const duplicate = clientDuplicateResponse(error);
     if (duplicate) {
       return duplicate;
@@ -173,6 +179,11 @@ export async function PATCH(
   });
 
   if (error || !data) {
+    const archived = archivedOrderConflict(error);
+    if (archived) {
+      return NextResponse.json(archived.body, { status: archived.status });
+    }
+
     console.error(
       "[PATCH /api/orders/:id/client] assign_order_client failed",
       {

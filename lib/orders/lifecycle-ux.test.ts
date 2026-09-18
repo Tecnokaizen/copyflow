@@ -152,7 +152,7 @@ describe("lifecycle UX errors and permissions", () => {
   it("K. ORDER_ARCHIVED maps to understandable Spanish copy", () => {
     assert.equal(
       lifecycleUxErrorMessage("ORDER_ARCHIVED"),
-      "Este pedido ya está archivado y no puede cambiar de estado."
+      "Este pedido está archivado y no admite cambios."
     );
   });
 
