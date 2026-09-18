@@ -28,6 +28,7 @@ function createR2Client() {
   const accountId = requireEnv("R2_ACCOUNT_ID");
   const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
   const secretAccessKey = requireEnv("R2_SECRET_ACCESS_KEY");
+
   const endpoint =
     process.env.R2_ENDPOINT?.trim() ||
     `https://${accountId}.r2.cloudflarestorage.com`;
@@ -35,6 +36,7 @@ function createR2Client() {
   return new S3Client({
     region: "auto",
     endpoint,
+    forcePathStyle: true,
     credentials: {
       accessKeyId,
       secretAccessKey,
