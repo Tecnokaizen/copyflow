@@ -91,3 +91,18 @@ export function mapLifecycleRpcError(
     },
   };
 }
+
+/**
+ * Archived-order conflict, or null when the failure is anything else.
+ *
+ * Lets routes with their own error mapping (order client assignment keeps the
+ * client duplicate contract) reuse the exact ORDER_ARCHIVED response without
+ * adopting the whole lifecycle mapping.
+ */
+export function archivedOrderConflict(
+  error: LifecycleRpcErrorInput
+): LifecyclePublicError | null {
+  const mapped = mapLifecycleRpcError(error);
+
+  return mapped.body.code === "ORDER_ARCHIVED" ? mapped : null;
+}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -7,21 +8,6 @@ const NOTIFICATION_STATUSES = [
   "notified",
   "notified_no_pickup",
 ] as const;
-
-function statusForRpcError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return 401;
-    case "42501":
-      return 403;
-    case "22023":
-      return 400;
-    case "P0002":
-      return 404;
-    default:
-      return 500;
-  }
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -77,10 +63,9 @@ export async function PATCH(
       }
     );
 
-    return NextResponse.json(
-      { error: "Could not update customer notification status" },
-      { status: statusForRpcError(error?.code) }
-    );
+    const mapped = mapLifecycleRpcError(error, "Could not update customer notification status");
+
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
   return NextResponse.json({

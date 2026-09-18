@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -13,21 +14,6 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type ManagementField = (typeof MANAGEMENT_FIELDS)[number];
-
-function statusForRpcError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return 401;
-    case "42501":
-      return 403;
-    case "22023":
-      return 400;
-    case "P0002":
-      return 404;
-    default:
-      return 500;
-  }
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -122,10 +108,9 @@ export async function PATCH(
       }
     );
 
-    return NextResponse.json(
-      { error: "Could not update order management" },
-      { status: statusForRpcError(error?.code) }
-    );
+    const mapped = mapLifecycleRpcError(error, "Could not update order management");
+
+    return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
   return NextResponse.json({

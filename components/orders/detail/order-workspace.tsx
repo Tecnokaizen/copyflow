@@ -39,7 +39,11 @@ import {
 import {
   archiveOrderPath,
   canMutateOrderActions,
+  isArchivedApiError,
+  lifecycleUxErrorMessage,
   mergeArchivedOrderResult,
+  OrderArchivedError,
+  ORDER_ARCHIVED_CODE,
   parseLifecycleApiError,
   planStatusSave,
   type ConfirmCopy,
@@ -415,25 +419,46 @@ export function OrderWorkspace() {
     setDraftTerminalConfirm(null);
   }
 
+  /**
+   * Single mutating request of a save step.
+   * Turns the archived-order conflict into OrderArchivedError so callers can
+   * stop mutating instead of pushing the remaining steps at the server.
+   */
+  async function requestSaveStep(
+    path: string,
+    body: unknown,
+    fallbackMessage: string
+  ) {
+    const response = await fetch(path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      if (isArchivedApiError(result)) {
+        throw new OrderArchivedError();
+      }
+
+      throw new Error(
+        parseLifecycleApiError(result, result.error ?? fallbackMessage)
+      );
+    }
+
+    return result;
+  }
+
   async function applySaveStep(
     current: Order,
     step: DraftSaveStep
   ): Promise<Order> {
     if (step.kind === "status") {
-      const response = await fetch(`/api/orders/${current.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status_id: step.status_id }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          parseLifecycleApiError(
-            result,
-            result.error ?? "No se pudo actualizar el estado"
-          )
-        );
-      }
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}`,
+        { status_id: step.status_id },
+        "No se pudo actualizar el estado"
+      );
       const nextOrder =
         result.order && typeof result.order === "object"
           ? (result.order as Partial<Order>)
@@ -449,17 +474,11 @@ export function OrderWorkspace() {
     }
 
     if (step.kind === "content") {
-      const response = await fetch(`/api/orders/${current.id}/content`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field: step.field, value: step.value }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          result.error ?? "No se pudo actualizar el contenido del pedido"
-        );
-      }
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/content`,
+        { field: step.field, value: step.value },
+        "No se pudo actualizar el contenido del pedido"
+      );
       if (step.field === "title") {
         return { ...current, title: result.order.title };
       }
@@ -470,17 +489,11 @@ export function OrderWorkspace() {
     }
 
     if (step.kind === "detail") {
-      const response = await fetch(`/api/orders/${current.id}/details`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field: step.field, value: step.value }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          result.error ?? "No se pudieron actualizar los datos del pedido"
-        );
-      }
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/details`,
+        { field: step.field, value: step.value },
+        "No se pudieron actualizar los datos del pedido"
+      );
       const nextValue = result.value ?? null;
       if (step.field === "priority") {
         return { ...current, priority: result.order.priority };
@@ -524,17 +537,11 @@ export function OrderWorkspace() {
     }
 
     if (step.kind === "management") {
-      const response = await fetch(`/api/orders/${current.id}/management`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field: step.field, value_id: step.value_id }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          result.error ?? "No se pudo actualizar la gestión del pedido"
-        );
-      }
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/management`,
+        { field: step.field, value_id: step.value_id },
+        "No se pudo actualizar la gestión del pedido"
+      );
       const nextValue = result.value ?? null;
       if (step.field === "file_status_id") {
         return {
@@ -564,27 +571,45 @@ export function OrderWorkspace() {
       };
     }
 
-    const response = await fetch(`/api/orders/${current.id}/notification`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        notification_status: step.notification_status,
-      }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(
-        result.error ?? "No se pudo actualizar el aviso al cliente"
-      );
-    }
+    const result = await requestSaveStep(
+      `/api/orders/${current.id}/notification`,
+      { notification_status: step.notification_status },
+      "No se pudo actualizar el aviso al cliente"
+    );
     return {
       ...current,
       customer_notification_status: result.order.customer_notification_status,
     };
   }
 
+  /**
+   * The order was archived by someone else while we were mutating it.
+   * Drop the draft, resync the ficha from the server and let the normal
+   * archived rendering take over. No browser reload.
+   */
+  async function recoverFromArchivedRace() {
+    setEditing(false);
+    setDraft(null);
+    setClientSavedDuringEdit(false);
+    setClientUiMode(null);
+    setConfirmRemoveClient(false);
+    setDraftTerminalConfirm(null);
+    draftTerminalConfirmedRef.current = false;
+    setSaveMessage(null);
+    setError(lifecycleUxErrorMessage(ORDER_ARCHIVED_CODE));
+
+    await Promise.all([loadOrder(), loadActivity()]);
+  }
+
   async function saveEditing() {
     if (!order || !draft || saving) return;
+
+    // Revalidate before mutating: the ficha may have been archived since the
+    // draft was opened (live refresh is suppressed while editing).
+    if (!canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      await recoverFromArchivedRace();
+      return;
+    }
 
     const readyDraft = draft.status_id
       ? draft
@@ -634,18 +659,31 @@ export function OrderWorkspace() {
     const succeeded: string[] = [];
     const failed: string[] = [];
 
+    let archivedRace = false;
+
     for (const step of steps) {
       try {
         working = await applySaveStep(working, step);
         setOrder(working);
         succeeded.push(step.label);
       } catch (err) {
+        if (err instanceof OrderArchivedError) {
+          // Lost the race: stop here instead of pushing the remaining steps.
+          archivedRace = true;
+          break;
+        }
         failed.push(
           `${step.label}: ${
             err instanceof Error ? err.message : "Error al guardar"
           }`
         );
       }
+    }
+
+    if (archivedRace) {
+      setSaving(false);
+      await recoverFromArchivedRace();
+      return;
     }
 
     await loadActivity();
@@ -690,6 +728,12 @@ export function OrderWorkspace() {
   ): Promise<void> {
     if (!order || quickSaving) return;
 
+    // Revalidate before mutating, same rule as the draft path.
+    if (!canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      await recoverFromArchivedRace();
+      return;
+    }
+
     setQuickSaving(true);
     setError(null);
     setSaveMessage(null);
@@ -700,6 +744,11 @@ export function OrderWorkspace() {
       await loadActivity();
       setSaveMessage(label);
     } catch (err) {
+      if (err instanceof OrderArchivedError) {
+        setQuickSaving(false);
+        await recoverFromArchivedRace();
+        return;
+      }
       setError(
         err instanceof Error ? err.message : "No se pudo guardar el cambio"
       );
@@ -751,6 +800,11 @@ export function OrderWorkspace() {
       });
       const result = await response.json();
       if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setQuickSaving(false);
+          await recoverFromArchivedRace();
+          return;
+        }
         throw new Error(
           parseLifecycleApiError(
             result,
@@ -862,6 +916,11 @@ export function OrderWorkspace() {
       });
       const result = await response.json();
       if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setSavingClient(false);
+          await recoverFromArchivedRace();
+          return;
+        }
         throw new Error(result.error ?? "No se pudo asignar el cliente");
       }
       applyClientToOrder(
@@ -961,6 +1020,11 @@ export function OrderWorkspace() {
       }
 
       if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setSavingClient(false);
+          await recoverFromArchivedRace();
+          return;
+        }
         throw new Error(result.error ?? "No se pudo crear el cliente");
       }
 
