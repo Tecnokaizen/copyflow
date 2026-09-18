@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { toPublicOrderDto } from "@/lib/orders/concurrency";
 import { executeChangeOrderStatus } from "@/lib/orders/change-status-api";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
@@ -51,7 +52,7 @@ export async function GET(
 
   return operationalJson({
     tenant: context.tenant.slug,
-    order,
+    order: toPublicOrderDto(order as Record<string, unknown>),
   });
 }
 
@@ -62,21 +63,22 @@ export async function PATCH(
   const context = await getCurrentContext();
   const { id } = await params;
   const body = await request.json();
-  const { status_id } = body;
+  const { status_id, expected_version } = body;
   const supabase = await createClient();
 
   const result = await executeChangeOrderStatus({
     orderId: id,
     statusId: typeof status_id === "string" ? status_id : "",
+    expectedVersion: expected_version,
     context,
     changeOrderStatus: async (args) => {
-      const { data, error } = await supabase.rpc("change_order_status", args);
+      const { data, error } = await supabase.rpc("change_order_status_v2", args);
       return { data, error };
     },
   });
 
   if (result.status >= 400) {
-    console.error("[PATCH /api/orders/:id] change_order_status failed", {
+    console.error("[PATCH /api/orders/:id] change_order_status_v2 failed", {
       tenantId: context?.tenant.id,
       userId: context?.user.id,
       orderId: id,

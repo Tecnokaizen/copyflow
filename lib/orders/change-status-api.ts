@@ -1,3 +1,9 @@
+import {
+  invalidExpectedVersionResponse,
+  parseExpectedVersion,
+  readReturnedVersion,
+  rpcExpectedVersionArg,
+} from "@/lib/orders/concurrency";
 import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 
 export type ChangeOrderStatusContext = {
@@ -10,6 +16,7 @@ export type ChangeOrderStatusRpcResult = {
     | {
         order?: unknown;
         status?: unknown;
+        version?: unknown;
       }
     | null;
   error: {
@@ -23,18 +30,21 @@ export type ChangeOrderStatusRpcResult = {
 export function changeOrderStatusRpcArgs(
   orderId: string,
   statusId: string,
-  tenantId: string
+  tenantId: string,
+  expectedVersion: string
 ) {
   return {
     p_order_id: orderId,
     p_status_id: statusId,
     p_tenant_id: tenantId,
+    p_expected_version: rpcExpectedVersionArg(expectedVersion),
   };
 }
 
 export async function executeChangeOrderStatus(input: {
   orderId: string;
   statusId: string;
+  expectedVersion: unknown;
   context: ChangeOrderStatusContext | null;
   changeOrderStatus: (
     args: ReturnType<typeof changeOrderStatusRpcArgs>
@@ -54,14 +64,33 @@ export async function executeChangeOrderStatus(input: {
     };
   }
 
+  const invalidVersion = invalidExpectedVersionResponse(input.expectedVersion);
+  if (invalidVersion) {
+    return invalidVersion;
+  }
+
+  const expectedVersion = parseExpectedVersion(input.expectedVersion);
+  if (!expectedVersion) {
+    return {
+      status: 422,
+      body: { error: "expected_version is required" },
+    };
+  }
+
   const args = changeOrderStatusRpcArgs(
     input.orderId,
     input.statusId,
-    input.context.tenant.id
+    input.context.tenant.id,
+    expectedVersion
   );
   const { data, error } = await input.changeOrderStatus(args);
 
   if (error || !data || data.order == null) {
+    return mapLifecycleRpcError(error, "Could not update order");
+  }
+
+  const version = readReturnedVersion(data);
+  if (!version) {
     return mapLifecycleRpcError(error, "Could not update order");
   }
 
@@ -72,6 +101,7 @@ export async function executeChangeOrderStatus(input: {
       tenant: input.context.tenant.slug,
       order: data.order,
       status: data.status,
+      version,
     },
   };
 }

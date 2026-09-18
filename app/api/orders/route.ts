@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
+import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -303,7 +304,7 @@ async function fetchOrdersByDueAtRange(
     }
 
     const rows = data ?? [];
-    orders.push(...rows);
+    orders.push(...omitRowVersionFromList(rows));
 
     if (rows.length < DUE_AT_RANGE_CHUNK) {
       break;
@@ -356,7 +357,7 @@ async function fetchActiveOrders(
     }
 
     const rows = data ?? [];
-    orders.push(...rows);
+    orders.push(...omitRowVersionFromList(rows));
 
     if (rows.length < DUE_AT_RANGE_CHUNK) {
       break;
@@ -774,7 +775,7 @@ export async function GET(request: NextRequest) {
     all_total: allTotalResult.total,
     page,
     page_size: pageSize,
-    orders: orders ?? [],
+    orders: omitRowVersionFromList(orders ?? []),
   });
 }
 
@@ -958,7 +959,7 @@ export async function POST(request: NextRequest) {
     {
       ok: true,
       tenant: context.tenant.slug,
-      order,
+      order: omitRowVersion(order as Record<string, unknown>),
     },
     { status: 201 }
   );

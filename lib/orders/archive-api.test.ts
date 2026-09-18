@@ -160,6 +160,7 @@ describe("executeChangeOrderStatus archived", () => {
     const result = await executeChangeOrderStatus({
       orderId: ORDER_ID,
       statusId: STATUS_ID,
+      expectedVersion: "0",
       context: staffContext,
       changeOrderStatus: async () => ({
         data: null,
@@ -178,11 +179,16 @@ describe("executeChangeOrderStatus archived", () => {
     await executeChangeOrderStatus({
       orderId: ORDER_ID,
       statusId: STATUS_ID,
+      expectedVersion: "0",
       context: staffContext,
       changeOrderStatus: async (args) => {
         calls.push(args);
         return {
-          data: { order: { id: ORDER_ID }, status: { id: STATUS_ID } },
+          data: {
+            order: { id: ORDER_ID },
+            status: { id: STATUS_ID },
+            version: "1",
+          },
           error: null,
         };
       },
@@ -191,6 +197,7 @@ describe("executeChangeOrderStatus archived", () => {
       p_order_id: ORDER_ID,
       p_status_id: STATUS_ID,
       p_tenant_id: TENANT_A.id,
+      p_expected_version: "0",
     });
   });
 });
@@ -224,7 +231,7 @@ describe("lifecycle API route security contracts", () => {
   });
 
   it("PATCH status uses change_order_status RPC only and lifecycle mapping", () => {
-    assert.match(orderRoute, /rpc\(\s*["']change_order_status["']/);
+    assert.match(orderRoute, /rpc\(\s*["']change_order_status_v2["']/);
     assert.match(orderRoute, /executeChangeOrderStatus|mapLifecycleRpcError/);
     assert.equal(orderRoute.includes('.from("orders").update'), false);
     assert.equal(orderRoute.includes("service_role"), false);

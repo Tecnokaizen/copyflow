@@ -15,6 +15,7 @@ function fullOrder(overrides: Partial<Order> = {}): Order {
     ready_at: "2026-09-17T11:00:00.000Z",
     delivered_at: "2026-09-17T12:00:00.000Z",
     archived_at: null,
+    version: "0",
     customer_notification_status: "not_notified",
     notes: "Notas internas",
     client_id: "client-1",

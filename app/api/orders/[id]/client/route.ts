@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { archivedOrderConflict } from "@/lib/orders/lifecycle-rpc-error";
+import {
+  invalidExpectedVersionResponse,
+  parseExpectedVersion,
+  readReturnedVersion,
+  rpcExpectedVersionArg,
+} from "@/lib/orders/concurrency";
+import { archivedOrderConflict, mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { parseClientPayload, UUID_PATTERN } from "@/lib/clients/payload";
@@ -65,7 +71,20 @@ export async function POST(
     );
   }
 
-  const parsed = parseClientPayload(body as Record<string, unknown>);
+  const payload = body as Record<string, unknown>;
+  const invalidVersion = invalidExpectedVersionResponse(payload.expected_version);
+  if (invalidVersion) {
+    return NextResponse.json(invalidVersion.body, { status: invalidVersion.status });
+  }
+  const expectedVersion = parseExpectedVersion(payload.expected_version);
+  if (!expectedVersion) {
+    return NextResponse.json(
+      { error: "expected_version is required" },
+      { status: 422 }
+    );
+  }
+
+  const parsed = parseClientPayload(payload);
 
   if (!parsed.ok) {
     return NextResponse.json(
@@ -76,7 +95,7 @@ export async function POST(
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("create_client_and_assign_order", {
+  const { data, error } = await supabase.rpc("create_client_and_assign_order_v2", {
     p_order_id: id,
     p_customer_type_id: parsed.data.customer_type_id,
     p_name: parsed.data.name,
@@ -87,6 +106,7 @@ export async function POST(
     p_phone: parsed.data.phone,
     p_notes: parsed.data.notes,
     p_tenant_id: context.tenant.id,
+    p_expected_version: rpcExpectedVersionArg(expectedVersion),
   });
 
   if (error || !data) {
@@ -95,13 +115,18 @@ export async function POST(
       return NextResponse.json(archived.body, { status: archived.status });
     }
 
+    const mapped = mapLifecycleRpcError(error);
+    if (mapped.body.code === "ORDER_STALE") {
+      return NextResponse.json(mapped.body, { status: mapped.status });
+    }
+
     const duplicate = clientDuplicateResponse(error);
     if (duplicate) {
       return duplicate;
     }
 
     console.error(
-      "[POST /api/orders/:id/client] create_client_and_assign_order failed",
+      "[POST /api/orders/:id/client] create_client_and_assign_order_v2 failed",
       {
         tenantId: context.tenant.id,
         userId: context.user.id,
@@ -119,11 +144,20 @@ export async function POST(
     );
   }
 
+  const version = readReturnedVersion(data);
+  if (!version) {
+    return NextResponse.json(
+      { error: "Could not create client" },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
     order: data.order,
     client: data.client,
+    version,
   });
 }
 
@@ -162,6 +196,17 @@ export async function PATCH(
 
   const payload = body as Record<string, unknown>;
   const clientId = normalizeClientId(payload.client_id);
+  const invalidVersion = invalidExpectedVersionResponse(payload.expected_version);
+  if (invalidVersion) {
+    return NextResponse.json(invalidVersion.body, { status: invalidVersion.status });
+  }
+  const expectedVersion = parseExpectedVersion(payload.expected_version);
+  if (!expectedVersion) {
+    return NextResponse.json(
+      { error: "expected_version is required" },
+      { status: 422 }
+    );
+  }
 
   if (!clientId.ok) {
     return NextResponse.json(
@@ -172,10 +217,11 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("assign_order_client", {
+  const { data, error } = await supabase.rpc("assign_order_client_v2", {
     p_order_id: id,
     p_client_id: clientId.value,
     p_tenant_id: context.tenant.id,
+    p_expected_version: rpcExpectedVersionArg(expectedVersion),
   });
 
   if (error || !data) {
@@ -184,8 +230,13 @@ export async function PATCH(
       return NextResponse.json(archived.body, { status: archived.status });
     }
 
+    const mapped = mapLifecycleRpcError(error);
+    if (mapped.body.code === "ORDER_STALE") {
+      return NextResponse.json(mapped.body, { status: mapped.status });
+    }
+
     console.error(
-      "[PATCH /api/orders/:id/client] assign_order_client failed",
+      "[PATCH /api/orders/:id/client] assign_order_client_v2 failed",
       {
         tenantId: context.tenant.id,
         userId: context.user.id,
@@ -203,10 +254,19 @@ export async function PATCH(
     );
   }
 
+  const version = readReturnedVersion(data);
+  if (!version) {
+    return NextResponse.json(
+      { error: "Could not assign client" },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
     order: data.order,
     client: mapClientSummary(data.client),
+    version,
   });
 }
