@@ -42,6 +42,8 @@ export type Order = {
   delivered_at: string | null;
   /** Organizational archive timestamp; null means not archived. */
   archived_at: string | null;
+  /** Opaque concurrency token. Never parse as Number/Date. */
+  version: string;
   customer_notification_status: string;
   notes: string | null;
   client_id: string | null;

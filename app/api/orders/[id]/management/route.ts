@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  invalidExpectedVersionResponse,
+  parseExpectedVersion,
+  readReturnedVersion,
+  rpcExpectedVersionArg,
+} from "@/lib/orders/concurrency";
 import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -51,6 +57,17 @@ export async function PATCH(
   const payload = body as Record<string, unknown>;
   const field = payload.field;
   const rawValueId = payload.value_id;
+  const invalidVersion = invalidExpectedVersionResponse(payload.expected_version);
+  if (invalidVersion) {
+    return NextResponse.json(invalidVersion.body, { status: invalidVersion.status });
+  }
+  const expectedVersion = parseExpectedVersion(payload.expected_version);
+  if (!expectedVersion) {
+    return NextResponse.json(
+      { error: "expected_version is required" },
+      { status: 422 }
+    );
+  }
 
   if (
     typeof field !== "string" ||
@@ -87,16 +104,17 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("change_order_management", {
+  const { data, error } = await supabase.rpc("change_order_management_v2", {
     p_order_id: id,
     p_field: field,
     p_value_id: valueId,
     p_tenant_id: context.tenant.id,
+    p_expected_version: rpcExpectedVersionArg(expectedVersion),
   });
 
   if (error || !data) {
     console.error(
-      "[PATCH /api/orders/:id/management] change_order_management failed",
+      "[PATCH /api/orders/:id/management] change_order_management_v2 failed",
       {
         tenantId: context.tenant.id,
         userId: context.user.id,
@@ -113,11 +131,20 @@ export async function PATCH(
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
+  const version = readReturnedVersion(data);
+  if (!version) {
+    return NextResponse.json(
+      mapLifecycleRpcError(null, "Could not update order management").body,
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
     order: data.order,
     field: data.field,
     value: data.value,
+    version,
   });
 }

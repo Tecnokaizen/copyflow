@@ -11,7 +11,7 @@ export type LifecyclePublicError = {
   status: number;
   body: {
     error: string;
-    code?: "ORDER_ARCHIVED" | "ORDER_NOT_TERMINAL";
+    code?: "ORDER_ARCHIVED" | "ORDER_NOT_TERMINAL" | "ORDER_STALE";
   };
 };
 
@@ -70,6 +70,19 @@ export function mapLifecycleRpcError(
       body: {
         error: "Order is archived",
         code: "ORDER_ARCHIVED",
+      },
+    };
+  }
+
+  if (
+    digest.code === "GCO01" ||
+    normalized.includes("order has been modified since last read")
+  ) {
+    return {
+      status: 409,
+      body: {
+        error: "Order has been modified since last read",
+        code: "ORDER_STALE",
       },
     };
   }

@@ -37,12 +37,18 @@ import {
   type DraftSaveStep,
 } from "@/lib/orders/draft";
 import {
+  applyReturnedVersion,
+  staleSaveMessage,
+} from "@/lib/orders/concurrency";
+import {
   archiveOrderPath,
   canMutateOrderActions,
   isArchivedApiError,
+  isStaleApiError,
   lifecycleUxErrorMessage,
   mergeArchivedOrderResult,
   OrderArchivedError,
+  OrderStaleError,
   ORDER_ARCHIVED_CODE,
   parseLifecycleApiError,
   planStatusSave,
@@ -440,6 +446,9 @@ export function OrderWorkspace() {
       if (isArchivedApiError(result)) {
         throw new OrderArchivedError();
       }
+      if (isStaleApiError(result)) {
+        throw new OrderStaleError();
+      }
 
       throw new Error(
         parseLifecycleApiError(result, result.error ?? fallbackMessage)
@@ -456,130 +465,188 @@ export function OrderWorkspace() {
     if (step.kind === "status") {
       const result = await requestSaveStep(
         `/api/orders/${current.id}`,
-        { status_id: step.status_id },
+        { status_id: step.status_id, expected_version: current.version },
         "No se pudo actualizar el estado"
       );
       const nextOrder =
         result.order && typeof result.order === "object"
           ? (result.order as Partial<Order>)
           : null;
-      return {
-        ...current,
-        status_id: step.status_id,
-        status: mapOrderStatusPayload(result.status, current.status),
-        ready_at: nextOrder?.ready_at ?? current.ready_at,
-        delivered_at: nextOrder?.delivered_at ?? current.delivered_at,
-        archived_at: nextOrder?.archived_at ?? current.archived_at,
-      };
+      return applyReturnedVersion(
+        {
+          ...current,
+          status_id: step.status_id,
+          status: mapOrderStatusPayload(result.status, current.status),
+          ready_at: nextOrder?.ready_at ?? current.ready_at,
+          delivered_at: nextOrder?.delivered_at ?? current.delivered_at,
+          archived_at: nextOrder?.archived_at ?? current.archived_at,
+        },
+        result
+      );
     }
 
     if (step.kind === "content") {
       const result = await requestSaveStep(
         `/api/orders/${current.id}/content`,
-        { field: step.field, value: step.value },
+        { field: step.field, value: step.value, expected_version: current.version },
         "No se pudo actualizar el contenido del pedido"
       );
       if (step.field === "title") {
-        return { ...current, title: result.order.title };
+        return applyReturnedVersion({ ...current, title: result.order.title }, result);
       }
       if (step.field === "description") {
-        return { ...current, description: result.order.description };
+        return applyReturnedVersion(
+          { ...current, description: result.order.description },
+          result
+        );
       }
-      return { ...current, notes: result.order.notes };
+      return applyReturnedVersion({ ...current, notes: result.order.notes }, result);
     }
 
     if (step.kind === "detail") {
       const result = await requestSaveStep(
         `/api/orders/${current.id}/details`,
-        { field: step.field, value: step.value },
+        { field: step.field, value: step.value, expected_version: current.version },
         "No se pudieron actualizar los datos del pedido"
       );
       const nextValue = result.value ?? null;
       if (step.field === "priority") {
-        return { ...current, priority: result.order.priority };
+        return applyReturnedVersion(
+          { ...current, priority: result.order.priority },
+          result
+        );
       }
       if (step.field === "service_id") {
-        return {
-          ...current,
-          service_id: result.order.service_id,
-          service: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            service_id: result.order.service_id,
+            service: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "entry_channel_id") {
-        return {
-          ...current,
-          entry_channel_id: result.order.entry_channel_id,
-          entry_channel: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            entry_channel_id: result.order.entry_channel_id,
+            entry_channel: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "assigned_team_member_id") {
-        return {
-          ...current,
-          assigned_team_member_id: result.order.assigned_team_member_id,
-          assigned_team_member: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            assigned_team_member_id: result.order.assigned_team_member_id,
+            assigned_team_member: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "order_context_id") {
-        return {
-          ...current,
-          order_context_id: result.order.order_context_id,
-          order_context: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            order_context_id: result.order.order_context_id,
+            order_context: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "store_id") {
-        return {
-          ...current,
-          store_id: result.order.store_id,
-          store: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            store_id: result.order.store_id,
+            store: nextValue,
+          },
+          result
+        );
       }
-      return { ...current, due_at: result.order.due_at };
+      return applyReturnedVersion({ ...current, due_at: result.order.due_at }, result);
     }
 
     if (step.kind === "management") {
       const result = await requestSaveStep(
         `/api/orders/${current.id}/management`,
-        { field: step.field, value_id: step.value_id },
+        {
+          field: step.field,
+          value_id: step.value_id,
+          expected_version: current.version,
+        },
         "No se pudo actualizar la gestión del pedido"
       );
       const nextValue = result.value ?? null;
       if (step.field === "file_status_id") {
-        return {
-          ...current,
-          file_status_id: result.order.file_status_id,
-          file_status: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            file_status_id: result.order.file_status_id,
+            file_status: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "quote_status_id") {
-        return {
-          ...current,
-          quote_status_id: result.order.quote_status_id,
-          quote_status: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            quote_status_id: result.order.quote_status_id,
+            quote_status: nextValue,
+          },
+          result
+        );
       }
       if (step.field === "payment_status_id") {
-        return {
-          ...current,
-          payment_status_id: result.order.payment_status_id,
-          payment_status: nextValue,
-        };
+        return applyReturnedVersion(
+          {
+            ...current,
+            payment_status_id: result.order.payment_status_id,
+            payment_status: nextValue,
+          },
+          result
+        );
       }
-      return {
-        ...current,
-        delivery_method_id: result.order.delivery_method_id,
-        delivery_method: nextValue,
-      };
+      return applyReturnedVersion(
+        {
+          ...current,
+          delivery_method_id: result.order.delivery_method_id,
+          delivery_method: nextValue,
+        },
+        result
+      );
     }
 
     const result = await requestSaveStep(
       `/api/orders/${current.id}/notification`,
-      { notification_status: step.notification_status },
+      {
+        notification_status: step.notification_status,
+        expected_version: current.version,
+      },
       "No se pudo actualizar el aviso al cliente"
     );
-    return {
-      ...current,
-      customer_notification_status: result.order.customer_notification_status,
-    };
+    return applyReturnedVersion(
+      {
+        ...current,
+        customer_notification_status: result.order.customer_notification_status,
+      },
+      result
+    );
+  }
+
+  /**
+   * Another writer changed the order while we were mutating it.
+   * Keep the draft and editing session, refresh the server snapshot,
+   * and do not retry or merge automatically.
+   */
+  async function recoverFromStale(succeededCount: number) {
+    setSaveMessage(null);
+    setDraftTerminalConfirm(null);
+    await Promise.all([loadOrder(), loadActivity()]);
+    setError(staleSaveMessage(succeededCount));
   }
 
   /**
@@ -660,6 +727,7 @@ export function OrderWorkspace() {
     const failed: string[] = [];
 
     let archivedRace = false;
+    let staleRace = false;
 
     for (const step of steps) {
       try {
@@ -670,6 +738,10 @@ export function OrderWorkspace() {
         if (err instanceof OrderArchivedError) {
           // Lost the race: stop here instead of pushing the remaining steps.
           archivedRace = true;
+          break;
+        }
+        if (err instanceof OrderStaleError) {
+          staleRace = true;
           break;
         }
         failed.push(
@@ -683,6 +755,12 @@ export function OrderWorkspace() {
     if (archivedRace) {
       setSaving(false);
       await recoverFromArchivedRace();
+      return;
+    }
+
+    if (staleRace) {
+      setSaving(false);
+      await recoverFromStale(succeeded.length);
       return;
     }
 
@@ -747,6 +825,11 @@ export function OrderWorkspace() {
       if (err instanceof OrderArchivedError) {
         setQuickSaving(false);
         await recoverFromArchivedRace();
+        return;
+      }
+      if (err instanceof OrderStaleError) {
+        setQuickSaving(false);
+        await recoverFromStale(0);
         return;
       }
       setError(
@@ -846,11 +929,12 @@ export function OrderWorkspace() {
 
   function applyClientToOrder(
     clientId: string | null,
-    client: ClientSummary | null
+    client: ClientSummary | null,
+    result?: unknown
   ) {
     setOrder((current) => {
       if (!current) return current;
-      return {
+      const next = {
         ...current,
         client_id: clientId,
         client:
@@ -868,6 +952,7 @@ export function OrderWorkspace() {
               }
             : null,
       };
+      return result ? applyReturnedVersion(next, result) : next;
     });
   }
 
@@ -912,7 +997,10 @@ export function OrderWorkspace() {
       const response = await fetch(`/api/orders/${order.id}/client`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: clientId }),
+        body: JSON.stringify({
+          client_id: clientId,
+          expected_version: order.version,
+        }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -921,11 +1009,17 @@ export function OrderWorkspace() {
           await recoverFromArchivedRace();
           return;
         }
+        if (isStaleApiError(result)) {
+          setSavingClient(false);
+          await recoverFromStale(0);
+          return;
+        }
         throw new Error(result.error ?? "No se pudo asignar el cliente");
       }
       applyClientToOrder(
         result.order?.client_id ?? clientId,
-        mapClientSummary(result.client) ?? selected ?? null
+        mapClientSummary(result.client) ?? selected ?? null,
+        result
       );
       if (editing) {
         setClientSavedDuringEdit(true);
@@ -1004,7 +1098,10 @@ export function OrderWorkspace() {
       const response = await fetch(`/api/orders/${order.id}/client`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toClientPayload(form)),
+        body: JSON.stringify({
+          ...toClientPayload(form),
+          expected_version: order.version,
+        }),
       });
       const result = await response.json();
 
@@ -1025,12 +1122,18 @@ export function OrderWorkspace() {
           await recoverFromArchivedRace();
           return;
         }
+        if (isStaleApiError(result)) {
+          setSavingClient(false);
+          await recoverFromStale(0);
+          return;
+        }
         throw new Error(result.error ?? "No se pudo crear el cliente");
       }
 
       applyClientToOrder(
         result.order?.client_id ?? null,
-        mapClientSummary(result.client)
+        mapClientSummary(result.client),
+        result
       );
       if (editing) {
         setClientSavedDuringEdit(true);
