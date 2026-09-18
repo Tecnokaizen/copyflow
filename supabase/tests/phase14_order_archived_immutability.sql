@@ -176,14 +176,13 @@ begin
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
 
-  perform public.change_order_content(v_order_open, 'title', 'Titulo editado', v_tenant_a);
-  perform public.change_order_details(v_order_open, 'priority', 'urgent', v_tenant_a);
-  perform public.change_order_details(v_order_open, 'store_id', v_store_a::text, v_tenant_a);
-  perform public.change_order_management(
-    v_order_open, 'payment_status_id', v_payment_status_a, v_tenant_a
-  );
-  perform public.change_order_notification_status(v_order_open, 'notified', v_tenant_a);
-  perform public.assign_order_client(v_order_open, v_client_1, v_tenant_a);
+  perform public.change_order_content_v2(v_order_open, 'title', 'Titulo editado', v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
+  perform public.change_order_details_v2(v_order_open, 'priority', 'urgent', v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
+  perform public.change_order_details_v2(v_order_open, 'store_id', v_store_a::text, v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
+  perform public.change_order_management_v2(v_order_open, 'payment_status_id', v_payment_status_a, v_tenant_a
+  , (SELECT row_version FROM public.orders WHERE id = v_order_open));
+  perform public.change_order_notification_status_v2(v_order_open, 'notified', v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
+  perform public.assign_order_client_v2(v_order_open, v_client_1, v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
 
   execute 'reset role';
 
@@ -200,10 +199,9 @@ begin
   perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
-  v_result := public.create_client_and_assign_order(
-    v_order_open, v_customer_type_a, 'Cliente Nuevo',
+  v_result := public.create_client_and_assign_order_v2(v_order_open, v_customer_type_a, 'Cliente Nuevo',
     null, null, null, null, null, null, v_tenant_a
-  );
+  , (SELECT row_version FROM public.orders WHERE id = v_order_open));
   execute 'reset role';
 
   if v_result #>> '{client,id}' is null then
@@ -217,14 +215,12 @@ begin
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   execute 'set local role authenticated';
 
-  perform public.change_order_content(
-    v_order_terminal, 'notes', 'Correccion administrativa posterior', v_tenant_a
-  );
-  perform public.change_order_details(v_order_terminal, 'priority', 'high', v_tenant_a);
-  perform public.change_order_management(
-    v_order_terminal, 'quote_status_id', v_quote_status_a, v_tenant_a
-  );
-  perform public.assign_order_client(v_order_terminal, v_client_2, v_tenant_a);
+  perform public.change_order_content_v2(v_order_terminal, 'notes', 'Correccion administrativa posterior', v_tenant_a
+  , (SELECT row_version FROM public.orders WHERE id = v_order_terminal));
+  perform public.change_order_details_v2(v_order_terminal, 'priority', 'high', v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_terminal));
+  perform public.change_order_management_v2(v_order_terminal, 'quote_status_id', v_quote_status_a, v_tenant_a
+  , (SELECT row_version FROM public.orders WHERE id = v_order_terminal));
+  perform public.assign_order_client_v2(v_order_terminal, v_client_2, v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_terminal));
 
   execute 'reset role';
 
@@ -262,9 +258,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_content(
-      v_order_archived, 'title', 'No deberia escribirse', v_tenant_a
-    );
+    perform public.change_order_content_v2(v_order_archived, 'title', 'No deberia escribirse', v_tenant_a
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -283,7 +278,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_details(v_order_archived, 'priority', 'urgent', v_tenant_a);
+    perform public.change_order_details_v2(v_order_archived, 'priority', 'urgent', v_tenant_a, 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -299,9 +294,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_details(
-      v_order_archived, 'priority', v_snapshot.priority, v_tenant_a
-    );
+    perform public.change_order_details_v2(v_order_archived, 'priority', v_snapshot.priority, v_tenant_a
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -317,9 +311,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_management(
-      v_order_archived, 'file_status_id', v_file_status_a, v_tenant_a
-    );
+    perform public.change_order_management_v2(v_order_archived, 'file_status_id', v_file_status_a, v_tenant_a
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -335,9 +328,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_notification_status(
-      v_order_archived, 'notified_no_pickup', v_tenant_a
-    );
+    perform public.change_order_notification_status_v2(v_order_archived, 'notified_no_pickup', v_tenant_a
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -353,7 +345,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.assign_order_client(v_order_archived, v_client_1, v_tenant_a);
+    perform public.assign_order_client_v2(v_order_archived, v_client_1, v_tenant_a, 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -369,10 +361,9 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.create_client_and_assign_order(
-      v_order_archived, v_customer_type_a, 'Cliente Huerfano',
+    perform public.create_client_and_assign_order_v2(v_order_archived, v_customer_type_a, 'Cliente Huerfano',
       null, null, null, null, null, null, v_tenant_a
-    );
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -424,9 +415,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_owner_b::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_content(
-      v_order_archived, 'title', 'cross tenant', v_tenant_b
-    );
+    perform public.change_order_content_v2(v_order_archived, 'title', 'cross tenant', v_tenant_b
+    , 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate;
@@ -442,9 +432,8 @@ begin
     perform set_config('request.jwt.claim.sub', v_owner_b::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_content(
-      v_order_open, 'title', 'cross tenant', v_tenant_a
-    );
+    perform public.change_order_content_v2(v_order_open, 'title', 'cross tenant', v_tenant_a
+    , (SELECT row_version FROM public.orders WHERE id = v_order_open));
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -465,7 +454,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_content(v_order_open, 'title', 'viewer', v_tenant_a);
+    perform public.change_order_content_v2(v_order_open, 'title', 'viewer', v_tenant_a, (SELECT row_version FROM public.orders WHERE id = v_order_open));
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -481,7 +470,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_details(v_order_archived, 'priority', 'high', v_tenant_a);
+    perform public.change_order_details_v2(v_order_archived, 'priority', 'high', v_tenant_a, 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;
@@ -503,7 +492,7 @@ begin
     perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
     perform set_config('request.jwt.claim.role', 'authenticated', true);
     execute 'set local role authenticated';
-    perform public.change_order_status(v_order_archived, v_status_initial_a, v_tenant_a);
+    perform public.change_order_status_v2(v_order_archived, v_status_initial_a, v_tenant_a, 0);
     execute 'reset role';
   exception when others then
     v_sqlstate := sqlstate; v_message := sqlerrm;

@@ -382,3 +382,104 @@ describe("E2A productive callers and workspace contracts", () => {
     }
   });
 });
+
+// =============================================================================
+// E2B CONTRACT TESTS — v1 RPCs retired, no fallback, no silent caller
+// =============================================================================
+describe("E2B: v1 RPCs absent from all productive callers", () => {
+  // Productive source paths that call Supabase RPCs
+  const productiveSources: Array<[string[], string]> = [
+    [["app", "api", "orders", "[id]", "route.ts"], "PATCH order"],
+    [["app", "api", "orders", "[id]", "content", "route.ts"], "PATCH content"],
+    [["app", "api", "orders", "[id]", "details", "route.ts"], "PATCH details"],
+    [["app", "api", "orders", "[id]", "management", "route.ts"], "PATCH management"],
+    [["app", "api", "orders", "[id]", "notification", "route.ts"], "PATCH notification"],
+    [["app", "api", "orders", "[id]", "client", "route.ts"], "PATCH client"],
+    [["app", "api", "orders", "route.ts"], "POST/GET orders"],
+    [["components", "orders", "detail", "order-workspace.tsx"], "OrderWorkspace"],
+    [["lib", "orders", "change-status-api.ts"], "change-status-api"],
+    [["lib", "orders", "concurrency.ts"], "concurrency helpers"],
+    [["lib", "orders", "lifecycle-rpc-error.ts"], "lifecycle-rpc-error"],
+    [["lib", "orders", "lifecycle-ux.ts"], "lifecycle-ux"],
+  ];
+
+  // v1 RPC names that must not appear as rpc() calls in productive code
+  const v1RpcNames = [
+    "change_order_content",
+    "change_order_details",
+    "change_order_management",
+    "change_order_notification_status",
+    "assign_order_client",
+    "create_client_and_assign_order",
+    "change_order_status",
+  ] as const;
+
+  for (const [parts, label] of productiveSources) {
+    it(`${label} does not call any v1 RPC`, () => {
+      const source = read(...parts);
+      for (const v1Name of v1RpcNames) {
+        // Only flag actual rpc() calls, not _v2 variants or string literals in comments
+        const rpcCallPattern = new RegExp(`\\.rpc\\(\\s*["'\`]${v1Name}["'\`]`);
+        assert.equal(
+          rpcCallPattern.test(source),
+          false,
+          `${label} still calls v1 RPC .rpc("${v1Name}") — must use _v2 variant`,
+        );
+      }
+    });
+  }
+
+  it("all productive rpc() calls in API routes use _v2 suffix", () => {
+    const apiRoutes = [
+      ["app", "api", "orders", "[id]", "route.ts"],
+      ["app", "api", "orders", "[id]", "content", "route.ts"],
+      ["app", "api", "orders", "[id]", "details", "route.ts"],
+      ["app", "api", "orders", "[id]", "management", "route.ts"],
+      ["app", "api", "orders", "[id]", "notification", "route.ts"],
+      ["app", "api", "orders", "[id]", "client", "route.ts"],
+    ];
+
+    for (const parts of apiRoutes) {
+      const source = read(...parts);
+      // Extract all .rpc("...") calls
+      const rpcCalls = [...source.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+      for (const rpcName of rpcCalls) {
+        // Allowed: *_v2 variants, archive_order, kiosk_*, or system RPCs
+        const isAllowed =
+          rpcName.endsWith("_v2") ||
+          rpcName === "archive_order" ||
+          rpcName.startsWith("kiosk_");
+        assert.ok(
+          isAllowed,
+          `${parts.join("/")} calls RPC "${rpcName}" which is not a _v2 or allowed exception`,
+        );
+      }
+    }
+  });
+
+  it("archive_order has no expected_version parameter (no v2 variant)", () => {
+    // archive route must use archive_order (not archive_order_v2)
+    const archiveRoute = read("app", "api", "orders", "[id]", "archive", "route.ts");
+    assert.match(archiveRoute, /rpc\(\s*["']archive_order["']/);
+    assert.equal(archiveRoute.includes("archive_order_v2"), false);
+    assert.equal(archiveRoute.includes("expected_version"), false);
+  });
+
+  it("no silent fallback to v1 via try/catch swallowing stale errors", () => {
+    // Stale errors (GCO01 / ORDER_STALE) must surface, never be silently caught
+    // and retried with a v1 call.
+    const workspace = read("components", "orders", "detail", "order-workspace.tsx");
+    // Must NOT contain a pattern like: catch(...){ .rpc("change_order_content" }
+    for (const v1Name of v1RpcNames) {
+      const catchFallbackPattern = new RegExp(
+        `catch[^{]*\\{[^}]*\\.rpc\\(["'\`]${v1Name}["'\`]`,
+        "s",
+      );
+      assert.equal(
+        catchFallbackPattern.test(workspace),
+        false,
+        `OrderWorkspace has a catch block that silently falls back to v1 RPC "${v1Name}"`,
+      );
+    }
+  });
+});
