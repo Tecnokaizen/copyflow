@@ -28,6 +28,7 @@ import {
   formatZonedTime,
 } from "@/lib/time/zoned-day";
 import { cn } from "@/lib/utils";
+import { nextListFilterForStatusSelection } from "@/lib/orders/list-filter-status";
 
 type Order = {
   id: string;
@@ -780,10 +781,13 @@ function OrdersPageContent() {
     }
 
     const status = orderStatuses.find((row) => row.id === nextStatusId) ?? null;
-    const nextFilter = isTerminalStatus(status) ? "all" : listFilter;
+    const nextFilter = nextListFilterForStatusSelection({
+      listFilter,
+      statusIsTerminal: isTerminalStatus(status),
+    });
 
     replaceListParams({
-      filter: nextFilter,
+      filter: nextFilter as PrimaryListFilter | ListFilter,
       statusId: nextStatusId,
     });
   }

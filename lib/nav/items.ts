@@ -39,7 +39,11 @@ export type AppNavEntry =
 const NAV_BY_ID: Record<AppNavItemId, AppNavItem> = {
   home: { id: "home", href: "/", label: "Inicio" },
   counter: { id: "counter", href: "/counter", label: "Mostrador" },
-  orders: { id: "orders", href: "/orders", label: "Todos los pedidos" },
+  orders: {
+    id: "orders",
+    href: "/orders?view=list&filter=all",
+    label: "Todos los pedidos",
+  },
   mine: { id: "mine", href: "/orders/mine", label: "Mis pedidos" },
   quick: { id: "quick", href: "/orders/quick", label: "Pedido rápido" },
   archived: {
@@ -226,16 +230,7 @@ export function navItemIsActive(item: AppNavItem, location: NavLocation | string
     return pathname === "/orders" && filter === "archived";
   }
   if (item.id === "orders") {
-    if (pathname === "/orders" && filter === "archived") {
-      return false;
-    }
-    return (
-      (pathname === "/orders" || pathname.startsWith("/orders/")) &&
-      pathname !== "/orders/mine" &&
-      !pathname.startsWith("/orders/mine/") &&
-      pathname !== "/orders/quick" &&
-      !pathname.startsWith("/orders/quick/")
-    );
+    return pathname === "/orders" && filter === "all";
   }
   if (item.id === "clients") {
     return pathname === "/clients" || pathname.startsWith("/clients/");
@@ -258,9 +253,30 @@ export function navItemIsActive(item: AppNavItem, location: NavLocation | string
   return false;
 }
 
+/** True when the current location belongs to the Pedidos domain. */
+export function isOrdersDomainActive(location: NavLocation | string) {
+  const normalized: NavLocation =
+    typeof location === "string" ? { pathname: location } : location;
+  const pathname = normalized.pathname;
+
+  if (pathname === "/counter" || pathname.startsWith("/counter/")) {
+    return true;
+  }
+
+  if (pathname === "/orders" || pathname.startsWith("/orders/")) {
+    return true;
+  }
+
+  return false;
+}
+
 export function navGroupIsActive(
   group: AppNavGroup,
   location: NavLocation | string
 ) {
+  if (group.id === "orders") {
+    return isOrdersDomainActive(location);
+  }
+
   return group.items.some((item) => navItemIsActive(item, location));
 }

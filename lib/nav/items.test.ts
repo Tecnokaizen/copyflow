@@ -101,7 +101,7 @@ describe("staff and management navigation", () => {
     assert.equal(homePathForRole("manager"), "/");
   });
 
-  it("highlights Pedido rápido without marking Pedidos", () => {
+  it("highlights Pedido rápido without marking Todos los pedidos", () => {
     assert.equal(
       navItemIsActive(
         { id: "quick", href: "/orders/quick", label: "Pedido rápido" },
@@ -111,17 +111,25 @@ describe("staff and management navigation", () => {
     );
     assert.equal(
       navItemIsActive(
-        { id: "orders", href: "/orders", label: "Todos los pedidos" },
+        {
+          id: "orders",
+          href: "/orders?view=list&filter=all",
+          label: "Todos los pedidos",
+        },
         "/orders/quick"
       ),
       false
     );
     assert.equal(
       navItemIsActive(
-        { id: "orders", href: "/orders", label: "Todos los pedidos" },
+        {
+          id: "orders",
+          href: "/orders?view=list&filter=all",
+          label: "Todos los pedidos",
+        },
         "/orders/abc"
       ),
-      true
+      false
     );
   });
 
@@ -178,23 +186,11 @@ describe("nav structure groups", () => {
     assert.equal(groupChildLabels("staff", "admin").length, 0);
   });
 
-  it("marks Pedidos group active for child routes and archived filter", () => {
+  it("marks Pedidos group active independently of Todos child", () => {
     const ordersGroup = navStructureForRole("owner").find(
       (entry) => entry.type === "group" && entry.group.id === "orders"
     );
     assert.ok(ordersGroup && ordersGroup.type === "group");
-
-    assert.equal(navGroupIsActive(ordersGroup.group, "/counter"), true);
-    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/abc"), true);
-    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/mine"), true);
-    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/quick"), true);
-    assert.equal(
-      navGroupIsActive(ordersGroup.group, {
-        pathname: "/orders",
-        searchParams: new URLSearchParams("view=list&filter=archived"),
-      }),
-      true
-    );
 
     const archivedItem = ordersGroup.group.items.find(
       (item) => item.id === "archived"
@@ -203,7 +199,38 @@ describe("nav structure groups", () => {
       (item) => item.id === "orders"
     );
     assert.ok(archivedItem && allOrdersItem);
+    assert.equal(
+      allOrdersItem.href,
+      "/orders?view=list&filter=all"
+    );
 
+    assert.equal(navGroupIsActive(ordersGroup.group, "/counter"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/abc"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/mine"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/quick"), true);
+    assert.equal(
+      navGroupIsActive(ordersGroup.group, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("filter=active"),
+      }),
+      true
+    );
+    assert.equal(
+      navGroupIsActive(ordersGroup.group, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("view=list&filter=archived"),
+      }),
+      true
+    );
+
+    assert.equal(
+      navItemIsActive(allOrdersItem, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("view=list&filter=all"),
+      }),
+      true
+    );
     assert.equal(
       navItemIsActive(archivedItem, {
         pathname: "/orders",
@@ -223,7 +250,22 @@ describe("nav structure groups", () => {
         pathname: "/orders",
         searchParams: new URLSearchParams("filter=active"),
       }),
-      true
+      false
+    );
+    assert.equal(
+      navItemIsActive(allOrdersItem, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("filter=urgent"),
+      }),
+      false
+    );
+    assert.equal(
+      navItemIsActive(allOrdersItem, { pathname: "/orders" }),
+      false
+    );
+    assert.equal(
+      navItemIsActive(allOrdersItem, { pathname: "/orders/abc" }),
+      false
     );
   });
 
