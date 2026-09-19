@@ -179,6 +179,23 @@ describe("GET version DTO", () => {
     assert.equal(source.includes("order.row_version"), false);
     assert.equal(source.includes("row_version:"), false);
   });
+
+  it("strips Kiosk metadata and internal secrets from public order DTO", () => {
+    const publicOrder = toPublicOrderDto({
+      id: "order-1",
+      title: "Tarjetas",
+      row_version: 1,
+      metadata: { kiosk: { client_key: "ck_secret" } },
+      requirements_override: { x: 1 },
+      created_by: "user-1",
+      external_folder_url: "https://example.com/folder",
+    });
+    assert.equal("metadata" in publicOrder, false);
+    assert.equal("requirements_override" in publicOrder, false);
+    assert.equal("created_by" in publicOrder, false);
+    assert.equal(publicOrder.external_folder_url, "https://example.com/folder");
+    assert.equal(JSON.stringify(publicOrder).includes("ck_secret"), false);
+  });
 });
 
 describe("list/create row_version leakage", () => {

@@ -531,6 +531,10 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Cambió ${fieldLabel(field).toLowerCase()} de ${entity}`;
     case "order.notification_changed":
       return `Cambió el aviso al cliente de ${entity}`;
+    case "order.file_uploaded":
+      return `Subió un archivo a ${entity}`;
+    case "order.file_deleted":
+      return `Eliminó un archivo de ${entity}`;
     case "client.created":
       return `Creó el cliente ${entity}`;
     case "client.updated":
@@ -590,6 +594,8 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "order.details_changed",
     "order.management_changed",
     "order.notification_changed",
+    "order.file_uploaded",
+    "order.file_deleted",
     "client.created",
     "client.updated",
     "service.created",
