@@ -233,8 +233,13 @@ function emptyTitleForFilter(
   hasAssignee: boolean,
   hasStatus: boolean,
   hasStore: boolean,
-  allTotal: number
+  allTotal: number,
+  hasSearch = false
 ) {
+  if (hasSearch) {
+    return "No hay pedidos que coincidan con la búsqueda";
+  }
+
   if (hasAssignee || hasStatus || hasStore) {
     return "No hay pedidos con estos filtros";
   }
@@ -500,6 +505,8 @@ function OrdersPageContent() {
   const [canWrite, setCanWrite] = useState(false);
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const urlView = parseViewMode(searchParams.get("view"));
   const rawListFilter = parseListFilter(searchParams.get("filter"));
   const assignedMemberId = parseAssignedTeamMemberId(
@@ -548,7 +555,7 @@ function OrdersPageContent() {
     `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`
   );
   const pageSize = 50;
-  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`;
+  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}|${debouncedQuery}`;
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
 
@@ -661,6 +668,13 @@ function OrdersPageContent() {
     void loadStatuses();
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim().slice(0, 80));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
     if (pathname === "/orders") {
@@ -760,6 +774,11 @@ function OrdersPageContent() {
   }
 
   function applyPrimaryFilter(nextFilter: PrimaryListFilter) {
+    if (nextFilter !== "all") {
+      setSearchQuery("");
+      setDebouncedQuery("");
+    }
+
     const clearTerminalStatus =
       nextFilter !== "all" &&
       nextFilter !== "archived" &&
@@ -850,6 +869,10 @@ function OrdersPageContent() {
           params.set("dir", sortDir);
         }
 
+        if (listFilter === "all" && debouncedQuery) {
+          params.set("q", debouncedQuery);
+        }
+
         const response = await fetchLive(`/api/orders?${params.toString()}`, {
           signal,
         });
@@ -896,6 +919,7 @@ function OrdersPageContent() {
       selectedStoreParam,
       sortField,
       sortDir,
+      debouncedQuery,
     ]
   );
 
@@ -1241,6 +1265,19 @@ function OrdersPageContent() {
               ))}
             </div>
 
+            {listFilter === "all" ? (
+              <label className="grid gap-1 text-sm font-medium text-foreground">
+                Buscar
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Referencia, título o cliente"
+                  className="min-h-11 w-full rounded-md border border-border bg-background px-3 py-2 text-base"
+                />
+              </label>
+            ) : null}
+
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="gc-field sm:min-w-[200px]">
                 <span className="gc-field-label">Estado</span>
@@ -1339,9 +1376,11 @@ function OrdersPageContent() {
                         Boolean(assignedMemberId),
                         Boolean(statusId),
                         Boolean(selectedStoreParam),
-                        allTotal
+                        allTotal,
+                        Boolean(debouncedQuery)
                       )}
                       description={
+                        debouncedQuery ||
                         assignedMemberId ||
                         statusId ||
                         selectedStoreParam ||

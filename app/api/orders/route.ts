@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
+import {
+  buildOrdersSearchOrFilter,
+  escapeIlikePattern,
+  normalizeOrdersListQuery,
+} from "@/lib/orders/list-search";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
@@ -475,6 +480,7 @@ export async function GET(request: NextRequest) {
   const rawDir = searchParams.get("dir");
   const sortField = parseSortField(rawSort);
   const sortDir = parseSortDir(rawDir);
+  const searchQuery = normalizeOrdersListQuery(searchParams.get("q"));
 
   if (rawFilter && !listFilter) {
     return operationalJson({ error: "Invalid value" }, { status: 400 });
@@ -744,6 +750,38 @@ export async function GET(request: NextRequest) {
   }
 
   query = applyStoreListFilter(query, storeFilter);
+
+  if (searchQuery) {
+    const pattern = `%${escapeIlikePattern(searchQuery)}%`;
+    const { data: clientRows, error: clientSearchError } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("tenant_id", context.tenant.id)
+      .ilike("name", pattern)
+      .limit(200);
+
+    if (clientSearchError) {
+      console.error("[GET /api/orders] Could not search clients", {
+        tenantId: context.tenant.id,
+        error: clientSearchError,
+      });
+      return operationalJson(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
+    const matchingClientIds = (clientRows ?? [])
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string");
+
+    query = query.or(
+      buildOrdersSearchOrFilter({
+        q: searchQuery,
+        matchingClientIds,
+      })
+    );
+  }
 
   const {
     data: orders,
