@@ -35,6 +35,7 @@ type Order = {
   title: string;
   priority: string;
   due_at: string | null;
+  archived_at?: string | null;
 
   client: {
     name: string;
@@ -108,9 +109,10 @@ type ListFilter =
   | "urgent"
   | "overdue"
   | "all"
+  | "archived"
   | "attention"
   | "upcoming";
-type PrimaryListFilter = "active" | "urgent" | "overdue" | "all";
+type PrimaryListFilter = "active" | "urgent" | "overdue" | "all" | "archived";
 type SortField =
   | "reference"
   | "client"
@@ -143,6 +145,7 @@ function parseListFilter(raw: string | null): ListFilter | null {
     raw === "urgent" ||
     raw === "overdue" ||
     raw === "all" ||
+    raw === "archived" ||
     raw === "attention" ||
     raw === "upcoming"
   ) {
@@ -211,7 +214,8 @@ function primaryFilterFrom(filter: ListFilter): PrimaryListFilter | null {
     filter === "active" ||
     filter === "urgent" ||
     filter === "overdue" ||
-    filter === "all"
+    filter === "all" ||
+    filter === "archived"
   ) {
     return filter;
   }
@@ -246,6 +250,10 @@ function emptyTitleForFilter(
     return allTotal === 0 ? "No hay pedidos todavía" : "No hay pedidos";
   }
 
+  if (filter === "archived") {
+    return "No hay pedidos archivados";
+  }
+
   if (filter === "attention" || filter === "upcoming") {
     return "No hay pedidos con estos filtros";
   }
@@ -274,7 +282,11 @@ function summaryForFilter(
   }
 
   if (filter === "all") {
-    return `${total} pedidos totales`;
+    return `${total} pedidos (sin archivados)`;
+  }
+
+  if (filter === "archived") {
+    return `${total} pedidos archivados`;
   }
 
   if (filter === "attention" || filter === "upcoming") {
@@ -748,7 +760,9 @@ function OrdersPageContent() {
 
   function applyPrimaryFilter(nextFilter: PrimaryListFilter) {
     const clearTerminalStatus =
-      nextFilter !== "all" && isTerminalStatus(selectedStatus);
+      nextFilter !== "all" &&
+      nextFilter !== "archived" &&
+      isTerminalStatus(selectedStatus);
 
     replaceListParams({
       filter: nextFilter,
@@ -1144,6 +1158,7 @@ function OrdersPageContent() {
     { id: "urgent", label: "Urgentes" },
     { id: "overdue", label: "Retrasados" },
     { id: "all", label: "Todos" },
+    { id: "archived", label: "Archivados" },
   ];
 
   return (
@@ -1387,6 +1402,11 @@ function OrdersPageContent() {
 
                                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.8125rem] text-muted-foreground">
                                     <span>{order.reference}</span>
+                                    {order.archived_at ? (
+                                      <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                                        Archivado
+                                      </span>
+                                    ) : null}
                                     {order.priority === "urgent" ||
                                     order.priority === "high" ? (
                                       <span

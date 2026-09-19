@@ -5,12 +5,28 @@ import {
   canUseQuickOrder,
   homePathForRole,
   isNavItemVisible,
+  navGroupIsActive,
   navItemIsActive,
   navItemsForRole,
+  navStructureForRole,
 } from "./items";
 
 function labels(role: string | null) {
   return navItemsForRole(role).map((item) => item.label);
+}
+
+function groupLabels(role: string | null) {
+  return navStructureForRole(role).map((entry) =>
+    entry.type === "link" ? entry.item.label : entry.group.label
+  );
+}
+
+function groupChildLabels(role: string | null, groupId: string) {
+  const entry = navStructureForRole(role).find(
+    (row) => row.type === "group" && row.group.id === groupId
+  );
+  if (!entry || entry.type !== "group") return [];
+  return entry.group.items.map((item) => item.label);
 }
 
 describe("staff and management navigation", () => {
@@ -20,7 +36,8 @@ describe("staff and management navigation", () => {
       "Mis pedidos",
       "Mostrador",
       "Pedido rápido",
-      "Pedidos",
+      "Todos los pedidos",
+      "Archivados",
       "Clientes",
       "Servicios",
       "Equipo",
@@ -50,6 +67,7 @@ describe("staff and management navigation", () => {
     ]);
     assert.equal(isNavItemVisible("home", "staff"), false);
     assert.equal(isNavItemVisible("orders", "staff"), false);
+    assert.equal(isNavItemVisible("archived", "staff"), false);
     assert.equal(isNavItemVisible("services", "staff"), false);
     assert.equal(isNavItemVisible("team", "staff"), false);
     assert.equal(isNavItemVisible("activity", "staff"), false);
@@ -68,7 +86,8 @@ describe("staff and management navigation", () => {
       "Inicio",
       "Mis pedidos",
       "Mostrador",
-      "Pedidos",
+      "Todos los pedidos",
+      "Archivados",
       "Clientes",
       "Servicios",
     ]);
@@ -92,14 +111,14 @@ describe("staff and management navigation", () => {
     );
     assert.equal(
       navItemIsActive(
-        { id: "orders", href: "/orders", label: "Pedidos" },
+        { id: "orders", href: "/orders", label: "Todos los pedidos" },
         "/orders/quick"
       ),
       false
     );
     assert.equal(
       navItemIsActive(
-        { id: "orders", href: "/orders", label: "Pedidos" },
+        { id: "orders", href: "/orders", label: "Todos los pedidos" },
         "/orders/abc"
       ),
       true
@@ -119,5 +138,101 @@ describe("staff and management navigation", () => {
       true
     );
     assert.equal(isNavItemVisible("settings", "owner"), true);
+  });
+});
+
+describe("nav structure groups", () => {
+  it("groups Pedidos / Gestión / Administración with expected children", () => {
+    assert.deepEqual(groupLabels("owner"), [
+      "Inicio",
+      "Pedidos",
+      "Clientes",
+      "Gestión",
+      "Administración",
+    ]);
+    assert.deepEqual(groupChildLabels("owner", "orders"), [
+      "Mostrador",
+      "Todos los pedidos",
+      "Mis pedidos",
+      "Pedido rápido",
+      "Archivados",
+    ]);
+    assert.deepEqual(groupChildLabels("owner", "management"), [
+      "Servicios",
+      "Equipo",
+    ]);
+    assert.deepEqual(groupChildLabels("owner", "admin"), [
+      "Actividad",
+      "Configuración",
+    ]);
+  });
+
+  it("omits empty groups for staff", () => {
+    assert.deepEqual(groupLabels("staff"), ["Pedidos", "Clientes"]);
+    assert.deepEqual(groupChildLabels("staff", "orders"), [
+      "Mostrador",
+      "Mis pedidos",
+      "Pedido rápido",
+    ]);
+    assert.equal(groupChildLabels("staff", "management").length, 0);
+    assert.equal(groupChildLabels("staff", "admin").length, 0);
+  });
+
+  it("marks Pedidos group active for child routes and archived filter", () => {
+    const ordersGroup = navStructureForRole("owner").find(
+      (entry) => entry.type === "group" && entry.group.id === "orders"
+    );
+    assert.ok(ordersGroup && ordersGroup.type === "group");
+
+    assert.equal(navGroupIsActive(ordersGroup.group, "/counter"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/abc"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/mine"), true);
+    assert.equal(navGroupIsActive(ordersGroup.group, "/orders/quick"), true);
+    assert.equal(
+      navGroupIsActive(ordersGroup.group, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("view=list&filter=archived"),
+      }),
+      true
+    );
+
+    const archivedItem = ordersGroup.group.items.find(
+      (item) => item.id === "archived"
+    );
+    const allOrdersItem = ordersGroup.group.items.find(
+      (item) => item.id === "orders"
+    );
+    assert.ok(archivedItem && allOrdersItem);
+
+    assert.equal(
+      navItemIsActive(archivedItem, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("filter=archived"),
+      }),
+      true
+    );
+    assert.equal(
+      navItemIsActive(allOrdersItem, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("filter=archived"),
+      }),
+      false
+    );
+    assert.equal(
+      navItemIsActive(allOrdersItem, {
+        pathname: "/orders",
+        searchParams: new URLSearchParams("filter=active"),
+      }),
+      true
+    );
+  });
+
+  it("Archivados uses the same gate as Todos los pedidos", () => {
+    for (const role of ["owner", "admin", "manager", "viewer", "staff"] as const) {
+      assert.equal(
+        isNavItemVisible("archived", role),
+        isNavItemVisible("orders", role)
+      );
+    }
   });
 });

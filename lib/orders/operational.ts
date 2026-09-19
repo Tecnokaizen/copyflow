@@ -53,3 +53,19 @@ export function applyOperationalOrdersFilter<T>(query: T): T {
   next = next.eq("status.is_cancelled", false);
   return next as T;
 }
+
+/** Non-archived orders (active + closed + cancelled). */
+export function applyNonArchivedOrdersFilter<T>(query: T): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see note above
+  let next: any = query;
+  next = next.is("archived_at", null);
+  return next as T;
+}
+
+/** Soft-archived orders only. */
+export function applyArchivedOrdersFilter<T>(query: T): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see note above
+  let next: any = query;
+  next = next.not("archived_at", "is", null);
+  return next as T;
+}
