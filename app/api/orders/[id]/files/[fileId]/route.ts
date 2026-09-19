@@ -58,6 +58,49 @@ export async function DELETE(
     return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
   }
 
+  const { data: file, error: fileError } = await supabase
+    .from("order_files")
+    .select("id, storage_key, deleted_at")
+    .eq("id", fileId)
+    .eq("order_id", orderId)
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+
+  if (fileError || !file) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
+  }
+
+  if (typeof file.storage_key !== "string" || !file.storage_key) {
+    console.error("[DELETE .../files/:fileId] storage_key missing", {
+      file_id: fileId,
+    });
+    return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
+  }
+
+  // Delete the blob first. If R2 fails, metadata stays active so the delete can
+  // be retried without leaving a silently orphaned object behind.
+  try {
+    await deleteObject({ key: file.storage_key });
+  } catch (error) {
+    console.error(
+      "[DELETE .../files/:fileId] R2 delete failed (metadata preserved)",
+      {
+        message: error instanceof Error ? error.message : "unknown",
+        file_id: fileId,
+      }
+    );
+    return NextResponse.json(
+      { error: "Could not delete file" },
+      { status: 502 }
+    );
+  }
+
+  // Idempotent replay: metadata may already be soft-deleted from an earlier
+  // successful request. Re-deleting the R2 object is safe.
+  if (file.deleted_at) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   const issuedAt = filesCapabilityIssuedAtNow();
   const capability = createFilesCapability(
     {
@@ -87,29 +130,6 @@ export async function DELETE(
     });
     const mapped = mapOrderFileRpcError(deleteError, "Could not delete file");
     return NextResponse.json(mapped.body, { status: mapped.status });
-  }
-
-  const payload = deleted as {
-    storage_key?: unknown;
-    replay?: unknown;
-  };
-
-  if (payload.replay === true) {
-    return new NextResponse(null, { status: 204 });
-  }
-
-  if (typeof payload.storage_key === "string") {
-    try {
-      await deleteObject({ key: payload.storage_key });
-    } catch (error) {
-      console.error(
-        "[DELETE .../files/:fileId] R2 delete failed (metadata deleted)",
-        {
-          message: error instanceof Error ? error.message : "unknown",
-          file_id: fileId,
-        }
-      );
-    }
   }
 
   return new NextResponse(null, { status: 204 });
