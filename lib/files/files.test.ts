@@ -256,7 +256,7 @@ describe("API contracts (source)", () => {
     assert.ok(headCall >= 0 && capCall > headCall, "HEAD must precede capability");
   });
 
-  it("delete uses soft_delete_order_file with capability then R2", () => {
+  it("delete removes R2 object before soft_delete_order_file", () => {
     const source = read(
       "app",
       "api",
@@ -272,6 +272,16 @@ describe("API contracts (source)", () => {
     assert.match(source, /p_signature/);
     assert.equal(/\.from\(\s*["']order_files["']\s*\)\s*\.update/.test(source), false);
     assert.match(source, /deleteObject/);
+    assert.match(source, /metadata preserved/);
+
+    const r2DeleteCall = source.search(/await\s+deleteObject\s*\(/);
+    const softDeleteCall = source.search(/soft_delete_order_file/);
+    assert.ok(
+      r2DeleteCall >= 0 && softDeleteCall > r2DeleteCall,
+      "R2 delete must happen before metadata soft-delete"
+    );
+
+    assert.match(source, /status:\s*502/);
   });
 
   it("download uses GET presign with attachment disposition", () => {
