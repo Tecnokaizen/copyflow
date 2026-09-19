@@ -10,6 +10,7 @@ import { AppShell } from "@/components/gestcopy/app-shell";
 import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
+import { OrderFilesSection } from "@/components/files/order-files-section";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
 import { OrderFulfillment } from "@/components/orders/detail/order-fulfillment";
 import { OrderHeader } from "@/components/orders/detail/order-header";
@@ -118,6 +119,7 @@ export function OrderWorkspace() {
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [activityTick, setActivityTick] = useState(0);
   const [managementOptions, setManagementOptions] =
     useState<ManagementOptionsResponse | null>(null);
   const [managementOptionsLoading, setManagementOptionsLoading] =
@@ -395,7 +397,7 @@ export function OrderWorkspace() {
     return () => {
       activityAbortRef.current?.abort();
     };
-  }, [params.id]);
+  }, [params.id, activityTick]);
 
   function patchDraft(patch: Partial<OrderDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -1322,6 +1324,19 @@ export function OrderWorkspace() {
             draft={draft}
             editing={editing}
             onDraftChange={patchDraft}
+          />
+        </div>
+
+        <div className="mt-6">
+          <OrderFilesSection
+            key={order.id}
+            orderId={order.id}
+            canMutate={canMutateOrderActions({
+              canWrite,
+              archived_at: order.archived_at,
+            })}
+            archived={isOrderArchived(order)}
+            onChanged={() => setActivityTick((tick) => tick + 1)}
           />
         </div>
 
