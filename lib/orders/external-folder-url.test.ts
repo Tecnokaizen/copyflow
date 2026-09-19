@@ -34,6 +34,9 @@ describe("normalizeExternalFolderUrl", () => {
     assert.equal(normalizeExternalFolderUrl("data:text/html,test").ok, false);
     assert.equal(normalizeExternalFolderUrl("ftp://example.com").ok, false);
     assert.equal(normalizeExternalFolderUrl("not-a-url").ok, false);
+    assert.equal(normalizeExternalFolderUrl("https://").ok, false);
+    assert.equal(normalizeExternalFolderUrl("http://").ok, false);
+    assert.equal(normalizeExternalFolderUrl("https:// ").ok, false);
     assert.equal(normalizeExternalFolderUrl(123).ok, false);
   });
 

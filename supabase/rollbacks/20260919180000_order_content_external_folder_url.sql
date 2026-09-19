@@ -1,6 +1,28 @@
--- A1: admit external_folder_url on change_order_content_v2 + activity.
--- Preserves concurrency, archived immutability, tenant checks, grants.
+\set ON_ERROR_STOP on
 
+-- Rollback for 20260919180000_order_content_external_folder_url.sql
+--
+-- Restores the last canonical definitions immediately before 20260919180000:
+--   change_order_content_v2      -> 20260918140000_order_concurrency_v1.sql
+--   tg_activity_log_order_content + trg_orders_activity_log_content
+--                                -> 20260907171432_remote_schema.sql
+--
+-- Does NOT:
+--   - drop orders.external_folder_url (column ownership unchanged)
+--   - touch row_version / orders_bump_row_version
+--   - touch lifecycle guard / archive / status RPCs
+--   - touch Kiosk
+--   - touch Files/R2
+--   - mutate order rows
+--
+-- After this rollback, external_folder_url is again read-only via RPC
+-- (API field list must be rolled back separately in application code).
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- change_order_content_v2 (pre-19180000 · title/description/notes only)
+-- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.change_order_content_v2 (
   p_order_id  uuid,
   p_field     text,
@@ -33,8 +55,7 @@ begin
   if p_field not in (
     'title',
     'description',
-    'notes',
-    'external_folder_url'
+    'notes'
   ) then
     raise exception 'invalid order content field'
       using errcode = '22023';
@@ -61,10 +82,13 @@ begin
   end if;
 
   -- Archived orders are read-only (Order Editing V1 · E1).
+  -- Same semantics as change_order_status: reject before any mutation,
+  -- including idempotent no-op paths.
   if v_order.archived_at is not null then
     raise exception 'order is archived'
       using errcode = '42501';
   end if;
+
 
   if p_expected_version is null then
     raise exception 'p_expected_version is required'
@@ -76,8 +100,10 @@ begin
       using errcode = 'GCO01';
   end if;
 
+
   -- =======================================================
   -- TÍTULO
+  -- Obligatorio y no vacío.
   -- =======================================================
 
   if p_field = 'title' then
@@ -98,8 +124,7 @@ begin
           'reference', v_order.reference,
           'title', v_order.title,
           'description', v_order.description,
-          'notes', v_order.notes,
-          'external_folder_url', v_order.external_folder_url
+          'notes', v_order.notes
         ),
         'field', p_field,
         'value', v_order.title
@@ -118,6 +143,7 @@ begin
 
   -- =======================================================
   -- DESCRIPCIÓN
+  -- Vacío => NULL
   -- =======================================================
 
   elsif p_field = 'description' then
@@ -137,8 +163,7 @@ begin
           'reference', v_order.reference,
           'title', v_order.title,
           'description', v_order.description,
-          'notes', v_order.notes,
-          'external_folder_url', v_order.external_folder_url
+          'notes', v_order.notes
         ),
         'field', p_field,
         'value', pg_catalog.to_jsonb(v_order.description)
@@ -157,6 +182,7 @@ begin
 
   -- =======================================================
   -- NOTAS
+  -- Vacío => NULL
   -- =======================================================
 
   elsif p_field = 'notes' then
@@ -176,8 +202,7 @@ begin
           'reference', v_order.reference,
           'title', v_order.title,
           'description', v_order.description,
-          'notes', v_order.notes,
-          'external_folder_url', v_order.external_folder_url
+          'notes', v_order.notes
         ),
         'field', p_field,
         'value', pg_catalog.to_jsonb(v_order.notes)
@@ -189,60 +214,6 @@ begin
 
     update public.orders
     set notes = v_normalized_value
-    where id = v_order.id
-      and tenant_id = p_tenant_id
-    returning * into v_updated;
-
-
-  -- =======================================================
-  -- ENLACE EXTERNO (Drive / carpeta)
-  -- Vacío => NULL. Solo http(s), máx 2048.
-  -- =======================================================
-
-  elsif p_field = 'external_folder_url' then
-
-    if p_value is null
-       or pg_catalog.btrim(p_value) = '' then
-      v_normalized_value := null;
-    else
-      v_normalized_value := pg_catalog.btrim(p_value);
-
-      if pg_catalog.char_length(v_normalized_value) > 2048 then
-        raise exception 'invalid order content value'
-          using errcode = '22023';
-      end if;
-
-      -- Align with API URL() + http(s)-only contract:
-      -- scheme http/https, non-empty host, host without whitespace.
-      -- Rejects bare "https://", "http://", whitespace-only hosts, and
-      -- non-http(s) schemes (javascript:, data:, ftp:, …).
-      if v_normalized_value !~* '^https?://[^[:space:]/?#]+([/?#]|$)' then
-        raise exception 'invalid order content value'
-          using errcode = '22023';
-      end if;
-    end if;
-
-    if v_order.external_folder_url is not distinct from v_normalized_value then
-      return pg_catalog.jsonb_build_object(
-        'order',
-        pg_catalog.jsonb_build_object(
-          'id', v_order.id,
-          'reference', v_order.reference,
-          'title', v_order.title,
-          'description', v_order.description,
-          'notes', v_order.notes,
-          'external_folder_url', v_order.external_folder_url
-        ),
-        'field', p_field,
-        'value', pg_catalog.to_jsonb(v_order.external_folder_url)
-      )
-    || pg_catalog.jsonb_build_object(
-      'version', v_order.row_version::text
-    );
-    end if;
-
-    update public.orders
-    set external_folder_url = v_normalized_value
     where id = v_order.id
       and tenant_id = p_tenant_id
     returning * into v_updated;
@@ -263,8 +234,7 @@ begin
       'reference', v_updated.reference,
       'title', v_updated.title,
       'description', v_updated.description,
-      'notes', v_updated.notes,
-      'external_folder_url', v_updated.external_folder_url
+      'notes', v_updated.notes
     ),
     'field', p_field,
     'value',
@@ -275,8 +245,6 @@ begin
           then pg_catalog.to_jsonb(v_updated.description)
         when 'notes'
           then pg_catalog.to_jsonb(v_updated.notes)
-        when 'external_folder_url'
-          then pg_catalog.to_jsonb(v_updated.external_folder_url)
         else 'null'::jsonb
       end
   )
@@ -289,7 +257,9 @@ $function$;
 REVOKE ALL ON FUNCTION public.change_order_content_v2(uuid, text, text, uuid, bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.change_order_content_v2(uuid, text, text, uuid, bigint) TO authenticated, postgres;
 
--- Activity for external_folder_url (same action/metadata pattern as other content fields).
+-- ---------------------------------------------------------------------------
+-- tg_activity_log_order_content + trigger (pre-19180000 · no external_folder_url)
+-- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.tg_activity_log_order_content()
   RETURNS TRIGGER
   LANGUAGE plpgsql
@@ -321,57 +291,104 @@ begin
       using errcode = '42501';
   end if;
 
+
+  -- TÍTULO
   if old.title is distinct from new.title then
     insert into public.activity_log (
-      tenant_id, user_id, team_member_id, action, entity_type, entity_id,
-      previous_values, new_values, metadata
+      tenant_id,
+      user_id,
+      team_member_id,
+      action,
+      entity_type,
+      entity_id,
+      previous_values,
+      new_values,
+      metadata
     )
     values (
-      new.tenant_id, v_actor, null, 'order.content_changed', 'order', new.id,
-      pg_catalog.jsonb_build_object('value', old.title),
-      pg_catalog.jsonb_build_object('value', new.title),
-      pg_catalog.jsonb_build_object('reference', new.reference, 'field', 'title')
-    );
-  end if;
-
-  if old.description is distinct from new.description then
-    insert into public.activity_log (
-      tenant_id, user_id, team_member_id, action, entity_type, entity_id,
-      previous_values, new_values, metadata
-    )
-    values (
-      new.tenant_id, v_actor, null, 'order.content_changed', 'order', new.id,
-      pg_catalog.jsonb_build_object('value', old.description),
-      pg_catalog.jsonb_build_object('value', new.description),
-      pg_catalog.jsonb_build_object('reference', new.reference, 'field', 'description')
-    );
-  end if;
-
-  if old.notes is distinct from new.notes then
-    insert into public.activity_log (
-      tenant_id, user_id, team_member_id, action, entity_type, entity_id,
-      previous_values, new_values, metadata
-    )
-    values (
-      new.tenant_id, v_actor, null, 'order.content_changed', 'order', new.id,
-      pg_catalog.jsonb_build_object('value', old.notes),
-      pg_catalog.jsonb_build_object('value', new.notes),
-      pg_catalog.jsonb_build_object('reference', new.reference, 'field', 'notes')
-    );
-  end if;
-
-  if old.external_folder_url is distinct from new.external_folder_url then
-    insert into public.activity_log (
-      tenant_id, user_id, team_member_id, action, entity_type, entity_id,
-      previous_values, new_values, metadata
-    )
-    values (
-      new.tenant_id, v_actor, null, 'order.content_changed', 'order', new.id,
-      pg_catalog.jsonb_build_object('value', old.external_folder_url),
-      pg_catalog.jsonb_build_object('value', new.external_folder_url),
+      new.tenant_id,
+      v_actor,
+      null,
+      'order.content_changed',
+      'order',
+      new.id,
+      pg_catalog.jsonb_build_object(
+        'value', old.title
+      ),
+      pg_catalog.jsonb_build_object(
+        'value', new.title
+      ),
       pg_catalog.jsonb_build_object(
         'reference', new.reference,
-        'field', 'external_folder_url'
+        'field', 'title'
+      )
+    );
+  end if;
+
+
+  -- DESCRIPCIÓN
+  if old.description is distinct from new.description then
+    insert into public.activity_log (
+      tenant_id,
+      user_id,
+      team_member_id,
+      action,
+      entity_type,
+      entity_id,
+      previous_values,
+      new_values,
+      metadata
+    )
+    values (
+      new.tenant_id,
+      v_actor,
+      null,
+      'order.content_changed',
+      'order',
+      new.id,
+      pg_catalog.jsonb_build_object(
+        'value', old.description
+      ),
+      pg_catalog.jsonb_build_object(
+        'value', new.description
+      ),
+      pg_catalog.jsonb_build_object(
+        'reference', new.reference,
+        'field', 'description'
+      )
+    );
+  end if;
+
+
+  -- NOTAS
+  if old.notes is distinct from new.notes then
+    insert into public.activity_log (
+      tenant_id,
+      user_id,
+      team_member_id,
+      action,
+      entity_type,
+      entity_id,
+      previous_values,
+      new_values,
+      metadata
+    )
+    values (
+      new.tenant_id,
+      v_actor,
+      null,
+      'order.content_changed',
+      'order',
+      new.id,
+      pg_catalog.jsonb_build_object(
+        'value', old.notes
+      ),
+      pg_catalog.jsonb_build_object(
+        'value', new.notes
+      ),
+      pg_catalog.jsonb_build_object(
+        'reference', new.reference,
+        'field', 'notes'
       )
     );
   end if;
@@ -383,12 +400,9 @@ $function$;
 DROP TRIGGER IF EXISTS trg_orders_activity_log_content ON public.orders;
 
 CREATE TRIGGER trg_orders_activity_log_content
-  AFTER UPDATE OF title, description, notes, external_folder_url ON public.orders
+  AFTER UPDATE OF title, description, notes ON public.orders
   FOR EACH ROW
-  WHEN (
-    (old.title IS DISTINCT FROM new.title)
-    OR (old.description IS DISTINCT FROM new.description)
-    OR (old.notes IS DISTINCT FROM new.notes)
-    OR (old.external_folder_url IS DISTINCT FROM new.external_folder_url)
-  )
+  WHEN (((old.title IS DISTINCT FROM new.title) OR (old.description IS DISTINCT FROM new.description) OR (old.notes IS DISTINCT FROM new.notes)))
   EXECUTE FUNCTION public.tg_activity_log_order_content();
+
+commit;

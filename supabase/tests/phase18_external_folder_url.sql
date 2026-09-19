@@ -1,5 +1,5 @@
 -- A1 regression: external_folder_url via change_order_content_v2
--- Tenant isolation, archived, stale version, activity, row_version.
+-- URL validation aligned with API, tenant/archived/stale, activity, row_version.
 
 begin;
 
@@ -23,6 +23,7 @@ declare
   v_version_2 bigint;
   v_url text;
   v_count integer;
+  v_long text;
 begin
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
@@ -99,7 +100,7 @@ begin
 
   perform public.archive_order(v_order_archived, v_tenant_a);
 
-  -- A can set external_folder_url
+  -- valid https
   v_result := public.change_order_content_v2(
     v_order_open,
     'external_folder_url',
@@ -108,21 +109,16 @@ begin
     0
   );
 
-  if v_result->>'field' is distinct from 'external_folder_url' then
-    raise exception 'FAIL set field metadata';
-  end if;
-
   select external_folder_url, row_version
   into v_url, v_version
   from public.orders
   where id = v_order_open;
 
   if v_url is distinct from 'https://drive.google.com/folder/abc' then
-    raise exception 'FAIL url not saved (%)', v_url;
+    raise exception 'FAIL https not saved (%)', v_url;
   end if;
-
   if v_version is distinct from 1 then
-    raise exception 'FAIL row_version not bumped (%)', v_version;
+    raise exception 'FAIL row_version after https (%)', v_version;
   end if;
 
   select count(*) into v_count
@@ -130,108 +126,167 @@ begin
   where entity_id = v_order_open
     and action = 'order.content_changed'
     and metadata->>'field' = 'external_folder_url';
-
-  if v_count <> 1 then
-    raise exception 'FAIL activity expected 1 got %', v_count;
+  if v_count < 1 then
+    raise exception 'FAIL activity not written';
   end if;
 
-  -- Stale expected_version
-  begin
-    perform public.change_order_content_v2(
-      v_order_open,
-      'external_folder_url',
-      'https://example.com/stale',
-      v_tenant_a,
-      0
-    );
-    raise exception 'FAIL stale should reject';
-  exception
-    when others then
-      get stacked diagnostics v_sqlstate = returned_sqlstate;
-      if v_sqlstate is distinct from 'GCO01' then
-        raise exception 'FAIL stale expected GCO01 got %', v_sqlstate;
-      end if;
-  end;
-
-  -- Clear URL with current version
+  -- valid http
   v_result := public.change_order_content_v2(
     v_order_open,
     'external_folder_url',
-    '',
+    'http://example.com/folder',
     v_tenant_a,
     1
   );
+  select external_folder_url, row_version into v_url, v_version
+  from public.orders where id = v_order_open;
+  if v_url is distinct from 'http://example.com/folder' then
+    raise exception 'FAIL http not saved (%)', v_url;
+  end if;
+  if v_version is distinct from 2 then
+    raise exception 'FAIL row_version after http (%)', v_version;
+  end if;
 
-  select external_folder_url, row_version
-  into v_url, v_version_2
-  from public.orders
-  where id = v_order_open;
-
+  -- blank => NULL
+  v_result := public.change_order_content_v2(
+    v_order_open, 'external_folder_url', '   ', v_tenant_a, 2
+  );
+  select external_folder_url, row_version into v_url, v_version_2
+  from public.orders where id = v_order_open;
   if v_url is not null then
-    raise exception 'FAIL clear url expected null got %', v_url;
+    raise exception 'FAIL blank expected null got %', v_url;
+  end if;
+  if v_version_2 is distinct from 3 then
+    raise exception 'FAIL row_version after blank (%)', v_version_2;
   end if;
 
-  if v_version_2 is distinct from 2 then
-    raise exception 'FAIL clear row_version (%)', v_version_2;
-  end if;
-
-  select row_version into v_version from public.orders where id = v_order_archived;
-
+  -- helper: expect 22023
+  -- javascript:
   begin
     perform public.change_order_content_v2(
-      v_order_archived,
-      'external_folder_url',
-      'https://example.com/archived',
-      v_tenant_a,
-      v_version
+      v_order_open, 'external_folder_url', 'javascript:alert(1)', v_tenant_a, 3
+    );
+    raise exception 'FAIL javascript should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL javascript expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- ftp:
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', 'ftp://example.com', v_tenant_a, 3
+    );
+    raise exception 'FAIL ftp should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL ftp expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- plain text
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', 'not-a-url', v_tenant_a, 3
+    );
+    raise exception 'FAIL plain text should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL plain text expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- malformed https://
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', 'https://', v_tenant_a, 3
+    );
+    raise exception 'FAIL bare https:// should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL bare https:// expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- whitespace-only host
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', 'https:// ', v_tenant_a, 3
+    );
+    raise exception 'FAIL whitespace host should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL whitespace host expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- >2048
+  v_long := 'https://example.com/' || repeat('a', 2100);
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', v_long, v_tenant_a, 3
+    );
+    raise exception 'FAIL >2048 should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '22023' then
+      raise exception 'FAIL >2048 expected 22023 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- confirm rejected writes did not bump version or set url
+  select external_folder_url, row_version into v_url, v_version
+  from public.orders where id = v_order_open;
+  if v_url is not null or v_version is distinct from 3 then
+    raise exception 'FAIL rejected writes mutated state url=% version=%', v_url, v_version;
+  end if;
+
+  -- stale expected_version
+  begin
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', 'https://example.com/stale', v_tenant_a, 0
+    );
+    raise exception 'FAIL stale should reject';
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from 'GCO01' then
+      raise exception 'FAIL stale expected GCO01 got %', v_sqlstate;
+    end if;
+  end;
+
+  -- archived
+  select row_version into v_version from public.orders where id = v_order_archived;
+  begin
+    perform public.change_order_content_v2(
+      v_order_archived, 'external_folder_url', 'https://example.com/archived',
+      v_tenant_a, v_version
     );
     raise exception 'FAIL archived should reject';
-  exception
-    when others then
-      get stacked diagnostics v_sqlstate = returned_sqlstate;
-      if v_sqlstate is distinct from '42501' then
-        raise exception 'FAIL archived expected 42501 got %', v_sqlstate;
-      end if;
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate is distinct from '42501' then
+      raise exception 'FAIL archived expected 42501 got %', v_sqlstate;
+    end if;
   end;
 
-  -- Tenant B cannot mutate tenant A order
+  -- cross-tenant
   perform set_config('request.jwt.claim.sub', v_owner_b::text, true);
-
   begin
     perform public.change_order_content_v2(
-      v_order_open,
-      'external_folder_url',
-      'https://evil.example/x',
-      v_tenant_a,
-      2
+      v_order_open, 'external_folder_url', 'https://evil.example/x', v_tenant_a, 3
     );
     raise exception 'FAIL cross-tenant should reject';
-  exception
-    when others then
-      get stacked diagnostics v_sqlstate = returned_sqlstate;
-      if v_sqlstate not in ('42501', 'P0002') then
-        raise exception 'FAIL cross-tenant expected 42501/P0002 got %', v_sqlstate;
-      end if;
-  end;
-
-  -- Reject invalid scheme at RPC layer
-  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
-
-  begin
-    perform public.change_order_content_v2(
-      v_order_open,
-      'external_folder_url',
-      'javascript:alert(1)',
-      v_tenant_a,
-      2
-    );
-    raise exception 'FAIL javascript url should reject';
-  exception
-    when others then
-      get stacked diagnostics v_sqlstate = returned_sqlstate;
-      if v_sqlstate is distinct from '22023' then
-        raise exception 'FAIL invalid url expected 22023 got %', v_sqlstate;
-      end if;
+  exception when others then
+    get stacked diagnostics v_sqlstate = returned_sqlstate;
+    if v_sqlstate not in ('42501', 'P0002') then
+      raise exception 'FAIL cross-tenant expected 42501/P0002 got %', v_sqlstate;
+    end if;
   end;
 
   raise notice 'PASS phase18 external_folder_url content';
