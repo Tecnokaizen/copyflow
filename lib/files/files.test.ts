@@ -370,7 +370,7 @@ describe("expired upload cleanup", () => {
 
     const vercel = read("vercel.json");
     assert.match(vercel, /api\/internal\/files\/cleanup/);
-    assert.match(vercel, /15 \* \* \* \*/);
+    assert.match(vercel, /15 3 \* \* \*/);
   });
 });
 
