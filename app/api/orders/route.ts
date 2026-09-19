@@ -3,8 +3,9 @@ import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
 import {
-  buildOrdersSearchOrFilter,
-  escapeIlikePattern,
+  ORDERS_CLIENT_SEARCH_EMBED,
+  buildOrdersClientNameImatchValue,
+  buildOrdersListSearchOrClause,
   normalizeOrdersListQuery,
 } from "@/lib/orders/list-search";
 import { createClient } from "@/lib/supabase/server";
@@ -703,7 +704,11 @@ export async function GET(request: NextRequest) {
     effectiveFilter === "attention" ||
     effectiveFilter === "upcoming";
 
-  const select = needsStatusInner ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  let select = needsStatusInner ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  if (searchQuery) {
+    // Empty embed for OR-filtering by client.name without constraining DTO embed.
+    select = `${select.trim()},\n  ${ORDERS_CLIENT_SEARCH_EMBED}`;
+  }
 
   let query = supabase
     .from("orders")
@@ -752,35 +757,12 @@ export async function GET(request: NextRequest) {
   query = applyStoreListFilter(query, storeFilter);
 
   if (searchQuery) {
-    const pattern = `%${escapeIlikePattern(searchQuery)}%`;
-    const { data: clientRows, error: clientSearchError } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("tenant_id", context.tenant.id)
-      .ilike("name", pattern)
-      .limit(200);
-
-    if (clientSearchError) {
-      console.error("[GET /api/orders] Could not search clients", {
-        tenantId: context.tenant.id,
-        error: clientSearchError,
-      });
-      return operationalJson(
-        { error: "Could not load orders" },
-        { status: 500 }
-      );
-    }
-
-    const matchingClientIds = (clientRows ?? [])
-      .map((row) => row.id)
-      .filter((id): id is string => typeof id === "string");
-
-    query = query.or(
-      buildOrdersSearchOrFilter({
-        q: searchQuery,
-        matchingClientIds,
-      })
-    );
+    // Embed name filter (AND on embed) + top-level OR with not.is.null.
+    // Keeps reference/title matches even when client name does not match.
+    // imatch (not ilike): PostgREST rewrites *→% in like/ilike even when quoted.
+    query = query
+      .filter("client_search.name", "imatch", buildOrdersClientNameImatchValue(searchQuery))
+      .or(buildOrdersListSearchOrClause(searchQuery));
   }
 
   const {
