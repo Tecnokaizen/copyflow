@@ -22,6 +22,15 @@ import {
   uploadOrderFile,
 } from "@/lib/files/client";
 import { formatFileSize } from "@/lib/files/format";
+import {
+  ORDER_UPLOAD_CONCURRENCY,
+  SILENT_LIST_REFRESH_NOTICE,
+  canApplyFilesUiUpdate,
+  claimUploadLocalId,
+  createConcurrencyGate,
+  listRefreshFailureMode,
+  releaseUploadLocalId,
+} from "@/lib/files/upload-queue";
 
 type OrderFilesSectionProps = {
   orderId: string;
@@ -49,57 +58,89 @@ export function OrderFilesSection({
   const [showDropzone, setShowDropzone] = useState(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<OrderFileDto | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const activeUploadsRef = useRef(0);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const claimedUploadsRef = useRef(new Set<string>());
+  const uploadGateRef = useRef(createConcurrencyGate(ORDER_UPLOAD_CONCURRENCY));
+  const onChangedRef = useRef(onChanged);
   const toastId = useId();
 
-  const refreshList = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent === true;
-    const controller = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = controller;
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  }, [onChanged]);
 
-    if (!silent) {
-      setLoading(true);
-    }
-    setListError(null);
+  const alive = useCallback(
+    (callbackOrderId: string) =>
+      canApplyFilesUiUpdate({
+        mounted: mountedRef.current,
+        instanceOrderId: orderId,
+        callbackOrderId,
+      }),
+    [orderId],
+  );
 
-    try {
-      const next = await listOrderFiles(orderId, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      setFiles(next.filter((file) => file.status === "ready"));
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      setListError(
-        err instanceof Error
-          ? err.message
-          : "No se han podido cargar los archivos.",
-      );
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
+  const refreshList = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      const requestOrderId = orderId;
+      const controller = new AbortController();
+      listAbortRef.current?.abort();
+      listAbortRef.current = controller;
+
+      if (!silent && alive(requestOrderId)) {
+        setLoading(true);
+        setListError(null);
       }
-    }
-  }, [orderId]);
+
+      try {
+        const next = await listOrderFiles(requestOrderId, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || !alive(requestOrderId)) return;
+        setFiles(next.filter((file) => file.status === "ready"));
+        setListError(null);
+        if (silent) {
+          setActionError(null);
+        }
+      } catch (err) {
+        if (controller.signal.aborted || !alive(requestOrderId)) return;
+        const message =
+          err instanceof Error
+            ? err.message
+            : "No se han podido cargar los archivos.";
+        if (listRefreshFailureMode({ silent }) === "keep_list_notice") {
+          setActionError(SILENT_LIST_REFRESH_NOTICE);
+          return;
+        }
+        setListError(message);
+      } finally {
+        if (!controller.signal.aborted && alive(requestOrderId)) {
+          setLoading(false);
+        }
+      }
+    },
+    [alive, orderId],
+  );
 
   useEffect(() => {
+    mountedRef.current = true;
+    const requestOrderId = orderId;
     const controller = new AbortController();
-    abortRef.current = controller;
+    listAbortRef.current = controller;
 
-    void listOrderFiles(orderId, { signal: controller.signal })
+    void listOrderFiles(requestOrderId, { signal: controller.signal })
       .then((next) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !alive(requestOrderId)) return;
         setFiles(next.filter((file) => file.status === "ready"));
         setListError(null);
         setLoading(false);
       })
       .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !alive(requestOrderId)) return;
         setListError(
           err instanceof Error
             ? err.message
@@ -109,13 +150,19 @@ export function OrderFilesSection({
       });
 
     return () => {
+      mountedRef.current = false;
       controller.abort();
+      if (listAbortRef.current === controller) {
+        listAbortRef.current = null;
+      }
     };
-  }, [orderId]);
+  }, [alive, orderId]);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 2800);
+    const timer = window.setTimeout(() => {
+      if (mountedRef.current) setToast(null);
+    }, 2800);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -132,66 +179,83 @@ export function OrderFilesSection({
       : "Documentos asociados al pedido";
 
   function patchUpload(localId: string, patch: Partial<ClientUploadItem>) {
+    if (!alive(orderId)) return;
     setUploads((prev) =>
-      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+      prev.map((item) =>
+        item.localId === localId ? { ...item, ...patch } : item,
+      ),
     );
   }
 
-  function enqueueUpload(item: ClientUploadItem) {
-    const run = async () => {
-      while (activeUploadsRef.current >= 2) {
-        await new Promise((resolve) => setTimeout(resolve, 40));
+  function enqueueUpload(
+    item: ClientUploadItem,
+    opts?: { alreadyClaimed?: boolean },
+  ) {
+    if (!opts?.alreadyClaimed) {
+      if (!claimUploadLocalId(claimedUploadsRef.current, item.localId)) {
+        return;
       }
-      activeUploadsRef.current += 1;
+    }
+
+    const capturedOrderId = orderId;
+
+    void uploadGateRef.current.run(async () => {
       try {
-        try {
-          const result = await uploadOrderFile(orderId, item.file, {
-            onPhase: (phase) => {
-              patchUpload(item.localId, {
-                phase,
-                ...(phase === "error"
-                  ? {}
-                  : { errorKind: null, errorMessage: null }),
-              });
-            },
-            onProgress: (progress) => {
-              patchUpload(item.localId, { phase: "uploading", progress });
-            },
-          });
-          patchUpload(item.localId, {
-            phase: "success",
-            progress: 100,
-            fileId: result.fileId,
-            errorKind: null,
-            errorMessage: null,
-          });
-          await refreshList({ silent: true });
-          onChanged?.();
+        if (!alive(capturedOrderId)) return;
+
+        const result = await uploadOrderFile(capturedOrderId, item.file, {
+          onPhase: (phase) => {
+            if (!alive(capturedOrderId)) return;
+            patchUpload(item.localId, {
+              phase,
+              ...(phase === "error"
+                ? {}
+                : { errorKind: null, errorMessage: null }),
+            });
+          },
+          onProgress: (progress) => {
+            if (!alive(capturedOrderId)) return;
+            patchUpload(item.localId, { phase: "uploading", progress });
+          },
+        });
+
+        if (!alive(capturedOrderId)) return;
+
+        patchUpload(item.localId, {
+          phase: "success",
+          progress: 100,
+          fileId: result.fileId,
+          errorKind: null,
+          errorMessage: null,
+        });
+
+        await refreshList({ silent: true });
+        if (alive(capturedOrderId)) {
+          onChangedRef.current?.();
           setUploads((prev) =>
             prev.filter((row) => row.localId !== item.localId),
           );
-        } catch (err: unknown) {
-          const kind =
-            err && typeof err === "object" && "kind" in err
-              ? ((err as { kind?: ClientUploadItem["errorKind"] }).kind ??
-                "client")
-              : "client";
-          const message =
-            err instanceof Error
-              ? err.message
-              : "No se ha podido subir el archivo.";
-          patchUpload(item.localId, {
-            phase: "error",
-            errorKind: kind,
-            errorMessage: message,
-          });
         }
+      } catch (err: unknown) {
+        if (!alive(capturedOrderId)) return;
+        const kind =
+          err && typeof err === "object" && "kind" in err
+            ? ((err as { kind?: ClientUploadItem["errorKind"] }).kind ??
+              "client")
+            : "client";
+        const message =
+          err instanceof Error
+            ? err.message
+            : "No se ha podido subir el archivo.";
+        patchUpload(item.localId, {
+          phase: "error",
+          errorKind: kind,
+          errorMessage: message,
+        });
       } finally {
-        activeUploadsRef.current -= 1;
+        releaseUploadLocalId(claimedUploadsRef.current, item.localId);
       }
-    };
-
-    uploadQueueRef.current = uploadQueueRef.current.then(run, run);
+    });
   }
 
   function startFiles(selected: File[]) {
@@ -226,6 +290,7 @@ export function OrderFilesSection({
 
     setUploads((prev) => [...nextItems, ...prev]);
     setShowDropzone(true);
+    setActionError(null);
 
     for (const item of nextItems) {
       if (item.phase === "error") continue;
@@ -237,8 +302,12 @@ export function OrderFilesSection({
     const current = uploads.find((item) => item.localId === localId);
     if (!current || !canMutate) return;
 
+    // Guard before any state update — double-click must not double INIT.
+    if (!claimUploadLocalId(claimedUploadsRef.current, localId)) return;
+
     const clientError = prevalidateClientFile(current.file);
     if (clientError) {
+      releaseUploadLocalId(claimedUploadsRef.current, localId);
       patchUpload(localId, {
         phase: "error",
         errorKind: "client",
@@ -254,51 +323,66 @@ export function OrderFilesSection({
       errorMessage: null,
       fileId: null,
     });
-    enqueueUpload({
-      ...current,
-      phase: "queued",
-      progress: 0,
-      errorKind: null,
-      errorMessage: null,
-      fileId: null,
-    });
+    enqueueUpload(
+      {
+        ...current,
+        phase: "queued",
+        progress: 0,
+        errorKind: null,
+        errorMessage: null,
+        fileId: null,
+      },
+      { alreadyClaimed: true },
+    );
   }
 
   async function handleDownload(file: OrderFileDto) {
-    setDownloadError(null);
+    setActionError(null);
     setDownloadingId(file.id);
+    const requestOrderId = orderId;
     try {
-      const result = await requestOrderFileDownload(orderId, file.id);
+      const result = await requestOrderFileDownload(requestOrderId, file.id);
+      if (!alive(requestOrderId)) return;
       triggerBrowserDownload(result.download_url, result.filename);
     } catch (err) {
-      setDownloadError(
+      if (!alive(requestOrderId)) return;
+      setActionError(
         err instanceof Error
           ? err.message
           : "No se ha podido descargar el archivo. Inténtalo de nuevo.",
       );
     } finally {
-      setDownloadingId(null);
+      if (alive(requestOrderId)) {
+        setDownloadingId(null);
+      }
     }
   }
 
   async function confirmDelete() {
     if (!pendingDelete || !canMutate) return;
     setDeleting(true);
+    setActionError(null);
+    const requestOrderId = orderId;
+    const targetId = pendingDelete.id;
     try {
-      await deleteOrderFile(orderId, pendingDelete.id);
-      setFiles((prev) => prev.filter((file) => file.id !== pendingDelete.id));
+      await deleteOrderFile(requestOrderId, targetId);
+      if (!alive(requestOrderId)) return;
+      setFiles((prev) => prev.filter((file) => file.id !== targetId));
       setPendingDelete(null);
       setToast("Archivo eliminado");
-      onChanged?.();
+      onChangedRef.current?.();
     } catch (err) {
-      setDownloadError(
+      if (!alive(requestOrderId)) return;
+      setActionError(
         err instanceof Error
           ? err.message
           : "No se ha podido eliminar el archivo.",
       );
       setPendingDelete(null);
     } finally {
-      setDeleting(false);
+      if (alive(requestOrderId)) {
+        setDeleting(false);
+      }
     }
   }
 
@@ -346,9 +430,23 @@ export function OrderFilesSection({
           </div>
         ) : null}
 
-        {downloadError ? (
-          <div className="border-b border-border/70 px-4 py-3 sm:px-5" role="alert">
-            <p className="text-sm text-destructive">{downloadError}</p>
+        {actionError ? (
+          <div
+            className="flex flex-col gap-2 border-b border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+            role="alert"
+          >
+            <p className="text-sm text-destructive">{actionError}</p>
+            {actionError === SILENT_LIST_REFRESH_NOTICE ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => void refreshList()}
+              >
+                Reintentar carga
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

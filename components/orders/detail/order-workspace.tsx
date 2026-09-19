@@ -1329,6 +1329,7 @@ export function OrderWorkspace() {
 
         <div className="mt-6">
           <OrderFilesSection
+            key={order.id}
             orderId={order.id}
             canMutate={canMutateOrderActions({
               canWrite,

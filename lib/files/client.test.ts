@@ -309,7 +309,7 @@ describe("archived order mutation controls", () => {
     assert.doesNotMatch(source, /tenant_id/);
   });
 
-  it("workspace wires canMutateOrderActions for files section", () => {
+  it("workspace wires remount key and canMutateOrderActions for files section", () => {
     const source = readFileSync(
       join(
         import.meta.dirname,
@@ -318,8 +318,23 @@ describe("archived order mutation controls", () => {
       "utf8",
     );
     assert.match(source, /OrderFilesSection/);
+    assert.match(source, /key=\{order\.id\}/);
     assert.match(source, /canMutateOrderActions/);
     assert.match(source, /isOrderArchived\(order\)/);
+  });
+
+  it("files section guards async updates and silent refresh failures", () => {
+    const source = readFileSync(
+      join(import.meta.dirname, "../../components/files/order-files-section.tsx"),
+      "utf8",
+    );
+    assert.match(source, /canApplyFilesUiUpdate/);
+    assert.match(source, /createConcurrencyGate/);
+    assert.match(source, /claimUploadLocalId/);
+    assert.match(source, /SILENT_LIST_REFRESH_NOTICE/);
+    assert.match(source, /actionError/);
+    assert.doesNotMatch(source, /uploadQueueRef/);
+    assert.doesNotMatch(source, /setDownloadError/);
   });
 });
 

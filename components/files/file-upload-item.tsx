@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 type FileUploadItemProps = {
   item: ClientUploadItem;
   onRetry?: () => void;
+  retryDisabled?: boolean;
 };
 
 function phaseLabel(item: ClientUploadItem): string {
@@ -28,7 +29,11 @@ function phaseLabel(item: ClientUploadItem): string {
   }
 }
 
-export function FileUploadItem({ item, onRetry }: FileUploadItemProps) {
+export function FileUploadItem({
+  item,
+  onRetry,
+  retryDisabled = false,
+}: FileUploadItemProps) {
   const isError = item.phase === "error";
   const showBar =
     item.phase === "uploading" ||
@@ -64,6 +69,7 @@ export function FileUploadItem({ item, onRetry }: FileUploadItemProps) {
             variant="outline"
             size="sm"
             className="shrink-0"
+            disabled={retryDisabled}
             onClick={onRetry}
           >
             Reintentar
