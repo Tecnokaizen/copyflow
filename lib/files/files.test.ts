@@ -329,6 +329,51 @@ describe("API contracts (source)", () => {
   });
 });
 
+describe("expired upload cleanup", () => {
+  it("purges only expired pending metadata after R2 deletion", () => {
+    const migration = read(
+      "supabase",
+      "migrations",
+      "20260919120000_order_files_cleanup.sql"
+    );
+    assert.match(migration, /purge_expired_order_file/);
+    assert.match(migration, /status = 'pending'/);
+    assert.match(migration, /upload_expires_at < pg_catalog\.now\(\)/);
+    assert.match(
+      migration,
+      /REVOKE ALL ON FUNCTION public\.purge_expired_order_file/
+    );
+    assert.match(migration, /TO service_role, postgres/);
+
+    const route = read(
+      "app",
+      "api",
+      "internal",
+      "files",
+      "cleanup",
+      "route.ts"
+    );
+    assert.match(route, /CRON_SECRET/);
+    assert.match(route, /createAdminClient/);
+    assert.match(route, /assertStorageKeyMatchesIds/);
+    assert.match(route, /deleteObject/);
+    assert.match(route, /purge_expired_order_file/);
+    assert.match(route, /\.eq\("status", "pending"\)/);
+    assert.match(route, /\.lt\("upload_expires_at", now\)/);
+
+    const r2DeleteCall = route.search(/await\s+deleteObject\s*\(/);
+    const purgeCall = route.search(/supabase\.rpc\(\s*"purge_expired_order_file"/);
+    assert.ok(
+      r2DeleteCall >= 0 && purgeCall > r2DeleteCall,
+      "cleanup must delete R2 before purging metadata"
+    );
+
+    const vercel = read("vercel.json");
+    assert.match(vercel, /api\/internal\/files\/cleanup/);
+    assert.match(vercel, /15 \* \* \* \*/);
+  });
+});
+
 describe("API contracts (lists)", () => {
   it("GET /api/files is tenant-scoped and omits storage_key", () => {
     const source = read("app", "api", "files", "route.ts");
