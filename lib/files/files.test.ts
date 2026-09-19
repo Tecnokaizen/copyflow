@@ -371,6 +371,17 @@ describe("expired upload cleanup", () => {
     const vercel = read("vercel.json");
     assert.match(vercel, /api\/internal\/files\/cleanup/);
     assert.match(vercel, /15 3 \* \* \*/);
+
+    const grantMigration = read(
+      "supabase",
+      "migrations",
+      "20260919124000_order_files_cleanup_service_role_select.sql"
+    );
+    assert.match(
+      grantMigration,
+      /GRANT SELECT ON TABLE public\.order_files TO service_role/
+    );
+    assert.equal(/GRANT\s+(INSERT|UPDATE|DELETE)/.test(grantMigration), false);
   });
 });
 
