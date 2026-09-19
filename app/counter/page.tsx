@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { LayoutGrid, List } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { ErrorState } from "@/components/gestcopy/error-state";
@@ -79,16 +80,34 @@ function FilterSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid min-w-[9.5rem] flex-1 gap-1 text-xs font-medium text-muted-foreground sm:text-[0.8125rem]">
+    <label className="grid w-full min-w-0 gap-1 text-xs font-medium text-muted-foreground sm:min-w-[9.5rem] sm:flex-1 sm:text-[0.8125rem]">
       {label}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground"
+        className="min-h-11 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground"
       >
         {children}
       </select>
     </label>
+  );
+}
+
+function segmentClass(active: boolean) {
+  return cn(
+    "inline-flex min-h-11 flex-1 items-center justify-center px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:flex-none sm:px-4",
+    active
+      ? "bg-background text-foreground shadow-sm"
+      : "text-muted-foreground hover:text-foreground"
+  );
+}
+
+function viewToggleClass(active: boolean) {
+  return cn(
+    "inline-flex size-11 shrink-0 items-center justify-center rounded-[calc(var(--radius)-2px)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+    active
+      ? "bg-background text-foreground shadow-sm"
+      : "text-muted-foreground hover:text-foreground"
   );
 }
 
@@ -238,7 +257,6 @@ function CounterContent() {
       <PageHeader
         title="Mostrador"
         description="Entregas, avisos y urgencias de la tienda. Abre el pedido para trabajarlo."
-        className="mb-5 sm:mb-6"
         actions={
           canWrite ? (
             <Link
@@ -252,8 +270,8 @@ function CounterContent() {
       />
 
       <div className="gc-filter-bar mb-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-          <label className="grid flex-1 gap-1 text-sm font-medium text-foreground">
+        <div className="flex flex-col gap-3">
+          <label className="grid gap-1 text-sm font-medium text-foreground">
             Buscar
             <input
               type="search"
@@ -263,100 +281,106 @@ function CounterContent() {
               className="min-h-11 w-full rounded-md border border-border bg-background px-3 py-2 text-base"
             />
           </label>
+
           <div
-            className="inline-flex rounded-md border border-border/80 bg-background p-0.5"
+            className="flex w-full overflow-hidden rounded-md border border-border bg-muted/40 p-0.5 sm:w-auto"
             role="group"
             aria-label="Ámbito de pedidos"
           >
             <button
               type="button"
               onClick={() => setMine(false)}
-              className={cn("gc-chip min-h-10", !mine && "gc-chip-active")}
+              aria-pressed={!mine}
+              className={segmentClass(!mine)}
             >
               Todos
             </button>
             <button
               type="button"
               onClick={() => setMine(true)}
-              className={cn("gc-chip min-h-10", mine && "gc-chip-active")}
+              aria-pressed={mine}
+              className={segmentClass(mine)}
             >
               Mis pedidos
             </button>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <FilterSelect
-            label="Tienda"
-            value={storeId}
-            onChange={setStoreId}
-          >
-            <option value="">Todas</option>
-            {(options?.stores ?? []).map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </FilterSelect>
-          <FilterSelect
-            label="Responsable"
-            value={assigneeId}
-            onChange={setAssigneeId}
-          >
-            <option value="">Todos</option>
-            {(options?.team_members ?? []).map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
-              </option>
-            ))}
-          </FilterSelect>
-          <FilterSelect
-            label="Servicio"
-            value={serviceId}
-            onChange={setServiceId}
-          >
-            <option value="">Todos</option>
-            {(options?.services ?? []).map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name}
-              </option>
-            ))}
-          </FilterSelect>
-          <FilterSelect
-            label="Prioridad"
-            value={priority}
-            onChange={setPriority}
-          >
-            <option value="">Todas</option>
-            <option value="normal">Normal</option>
-            <option value="high">Alta</option>
-            <option value="urgent">Urgente</option>
-          </FilterSelect>
-          <div
-            className="ml-auto inline-flex rounded-md border border-border/80 bg-background p-0.5"
-            role="group"
-            aria-label="Vista del mostrador"
-          >
-            <button
-              type="button"
-              onClick={() => changeView("list")}
-              className={cn(
-                "gc-chip min-h-10",
-                view === "list" && "gc-chip-active"
-              )}
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:flex-wrap sm:items-end sm:gap-2">
+              <FilterSelect
+                label="Tienda"
+                value={storeId}
+                onChange={setStoreId}
+              >
+                <option value="">Todas</option>
+                {(options?.stores ?? []).map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </FilterSelect>
+              <FilterSelect
+                label="Responsable"
+                value={assigneeId}
+                onChange={setAssigneeId}
+              >
+                <option value="">Todos</option>
+                {(options?.team_members ?? []).map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </FilterSelect>
+              <FilterSelect
+                label="Servicio"
+                value={serviceId}
+                onChange={setServiceId}
+              >
+                <option value="">Todos</option>
+                {(options?.services ?? []).map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </FilterSelect>
+              <FilterSelect
+                label="Prioridad"
+                value={priority}
+                onChange={setPriority}
+              >
+                <option value="">Todas</option>
+                <option value="normal">Normal</option>
+                <option value="high">Alta</option>
+                <option value="urgent">Urgente</option>
+              </FilterSelect>
+            </div>
+
+            <div
+              className="inline-flex shrink-0 self-start overflow-hidden rounded-md border border-border bg-muted/40 p-0.5 sm:self-end"
+              role="group"
+              aria-label="Vista del mostrador"
             >
-              Lista
-            </button>
-            <button
-              type="button"
-              onClick={() => changeView("grid")}
-              className={cn(
-                "gc-chip min-h-10",
-                view === "grid" && "gc-chip-active"
-              )}
-            >
-              Rejilla
-            </button>
+              <button
+                type="button"
+                onClick={() => changeView("list")}
+                aria-label="Vista de lista"
+                aria-pressed={view === "list"}
+                title="Vista de lista"
+                className={viewToggleClass(view === "list")}
+              >
+                <List className="size-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => changeView("grid")}
+                aria-label="Vista de rejilla"
+                aria-pressed={view === "grid"}
+                title="Vista de rejilla"
+                className={viewToggleClass(view === "grid")}
+              >
+                <LayoutGrid className="size-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </div>
 
