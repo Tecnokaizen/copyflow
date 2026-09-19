@@ -5,11 +5,17 @@ import {
   readReturnedVersion,
   rpcExpectedVersionArg,
 } from "@/lib/orders/concurrency";
+import { normalizeExternalFolderUrl } from "@/lib/orders/external-folder-url";
 import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
-const CONTENT_FIELDS = ["title", "description", "notes"] as const;
+const CONTENT_FIELDS = [
+  "title",
+  "description",
+  "notes",
+  "external_folder_url",
+] as const;
 
 type ContentField = (typeof CONTENT_FIELDS)[number];
 
@@ -17,6 +23,10 @@ function normalizeContentValue(
   field: ContentField,
   rawValue: unknown
 ): { ok: true; value: string | null } | { ok: false } {
+  if (field === "external_folder_url") {
+    return normalizeExternalFolderUrl(rawValue);
+  }
+
   if (field === "title") {
     if (typeof rawValue !== "string") {
       return { ok: false };

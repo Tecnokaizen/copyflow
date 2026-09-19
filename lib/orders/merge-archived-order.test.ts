@@ -18,6 +18,7 @@ function fullOrder(overrides: Partial<Order> = {}): Order {
     version: "0",
     customer_notification_status: "not_notified",
     notes: "Notas internas",
+    external_folder_url: null,
     client_id: "client-1",
     status_id: "status-closed",
     client: {

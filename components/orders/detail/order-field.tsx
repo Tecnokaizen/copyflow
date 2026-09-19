@@ -78,12 +78,14 @@ export function DraftInput({
   onChange,
   disabled,
   type = "text",
+  placeholder,
   className,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   type?: string;
+  placeholder?: string;
   className?: string;
 }) {
   return (
@@ -91,6 +93,7 @@ export function DraftInput({
       type={type}
       value={value}
       disabled={disabled}
+      placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
         "min-h-11 w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm",

@@ -7,8 +7,6 @@ const STATUSES: OrderStatus[] = [
   { id: "st-1", code: "received", name: "Recibido", is_initial: true },
 ];
 
-const STORE_A = "11111111-1111-4111-8111-111111111111";
-
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     id: "order-1",
@@ -51,32 +49,67 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
   };
 }
 
-describe("order draft store_id", () => {
-  it("can assign a store to an order that had none", () => {
-    const order = makeOrder();
+describe("external_folder_url draft steps", () => {
+  it("creates a content step when the URL changes", () => {
+    const order = makeOrder({
+      external_folder_url: "https://drive.google.com/a",
+    });
     const draft = createOrderDraft(order, STATUSES);
-    draft.store_id = STORE_A;
+    draft.external_folder_url = "https://drive.google.com/b";
 
     const steps = buildDraftSaveSteps(order, draft, STATUSES);
     assert.deepEqual(
-      steps.filter((step) => step.kind === "detail" && step.field === "store_id"),
-      [{ kind: "detail", field: "store_id", value: STORE_A, label: "Tienda" }]
+      steps.filter(
+        (step) =>
+          step.kind === "content" && step.field === "external_folder_url"
+      ),
+      [
+        {
+          kind: "content",
+          field: "external_folder_url",
+          value: "https://drive.google.com/b",
+          label: "Enlace a Drive",
+        },
+      ]
     );
   });
 
-  it("can leave an order without a store", () => {
+  it("does not emit a step when the URL is unchanged", () => {
     const order = makeOrder({
-      store_id: STORE_A,
-      store: { name: "Principal" },
+      external_folder_url: "https://example.com/folder",
     });
     const draft = createOrderDraft(order, STATUSES);
-    assert.equal(draft.store_id, STORE_A);
+    const steps = buildDraftSaveSteps(order, draft, STATUSES);
+    assert.equal(
+      steps.some(
+        (step) =>
+          step.kind === "content" && step.field === "external_folder_url"
+      ),
+      false
+    );
+  });
 
-    draft.store_id = null;
+  it("clears the URL with value null", () => {
+    const order = makeOrder({
+      external_folder_url: "https://example.com/folder",
+    });
+    const draft = createOrderDraft(order, STATUSES);
+    draft.external_folder_url = "   ";
+
     const steps = buildDraftSaveSteps(order, draft, STATUSES);
     assert.deepEqual(
-      steps.filter((step) => step.kind === "detail" && step.field === "store_id"),
-      [{ kind: "detail", field: "store_id", value: null, label: "Tienda" }]
+      steps.filter(
+        (step) =>
+          step.kind === "content" && step.field === "external_folder_url"
+      ),
+      [
+        {
+          kind: "content",
+          field: "external_folder_url",
+          value: null,
+          label: "Enlace a Drive",
+        },
+      ]
     );
   });
 });

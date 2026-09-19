@@ -52,6 +52,8 @@ function formatContentField(value: string | undefined) {
       return "Descripción";
     case "notes":
       return "Notas";
+    case "external_folder_url":
+      return "Enlace a Drive";
     default:
       return "Contenido";
   }

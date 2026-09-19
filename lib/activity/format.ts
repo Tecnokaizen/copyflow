@@ -14,6 +14,7 @@ const FIELD_LABELS: Record<string, string> = {
   title: "Título",
   description: "Descripción",
   notes: "Notas",
+  external_folder_url: "Enlace a Drive",
   due_at: "Fecha de entrega",
   service_id: "Servicio",
   assigned_team_member_id: "Responsable",
@@ -505,6 +506,9 @@ function headlineFor(event: ActivityEvent, entity: string) {
       }
       if (field === "notes") {
         return `Cambió las notas de ${entity}`;
+      }
+      if (field === "external_folder_url") {
+        return `Cambió el enlace a Drive de ${entity}`;
       }
       return `Actualizó el contenido de ${entity}`;
     case "order.details_changed":

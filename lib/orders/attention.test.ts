@@ -18,6 +18,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     version: "0",
     customer_notification_status: "not_notified",
     notes: null,
+    external_folder_url: null,
     client_id: null,
     status_id: null,
     client: null,
