@@ -28,8 +28,8 @@ import {
   canApplyFilesUiUpdate,
   claimUploadLocalId,
   createConcurrencyGate,
-  listRefreshFailureMode,
   releaseUploadLocalId,
+  resolveActionErrorOnListResult,
 } from "@/lib/files/upload-queue";
 
 type OrderFilesSectionProps = {
@@ -103,8 +103,14 @@ export function OrderFilesSection({
         if (controller.signal.aborted || !alive(requestOrderId)) return;
         setFiles(next.filter((file) => file.status === "ready"));
         setListError(null);
-        if (silent) {
-          setActionError(null);
+        // Any successful LIST clears a prior silent-refresh notice
+        // (including "Reintentar carga", which calls refreshList non-silent).
+        const nextActionError = resolveActionErrorOnListResult({
+          ok: true,
+          silent,
+        });
+        if (nextActionError !== undefined) {
+          setActionError(nextActionError);
         }
       } catch (err) {
         if (controller.signal.aborted || !alive(requestOrderId)) return;
@@ -112,8 +118,12 @@ export function OrderFilesSection({
           err instanceof Error
             ? err.message
             : "No se han podido cargar los archivos.";
-        if (listRefreshFailureMode({ silent }) === "keep_list_notice") {
-          setActionError(SILENT_LIST_REFRESH_NOTICE);
+        const nextActionError = resolveActionErrorOnListResult({
+          ok: false,
+          silent,
+        });
+        if (nextActionError !== undefined) {
+          setActionError(nextActionError);
           return;
         }
         setListError(message);

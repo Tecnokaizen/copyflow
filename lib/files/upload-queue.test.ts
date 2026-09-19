@@ -8,6 +8,7 @@ import {
   createConcurrencyGate,
   listRefreshFailureMode,
   releaseUploadLocalId,
+  resolveActionErrorOnListResult,
 } from "./upload-queue";
 
 function delay(ms: number) {
@@ -91,5 +92,34 @@ describe("listRefreshFailureMode", () => {
     );
     assert.equal(listRefreshFailureMode({ silent: false }), "full_error");
     assert.match(SILENT_LIST_REFRESH_NOTICE, /actualizar el listado/i);
+  });
+});
+
+describe("resolveActionErrorOnListResult", () => {
+  it("sets notice on silent failure and clears it after successful retry", () => {
+    const afterSilentFail = resolveActionErrorOnListResult({
+      ok: false,
+      silent: true,
+    });
+    assert.equal(afterSilentFail, SILENT_LIST_REFRESH_NOTICE);
+
+    // "Reintentar carga" uses a non-silent refreshList(); success must clear.
+    const afterSuccessfulRetry = resolveActionErrorOnListResult({
+      ok: true,
+      silent: false,
+    });
+    assert.equal(afterSuccessfulRetry, null);
+
+    // Silent success also clears.
+    assert.equal(
+      resolveActionErrorOnListResult({ ok: true, silent: true }),
+      null,
+    );
+
+    // Full LIST failure leaves actionError alone (listError owns UX).
+    assert.equal(
+      resolveActionErrorOnListResult({ ok: false, silent: false }),
+      undefined,
+    );
   });
 });

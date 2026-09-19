@@ -76,3 +76,20 @@ export function listRefreshFailureMode(opts: {
 
 export const SILENT_LIST_REFRESH_NOTICE =
   "Archivo subido. No se ha podido actualizar el listado. Reintenta la carga.";
+
+/**
+ * Next actionError after a LIST refresh attempt.
+ * - success → clear notice/errors from list refresh
+ * - silent failure → non-destructive notice
+ * - full failure → leave actionError alone (listError owns UX)
+ */
+export function resolveActionErrorOnListResult(opts: {
+  ok: boolean;
+  silent: boolean;
+}): string | null | undefined {
+  if (opts.ok) return null;
+  if (listRefreshFailureMode({ silent: opts.silent }) === "keep_list_notice") {
+    return SILENT_LIST_REFRESH_NOTICE;
+  }
+  return undefined;
+}
