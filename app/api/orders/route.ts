@@ -2,6 +2,12 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
+import {
+  ORDERS_CLIENT_SEARCH_EMBED,
+  buildOrdersClientNameImatchValue,
+  buildOrdersListSearchOrClause,
+  normalizeOrdersListQuery,
+} from "@/lib/orders/list-search";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
@@ -475,6 +481,7 @@ export async function GET(request: NextRequest) {
   const rawDir = searchParams.get("dir");
   const sortField = parseSortField(rawSort);
   const sortDir = parseSortDir(rawDir);
+  const searchQuery = normalizeOrdersListQuery(searchParams.get("q"));
 
   if (rawFilter && !listFilter) {
     return operationalJson({ error: "Invalid value" }, { status: 400 });
@@ -697,7 +704,11 @@ export async function GET(request: NextRequest) {
     effectiveFilter === "attention" ||
     effectiveFilter === "upcoming";
 
-  const select = needsStatusInner ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  let select = needsStatusInner ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  if (searchQuery) {
+    // Empty embed for OR-filtering by client.name without constraining DTO embed.
+    select = `${select.trim()},\n  ${ORDERS_CLIENT_SEARCH_EMBED}`;
+  }
 
   let query = supabase
     .from("orders")
@@ -744,6 +755,15 @@ export async function GET(request: NextRequest) {
   }
 
   query = applyStoreListFilter(query, storeFilter);
+
+  if (searchQuery) {
+    // Embed name filter (AND on embed) + top-level OR with not.is.null.
+    // Keeps reference/title matches even when client name does not match.
+    // imatch (not ilike): PostgREST rewrites *→% in like/ilike even when quoted.
+    query = query
+      .filter("client_search.name", "imatch", buildOrdersClientNameImatchValue(searchQuery))
+      .or(buildOrdersListSearchOrClause(searchQuery));
+  }
 
   const {
     data: orders,
