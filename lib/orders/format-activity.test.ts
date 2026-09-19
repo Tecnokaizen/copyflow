@@ -50,3 +50,49 @@ describe("formatActivityText order.archived", () => {
     );
   });
 });
+
+describe("formatActivityText order file events", () => {
+  it("renders Archivo subido with optional original_name", () => {
+    assert.equal(
+      formatActivityText(item({ action: "order.file_uploaded" })),
+      "Archivo subido",
+    );
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.file_uploaded",
+          metadata: { original_name: "catalogo-final.pdf" },
+        }),
+      ),
+      "Archivo subido: catalogo-final.pdf",
+    );
+  });
+
+  it("renders Archivo eliminado with optional original_name", () => {
+    assert.equal(
+      formatActivityText(item({ action: "order.file_deleted" })),
+      "Archivo eliminado",
+    );
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.file_deleted",
+          metadata: { original_name: "  brief.docx  " },
+        }),
+      ),
+      "Archivo eliminado: brief.docx",
+    );
+  });
+
+  it("ignores non-string original_name without inventing fields", () => {
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.file_uploaded",
+          metadata: { original_name: 123 },
+        }),
+      ),
+      "Archivo subido",
+    );
+  });
+});

@@ -211,7 +211,24 @@ export function formatActivityText(item: ActivityItem) {
     return `Cliente: ${from} → ${to}`;
   }
 
+  if (item.action === "order.file_uploaded") {
+    const filename = activityFileName(item.metadata);
+    return filename ? `Archivo subido: ${filename}` : "Archivo subido";
+  }
+
+  if (item.action === "order.file_deleted") {
+    const filename = activityFileName(item.metadata);
+    return filename ? `Archivo eliminado: ${filename}` : "Archivo eliminado";
+  }
+
   return item.action;
+}
+
+function activityFileName(metadata: ActivityItem["metadata"]): string | null {
+  const raw = metadata.original_name;
+  if (typeof raw !== "string") return null;
+  const name = raw.trim();
+  return name || null;
 }
 
 export function displayValue(value: string | null | undefined) {
