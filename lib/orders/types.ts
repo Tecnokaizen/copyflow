@@ -18,6 +18,7 @@ export type OrderClient = {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  active?: boolean;
 };
 
 export type OrderStatus = {
@@ -46,6 +47,8 @@ export type Order = {
   version: string;
   customer_notification_status: string;
   notes: string | null;
+  /** Optional external folder link (Drive, Dropbox, …). Complements Files/R2. */
+  external_folder_url: string | null;
   client_id: string | null;
   status_id: string | null;
 
@@ -176,7 +179,11 @@ export type DetailField =
   | "store_id"
   | "due_at";
 
-export type ContentField = "title" | "description" | "notes";
+export type ContentField =
+  | "title"
+  | "description"
+  | "notes"
+  | "external_folder_url";
 
 export type ClientUiMode = "edit" | "create" | "assign" | "change";
 
@@ -207,6 +214,7 @@ export type OrderDraft = {
   title: string;
   description: string;
   notes: string;
+  external_folder_url: string;
   status_id: string;
   priority: string;
   service_id: string | null;

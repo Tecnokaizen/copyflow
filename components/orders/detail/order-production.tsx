@@ -124,6 +124,14 @@ export function OrderProduction({
             ))}
           </DraftSelect>
         </FactRow>
+        <FactRow label="Enlace a Drive">
+          <DraftInput
+            type="url"
+            value={draft.external_folder_url}
+            placeholder="https://drive.google.com/..."
+            onChange={(value) => onDraftChange({ external_folder_url: value })}
+          />
+        </FactRow>
         <FactRow label="Entrega prevista" emphasis>
           <DraftInput
             type="datetime-local"
@@ -169,6 +177,25 @@ export function OrderProduction({
       </FactRow>
       <FactRow label="Presupuesto">
         <FactValue value={order.quote_status?.name} />
+      </FactRow>
+      <FactRow label="Enlace a Drive">
+        {order.external_folder_url?.trim() ? (
+          <div className="space-y-1">
+            <a
+              href={order.external_folder_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              Abrir carpeta externa
+            </a>
+            <div className="break-all text-sm font-normal text-muted-foreground">
+              {order.external_folder_url}
+            </div>
+          </div>
+        ) : (
+          <FactValue value={null} empty="Sin enlace externo" />
+        )}
       </FactRow>
     </SectionCard>
   );

@@ -77,6 +77,7 @@ function normalizeLoadedOrder(order: Order): Order {
   return {
     ...order,
     archived_at: order.archived_at ?? null,
+    external_folder_url: order.external_folder_url ?? null,
     client:
       order.client_id && order.client?.id ? order.client : null,
   };
@@ -499,6 +500,16 @@ export function OrderWorkspace() {
       if (step.field === "description") {
         return applyReturnedVersion(
           { ...current, description: result.order.description },
+          result
+        );
+      }
+      if (step.field === "external_folder_url") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            external_folder_url:
+              result.order.external_folder_url ?? step.value ?? null,
+          },
           result
         );
       }

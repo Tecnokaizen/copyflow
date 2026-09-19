@@ -25,6 +25,7 @@ export function createOrderDraft(
     title: order.title,
     description: order.description ?? "",
     notes: order.notes ?? "",
+    external_folder_url: order.external_folder_url ?? "",
     status_id: resolveOrderStatusId(order, statuses),
     priority: order.priority,
     service_id: order.service_id,
@@ -114,6 +115,18 @@ export function buildDraftSaveSteps(
       field: "notes",
       value: nullableText(draft.notes),
       label: "Notas",
+    });
+  }
+
+  if (
+    nullableText(draft.external_folder_url) !==
+    nullableText(order.external_folder_url ?? "")
+  ) {
+    steps.push({
+      kind: "content",
+      field: "external_folder_url",
+      value: nullableText(draft.external_folder_url),
+      label: "Enlace a Drive",
     });
   }
 
