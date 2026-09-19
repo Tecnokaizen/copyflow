@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
-import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
+import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
@@ -28,6 +28,7 @@ const LIST_FILTERS = [
   "urgent",
   "overdue",
   "all",
+  "archived",
   "attention",
   "upcoming",
 ] as const;
@@ -279,6 +280,9 @@ async function fetchOrdersByDueAtRange(
 
     if (activeOnly) {
       query = applyOperationalOrdersFilter(query);
+    } else {
+      // calendar filter=all → every non-archived status (not soft-deleted archive)
+      query = applyNonArchivedOrdersFilter(query);
     }
 
     if (options?.assignedTeamMemberId) {
@@ -702,6 +706,11 @@ export async function GET(request: NextRequest) {
 
   if (needsStatusInner) {
     query = applyOperationalOrdersFilter(query);
+  } else if (effectiveFilter === "archived") {
+    query = applyArchivedOrdersFilter(query);
+  } else if (effectiveFilter === "all" || effectiveFilter === null) {
+    // "all" and unfiltered list pages: non-archived only
+    query = applyNonArchivedOrdersFilter(query);
   }
 
   if (effectiveFilter === "urgent") {

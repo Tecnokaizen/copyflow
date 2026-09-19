@@ -4,9 +4,11 @@ import { LogoutButton } from "@/components/logout-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { HeaderIdentity } from "@/lib/nav/identity";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function InitialsAvatar({
@@ -39,11 +41,15 @@ export function SessionIdentity({
   }
 
   return (
-    <>
-      <div className="hidden min-w-0 items-center gap-2 sm:flex">
-        <div className="flex min-w-0 items-center gap-2">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex min-w-0 max-w-[14rem] items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={`${identity.name}, ${identity.roleLabel}. Menú de sesión`}
+        >
           <InitialsAvatar initials={identity.initials} />
-          <div className="min-w-0">
+          <div className="hidden min-w-0 sm:block">
             <p className="truncate text-sm font-medium leading-tight text-foreground">
               {identity.name}
             </p>
@@ -51,45 +57,34 @@ export function SessionIdentity({
               {identity.roleLabel}
             </p>
           </div>
-        </div>
-        <LogoutButton className="text-muted-foreground" />
-      </div>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex min-w-0 max-w-[12.5rem] items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:hidden"
-            aria-label={`${identity.name}, ${identity.roleLabel}`}
-          >
-            <InitialsAvatar initials={identity.initials} />
-            <span className="min-w-0 truncate text-sm font-medium text-foreground">
+          <ChevronDown
+            className="hidden size-3.5 shrink-0 text-muted-foreground sm:block"
+            aria-hidden="true"
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64 p-2">
+        <div className="flex items-start gap-2 px-1 py-1.5">
+          <InitialsAvatar initials={identity.initials} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">
               {identity.name}
-            </span>
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64 p-2">
-          <div className="flex items-start gap-2 px-1 py-1.5">
-            <InitialsAvatar initials={identity.initials} />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">
-                {identity.name}
+            </p>
+            {identity.email ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {identity.email}
               </p>
-              {identity.email ? (
-                <p className="truncate text-xs text-muted-foreground">
-                  {identity.email}
-                </p>
-              ) : null}
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {identity.roleLabel}
-              </p>
-            </div>
+            ) : null}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {identity.roleLabel}
+            </p>
           </div>
-          <div className="mt-1 border-t border-border/70 pt-2">
-            <LogoutButton className="w-full justify-start text-muted-foreground" />
-          </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
+        </div>
+        <DropdownMenuSeparator />
+        <div className="pt-1">
+          <LogoutButton className="w-full justify-start text-muted-foreground" />
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
