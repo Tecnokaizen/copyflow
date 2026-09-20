@@ -7,6 +7,7 @@ TEST_COUNT=0
 HOLDER_PID=""
 AGE_RECIPIENT=""
 FAKE_SNAPSHOT_ID="00000004-0000002A-1"
+SYSTEM_AGE="$(command -v age)"
 
 cleanup() {
   touch "${FIXTURE}/release"
@@ -124,6 +125,9 @@ cat >"${FIXTURE}/bin/psql" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'psql|%s\n' "$*" >>"${FAKE_PSQL_CALLS}"
+if [[ "$*" == *"DROP SCHEMA IF EXISTS public CASCADE"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+  printf 'psql|drop-public\n' >>"${FAKE_RESTORE_EVENTS}"
+fi
 if [[ "${FAKE_PSQL_EXIT_CODE:-0}" != "0" ]]; then
   exit "${FAKE_PSQL_EXIT_CODE}"
 fi
@@ -157,6 +161,9 @@ exported=false
 while IFS= read -r line; do
   case "${line}" in
     *pg_export_snapshot*)
+      if [[ -n "${FAKE_SNAPSHOT_DELAY_SECONDS:-}" ]]; then
+        sleep "${FAKE_SNAPSHOT_DELAY_SECONDS}"
+      fi
       printf '%s\n' "${FAKE_SNAPSHOT_ID:-00000004-0000002A-1}"
       exported=true
       if [[ "${FAKE_EXPORTER_DIE_AFTER_SNAPSHOT:-false}" == "true" ]]; then
@@ -240,6 +247,36 @@ chmod 0755 "${FIXTURE}/bin/pg_dump"
 cat >"${FIXTURE}/bin/pg_restore" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+list=false
+archive=""
+for arg in "$@"; do
+  [[ "${arg}" != "--list" ]] || list=true
+  [[ "${arg}" == -* ]] || archive="${arg}"
+done
+
+if [[ "${list}" == "true" ]]; then
+  if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
+    printf 'pg_restore|list|%s\n' "$(basename "${archive}")" >>"${FAKE_PG_RESTORE_CALLS}"
+  fi
+  if [[ -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+    printf 'pg_restore|list|%s\n' "$(basename "${archive}")" >>"${FAKE_RESTORE_EVENTS}"
+  fi
+  if [[ -n "${FAKE_PG_RESTORE_CORRUPT_BASENAME:-}" && \
+    "$(basename "${archive}")" == "${FAKE_PG_RESTORE_CORRUPT_BASENAME}" ]]; then
+    exit 44
+  fi
+  if [[ "$(basename "${archive}")" == *application* || "$(basename "${archive}")" == "app.dump" ]]; then
+    if [[ "${FAKE_APPLICATION_NO_PUBLIC:-false}" != "true" ]]; then
+      printf '5; 2615 2200 SCHEMA - public postgres\n'
+    else
+      printf '5; 2615 2200 SCHEMA - other postgres\n'
+    fi
+  else
+    printf '1; 0 0 TABLE DATA - fixture postgres\n'
+  fi
+  exit 0
+fi
+
 if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   section="full"
   data_only=false
@@ -259,10 +296,22 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
     section="data-only"
   fi
   printf 'pg_restore|%s|no_privileges=%s\n' "${section}" "${no_privileges}" >>"${FAKE_PG_RESTORE_CALLS}"
+  if [[ -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+    printf 'pg_restore|%s\n' "${section}" >>"${FAKE_RESTORE_EVENTS}"
+  fi
 fi
 exit "${FAKE_PG_RESTORE_EXIT_CODE:-0}"
 MOCK
 chmod 0755 "${FIXTURE}/bin/pg_restore"
+
+cat >"${FIXTURE}/bin/age" <<MOCK
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'age|%s\n' "\$*" >>"\${FAKE_AGE_CALLS:?}"
+exec "${SYSTEM_AGE}" "\$@"
+MOCK
+chmod 0755 "${FIXTURE}/bin/age"
+cp "${FIXTURE}/bin/age" "${FIXTURE}/age-wrapper"
 
 run_script() {
   local script="$1"
@@ -278,6 +327,7 @@ run_script() {
     FAKE_RCLONE_RELEASE="${FIXTURE}/release" FAKE_RCLONE_STORE="${FIXTURE}/remote" \
     FAKE_PSQL_CALLS="${FIXTURE}/psql-calls" FAKE_PG_DUMP_CALLS="${FIXTURE}/pgdump-calls" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
+    FAKE_AGE_CALLS="${FIXTURE}/age-calls" \
     FAKE_EXPORTER_PIDS="${FIXTURE}/exporter.pid" \
     FAKE_SNAPSHOT_ID="${FAKE_SNAPSHOT_ID}" \
     GESTCOPY_DATABASE_URL='postgresql://fixture:secret@fixture.invalid:5432/postgres' \
@@ -342,6 +392,7 @@ for script in backup-files.sh verify-files.sh; do
 done
 
 : >"${FIXTURE}/calls"
+: >"${FIXTURE}/age-calls"
 run_script backup-all.sh >"${FIXTURE}/output"
 [[ "$(cat "${FIXTURE}/calls")" == 'copy|auto|true|false' ]]
 grep -q BACKUP_ALL_SUCCESS "${FIXTURE}/output"
@@ -398,18 +449,34 @@ expect_failure 9 backup-database.sh FAKE_PSQL_EXIT_CODE=9
 pass 'backup-database: psql probe failure propagates without success'
 
 : >"${FIXTURE}/pgdump-calls"
-expect_failure 1 backup-database.sh FAKE_SNAPSHOT_FAIL=true
+expect_failure 1 backup-database.sh FAKE_SNAPSHOT_FAIL=true \
+  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS=1
 [[ ! -s "${FIXTURE}/pgdump-calls" ]]
 pass 'backup-database: snapshot acquisition failure runs no pg_dump'
 
 : >"${FIXTURE}/pgdump-calls"
+run_script backup-database.sh FAKE_SNAPSHOT_DELAY_SECONDS=2.2 \
+  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS=5 >"${FIXTURE}/delayed-snapshot"
+grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/delayed-snapshot"
+[[ "$(grep -c '^pg_dump|' "${FIXTURE}/pgdump-calls")" -eq 3 ]]
+pass 'backup-database: snapshot delayed beyond two seconds succeeds within configured timeout'
+
+: >"${FIXTURE}/pgdump-calls"
+expect_failure 1 backup-database.sh FAKE_SNAPSHOT_DELAY_SECONDS=2 \
+  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS=1
+grep -q 'timed out waiting' "${FIXTURE}/failure"
+[[ ! -s "${FIXTURE}/pgdump-calls" ]]
+pass 'backup-database: snapshot timeout fails before pg_dump'
+
+: >"${FIXTURE}/pgdump-calls"
+exporter_death_started_at=${SECONDS}
 if run_script backup-database.sh FAKE_EXPORTER_DIE_AFTER_SNAPSHOT=true >"${FIXTURE}/failure" 2>&1; then
   echo "Expected exporter death failure" >&2
   cat "${FIXTURE}/failure" >&2
   exit 1
 fi
 ! grep -q '_SUCCESS' "${FIXTURE}/failure"
-grep -q 'snapshot exporter terminated unexpectedly\|exited before dumps' "${FIXTURE}/failure"
+(( SECONDS - exporter_death_started_at < 2 ))
 pass 'backup-database: exporter death during dumps fails without success'
 
 expect_failure 11 backup-database.sh FAKE_PG_DUMP_EXIT_CODE=11
@@ -431,6 +498,22 @@ fi
 ! grep -q 'db-copyto|' "${FIXTURE}/calls"
 rm -f "${FIXTURE}/bin/age"
 pass 'backup-database: encryption failure propagates without success'
+
+cp "${FIXTURE}/age-wrapper" "${FIXTURE}/bin/age"
+chmod 0755 "${FIXTURE}/bin/age"
+rm -rf "${FIXTURE}/remote"
+mkdir -p "${FIXTURE}/remote"
+
+for corrupt in gestcopy-application.dump gestcopy-auth.dump gestcopy-migrations.dump; do
+  : >"${FIXTURE}/calls"
+  : >"${FIXTURE}/age-calls"
+  rm -f "${FIXTURE}/calls.seq"
+  expect_failure 1 backup-database.sh FAKE_PG_RESTORE_CORRUPT_BASENAME="${corrupt}"
+  [[ ! -s "${FIXTURE}/age-calls" ]]
+  ! grep -q 'db-copyto|' "${FIXTURE}/calls"
+  ! remote_has_manifest
+  pass "backup-database: corrupt ${corrupt} aborts before age and upload"
+done
 
 for n in 1 2 3; do
   : >"${FIXTURE}/calls"
@@ -493,7 +576,12 @@ jq -e '.encryption == "age"' "${manifest}" >/dev/null
 jq -e '.consistency == "postgresql-exported-snapshot"' "${manifest}" >/dev/null
 jq -e '.status == "complete"' "${manifest}" >/dev/null
 jq -e '.artifacts | length == 3' "${manifest}" >/dev/null
-! grep -Eiq 'password|secret|postgresql://|AGE-SECRET|access_key|@fixture|00000004' "${manifest}"
+jq -e '.external_recovery_requirements == [
+  "supabase-vault:files_signing_secret",
+  "supabase-auth-config",
+  "supabase-extensions"
+]' "${manifest}" >/dev/null
+! grep -Eiq 'password|postgresql://|AGE-SECRET|access_key|@fixture|00000004|"(secret_)?value"' "${manifest}"
 pass 'backup-database: happy path shares snapshot, uploads dumps then manifest'
 
 ! find "${FIXTURE}/remote" -name 'gestcopy-*.dump' | grep -q .
@@ -518,6 +606,8 @@ printf 'mig\n' >"${FIXTURE}/restore/mig.dump"
 run_restore() {
   env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
+    FAKE_PSQL_CALLS="${FIXTURE}/restore-psql-calls" \
+    FAKE_RESTORE_EVENTS="${FIXTURE}/restore-events" \
     "$@" bash "${SCRIPT_DIR}/restore-database-local.sh" \
       --application "${FIXTURE}/restore/app.dump" \
       --auth "${FIXTURE}/restore/auth.dump" \
@@ -525,8 +615,11 @@ run_restore() {
 }
 
 : >"${FIXTURE}/pgrestore-calls"
+: >"${FIXTURE}/restore-psql-calls"
+: >"${FIXTURE}/restore-events"
 if ! run_restore \
   GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref:secret@aws-0.pooler.supabase.com:5432/postgres' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
   GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
@@ -537,21 +630,26 @@ if ! run_restore \
   exit 1
 fi
 grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
-mapfile -t restore_order < <(awk -F'|' '{print $2}' "${FIXTURE}/pgrestore-calls")
-[[ "${#restore_order[@]}" -eq 5 ]]
-[[ "${restore_order[0]}" == "pre-data" ]]
-[[ "${restore_order[1]}" == "data" ]]
-[[ "${restore_order[2]}" == "data-only" ]]
-[[ "${restore_order[3]}" == "data-only" ]]
-[[ "${restore_order[4]}" == "post-data" ]]
+mapfile -t restore_events <"${FIXTURE}/restore-events"
+[[ "${#restore_events[@]}" -eq 9 ]]
+[[ "${restore_events[0]}" == "pg_restore|list|app.dump" ]]
+[[ "${restore_events[1]}" == "pg_restore|list|auth.dump" ]]
+[[ "${restore_events[2]}" == "pg_restore|list|mig.dump" ]]
+[[ "${restore_events[3]}" == "psql|drop-public" ]]
+[[ "${restore_events[4]}" == "pg_restore|pre-data" ]]
+[[ "${restore_events[5]}" == "pg_restore|data" ]]
+[[ "${restore_events[6]}" == "pg_restore|data-only" ]]
+[[ "${restore_events[7]}" == "pg_restore|data-only" ]]
+[[ "${restore_events[8]}" == "pg_restore|post-data" ]]
 # application sections must not use --no-privileges; auth/migrations may.
 grep -q 'pg_restore|pre-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|post-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
-pass 'restore: isolated happy path uses section order without application --no-privileges'
+pass 'restore: preflights all archives, resets public, and uses exact section order'
 
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=yes-please \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
   GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
@@ -562,9 +660,42 @@ fi
 ! grep -q _SUCCESS "${FIXTURE}/restore-out"
 pass 'restore: requires isolated-only confirmation'
 
+: >"${FIXTURE}/restore-psql-calls"
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected restore to reject missing public-reset confirmation' >&2
+  exit 1
+fi
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+pass 'restore: missing ALLOW_PUBLIC_RESET fails before target psql'
+
+: >"${FIXTURE}/restore-psql-calls"
+if env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  FAKE_PSQL_CALLS="${FIXTURE}/restore-psql-calls" \
+  bash "${SCRIPT_DIR}/restore-database-local.sh" \
+    --application "${FIXTURE}/restore/app.dump" \
+    --migrations "${FIXTURE}/restore/mig.dump" \
+    >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected restore to require auth archive' >&2
+  exit 1
+fi
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+grep -q -- '--auth PATH is required' "${FIXTURE}/restore-out"
+pass 'restore: auth archive is mandatory before target psql'
+
 : >"${FIXTURE}/pgrestore-calls"
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
   GESTCOPY_RESTORE_TARGET_PROJECT_REF=prodref123 \
@@ -580,6 +711,7 @@ pass 'restore: production ref == target ref fails before pg_restore'
 : >"${FIXTURE}/pgrestore-calls"
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.prodref123.supabase.co/postgres' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
   GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
@@ -595,6 +727,7 @@ pass 'restore: target URL containing production ref fails'
 # Absent GESTCOPY_DATABASE_URL must not weaken project-ref guards.
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.prodref123.supabase.co/postgres' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
   GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
@@ -608,6 +741,7 @@ pass 'restore: project-ref guards work without GESTCOPY_DATABASE_URL'
 
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
   GESTCOPY_DATABASE_URL='postgresql://same@fixture.invalid/db' \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://same@fixture.invalid/db' \
   GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
@@ -619,5 +753,59 @@ fi
 grep -q 'must not equal GESTCOPY_DATABASE_URL' "${FIXTURE}/restore-out"
 ! grep -q _SUCCESS "${FIXTURE}/restore-out"
 pass 'restore: rejects source == target URL'
+
+for corrupt in app.dump auth.dump mig.dump; do
+  : >"${FIXTURE}/pgrestore-calls"
+  : >"${FIXTURE}/restore-psql-calls"
+  : >"${FIXTURE}/restore-events"
+  if run_restore \
+    GESTCOPY_ALLOW_RESTORE=isolated-only \
+    GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+    GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+    GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+    GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+    FAKE_PG_RESTORE_CORRUPT_BASENAME="${corrupt}" \
+    >"${FIXTURE}/restore-out" 2>&1; then
+    echo "expected corrupt ${corrupt} to fail" >&2
+    exit 1
+  fi
+  [[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+  ! grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
+  ! grep -q _SUCCESS "${FIXTURE}/restore-out"
+  pass "restore: corrupt ${corrupt} fails before target reset"
+done
+
+: >"${FIXTURE}/restore-psql-calls"
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  FAKE_APPLICATION_NO_PUBLIC=true \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected archive without public schema to fail' >&2
+  exit 1
+fi
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+grep -q 'does not define schema public' "${FIXTURE}/restore-out"
+pass 'restore: application archive must define public before target reset'
+
+if env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  bash "${SCRIPT_DIR}/restore-database-local.sh" \
+    --application "${FIXTURE}/restore/app.dump" \
+    --auth "${FIXTURE}/restore/auth.dump" \
+    --migrations "${FIXTURE}/restore/mig.dump" \
+    --skip-auth >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected --skip-auth to be rejected' >&2
+  exit 1
+fi
+grep -q 'unknown argument: --skip-auth' "${FIXTURE}/restore-out"
+pass 'restore: --skip-auth no longer exists'
 
 printf '1..%s\n' "${TEST_COUNT}"

@@ -27,8 +27,16 @@ fi
 : "${GESTCOPY_B2_DATABASE_PREFIX:=database}"
 : "${PGSSLMODE:=require}"
 : "${PGAPPNAME:=gestcopy-backup-runner}"
+: "${PGCONNECT_TIMEOUT:=15}"
+: "${GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS:=30}"
 : "${RCLONE_CONFIG_B2_HARD_DELETE:=false}"
-export GESTCOPY_B2_DATABASE_PREFIX PGSSLMODE PGAPPNAME RCLONE_CONFIG_B2_HARD_DELETE
+export GESTCOPY_B2_DATABASE_PREFIX PGSSLMODE PGAPPNAME PGCONNECT_TIMEOUT \
+  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS RCLONE_CONFIG_B2_HARD_DELETE
+
+if [[ ! "${GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/runner-lock.sh"
@@ -116,20 +124,21 @@ printf '%s\n' \
   "SELECT pg_export_snapshot();" >&3
 
 SNAPSHOT_ID=""
-for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
-  21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+SNAPSHOT_WAIT_STARTED_AT=${SECONDS}
+while (( SECONDS - SNAPSHOT_WAIT_STARTED_AT < GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS )); do
   if [[ -s "${PSQL_OUT}" ]]; then
     IFS= read -r SNAPSHOT_ID <"${PSQL_OUT}" || true
     break
   fi
   if ! kill -0 "${EXPORTER_PID}" 2>/dev/null; then
-    break
+    echo "ERROR: snapshot exporter exited before producing a snapshot" >&2
+    exit 1
   fi
-  sleep 0.05
+  sleep 0.1
 done
 
 if [[ -z "${SNAPSHOT_ID}" || "${SNAPSHOT_ID}" == *" "* ]]; then
-  echo "ERROR: failed to obtain a valid PostgreSQL exported snapshot" >&2
+  echo "ERROR: timed out waiting for a valid PostgreSQL exported snapshot" >&2
   if [[ -s "${PSQL_ERR}" ]]; then
     # Log exporter diagnostics without connection strings.
     sed -E 's#postgresql://[^[:space:]]+#postgresql://[redacted]#gi' "${PSQL_ERR}" >&2 || true
@@ -200,6 +209,14 @@ for dump in "${APPLICATION_DUMP}" "${AUTH_DUMP}" "${MIGRATIONS_DUMP}"; do
   fi
 done
 
+echo "backup-database: preflighting custom archives before encryption/upload"
+for dump in "${APPLICATION_DUMP}" "${AUTH_DUMP}" "${MIGRATIONS_DUMP}"; do
+  if ! pg_restore --list "${dump}" >/dev/null; then
+    echo "ERROR: unreadable PostgreSQL archive: $(basename "${dump}")" >&2
+    exit 1
+  fi
+done
+
 encrypt_dump() {
   local plaintext="$1"
   local ciphertext="${plaintext}.age"
@@ -259,6 +276,11 @@ jq -nc \
     consistency: "postgresql-exported-snapshot",
     status: "complete",
     source: "gestcopy-production-postgres",
+    external_recovery_requirements: [
+      "supabase-vault:files_signing_secret",
+      "supabase-auth-config",
+      "supabase-extensions"
+    ],
     artifacts: [$application, $auth, $migrations]
   }' >"${MANIFEST}"
 

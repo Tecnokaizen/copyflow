@@ -90,6 +90,8 @@ Defaults exported by `backup-database.sh`:
 
 - `PGSSLMODE=require`
 - `PGAPPNAME=gestcopy-backup-runner`
+- `PGCONNECT_TIMEOUT=15`
+- `GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS=30`
 
 No `rclone.conf` with secrets is baked into the image. Remotes are configured entirely via `RCLONE_CONFIG_*` env vars.
 
@@ -131,10 +133,15 @@ All three `pg_dump` invocations share the **same** PostgreSQL exported snapshot:
 
 The three dumps therefore form a **logical recovery set consistent at one snapshot**. The local EXIT trap always terminates the exporter so no orphan `psql` remains. The snapshot id is **not** written into `manifest.json` (not required for recovery).
 
+Snapshot acquisition uses a real elapsed-time deadline, not a fixed retry count. A dead exporter fails immediately; a slow but healthy TLS connection may take up to `GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS` (default `30`) to return the snapshot. No `pg_dump` starts without a valid snapshot.
+
+After all three custom archives are created, and **before** age encryption or any upload, each archive must pass `pg_restore --list`. An unreadable application, auth, or migrations archive aborts the run, leaves no manifest, uploads nothing, and is removed in plaintext by the EXIT trap.
+
 Manifest fields include:
 
 - `consistency: "postgresql-exported-snapshot"`
 - `status: "complete"`
+- non-secret `external_recovery_requirements` identifiers for Vault, Auth configuration, and extensions
 
 **Auth caveats (documented, not automated away):**
 
@@ -199,11 +206,12 @@ Requires:
 | Variable | Role |
 |----------|------|
 | `GESTCOPY_ALLOW_RESTORE=isolated-only` | explicit confirmation |
+| `GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only` | explicit confirmation that `public` will be destroyed/reset |
 | `GESTCOPY_RESTORE_TARGET_URL` | isolated target URI (never Production) |
 | `GESTCOPY_PRODUCTION_PROJECT_REF` | non-secret Production project ref |
 | `GESTCOPY_RESTORE_TARGET_PROJECT_REF` | non-secret isolated target project ref |
 
-Rejects **before** `pg_restore` when:
+Rejects **before** target mutation when:
 
 1. target project ref equals production project ref
 2. target URL contains the production project ref (case-insensitive)
@@ -211,17 +219,50 @@ Rejects **before** `pg_restore` when:
 
 Errors mention Production project-ref resolution; they never print full connection strings or credentials. Project-ref guards remain effective even if `GESTCOPY_DATABASE_URL` is absent.
 
+The helper requires already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies every selected artifact exists, is non-empty, and is a readable custom archive using `pg_restore --list`. The application archive must contain the `public` schema definition. Any failure exits before target `psql`, before `DROP`, and before restore.
+
+The target must be a **disposable, isolated, Supabase-compatible project**. Vanilla PostgreSQL is not a supported full-recovery target because `public.profiles(id)` references `auth.users(id)` and recovery depends on compatible Supabase Auth objects and users.
+
+After every guard and archive preflight passes, the helper runs:
+
+```sql
+DROP SCHEMA IF EXISTS public CASCADE;
+```
+
+It does **not** recreate `public` manually: application pre-data recreates it from the archive. The helper therefore destroys/resets `public` only on the explicitly confirmed isolated target. Never use it on a persistent or Production project.
+
 ### Restore order (sectioned)
 
 Schema inspection shows `public.profiles(id)` has `FOREIGN KEY … REFERENCES auth.users(id)`. Membership and invitation RPCs also join `auth.users`. Therefore restore applies application constraints **after** auth data:
 
-1. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`)
-2. application `--section=data`
-3. auth data (`--data-only --no-owner --no-privileges`) unless `--skip-auth`
-4. migration history data unless `--skip-migrations`
-5. application `--section=post-data` (FKs / indexes / triggers / ACL)
+1. reset `public` on the confirmed isolated target
+2. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`), which recreates `public`
+3. application `--section=data`
+4. mandatory auth data (`--data-only --no-owner --no-privileges`)
+5. migration history data unless `--skip-migrations`
+6. application `--section=post-data` (FKs / indexes / triggers / ACL)
 
-Accepts already-decrypted local `*.dump` files. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
+Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
+
+## EXTERNAL RECOVERY REQUIREMENTS
+
+The logical dumps do **not** contain the Supabase Vault root encryption key. Gestcopy's `files_signing_secret` must remain external to B2, the manifest, Git, Coolify database-backup environment variables, and logs. This PR deliberately does not automate secret injection.
+
+After restoring a new isolated Supabase instance:
+
+1. Reconfigure Supabase Auth/API settings that live outside the logical dump.
+2. Verify the required Supabase/PostgreSQL extensions.
+3. Reinject `files_signing_secret` into Supabase Vault from the approved external secure source.
+4. Verify it matches the secret expected by the Gestcopy application/configuration.
+5. Exercise Files signed-upload/download flows before declaring recovery complete.
+
+`manifest.json` contains only these non-secret requirement identifiers:
+
+- `supabase-vault:files_signing_secret`
+- `supabase-auth-config`
+- `supabase-extensions`
+
+It never contains their values.
 
 ## Local smoke (no secrets in repo)
 

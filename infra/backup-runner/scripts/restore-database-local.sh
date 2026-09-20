@@ -5,10 +5,11 @@ set -Eeuo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: restore-database-local.sh --application PATH [--auth PATH] [--migrations PATH]
+Usage: restore-database-local.sh --application PATH --auth PATH --migrations PATH
 
 Requires:
   GESTCOPY_ALLOW_RESTORE=isolated-only
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only
   GESTCOPY_RESTORE_TARGET_URL
   GESTCOPY_PRODUCTION_PROJECT_REF
   GESTCOPY_RESTORE_TARGET_PROJECT_REF
@@ -19,15 +20,15 @@ Refuses Production when:
   - GESTCOPY_DATABASE_URL is set and equals the target URL
 
 Optional:
-  --skip-auth     omit auth data restore (e.g. vanilla PostgreSQL without Auth schema)
   --skip-migrations
 
-Restore order (sectioned, so FKs to auth.users apply after auth data):
-  1. application --section=pre-data
-  2. application --section=data
-  3. auth data (unless --skip-auth)
-  4. migration history data (unless --skip-migrations)
-  5. application --section=post-data
+Restore order (isolated Supabase-compatible target only):
+  1. DROP SCHEMA IF EXISTS public CASCADE
+  2. application --section=pre-data (recreates public)
+  3. application --section=data
+  4. auth data (mandatory)
+  5. migration history data (unless --skip-migrations)
+  6. application --section=post-data
 
 Artifacts must already be decrypted locally (*.dump, not *.dump.age).
 EOF
@@ -36,7 +37,6 @@ EOF
 APPLICATION_DUMP=""
 AUTH_DUMP=""
 MIGRATIONS_DUMP=""
-SKIP_AUTH=false
 SKIP_MIGRATIONS=false
 
 while [[ $# -gt 0 ]]; do
@@ -52,10 +52,6 @@ while [[ $# -gt 0 ]]; do
     --migrations)
       MIGRATIONS_DUMP="${2:-}"
       shift 2
-      ;;
-    --skip-auth)
-      SKIP_AUTH=true
-      shift
       ;;
     --skip-migrations)
       SKIP_MIGRATIONS=true
@@ -79,13 +75,13 @@ if [[ -z "${APPLICATION_DUMP}" ]]; then
   exit 1
 fi
 
-if [[ ! -s "${APPLICATION_DUMP}" ]]; then
-  echo "ERROR: application dump missing or empty" >&2
+if [[ "${GESTCOPY_ALLOW_RESTORE:-}" != "isolated-only" ]]; then
+  echo "ERROR: set GESTCOPY_ALLOW_RESTORE=isolated-only to confirm an isolated restore" >&2
   exit 1
 fi
 
-if [[ "${GESTCOPY_ALLOW_RESTORE:-}" != "isolated-only" ]]; then
-  echo "ERROR: set GESTCOPY_ALLOW_RESTORE=isolated-only to confirm an isolated restore" >&2
+if [[ "${GESTCOPY_ALLOW_PUBLIC_RESET:-}" != "isolated-only" ]]; then
+  echo "ERROR: set GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only to confirm destructive public reset" >&2
   exit 1
 fi
 
@@ -125,9 +121,50 @@ if [[ -n "${GESTCOPY_DATABASE_URL:-}" && "${GESTCOPY_RESTORE_TARGET_URL}" == "${
   exit 1
 fi
 
+if [[ -z "${AUTH_DUMP}" ]]; then
+  echo "ERROR: --auth PATH is required for full recovery" >&2
+  usage
+  exit 1
+fi
+
+if [[ "${SKIP_MIGRATIONS}" != "true" && -z "${MIGRATIONS_DUMP}" ]]; then
+  echo "ERROR: --migrations PATH is required unless --skip-migrations is used" >&2
+  usage
+  exit 1
+fi
+
+preflight_archive() {
+  local role="$1"
+  local archive="$2"
+  local listing="$3"
+  if [[ ! -s "${archive}" ]]; then
+    echo "ERROR: ${role} dump missing or empty" >&2
+    exit 1
+  fi
+  if ! pg_restore --list "${archive}" >"${listing}"; then
+    echo "ERROR: ${role} dump is not a readable PostgreSQL archive" >&2
+    exit 1
+  fi
+}
+
+# All local artifact checks happen before the first target connection or mutation.
+PREFLIGHT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gestcopy-restore-preflight.XXXXXX")"
+trap 'rm -rf "${PREFLIGHT_DIR}"' EXIT
+preflight_archive application "${APPLICATION_DUMP}" "${PREFLIGHT_DIR}/application.list"
+preflight_archive auth "${AUTH_DUMP}" "${PREFLIGHT_DIR}/auth.list"
+if [[ "${SKIP_MIGRATIONS}" != "true" ]]; then
+  preflight_archive migrations "${MIGRATIONS_DUMP}" "${PREFLIGHT_DIR}/migrations.list"
+fi
+
+if ! grep -Eq 'SCHEMA[[:space:]]+-[[:space:]]+public([[:space:]]|$)' "${PREFLIGHT_DIR}/application.list"; then
+  echo "ERROR: application archive does not define schema public" >&2
+  exit 1
+fi
+
 : "${PGSSLMODE:=require}"
 : "${PGAPPNAME:=gestcopy-restore-isolated}"
-export PGSSLMODE PGAPPNAME
+: "${PGCONNECT_TIMEOUT:=15}"
+export PGSSLMODE PGAPPNAME PGCONNECT_TIMEOUT
 
 restore_application_section() {
   local section="$1"
@@ -141,39 +178,29 @@ restore_application_section() {
     "${APPLICATION_DUMP}"
 }
 
-echo "restore-database-local: restoring application pre-data (isolated target)"
+echo "restore-database-local: resetting public schema on confirmed isolated target"
+psql "${GESTCOPY_RESTORE_TARGET_URL}" \
+  -v ON_ERROR_STOP=1 \
+  -c 'DROP SCHEMA IF EXISTS public CASCADE;'
+
+echo "restore-database-local: restoring application pre-data (recreates public)"
 restore_application_section pre-data
 
 echo "restore-database-local: restoring application data"
 restore_application_section data
 
-if [[ "${SKIP_AUTH}" == "true" ]]; then
-  echo "restore-database-local: skipping auth dump (--skip-auth)"
-elif [[ -n "${AUTH_DUMP}" ]]; then
-  if [[ ! -s "${AUTH_DUMP}" ]]; then
-    echo "ERROR: auth dump missing or empty" >&2
-    exit 1
-  fi
-  echo "restore-database-local: restoring auth data before application post-data (FK to auth.users)"
-  pg_restore \
-    --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
-    --data-only \
-    --no-owner \
-    --no-privileges \
-    --exit-on-error \
-    "${AUTH_DUMP}"
-else
-  echo "ERROR: provide --auth PATH or pass --skip-auth" >&2
-  exit 1
-fi
+echo "restore-database-local: restoring mandatory auth data before application post-data (FK to auth.users)"
+pg_restore \
+  --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
+  --data-only \
+  --no-owner \
+  --no-privileges \
+  --exit-on-error \
+  "${AUTH_DUMP}"
 
 if [[ "${SKIP_MIGRATIONS}" == "true" ]]; then
   echo "restore-database-local: skipping migrations dump (--skip-migrations)"
-elif [[ -n "${MIGRATIONS_DUMP}" ]]; then
-  if [[ ! -s "${MIGRATIONS_DUMP}" ]]; then
-    echo "ERROR: migrations dump missing or empty" >&2
-    exit 1
-  fi
+else
   echo "restore-database-local: restoring migration history data"
   pg_restore \
     --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
@@ -182,9 +209,6 @@ elif [[ -n "${MIGRATIONS_DUMP}" ]]; then
     --no-privileges \
     --exit-on-error \
     "${MIGRATIONS_DUMP}"
-else
-  echo "ERROR: provide --migrations PATH or pass --skip-migrations" >&2
-  exit 1
 fi
 
 echo "restore-database-local: restoring application post-data (constraints/indexes/triggers/ACL)"

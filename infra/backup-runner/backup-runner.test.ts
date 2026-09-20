@@ -105,6 +105,10 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /SHOW server_version/);
     assert.match(backupDatabase, /manifest\.json/);
     assert.match(backupDatabase, /encryption.*age|encryption: "age"/);
+    assert.match(backupDatabase, /pg_restore --list/);
+    assert.match(backupDatabase, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
+    assert.match(backupDatabase, /PGCONNECT_TIMEOUT/);
+    assert.match(backupDatabase, /supabase-vault:files_signing_secret/);
 
     const appDump = stripComments(
       backupDatabase.match(/dumping application[\s\S]*?(?=dumping auth)/)?.[0] ?? ""
@@ -118,6 +122,7 @@ describe("infra/backup-runner static contract", () => {
   it("restore helper guards against production restores and uses section order", () => {
     assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_URL/);
     assert.match(restoreDatabase, /GESTCOPY_ALLOW_RESTORE=isolated-only/);
+    assert.match(restoreDatabase, /GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only/);
     assert.match(restoreDatabase, /GESTCOPY_PRODUCTION_PROJECT_REF/);
     assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_PROJECT_REF/);
     assert.match(restoreDatabase, /restore target resolves to Production project ref/);
@@ -126,7 +131,10 @@ describe("infra/backup-runner static contract", () => {
     assert.match(restoreDatabase, /--section=/);
     assert.match(restoreDatabase, /--no-owner/);
     assert.match(restoreDatabase, /--exit-on-error/);
-    assert.match(restoreDatabase, /--skip-auth/);
+    assert.doesNotMatch(restoreDatabase, /--skip-auth/);
+    assert.match(restoreDatabase, /pg_restore --list/);
+    assert.match(restoreDatabase, /DROP SCHEMA IF EXISTS public CASCADE/);
+    assert.match(restoreDatabase, /application archive does not define schema public/);
     assert.doesNotMatch(
       stripComments(restoreDatabase),
       /--dbname="\$\{GESTCOPY_DATABASE_URL\}"/
@@ -206,5 +214,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /ACL|GRANT/);
     assert.match(readme, /pre-data/);
     assert.match(readme, /post-data/);
+    assert.match(readme, /GESTCOPY_ALLOW_PUBLIC_RESET/);
+    assert.match(readme, /DROP SCHEMA IF EXISTS public CASCADE/);
+    assert.match(readme, /files_signing_secret/);
+    assert.match(readme, /EXTERNAL RECOVERY REQUIREMENTS/);
+    assert.match(readme, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
+    assert.doesNotMatch(readme, /--skip-auth/);
   });
 });
