@@ -136,7 +136,20 @@ shellcheck infra/backup-runner/scripts/*.sh
 
 ## Coolify deployment (later — not this PR)
 
-1. Create a dedicated Coolify resource from this Dockerfile (`infra/backup-runner`).
+Configure the Coolify build so the Docker context is **only** this runner directory (not the monorepo root). That is required for:
+
+```dockerfile
+COPY scripts/ /app/scripts/
+```
+
+to resolve `scripts/` relative to the runner folder.
+
+| Coolify field | Value |
+|---------------|--------|
+| **Base Directory** | `/infra/backup-runner` |
+| **Dockerfile Location** | `Dockerfile` |
+
+1. Create a dedicated Coolify resource from this Dockerfile with the Base Directory / Dockerfile Location above.
 2. Configure the environment variables listed above (secrets in Coolify secret store).
 3. Keep the container running (`CMD sleep infinity`); do **not** start backups from ENTRYPOINT.
 4. Add two Scheduled Tasks targeting the same runner container:
@@ -158,18 +171,18 @@ In production, stop the complete timed-out process tree before retrying. A survi
 
 ## Validation and release status
 
-The original review recorded **513 tests total: 507 passed, 6 skipped, 0 failed**, not “513 passed”. Report fresh counts after changes; the behavioral shell suite above reports its own checks separately.
+Report fresh counts after changes; the behavioral shell suite reports its own checks separately.
 
-Local validation of the P2 corrections (2026-09-20):
+Local validation of the final polish (2026-09-20):
 
-- TypeScript suite: 513 total, 507 passed, 6 skipped, 0 failed; includes all 7 runner contract tests.
-- Additional behavioral shell suite: 21 passed, 0 failed, run as the image's non-root user with networking disabled and fake rclone.
+- TypeScript suite: **513 total, 513 passed, 0 skipped, 0 failed**; includes all 7 runner contract tests.
+- Additional behavioral shell suite: **21 passed, 0 failed**, run as the image's non-root user with networking disabled and fake rclone.
 - ESLint, TypeScript `--noEmit`, shell syntax and `git diff --check`: passed.
-- Docker image build: passed with the real util-linux `flock` package installed.
+- Docker image build: passed on **Alpine 3.24** with rclone, util-linux `flock`, and PostgreSQL 17 client.
 
 P3 follow-up: add a remote CI check for this directory that runs contract and behavioral tests, shell syntax, lint/types and the Docker build. Existing Vercel checks do not validate this runner; the existing Kiosk workflow is path-filtered and does not cover runner-only changes.
 
-Passing local tests makes this change reviewable, not operationally validated. Before closing B1.2 deployment, confirm a real copy, full verification and an isolated recovery exercise with authorized credentials. No live backup, restore, Coolify change or production deployment is performed by these tests.
+Passing local tests makes this change reviewable, not operationally validated. Before closing B1.2 deployment, confirm a real copy, full verification and an isolated recovery exercise with authorized credentials from Coolify. No live backup, restore, Coolify change or production deployment is performed by these tests.
 
 ## PostgreSQL client (B1.3)
 

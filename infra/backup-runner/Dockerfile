@@ -4,7 +4,7 @@
 # Base: Alpine stable (pinned). Includes rclone + bash tooling for Files backup,
 # and PostgreSQL 17 client for upcoming B1.3 pg_dump scaffolding.
 
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache \
       bash \

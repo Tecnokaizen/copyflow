@@ -20,7 +20,7 @@ describe("infra/backup-runner static contract", () => {
   const readme = read("README.md");
 
   it("Dockerfile installs rclone, bash tooling, and postgres 17 client", () => {
-    assert.match(dockerfile, /FROM alpine:3\.21/);
+    assert.match(dockerfile, /FROM alpine:3\.24/);
     assert.match(dockerfile, /\brclone\b/);
     assert.match(dockerfile, /\bbash\b/);
     assert.match(dockerfile, /\bjq\b/);
@@ -94,6 +94,8 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /17 \* \* \* \*/);
     assert.match(readme, /35 2 \* \* 0/);
     assert.match(readme, /\/app\/scripts\/backup-all\.sh/);
+    assert.match(readme, /\/infra\/backup-runner/);
+    assert.match(readme, /Dockerfile Location/);
     assert.match(readme, /Do not use `rclone sync`/);
     assert.match(readme, /Object Lock/);
     assert.match(readme, /Compliance/);
