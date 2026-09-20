@@ -283,7 +283,8 @@ jq -nc \
     external_recovery_requirements: [
       "supabase-vault:files_signing_secret",
       "supabase-auth-config",
-      "supabase-extensions"
+      "supabase-extensions",
+      "supabase-automatic-rls"
     ],
     artifacts: [$application, $auth, $migrations]
   }' >"${MANIFEST}"

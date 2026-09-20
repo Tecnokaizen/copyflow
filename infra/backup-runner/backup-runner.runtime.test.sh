@@ -128,12 +128,26 @@ printf 'psql|%s\n' "$*" >>"${FAKE_PSQL_CALLS}"
 if [[ "$*" == *"DROP SCHEMA IF EXISTS public CASCADE"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
   printf 'psql|drop-public\n' >>"${FAKE_RESTORE_EVENTS}"
 fi
+if [[ "$*" == *"pg_trgm@extensions"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+  printf 'psql|pg-trgm-preflight\n' >>"${FAKE_RESTORE_EVENTS}"
+fi
+if [[ "$*" == *"gestcopy-post-restore-validation"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+  printf 'psql|post-restore-validation\n' >>"${FAKE_RESTORE_EVENTS}"
+fi
 if [[ "${FAKE_PSQL_EXIT_CODE:-0}" != "0" ]]; then
   exit "${FAKE_PSQL_EXIT_CODE}"
 fi
 
 # One-shot probe mode (-c / -Atqc).
 if [[ " $* " == *" -c "* || " $* " == *" -Atqc "* || "$*" == *"-Atqc"* ]]; then
+  if [[ "$*" == *"pg_trgm@extensions"* ]]; then
+    printf '%s\n' "${FAKE_PG_TRGM_CONTRACT-pg_trgm@extensions}"
+    exit 0
+  fi
+  if [[ "$*" == *"gestcopy-post-restore-validation"* ]]; then
+    printf '%s\n' "${FAKE_POST_RESTORE_VALIDATION:-t|1|0|1|t}"
+    exit 0
+  fi
   if [[ "$*" == *"SHOW server_version"* ]]; then
     printf '%s\n' "${FAKE_PG_VERSION:-17.4}"
     exit 0
@@ -276,6 +290,9 @@ if [[ "${list}" == "true" ]]; then
   if [[ "$(basename "${archive}")" == *application* || "$(basename "${archive}")" == "app.dump" ]]; then
     if [[ "${FAKE_APPLICATION_NO_PUBLIC:-false}" != "true" ]]; then
       printf '5; 2615 2200 SCHEMA - public postgres\n'
+      printf '11; 0 0 DEFAULT ACL - DEFAULT PRIVILEGES FOR SEQUENCES postgres\n'
+      printf '12; 0 0 DEFAULT ACL - DEFAULT PRIVILEGES FOR SEQUENCES supabase_admin\n'
+      printf '13; 0 0 ACL public TABLE public postgres\n'
     else
       printf '5; 2615 2200 SCHEMA - other postgres\n'
     fi
@@ -298,6 +315,7 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   data_only=false
   no_privileges=false
   auth_schema_migrations="n/a"
+  post_data_toc="n/a"
   args=("$@")
   i=0
   while [[ ${i} -lt ${#args[@]} ]]; do
@@ -312,6 +330,19 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   if [[ "${data_only}" == "true" ]]; then
     section="data-only"
   fi
+  if [[ "${section}" == "post-data" ]]; then
+    [[ -n "${use_list}" ]]
+    post_data_toc="postgres=excluded;supabase_admin=excluded;acl=excluded"
+    if grep -Eq 'DEFAULT ACL[[:space:]]+-[[:space:]]+DEFAULT PRIVILEGES.*[[:space:]]postgres$' "${use_list}"; then
+      post_data_toc="${post_data_toc/postgres=excluded/postgres=included}"
+    fi
+    if grep -Eq 'DEFAULT ACL[[:space:]]+-[[:space:]]+DEFAULT PRIVILEGES.*[[:space:]]supabase_admin$' "${use_list}"; then
+      post_data_toc="${post_data_toc/supabase_admin=excluded/supabase_admin=included}"
+    fi
+    if grep -Eq 'ACL[[:space:]]+public[[:space:]]+TABLE[[:space:]]+public[[:space:]]+postgres$' "${use_list}"; then
+      post_data_toc="${post_data_toc/acl=excluded/acl=included}"
+    fi
+  fi
   if [[ "$(basename "${archive}")" == *auth* || "$(basename "${archive}")" == "auth.dump" ]]; then
     [[ -n "${use_list}" ]]
     if grep -Eq 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations([[:space:]]|$)' "${use_list}"; then
@@ -320,7 +351,7 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
       auth_schema_migrations="excluded"
     fi
   fi
-  printf 'pg_restore|%s|no_privileges=%s|auth_schema_migrations=%s\n' "${section}" "${no_privileges}" "${auth_schema_migrations}" >>"${FAKE_PG_RESTORE_CALLS}"
+  printf 'pg_restore|%s|no_privileges=%s|auth_schema_migrations=%s|post_data_toc=%s\n' "${section}" "${no_privileges}" "${auth_schema_migrations}" "${post_data_toc}" >>"${FAKE_PG_RESTORE_CALLS}"
   if [[ -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
     printf 'pg_restore|%s\n' "${section}" >>"${FAKE_RESTORE_EVENTS}"
   fi
@@ -617,7 +648,8 @@ jq -e '.recovery_compatibility == {
 jq -e '.external_recovery_requirements == [
   "supabase-vault:files_signing_secret",
   "supabase-auth-config",
-  "supabase-extensions"
+  "supabase-extensions",
+  "supabase-automatic-rls"
 ]' "${manifest}" >/dev/null
 ! grep -Eiq 'password|postgresql://|AGE-SECRET|access_key|@fixture|00000004|"(secret_)?value"' "${manifest}"
 pass 'backup-database: happy path shares snapshot, uploads dumps then manifest'
@@ -669,22 +701,83 @@ if ! run_restore \
 fi
 grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
 mapfile -t restore_events <"${FIXTURE}/restore-events"
-[[ "${#restore_events[@]}" -eq 9 ]]
+[[ "${#restore_events[@]}" -eq 11 ]]
 [[ "${restore_events[0]}" == "pg_restore|list|app.dump" ]]
 [[ "${restore_events[1]}" == "pg_restore|list|auth.dump" ]]
 [[ "${restore_events[2]}" == "pg_restore|list|mig.dump" ]]
-[[ "${restore_events[3]}" == "psql|drop-public" ]]
-[[ "${restore_events[4]}" == "pg_restore|pre-data" ]]
-[[ "${restore_events[5]}" == "pg_restore|data" ]]
-[[ "${restore_events[6]}" == "pg_restore|data-only" ]]
-[[ "${restore_events[7]}" == "pg_restore|full" ]]
-[[ "${restore_events[8]}" == "pg_restore|post-data" ]]
+[[ "${restore_events[3]}" == "psql|pg-trgm-preflight" ]]
+[[ "${restore_events[4]}" == "psql|drop-public" ]]
+[[ "${restore_events[5]}" == "pg_restore|pre-data" ]]
+[[ "${restore_events[6]}" == "pg_restore|data" ]]
+[[ "${restore_events[7]}" == "pg_restore|data-only" ]]
+[[ "${restore_events[8]}" == "pg_restore|full" ]]
+[[ "${restore_events[9]}" == "pg_restore|post-data" ]]
+[[ "${restore_events[10]}" == "psql|post-restore-validation" ]]
 # application sections must not use --no-privileges; auth/migrations may.
 grep -q 'pg_restore|pre-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|post-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data-only|no_privileges=true|auth_schema_migrations=excluded' "${FIXTURE}/pgrestore-calls"
-pass 'restore: preflights all archives, recreates missing migrations schema, and uses exact section order'
+grep -q 'pg_restore|post-data|.*post_data_toc=postgres=included;supabase_admin=excluded;acl=included' "${FIXTURE}/pgrestore-calls"
+pass 'restore: extension preflight, filtered post-data TOC, semantic validation, and section order'
+
+: >"${FIXTURE}/restore-psql-calls"
+: >"${FIXTURE}/restore-events"
+if ! run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected restore success when GESTCOPY_DATABASE_URL is completely unset' >&2
+  cat "${FIXTURE}/restore-out" >&2
+  exit 1
+fi
+grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
+! grep -q 'parameter not set' "${FIXTURE}/restore-out"
+pass 'restore: optional GESTCOPY_DATABASE_URL may be completely unset'
+
+for extension_contract in '' 'pg_trgm@public'; do
+  : >"${FIXTURE}/restore-psql-calls"
+  : >"${FIXTURE}/restore-events"
+  if run_restore \
+    GESTCOPY_ALLOW_RESTORE=isolated-only \
+    GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+    GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+    GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+    GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+    FAKE_PG_TRGM_CONTRACT="${extension_contract}" \
+    >"${FIXTURE}/restore-out" 2>&1; then
+    echo 'expected incompatible pg_trgm target prerequisite to fail before mutation' >&2
+    exit 1
+  fi
+  grep -q 'pg_trgm must be installed in schema extensions' "${FIXTURE}/restore-out"
+  ! grep -q 'drop-public' "${FIXTURE}/restore-events"
+  [[ "$(cat "${FIXTURE}/restore-events")" == 'pg_restore|list|app.dump
+pg_restore|list|auth.dump
+pg_restore|list|mig.dump
+psql|pg-trgm-preflight' ]]
+done
+pass 'restore: missing or wrongly-schemaed pg_trgm aborts before public reset'
+
+for validation in 't|1|1|1|t' 't|1|0|1|f'; do
+  : >"${FIXTURE}/restore-events"
+  if run_restore \
+    GESTCOPY_ALLOW_RESTORE=isolated-only \
+    GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+    GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+    GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+    GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+    FAKE_POST_RESTORE_VALIDATION="${validation}" \
+    >"${FIXTURE}/restore-out" 2>&1; then
+    echo 'expected failed semantic validation to suppress restore success' >&2
+    exit 1
+  fi
+  grep -q 'post-restore semantic validation failed' "${FIXTURE}/restore-out"
+  ! grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
+done
+pass 'restore: semantic validation requires RLS and migrations history before success'
 
 : >"${FIXTURE}/pgrestore-calls"
 : >"${FIXTURE}/restore-psql-calls"

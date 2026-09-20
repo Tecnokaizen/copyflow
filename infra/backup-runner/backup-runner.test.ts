@@ -114,6 +114,7 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
     assert.match(backupDatabase, /PGCONNECT_TIMEOUT/);
     assert.match(backupDatabase, /supabase-vault:files_signing_secret/);
+    assert.match(backupDatabase, /supabase-automatic-rls/);
     assert.match(backupDatabase, /auth_schema_migrations: "excluded"/);
     assert.match(backupDatabase, /supabase_migrations: "schema-and-data"/);
 
@@ -134,6 +135,7 @@ describe("infra/backup-runner static contract", () => {
     assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_PROJECT_REF/);
     assert.match(restoreDatabase, /restore target resolves to Production project ref/);
     assert.match(restoreDatabase, /must not equal GESTCOPY_DATABASE_URL/);
+    assert.match(restoreDatabase, /source_database_url="\$\{GESTCOPY_DATABASE_URL:-\}"/);
     assert.match(restoreDatabase, /pg_restore/);
     assert.match(restoreDatabase, /--section=/);
     assert.match(restoreDatabase, /--no-owner/);
@@ -146,6 +148,13 @@ describe("infra/backup-runner static contract", () => {
     assert.match(restoreDatabase, /migrations archive does not contain supabase_migrations\.schema_migrations data/);
     assert.match(restoreDatabase, /AUTH_RESTORE_LIST/);
     assert.match(restoreDatabase, /--use-list="\$\{AUTH_RESTORE_LIST\}"/);
+    assert.match(restoreDatabase, /APPLICATION_POST_DATA_RESTORE_LIST/);
+    assert.match(restoreDatabase, /DEFAULT ACL/);
+    assert.match(restoreDatabase, /\$NF == "supabase_admin"/);
+    assert.match(restoreDatabase, /pg_trgm@extensions/);
+    assert.match(restoreDatabase, /preflight_target_extensions/);
+    assert.match(restoreDatabase, /validate_restored_target/);
+    assert.match(restoreDatabase, /post-restore semantic validation failed/);
     assert.ok(
       restoreDatabase.includes(
         "grep -Ev 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations"
@@ -233,6 +242,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /GESTCOPY_ALLOW_PUBLIC_RESET/);
     assert.match(readme, /DROP SCHEMA IF EXISTS public CASCADE/);
     assert.match(readme, /files_signing_secret/);
+    assert.match(readme, /supabase-automatic-rls/);
+    assert.match(readme, /pg_trgm@extensions/);
+    assert.match(readme, /Automatic RLS/);
+    assert.match(readme, /27 public tables with RLS enabled \(27\/27\)/);
+    assert.match(readme, /60 public policies/);
     assert.match(
       readme,
       /auth\.schema_migrations[\s\S]*excluded|excluded[\s\S]*auth\.schema_migrations/
