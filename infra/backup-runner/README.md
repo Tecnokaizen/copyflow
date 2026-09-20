@@ -49,8 +49,8 @@ Set these in Coolify (or local shell). **Values are not documented here.**
 | `RCLONE_CONFIG_R2_ACCESS_KEY_ID` | secret |
 | `RCLONE_CONFIG_R2_SECRET_ACCESS_KEY` | secret |
 | `RCLONE_CONFIG_R2_ENDPOINT` | R2 S3 API endpoint |
-| `RCLONE_CONFIG_R2_REGION` | usually `auto` |
-| `RCLONE_CONFIG_R2_NO_CHECK_BUCKET` | usually `true` |
+| `RCLONE_CONFIG_R2_REGION` | optional; exported default `auto` when unset or empty |
+| `RCLONE_CONFIG_R2_NO_CHECK_BUCKET` | optional; exported default `true` when unset or empty |
 
 ### Rclone remote `B2` (Backblaze)
 
@@ -59,7 +59,7 @@ Set these in Coolify (or local shell). **Values are not documented here.**
 | `RCLONE_CONFIG_B2_TYPE` | `b2` |
 | `RCLONE_CONFIG_B2_ACCOUNT` | secret (keyID) |
 | `RCLONE_CONFIG_B2_KEY` | secret |
-| `RCLONE_CONFIG_B2_HARD_DELETE` | `false` |
+| `RCLONE_CONFIG_B2_HARD_DELETE` | optional; exported default `false` when unset or empty; keep `false` in production |
 
 ### Gestcopy non-secret routing
 
@@ -77,7 +77,8 @@ No `rclone.conf` with secrets is baked into the image. Remotes are configured en
 |--------|------|
 | `/app/scripts/backup-files.sh` | `rclone copy` R2 → B2/`files` |
 | `/app/scripts/verify-files.sh` | `rclone check --one-way --download` (read-only) |
-| `/app/scripts/backup-all.sh` | runs Files backup then verify; placeholder for B1.3 DB |
+| `/app/scripts/backup-all.sh` | runs Files copy only; placeholder for B1.3 DB |
+| `/app/scripts/runner-lock.sh` | shared lock helper, sourced by copy and verification |
 
 Success markers (stdout, only on success):
 
@@ -86,6 +87,12 @@ Success markers (stdout, only on success):
 - `BACKUP_ALL_SUCCESS`
 
 Any rclone / validation failure exits non-zero; `backup-all.sh` does not continue after a failed step.
+
+Copy and full verification share an exclusive, non-blocking `flock`. This also protects direct manual invocations of `backup-files.sh` and copies invoked through `backup-all.sh`. A conflicting job exits **75**, logs `BACKUP_RUNNER_BUSY`, and never calls rclone or prints a success marker. Treat this as a missed run requiring a retry, not a successful backup.
+
+The default lock file is `/tmp/gestcopy-backup-runner.lock`. For local tests, `GESTCOPY_BACKUP_LOCK_FILE` can select another writable path; all invocations must use the same path. The kernel releases the lock when the last process holding its descriptor exits, including failed or interrupted transfers. Do not delete the lock file to unlock it: that can allow parallel jobs to lock different inodes.
+
+Run exactly **one runner container**. This is container-local exclusion, not a distributed lock; a second replica or overlapping deployments would require coordination. Keep both tasks on the same container and avoid redeploying during a job. When B1.3 adds another phase, extend the orchestration lock across the entire sequence before enabling it.
 
 ## Local smoke (no secrets in repo)
 
@@ -98,7 +105,7 @@ docker build -t gestcopy-backup-runner:local ./infra/backup-runner
 Syntax check (no credentials):
 
 ```bash
-bash -n infra/backup-runner/scripts/*.sh
+for script in infra/backup-runner/scripts/*.sh; do bash -n "$script" || exit 1; done
 ```
 
 Static contract tests (no network / no credentials):
@@ -106,6 +113,16 @@ Static contract tests (no network / no credentials):
 ```bash
 TZ=UTC npx tsx --test infra/backup-runner/backup-runner.test.ts
 ```
+
+Behavioral regression tests use the image's real `flock` and a fake rclone process, with a clean environment and dummy credentials. They check exported defaults, overrides, failure propagation, copy/check exclusion, lock release and hourly copy-only orchestration. No cloud credentials or network are needed:
+
+```bash
+docker run --rm --network none \
+  -v "$PWD/infra/backup-runner:/tests:ro" \
+  gestcopy-backup-runner:local bash /tests/backup-runner.runtime.test.sh
+```
+
+On Linux with Bash and util-linux `flock`, the same suite can run directly with `bash infra/backup-runner/backup-runner.runtime.test.sh`.
 
 A full copy/verify requires injecting the env vars above into a running container. Do **not** commit secrets.
 
@@ -122,16 +139,37 @@ shellcheck infra/backup-runner/scripts/*.sh
 1. Create a dedicated Coolify resource from this Dockerfile (`infra/backup-runner`).
 2. Configure the environment variables listed above (secrets in Coolify secret store).
 3. Keep the container running (`CMD sleep infinity`); do **not** start backups from ENTRYPOINT.
-4. Add a Scheduled Task:
+4. Add two Scheduled Tasks targeting the same runner container:
 
-| Field | Value |
-|-------|--------|
-| **Name** | Gestcopy Files Backup |
-| **Frequency** | `17 * * * *` |
-| **Command** | `/app/scripts/backup-all.sh` |
-| **Timeout** | `3600` |
+| Field | Hourly copy | Weekly full verification |
+|-------|-------------|--------------------------|
+| **Name** | Gestcopy Files Backup | Gestcopy Files Full Verification |
+| **Frequency** | `17 * * * *` | `35 2 * * 0` |
+| **Command** | `/app/scripts/backup-all.sh` | `/app/scripts/verify-files.sh` |
+| **Timeout** | `3300` | `21600` (initial six-hour ceiling; measure before enabling) |
 
-Hourly cadence is intentional. Minute `17` avoids pile-up on `:00`. Coolify uses the deployment server timezone; for an hourly schedule the minute offset is what matters, not the zone.
+Hourly cadence is intentional. Minute `17` avoids pile-up on `:00`; the 55-minute copy timeout leaves a gap before the next run. Confirm the effective scheduler timezone in Coolify: the weekly expression means Sunday at 02:35 in that timezone. Schedule the first verification after a successful copy.
+
+Full verification is deliberately separate: `rclone check --download` reads the entire corpus from **both** remotes. Its runtime, requests and transfer volume scale with total stored data. It is not an incremental check and must not be appended to the hourly task. See [rclone check](https://rclone.org/commands/rclone_check/) and [Coolify Scheduled Tasks](https://coolify.io/docs/core/automation/scheduled-tasks/overview).
+
+The weekly job can occupy the lock across hourly slots. Those copies fail with exit 75 rather than overlap; after verification, run a catch-up copy or confirm the next hourly run succeeds. Monitor failure/busy logs and time since the last successful copy and verification separately. A timeout or conflict never counts as verification success. Measure corpus size, duration and transfer cost before enabling this schedule; if the resulting backup gap is unacceptable, use a dedicated maintenance window or design bounded incremental verification before production rollout. Increasing the timeout alone does not preserve an hourly recovery point.
+
+In production, stop the complete timed-out process tree before retrying. A surviving transfer retains its inherited lock; do not force another job by deleting the lock file.
+
+## Validation and release status
+
+The original review recorded **513 tests total: 507 passed, 6 skipped, 0 failed**, not “513 passed”. Report fresh counts after changes; the behavioral shell suite above reports its own checks separately.
+
+Local validation of the P2 corrections (2026-09-20):
+
+- TypeScript suite: 513 total, 507 passed, 6 skipped, 0 failed; includes all 7 runner contract tests.
+- Additional behavioral shell suite: 21 passed, 0 failed, run as the image's non-root user with networking disabled and fake rclone.
+- ESLint, TypeScript `--noEmit`, shell syntax and `git diff --check`: passed.
+- Docker image build: passed with the real util-linux `flock` package installed.
+
+P3 follow-up: add a remote CI check for this directory that runs contract and behavioral tests, shell syntax, lint/types and the Docker build. Existing Vercel checks do not validate this runner; the existing Kiosk workflow is path-filtered and does not cover runner-only changes.
+
+Passing local tests makes this change reviewable, not operationally validated. Before closing B1.2 deployment, confirm a real copy, full verification and an isolated recovery exercise with authorized credentials. No live backup, restore, Coolify change or production deployment is performed by these tests.
 
 ## PostgreSQL client (B1.3)
 

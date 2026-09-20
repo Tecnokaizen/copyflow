@@ -10,7 +10,6 @@ echo "backup-all: start ${STARTED_AT} UTC"
 
 # --- Files (B1.2) ---
 "${SCRIPT_DIR}/backup-files.sh"
-"${SCRIPT_DIR}/verify-files.sh"
 
 # --- Database (B1.3 placeholder) ---
 # "${SCRIPT_DIR}/backup-database.sh"

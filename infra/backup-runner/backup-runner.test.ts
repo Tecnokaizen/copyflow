@@ -25,6 +25,7 @@ describe("infra/backup-runner static contract", () => {
     assert.match(dockerfile, /\bbash\b/);
     assert.match(dockerfile, /\bjq\b/);
     assert.match(dockerfile, /\bcurl\b/);
+    assert.match(dockerfile, /\bflock\b/);
     assert.match(dockerfile, /ca-certificates/);
     assert.match(dockerfile, /postgresql17-client/);
     assert.match(dockerfile, /sleep", "infinity/);
@@ -53,14 +54,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(verifyFiles, /VERIFY_FILES_SUCCESS/);
   });
 
-  it("backup-all sequences files backup then verify", () => {
+  it("backup-all runs the copy without a full verification", () => {
     assert.match(backupAll, /backup-files\.sh/);
-    assert.match(backupAll, /verify-files\.sh/);
+    assert.doesNotMatch(backupAll, /verify-files\.sh/);
     assert.match(backupAll, /BACKUP_ALL_SUCCESS/);
     assert.match(backupAll, /B1\.3/);
-    const backupIdx = backupAll.indexOf("backup-files.sh");
-    const verifyIdx = backupAll.indexOf("verify-files.sh");
-    assert.ok(backupIdx >= 0 && verifyIdx > backupIdx);
   });
 
   it("does not hardcode secrets or rclone.conf credentials", () => {
@@ -94,6 +92,7 @@ describe("infra/backup-runner static contract", () => {
 
   it("documents Coolify schedule and forbids sync", () => {
     assert.match(readme, /17 \* \* \* \*/);
+    assert.match(readme, /35 2 \* \* 0/);
     assert.match(readme, /\/app\/scripts\/backup-all\.sh/);
     assert.match(readme, /Do not use `rclone sync`/);
     assert.match(readme, /Object Lock/);

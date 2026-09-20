@@ -26,6 +26,11 @@ require_var GESTCOPY_B2_FILES_PREFIX
 : "${RCLONE_CONFIG_R2_REGION:=auto}"
 : "${RCLONE_CONFIG_R2_NO_CHECK_BUCKET:=true}"
 : "${RCLONE_CONFIG_B2_HARD_DELETE:=false}"
+export RCLONE_CONFIG_R2_REGION RCLONE_CONFIG_R2_NO_CHECK_BUCKET RCLONE_CONFIG_B2_HARD_DELETE
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/runner-lock.sh"
+acquire_runner_lock
 
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "backup-files: start ${STARTED_AT} UTC"

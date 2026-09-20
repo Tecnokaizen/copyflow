@@ -10,6 +10,7 @@ RUN apk add --no-cache \
       bash \
       ca-certificates \
       curl \
+      flock \
       jq \
       rclone \
       postgresql17-client \
