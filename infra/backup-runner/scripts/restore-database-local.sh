@@ -26,8 +26,8 @@ Restore order (isolated Supabase-compatible target only):
   1. DROP SCHEMA IF EXISTS public CASCADE
   2. application --section=pre-data (recreates public)
   3. application --section=data
-  4. auth data (mandatory)
-  5. migration history data (unless --skip-migrations)
+  4. auth data, excluding auth.schema_migrations (mandatory)
+  5. supabase_migrations schema + data (unless --skip-migrations)
   6. application --section=post-data
 
 Artifacts must already be decrypted locally (*.dump, not *.dump.age).
@@ -161,6 +161,26 @@ if ! grep -Eq 'SCHEMA[[:space:]]+-[[:space:]]+public([[:space:]]|$)' "${PREFLIGH
   exit 1
 fi
 
+# A new Supabase project may not have this schema at all. Require an archive that
+# can recreate both the schema and its migration history before resetting public.
+if [[ "${SKIP_MIGRATIONS}" != "true" ]]; then
+  if ! grep -Eq 'SCHEMA[[:space:]]+-[[:space:]]+supabase_migrations([[:space:]]|$)' "${PREFLIGHT_DIR}/migrations.list"; then
+    echo "ERROR: migrations archive does not define schema supabase_migrations" >&2
+    exit 1
+  fi
+  if ! grep -Eq 'TABLE DATA[[:space:]]+supabase_migrations[[:space:]]+schema_migrations([[:space:]]|$)' "${PREFLIGHT_DIR}/migrations.list"; then
+    echo "ERROR: migrations archive does not contain supabase_migrations.schema_migrations data" >&2
+    exit 1
+  fi
+fi
+
+# Backups created before B1.3.1 can contain auth.schema_migrations. Do not let
+# those internal Auth-version records reach the target, even when restoring an
+# old archive. pg_restore --use-list accepts the filtered TOC listing.
+AUTH_RESTORE_LIST="${PREFLIGHT_DIR}/auth.restore.list"
+grep -Ev 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations([[:space:]]|$)' \
+  "${PREFLIGHT_DIR}/auth.list" >"${AUTH_RESTORE_LIST}"
+
 : "${PGSSLMODE:=require}"
 : "${PGAPPNAME:=gestcopy-restore-isolated}"
 : "${PGCONNECT_TIMEOUT:=15}"
@@ -196,15 +216,15 @@ pg_restore \
   --no-owner \
   --no-privileges \
   --exit-on-error \
+  --use-list="${AUTH_RESTORE_LIST}" \
   "${AUTH_DUMP}"
 
 if [[ "${SKIP_MIGRATIONS}" == "true" ]]; then
   echo "restore-database-local: skipping migrations dump (--skip-migrations)"
 else
-  echo "restore-database-local: restoring migration history data"
+  echo "restore-database-local: restoring supabase_migrations schema and data"
   pg_restore \
     --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
-    --data-only \
     --no-owner \
     --no-privileges \
     --exit-on-error \

@@ -118,8 +118,8 @@ Do **not** ship one raw whole-database dump as the sole artifact. Produce three 
 | Artifact | Scope | Flags (base) |
 |----------|--------|--------------|
 | `gestcopy-application.dump.age` | schema `public` (tables, data, indexes, constraints, functions, triggers, views, RLS, sequences, **ACL/GRANT/REVOKE**) | `--format=custom --no-owner --no-subscriptions --schema=public` (**no** `--no-privileges`) |
-| `gestcopy-auth.dump.age` | schema `auth` **data only** | `--format=custom --data-only --no-owner --no-privileges --schema=auth` |
-| `gestcopy-migrations.dump.age` | `supabase_migrations.schema_migrations` data only | `--format=custom --data-only --no-owner --no-privileges --table=...` |
+| `gestcopy-auth.dump.age` | schema `auth` **data only**, except `auth.schema_migrations` | `--format=custom --data-only --no-owner --no-privileges --schema=auth --exclude-table-data=auth.schema_migrations` |
+| `gestcopy-migrations.dump.age` | complete `supabase_migrations` schema **and data** | `--format=custom --no-owner --no-privileges --schema=supabase_migrations` |
 
 ### Shared exported snapshot
 
@@ -145,7 +145,8 @@ Manifest fields include:
 
 **Auth caveats (documented, not automated away):**
 
-- Auth dump compatibility depends on the Auth schema version of the restore target
+- `auth.schema_migrations` is deliberately excluded: the target's own Supabase Auth version keeps its migration history. The restore helper independently filters this table from an old archive as defence in depth.
+- Auth user-data compatibility still depends on the Auth schema version of the restore target
 - Do **not** restore Auth onto Production directly
 - Test first on an isolated project/environment
 - JWT secrets, API keys, and Auth dashboard configuration are **not** part of this artifact
@@ -219,7 +220,7 @@ Rejects **before** target mutation when:
 
 Errors mention Production project-ref resolution; they never print full connection strings or credentials. Project-ref guards remain effective even if `GESTCOPY_DATABASE_URL` is absent.
 
-The helper requires already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies every selected artifact exists, is non-empty, and is a readable custom archive using `pg_restore --list`. The application archive must contain the `public` schema definition. Any failure exits before target `psql`, before `DROP`, and before restore.
+The helper requires already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies every selected artifact exists, is non-empty, and is a readable custom archive using `pg_restore --list`. The application archive must contain the `public` schema definition; the migrations archive must contain both the `supabase_migrations` schema and its `schema_migrations` table data. Any failure exits before target `psql`, before `DROP`, and before restore.
 
 The target must be a **disposable, isolated, Supabase-compatible project**. Vanilla PostgreSQL is not a supported full-recovery target because `public.profiles(id)` references `auth.users(id)` and recovery depends on compatible Supabase Auth objects and users.
 
@@ -238,8 +239,8 @@ Schema inspection shows `public.profiles(id)` has `FOREIGN KEY … REFERENCES au
 1. reset `public` on the confirmed isolated target
 2. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`), which recreates `public`
 3. application `--section=data`
-4. mandatory auth data (`--data-only --no-owner --no-privileges`)
-5. migration history data unless `--skip-migrations`
+4. mandatory auth data (`--data-only --no-owner --no-privileges`), using an explicit filtered restore list which always excludes `auth.schema_migrations` (including for a legacy archive)
+5. `supabase_migrations` schema + data unless `--skip-migrations`, so a newly created Supabase project without that schema can recover the migration history
 6. application `--section=post-data` (FKs / indexes / triggers / ACL)
 
 Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
