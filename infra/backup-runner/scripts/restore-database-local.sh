@@ -23,12 +23,14 @@ Optional:
   --skip-migrations
 
 Restore order (isolated Supabase-compatible target only):
-  1. DROP SCHEMA IF EXISTS public CASCADE
-  2. application --section=pre-data (recreates public)
-  3. application --section=data
-  4. auth data, excluding auth.schema_migrations (mandatory)
-  5. supabase_migrations schema + data (unless --skip-migrations)
-  6. application --section=post-data
+  1. read-only target prerequisite checks (pg_trgm in extensions)
+  2. DROP SCHEMA IF EXISTS public CASCADE
+  3. application --section=pre-data (recreates public)
+  4. application --section=data
+  5. auth data, excluding auth.schema_migrations (mandatory)
+  6. supabase_migrations schema + data (unless --skip-migrations)
+  7. application --section=post-data, excluding only supabase_admin DEFAULT ACLs
+  8. read-only semantic validation
 
 Artifacts must already be decrypted locally (*.dump, not *.dump.age).
 EOF
@@ -116,7 +118,10 @@ if [[ "${target_url_lc}" == *"${prod_ref}"* ]]; then
 fi
 
 # Defense in depth when the production backup URL is also present in the environment.
-if [[ -n "${GESTCOPY_DATABASE_URL:-}" && "${GESTCOPY_RESTORE_TARGET_URL}" == "${GESTCOPY_DATABASE_URL}" ]]; then
+# Keep the optional source URL in a local value: with `set -u`, expanding an unset
+# GESTCOPY_DATABASE_URL on the right side of [[ ... && ... ]] would still abort.
+source_database_url="${GESTCOPY_DATABASE_URL:-}"
+if [[ -n "${source_database_url}" && "${GESTCOPY_RESTORE_TARGET_URL}" == "${source_database_url}" ]]; then
   echo "ERROR: restore target must not equal GESTCOPY_DATABASE_URL (production source)" >&2
   exit 1
 fi
@@ -181,6 +186,16 @@ AUTH_RESTORE_LIST="${PREFLIGHT_DIR}/auth.restore.list"
 grep -Ev 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations([[:space:]]|$)' \
   "${PREFLIGHT_DIR}/auth.list" >"${AUTH_RESTORE_LIST}"
 
+# `supabase_admin` is an internal Supabase role. A normal project `postgres`
+# connection cannot change its default privileges, so restoring that one TOC
+# object aborts an otherwise valid post-data restore. Filter only its DEFAULT
+# ACL entries; normal ACLs and DEFAULT ACLs owned by postgres remain selected.
+APPLICATION_POST_DATA_RESTORE_LIST="${PREFLIGHT_DIR}/application.post-data.restore.list"
+awk '
+  /^[0-9]+;/ && / DEFAULT ACL / && $NF == "supabase_admin" { next }
+  { print }
+' "${PREFLIGHT_DIR}/application.list" >"${APPLICATION_POST_DATA_RESTORE_LIST}"
+
 : "${PGSSLMODE:=require}"
 : "${PGAPPNAME:=gestcopy-restore-isolated}"
 : "${PGCONNECT_TIMEOUT:=15}"
@@ -197,6 +212,69 @@ restore_application_section() {
     --exit-on-error \
     "${APPLICATION_DUMP}"
 }
+
+preflight_target_extensions() {
+  local extension_contract
+  extension_contract="$(
+    psql "${GESTCOPY_RESTORE_TARGET_URL}" \
+      -v ON_ERROR_STOP=1 \
+      -Atqc "
+        SELECT 'pg_trgm@extensions'
+        WHERE EXISTS (
+          SELECT 1
+          FROM pg_extension extension
+          JOIN pg_namespace schema ON schema.oid = extension.extnamespace
+          WHERE extension.extname = 'pg_trgm'
+            AND schema.nspname = 'extensions'
+        );
+      "
+  )"
+
+  if [[ "${extension_contract}" != "pg_trgm@extensions" ]]; then
+    echo "ERROR: target prerequisite pg_trgm must be installed in schema extensions before resetting public" >&2
+    exit 1
+  fi
+}
+
+validate_restored_target() {
+  local validation public_schema_exists public_table_count public_tables_without_rls policy_count migrations_table_exists
+  validation="$(
+    psql "${GESTCOPY_RESTORE_TARGET_URL}" \
+      -v ON_ERROR_STOP=1 \
+      -At \
+      -F '|' \
+      -c "
+        /* gestcopy-post-restore-validation */
+        SELECT
+          to_regnamespace('public') IS NOT NULL,
+          (SELECT count(*)
+           FROM pg_class table_class
+           JOIN pg_namespace schema ON schema.oid = table_class.relnamespace
+           WHERE schema.nspname = 'public'
+             AND table_class.relkind IN ('r', 'p')),
+          (SELECT count(*)
+           FROM pg_class table_class
+           JOIN pg_namespace schema ON schema.oid = table_class.relnamespace
+           WHERE schema.nspname = 'public'
+             AND table_class.relkind IN ('r', 'p')
+             AND NOT table_class.relrowsecurity),
+          (SELECT count(*) FROM pg_policies WHERE schemaname = 'public'),
+          $(if [[ "${SKIP_MIGRATIONS}" == "true" ]]; then printf 'true'; else printf "to_regclass('supabase_migrations.schema_migrations') IS NOT NULL"; fi);
+      "
+  )"
+
+  IFS='|' read -r public_schema_exists public_table_count public_tables_without_rls policy_count migrations_table_exists <<<"${validation}"
+
+  if [[ "${public_schema_exists}" != "t" || ! "${public_table_count}" =~ ^[1-9][0-9]*$ ||
+    "${public_tables_without_rls}" != "0" || ! "${policy_count}" =~ ^[1-9][0-9]*$ ||
+    "${migrations_table_exists}" != "t" ]]; then
+    echo "ERROR: post-restore semantic validation failed; RESTORE_DATABASE_ISOLATED_SUCCESS will not be printed" >&2
+    exit 1
+  fi
+}
+
+echo "restore-database-local: checking pg_trgm prerequisite on confirmed isolated target"
+preflight_target_extensions
 
 echo "restore-database-local: resetting public schema on confirmed isolated target"
 psql "${GESTCOPY_RESTORE_TARGET_URL}" \
@@ -232,6 +310,15 @@ else
 fi
 
 echo "restore-database-local: restoring application post-data (constraints/indexes/triggers/ACL)"
-restore_application_section post-data
+pg_restore \
+  --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
+  --section=post-data \
+  --no-owner \
+  --exit-on-error \
+  --use-list="${APPLICATION_POST_DATA_RESTORE_LIST}" \
+  "${APPLICATION_DUMP}"
+
+echo "restore-database-local: validating restored target"
+validate_restored_target
 
 echo "RESTORE_DATABASE_ISOLATED_SUCCESS"

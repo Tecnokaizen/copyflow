@@ -141,7 +141,7 @@ Manifest fields include:
 
 - `consistency: "postgresql-exported-snapshot"`
 - `status: "complete"`
-- non-secret `external_recovery_requirements` identifiers for Vault, Auth configuration, and extensions
+- non-secret `external_recovery_requirements` identifiers for Vault, Auth configuration, extensions, and Supabase Automatic RLS
 
 **Auth caveats (documented, not automated away):**
 
@@ -152,6 +152,8 @@ Manifest fields include:
 - JWT secrets, API keys, and Auth dashboard configuration are **not** part of this artifact
 
 **ACL note:** The application dump deliberately preserves PostgreSQL object privileges. RLS policies do **not** replace GRANT/REVOKE. An isolated restore target should be a Supabase-compatible environment with its standard roles; this helper does not recreate reserved Supabase roles.
+
+**Default ACL compatibility note:** the application archive can contain `DEFAULT ACL` entries owned by the internal Supabase role `supabase_admin`. A normal project `postgres` connection cannot change those defaults. The restore helper uses a `pg_restore --use-list` TOC generated from the application archive: it excludes **only** `DEFAULT ACL` entries whose owner is `supabase_admin`. It retains normal ACLs and every `DEFAULT ACL` owned by `postgres`; errors are not ignored and post-data still uses `--exit-on-error`.
 
 ### Upload: dumps first, manifest last (completion marker)
 
@@ -222,9 +224,11 @@ Errors mention Production project-ref resolution; they never print full connecti
 
 The helper requires already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies every selected artifact exists, is non-empty, and is a readable custom archive using `pg_restore --list`. The application archive must contain the `public` schema definition; the migrations archive must contain both the `supabase_migrations` schema and its `schema_migrations` table data. Any failure exits before target `psql`, before `DROP`, and before restore.
 
+Before `DROP public`, the helper makes a **read-only** target check for the B1.3 recovery contract `pg_trgm@extensions`. This is required because the canonical application archive references `extensions.gin_trgm_ops`. If `pg_trgm` is absent or installed in another schema, the helper stops before any mutation; it never runs `CREATE EXTENSION` automatically.
+
 The target must be a **disposable, isolated, Supabase-compatible project**. Vanilla PostgreSQL is not a supported full-recovery target because `public.profiles(id)` references `auth.users(id)` and recovery depends on compatible Supabase Auth objects and users.
 
-After every guard and archive preflight passes, the helper runs:
+After every guard, archive preflight, and read-only extension check passes, the helper runs:
 
 ```sql
 DROP SCHEMA IF EXISTS public CASCADE;
@@ -241,9 +245,10 @@ Schema inspection shows `public.profiles(id)` has `FOREIGN KEY … REFERENCES au
 3. application `--section=data`
 4. mandatory auth data (`--data-only --no-owner --no-privileges`), using an explicit filtered restore list which always excludes `auth.schema_migrations` (including for a legacy archive)
 5. `supabase_migrations` schema + data unless `--skip-migrations`, so a newly created Supabase project without that schema can recover the migration history
-6. application `--section=post-data` (FKs / indexes / triggers / ACL)
+6. application `--section=post-data` (FKs / indexes / triggers / ACL) through a filtered TOC that excludes only `supabase_admin` `DEFAULT ACL` entries
+7. read-only semantic validation: `public` exists, has tables, every public table has RLS, public policies exist, and `supabase_migrations.schema_migrations` exists unless `--skip-migrations` was requested
 
-Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
+The success marker is printed only after that validation succeeds. Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
 
 ## EXTERNAL RECOVERY REQUIREMENTS
 
@@ -252,16 +257,55 @@ The logical dumps do **not** contain the Supabase Vault root encryption key. Ges
 After restoring a new isolated Supabase instance:
 
 1. Reconfigure Supabase Auth/API settings that live outside the logical dump.
-2. Verify the required Supabase/PostgreSQL extensions.
+2. Verify the required Supabase/PostgreSQL extensions. For B1.3, `pg_trgm` must be installed in `extensions` before invoking the helper.
 3. Reinject `files_signing_secret` into Supabase Vault from the approved external secure source.
 4. Verify it matches the secret expected by the Gestcopy application/configuration.
-5. Exercise Files signed-upload/download flows before declaring recovery complete.
+5. Re-enable and separately verify Supabase Automatic RLS as described below.
+6. Exercise Files signed-upload/download flows before declaring recovery complete.
+
+### Supabase Automatic RLS is external to the logical recovery set
+
+`DROP SCHEMA public CASCADE` also removes `public.rls_auto_enable()` and the global `ensure_rls` Event Trigger that depends on it. The application archive can recreate the `public` function, but it does not recreate that global event trigger. Therefore `supabase-automatic-rls` is an explicit post-restore requirement, not an object that this helper recreates blindly.
+
+After the helper reports success, verify it independently as the project `postgres` user:
+
+```sql
+SELECT evtname, evtenabled, evtfoid::regprocedure
+FROM pg_event_trigger
+WHERE evtname = 'ensure_rls';
+```
+
+The expected enabled trigger is `ensure_rls` running the intended RLS auto-enable function. If it is missing or disabled, reactivate it using Supabase's supported [Event Triggers guide](https://supabase.com/docs/guides/database/postgres/event-triggers), which documents the `rls_auto_enable()` / `ensure_rls` pattern. Do this as an explicit post-restore operation after reviewing the target; do not copy internal Supabase objects or rely on an undocumented helper implementation.
+
+### Recovery-drill validation baseline
+
+The helper's final validation intentionally checks semantic invariants rather than hardcoding a schema version. For the canonical B1.3.1 recovery set (`database/2026/09/20/20260920T185408Z`), the independent drill baseline is **27 public tables with RLS enabled (27/27)** and **60 public policies**. Run the following after a clean isolated restore and before declaring the drill complete:
+
+```sql
+SELECT
+  count(*) AS public_tables,
+  count(*) FILTER (WHERE c.relrowsecurity) AS rls_enabled
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'p');
+
+SELECT count(*) AS policies
+FROM pg_policies
+WHERE schemaname = 'public';
+
+SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL
+  AS migrations_history_exists;
+```
+
+For a future schema version, investigate deviations from its expected baseline rather than changing the helper's generic checks. Also verify Automatic RLS separately with the query above: existing restored tables retain their RLS state, while Automatic RLS governs future table creation.
 
 `manifest.json` contains only these non-secret requirement identifiers:
 
 - `supabase-vault:files_signing_secret`
 - `supabase-auth-config`
 - `supabase-extensions`
+- `supabase-automatic-rls`
 
 It never contains their values.
 
