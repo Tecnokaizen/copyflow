@@ -192,6 +192,7 @@ data_only=false
 table=""
 snapshot=""
 no_privileges=false
+exclude_table_data=""
 args=("$@")
 i=0
 while [[ ${i} -lt ${#args[@]} ]]; do
@@ -222,13 +223,16 @@ while [[ ${i} -lt ${#args[@]} ]]; do
     --no-privileges)
       no_privileges=true
       ;;
+    --exclude-table-data=*)
+      exclude_table_data="${args[$i]#--exclude-table-data=}"
+      ;;
   esac
   i=$((i + 1))
 done
 [[ -n "${out}" ]]
 [[ -n "${snapshot}" ]]
-printf 'snapshot|%s|schema=%s|table=%s|data_only=%s|no_privileges=%s\n' \
-  "${snapshot}" "${schema}" "${table}" "${data_only}" "${no_privileges}" >>"${FAKE_PG_DUMP_CALLS}.meta"
+printf 'snapshot|%s|schema=%s|table=%s|data_only=%s|no_privileges=%s|exclude_table_data=%s\n' \
+  "${snapshot}" "${schema}" "${table}" "${data_only}" "${no_privileges}" "${exclude_table_data}" >>"${FAKE_PG_DUMP_CALLS}.meta"
 payload="dump"
 if [[ -n "${schema}" ]]; then
   payload="${payload}:${schema}"
@@ -249,8 +253,12 @@ cat >"${FIXTURE}/bin/pg_restore" <<'MOCK'
 set -Eeuo pipefail
 list=false
 archive=""
+use_list=""
 for arg in "$@"; do
   [[ "${arg}" != "--list" ]] || list=true
+  if [[ "${arg}" == --use-list=* ]]; then
+    use_list="${arg#--use-list=}"
+  fi
   [[ "${arg}" == -* ]] || archive="${arg}"
 done
 
@@ -271,8 +279,16 @@ if [[ "${list}" == "true" ]]; then
     else
       printf '5; 2615 2200 SCHEMA - other postgres\n'
     fi
-  else
+  elif [[ "$(basename "${archive}")" == *auth* || "$(basename "${archive}")" == "auth.dump" ]]; then
+    if [[ "${FAKE_AUTH_LEGACY_SCHEMA_MIGRATIONS:-false}" == "true" ]]; then
+      printf '7; 0 0 TABLE DATA auth schema_migrations postgres\n'
+    fi
+    printf '8; 0 0 TABLE DATA auth users postgres\n'
+  elif [[ "${FAKE_MIGRATIONS_LEGACY_DATA_ONLY:-false}" == "true" ]]; then
     printf '1; 0 0 TABLE DATA - fixture postgres\n'
+  else
+    printf '9; 2615 2201 SCHEMA - supabase_migrations postgres\n'
+    printf '10; 0 0 TABLE DATA supabase_migrations schema_migrations postgres\n'
   fi
   exit 0
 fi
@@ -281,6 +297,7 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   section="full"
   data_only=false
   no_privileges=false
+  auth_schema_migrations="n/a"
   args=("$@")
   i=0
   while [[ ${i} -lt ${#args[@]} ]]; do
@@ -295,7 +312,15 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   if [[ "${data_only}" == "true" ]]; then
     section="data-only"
   fi
-  printf 'pg_restore|%s|no_privileges=%s\n' "${section}" "${no_privileges}" >>"${FAKE_PG_RESTORE_CALLS}"
+  if [[ "$(basename "${archive}")" == *auth* || "$(basename "${archive}")" == "auth.dump" ]]; then
+    [[ -n "${use_list}" ]]
+    if grep -Eq 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations([[:space:]]|$)' "${use_list}"; then
+      auth_schema_migrations="included"
+    else
+      auth_schema_migrations="excluded"
+    fi
+  fi
+  printf 'pg_restore|%s|no_privileges=%s|auth_schema_migrations=%s\n' "${section}" "${no_privileges}" "${auth_schema_migrations}" >>"${FAKE_PG_RESTORE_CALLS}"
   if [[ -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
     printf 'pg_restore|%s\n' "${section}" >>"${FAKE_RESTORE_EVENTS}"
   fi
@@ -551,7 +576,9 @@ grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/db-output"
 ! grep -F 'postgresql://fixture:secret@fixture.invalid:5432/postgres' "${FIXTURE}/db-output"
 grep -q -- '--schema=public' "${FIXTURE}/pgdump-calls"
 grep -q -- '--schema=auth' "${FIXTURE}/pgdump-calls"
-grep -q 'supabase_migrations.schema_migrations' "${FIXTURE}/pgdump-calls"
+grep -q -- '--exclude-table-data=auth.schema_migrations' "${FIXTURE}/pgdump-calls"
+grep -q -- '--schema=supabase_migrations' "${FIXTURE}/pgdump-calls"
+! grep -q -- '--table=supabase_migrations.schema_migrations' "${FIXTURE}/pgdump-calls"
 
 # All three dumps share the exact same snapshot id.
 mapfile -t snaps < <(awk -F'|' '/^snapshot\|/{print $2}' "${FIXTURE}/pgdump-calls.meta")
@@ -560,6 +587,13 @@ mapfile -t snaps < <(awk -F'|' '/^snapshot\|/{print $2}' "${FIXTURE}/pgdump-call
 [[ "${snaps[0]}" == "${snaps[1]}" && "${snaps[1]}" == "${snaps[2]}" ]]
 grep -q 'schema=public|.*|no_privileges=false' "${FIXTURE}/pgdump-calls.meta"
 grep -q 'schema=auth|.*|no_privileges=true' "${FIXTURE}/pgdump-calls.meta"
+grep -q 'schema=auth|.*|data_only=true|.*|exclude_table_data=auth.schema_migrations' "${FIXTURE}/pgdump-calls.meta"
+awk -F'|' '
+  $3 == "schema=supabase_migrations" &&
+  $5 == "data_only=false" &&
+  $6 == "no_privileges=true" { found = 1 }
+  END { exit !found }
+' "${FIXTURE}/pgdump-calls.meta"
 
 # Manifest is the last uploaded object.
 mapfile -t copy_order < <(awk -F'|' '/^db-copyto\|/{print $3}' "${FIXTURE}/calls")
@@ -576,6 +610,10 @@ jq -e '.encryption == "age"' "${manifest}" >/dev/null
 jq -e '.consistency == "postgresql-exported-snapshot"' "${manifest}" >/dev/null
 jq -e '.status == "complete"' "${manifest}" >/dev/null
 jq -e '.artifacts | length == 3' "${manifest}" >/dev/null
+jq -e '.recovery_compatibility == {
+  "auth_schema_migrations": "excluded",
+  "supabase_migrations": "schema-and-data"
+}' "${manifest}" >/dev/null
 jq -e '.external_recovery_requirements == [
   "supabase-vault:files_signing_secret",
   "supabase-auth-config",
@@ -639,13 +677,50 @@ mapfile -t restore_events <"${FIXTURE}/restore-events"
 [[ "${restore_events[4]}" == "pg_restore|pre-data" ]]
 [[ "${restore_events[5]}" == "pg_restore|data" ]]
 [[ "${restore_events[6]}" == "pg_restore|data-only" ]]
-[[ "${restore_events[7]}" == "pg_restore|data-only" ]]
+[[ "${restore_events[7]}" == "pg_restore|full" ]]
 [[ "${restore_events[8]}" == "pg_restore|post-data" ]]
 # application sections must not use --no-privileges; auth/migrations may.
 grep -q 'pg_restore|pre-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|post-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
-pass 'restore: preflights all archives, resets public, and uses exact section order'
+grep -q 'pg_restore|data-only|no_privileges=true|auth_schema_migrations=excluded' "${FIXTURE}/pgrestore-calls"
+pass 'restore: preflights all archives, recreates missing migrations schema, and uses exact section order'
+
+: >"${FIXTURE}/pgrestore-calls"
+: >"${FIXTURE}/restore-psql-calls"
+: >"${FIXTURE}/restore-events"
+if ! run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  FAKE_AUTH_LEGACY_SCHEMA_MIGRATIONS=true \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected legacy auth archive restore to succeed with schema migrations filtered' >&2
+  cat "${FIXTURE}/restore-out" >&2
+  exit 1
+fi
+grep -q 'pg_restore|data-only|no_privileges=true|auth_schema_migrations=excluded' "${FIXTURE}/pgrestore-calls"
+pass 'restore: legacy auth archive cannot apply auth.schema_migrations'
+
+: >"${FIXTURE}/restore-psql-calls"
+: >"${FIXTURE}/restore-events"
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  FAKE_MIGRATIONS_LEGACY_DATA_ONLY=true \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected legacy data-only migrations archive to fail before target reset' >&2
+  exit 1
+fi
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+! grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
+grep -q 'does not define schema supabase_migrations' "${FIXTURE}/restore-out"
+pass 'restore: data-only migrations archive fails before target mutation'
 
 if run_restore \
   GESTCOPY_ALLOW_RESTORE=yes-please \

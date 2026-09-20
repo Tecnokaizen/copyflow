@@ -170,7 +170,7 @@ pg_dump \
   --snapshot="${SNAPSHOT_ID}" \
   --file="${APPLICATION_DUMP}"
 
-echo "backup-database: dumping auth schema data-only"
+echo "backup-database: dumping auth schema data-only (excluding auth.schema_migrations)"
 ensure_exporter_alive
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
@@ -179,18 +179,18 @@ pg_dump \
   --no-owner \
   --no-privileges \
   --schema=auth \
+  --exclude-table-data=auth.schema_migrations \
   --snapshot="${SNAPSHOT_ID}" \
   --file="${AUTH_DUMP}"
 
-echo "backup-database: dumping supabase_migrations.schema_migrations data-only"
+echo "backup-database: dumping full supabase_migrations schema and data"
 ensure_exporter_alive
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
   --format=custom \
-  --data-only \
   --no-owner \
   --no-privileges \
-  --table=supabase_migrations.schema_migrations \
+  --schema=supabase_migrations \
   --snapshot="${SNAPSHOT_ID}" \
   --file="${MIGRATIONS_DUMP}"
 
@@ -276,6 +276,10 @@ jq -nc \
     consistency: "postgresql-exported-snapshot",
     status: "complete",
     source: "gestcopy-production-postgres",
+    recovery_compatibility: {
+      auth_schema_migrations: "excluded",
+      supabase_migrations: "schema-and-data"
+    },
     external_recovery_requirements: [
       "supabase-vault:files_signing_secret",
       "supabase-auth-config",

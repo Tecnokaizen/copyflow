@@ -80,7 +80,12 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /--schema=public/);
     assert.match(backupDatabase, /--schema=auth/);
     assert.match(backupDatabase, /--data-only/);
-    assert.match(backupDatabase, /supabase_migrations\.schema_migrations/);
+    assert.match(backupDatabase, /--exclude-table-data=auth\.schema_migrations/);
+    assert.match(backupDatabase, /--schema=supabase_migrations/);
+    assert.doesNotMatch(
+      backupDatabase.match(/dumping full supabase_migrations[\s\S]*?(?=ensure_exporter_alive\n?echo "backup-database: closing)/)?.[0] ?? "",
+      /--data-only/
+    );
     assert.match(backupDatabase, /\bage\b/);
     assert.match(backupDatabase, /GESTCOPY_BACKUP_AGE_RECIPIENT/);
     assert.match(backupDatabase, /runner-lock\.sh/);
@@ -109,6 +114,8 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
     assert.match(backupDatabase, /PGCONNECT_TIMEOUT/);
     assert.match(backupDatabase, /supabase-vault:files_signing_secret/);
+    assert.match(backupDatabase, /auth_schema_migrations: "excluded"/);
+    assert.match(backupDatabase, /supabase_migrations: "schema-and-data"/);
 
     const appDump = stripComments(
       backupDatabase.match(/dumping application[\s\S]*?(?=dumping auth)/)?.[0] ?? ""
@@ -135,6 +142,15 @@ describe("infra/backup-runner static contract", () => {
     assert.match(restoreDatabase, /pg_restore --list/);
     assert.match(restoreDatabase, /DROP SCHEMA IF EXISTS public CASCADE/);
     assert.match(restoreDatabase, /application archive does not define schema public/);
+    assert.match(restoreDatabase, /migrations archive does not define schema supabase_migrations/);
+    assert.match(restoreDatabase, /migrations archive does not contain supabase_migrations\.schema_migrations data/);
+    assert.match(restoreDatabase, /AUTH_RESTORE_LIST/);
+    assert.match(restoreDatabase, /--use-list="\$\{AUTH_RESTORE_LIST\}"/);
+    assert.ok(
+      restoreDatabase.includes(
+        "grep -Ev 'TABLE DATA[[:space:]]+auth[[:space:]]+schema_migrations"
+      )
+    );
     assert.doesNotMatch(
       stripComments(restoreDatabase),
       /--dbname="\$\{GESTCOPY_DATABASE_URL\}"/
@@ -217,6 +233,14 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /GESTCOPY_ALLOW_PUBLIC_RESET/);
     assert.match(readme, /DROP SCHEMA IF EXISTS public CASCADE/);
     assert.match(readme, /files_signing_secret/);
+    assert.match(
+      readme,
+      /auth\.schema_migrations[\s\S]*excluded|excluded[\s\S]*auth\.schema_migrations/
+    );
+    assert.match(
+      readme,
+      /supabase_migrations[\s\S]*schema[\s\S]*data|schema[\s\S]*data[\s\S]*supabase_migrations/
+    );
     assert.match(readme, /EXTERNAL RECOVERY REQUIREMENTS/);
     assert.match(readme, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
     assert.doesNotMatch(readme, /--skip-auth/);
