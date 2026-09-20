@@ -111,13 +111,30 @@ Each dump is encrypted **before** leaving the container. Plaintext `*.dump` file
 
 ## Database dump strategy (B1.3)
 
-Do **not** ship one raw whole-database dump as the sole artifact. Produce three custom-format dumps:
+Do **not** ship one raw whole-database dump as the sole artifact. Produce three custom-format dumps that form **one coherent recovery set**:
 
 | Artifact | Scope | Flags (base) |
 |----------|--------|--------------|
-| `gestcopy-application.dump.age` | schema `public` (tables, data, indexes, constraints, functions, triggers, views, RLS, sequences) | `--format=custom --no-owner --no-privileges --no-subscriptions --schema=public` |
+| `gestcopy-application.dump.age` | schema `public` (tables, data, indexes, constraints, functions, triggers, views, RLS, sequences, **ACL/GRANT/REVOKE**) | `--format=custom --no-owner --no-subscriptions --schema=public` (**no** `--no-privileges`) |
 | `gestcopy-auth.dump.age` | schema `auth` **data only** | `--format=custom --data-only --no-owner --no-privileges --schema=auth` |
 | `gestcopy-migrations.dump.age` | `supabase_migrations.schema_migrations` data only | `--format=custom --data-only --no-owner --no-privileges --table=...` |
+
+### Shared exported snapshot
+
+All three `pg_dump` invocations share the **same** PostgreSQL exported snapshot:
+
+1. Open a long-lived `psql` session
+2. `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;`
+3. `SELECT pg_export_snapshot();`
+4. Pass identical `--snapshot="${SNAPSHOT_ID}"` to every dump
+5. `COMMIT` / close the exporter only after the three dumps finish
+
+The three dumps therefore form a **logical recovery set consistent at one snapshot**. The local EXIT trap always terminates the exporter so no orphan `psql` remains. The snapshot id is **not** written into `manifest.json` (not required for recovery).
+
+Manifest fields include:
+
+- `consistency: "postgresql-exported-snapshot"`
+- `status: "complete"`
 
 **Auth caveats (documented, not automated away):**
 
@@ -126,9 +143,23 @@ Do **not** ship one raw whole-database dump as the sole artifact. Produce three 
 - Test first on an isolated project/environment
 - JWT secrets, API keys, and Auth dashboard configuration are **not** part of this artifact
 
-`manifest.json` records `postgres_server_version`, artifact names, byte sizes, and sha256 of ciphertext. It must not contain URLs, passwords, keys, emails, or tenant/customer names.
+**ACL note:** The application dump deliberately preserves PostgreSQL object privileges. RLS policies do **not** replace GRANT/REVOKE. An isolated restore target should be a Supabase-compatible environment with its standard roles; this helper does not recreate reserved Supabase roles.
 
-Upload uses `rclone copy` only. Post-upload verification checks remote listing + sizes. Deep hash verification without re-download is deferred to recovery drills (not required on every DB backup run).
+### Upload: dumps first, manifest last (completion marker)
+
+Upload is additive only (`rclone copyto`). Never `sync`. Never `--delete-*`.
+
+1. **Phase A** — upload the three `*.dump.age` objects
+2. **Phase B** — verify remote existence + exact byte sizes for those three
+3. **Phase C** — only then upload `manifest.json`, verify its size, then print `DATABASE_BACKUP_SUCCESS`
+
+The remote presence of:
+
+`database/YYYY/MM/DD/TIMESTAMP/manifest.json`
+
+means the recovery set finished upload and size validation. A prefix **without** `manifest.json` is an **INCOMPLETE BACKUP SET** and must not be selected automatically for recovery. Incomplete prefixes are **not** deleted here (Object Lock may prevent it; retention cleanup is a later block).
+
+Deep hash verification without re-download remains deferred to recovery drills.
 
 ## Scripts
 
@@ -161,18 +192,36 @@ Run exactly **one** runner container.
 
 ## Isolated restore helper
 
-`restore-database-local.sh` is for **isolated** recovery drills only:
+`restore-database-local.sh` is a **manual** recovery-drill helper for **isolated** Supabase Direct / Session Pooler targets. It must **never** be a Coolify Scheduled Task.
 
-- Requires `GESTCOPY_ALLOW_RESTORE=isolated-only`
-- Requires `GESTCOPY_RESTORE_TARGET_URL` (never uses `GESTCOPY_DATABASE_URL` as target)
-- Refuses when source URL and target URL are identical
-- Accepts already-decrypted local `*.dump` files
-- Order: application → auth → migration history
-- Supports `--skip-auth` for vanilla PostgreSQL trials without Auth schema
-- Uses `pg_restore --no-owner --no-privileges --exit-on-error`
-- Must **not** be wired into Coolify Scheduled Tasks
+Requires:
 
-Full recovery onto a new Supabase project requires validating Auth schema compatibility before applying the auth dump.
+| Variable | Role |
+|----------|------|
+| `GESTCOPY_ALLOW_RESTORE=isolated-only` | explicit confirmation |
+| `GESTCOPY_RESTORE_TARGET_URL` | isolated target URI (never Production) |
+| `GESTCOPY_PRODUCTION_PROJECT_REF` | non-secret Production project ref |
+| `GESTCOPY_RESTORE_TARGET_PROJECT_REF` | non-secret isolated target project ref |
+
+Rejects **before** `pg_restore` when:
+
+1. target project ref equals production project ref
+2. target URL contains the production project ref (case-insensitive)
+3. `GESTCOPY_DATABASE_URL` is present and equals the target URL
+
+Errors mention Production project-ref resolution; they never print full connection strings or credentials. Project-ref guards remain effective even if `GESTCOPY_DATABASE_URL` is absent.
+
+### Restore order (sectioned)
+
+Schema inspection shows `public.profiles(id)` has `FOREIGN KEY … REFERENCES auth.users(id)`. Membership and invitation RPCs also join `auth.users`. Therefore restore applies application constraints **after** auth data:
+
+1. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`)
+2. application `--section=data`
+3. auth data (`--data-only --no-owner --no-privileges`) unless `--skip-auth`
+4. migration history data unless `--skip-migrations`
+5. application `--section=post-data` (FKs / indexes / triggers / ACL)
+
+Accepts already-decrypted local `*.dump` files. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
 
 ## Local smoke (no secrets in repo)
 

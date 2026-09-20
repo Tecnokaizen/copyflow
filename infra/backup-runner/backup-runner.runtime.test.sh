@@ -6,11 +6,19 @@ FIXTURE="$(mktemp -d)"
 TEST_COUNT=0
 HOLDER_PID=""
 AGE_RECIPIENT=""
+FAKE_SNAPSHOT_ID="00000004-0000002A-1"
 
 cleanup() {
   touch "${FIXTURE}/release"
   if [[ -n "${HOLDER_PID}" ]]; then
     wait "${HOLDER_PID}" 2>/dev/null || true
+  fi
+  # Snapshot exporters must not outlive the suite.
+  if [[ -f "${FIXTURE}/exporter.pid" ]]; then
+    while read -r pid; do
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+    done <"${FIXTURE}/exporter.pid"
   fi
   rm -rf "${FIXTURE}"
 }
@@ -23,6 +31,7 @@ command -v age-keygen >/dev/null
 command -v sha256sum >/dev/null
 
 mkdir -p "${FIXTURE}/bin" "${FIXTURE}/remote" "${FIXTURE}/restore"
+: >"${FIXTURE}/exporter.pid"
 AGE_RECIPIENT="$(age-keygen -o "${FIXTURE}/age.key" 2>&1 | sed -n 's/^Public key: //p')"
 [[ "${AGE_RECIPIENT}" == age1* ]]
 
@@ -44,27 +53,39 @@ case "$1" in
       fi
       exit "${FAKE_RCLONE_EXIT_CODE:-0}"
     fi
-    # Database upload: local dir → B2:.../database/...
-    src="${2%/}"
+    exit 91
+    ;;
+  copyto)
+    src="$2"
     dest="$3"
     [[ "${dest}" == B2:fixture-backups/database/* ]]
     [[ " $* " != *"--delete"* ]]
     [[ " $* " != *" sync "* ]]
+    base="$(basename "${src}")"
     remote_rel="${dest#B2:fixture-backups/}"
-    mkdir -p "${STORE}/${remote_rel}"
-    if [[ -d "${src}" ]]; then
-      for f in "${src}"/*; do
-        [[ -e "${f}" ]] || continue
-        base="$(basename "${f}")"
-        case "${base}" in
-          gestcopy-*.dump.age|manifest.json) cp "${f}" "${STORE}/${remote_rel}/${base}" ;;
-        esac
-      done
-    else
-      cp "${src}" "${STORE}/${remote_rel}/$(basename "${src}")"
+    mkdir -p "${STORE}/$(dirname "${remote_rel}")"
+    seq_file="${FAKE_RCLONE_CALLS}.seq"
+    count=0
+    if [[ -f "${seq_file}" ]]; then
+      count="$(cat "${seq_file}")"
     fi
-    printf 'db-copy|%s\n' "${remote_rel}" >>"${FAKE_RCLONE_CALLS}"
-    exit "${FAKE_RCLONE_EXIT_CODE:-0}"
+    count=$((count + 1))
+    printf '%s\n' "${count}" >"${seq_file}"
+    printf 'db-copyto|%s|%s\n' "${count}" "${base}" >>"${FAKE_RCLONE_CALLS}"
+    if [[ -n "${FAKE_RCLONE_FAIL_ON_BASENAME:-}" && "${base}" == "${FAKE_RCLONE_FAIL_ON_BASENAME}" ]]; then
+      exit "${FAKE_RCLONE_EXIT_CODE:-7}"
+    fi
+    if [[ -n "${FAKE_RCLONE_FAIL_ON_N:-}" && "${count}" -eq "${FAKE_RCLONE_FAIL_ON_N}" ]]; then
+      exit "${FAKE_RCLONE_EXIT_CODE:-7}"
+    fi
+    if [[ "${FAKE_RCLONE_EXIT_CODE:-0}" != "0" && -z "${FAKE_RCLONE_FAIL_ON_BASENAME:-}" && -z "${FAKE_RCLONE_FAIL_ON_N:-}" ]]; then
+      exit "${FAKE_RCLONE_EXIT_CODE}"
+    fi
+    cp "${src}" "${STORE}/${remote_rel}"
+    if [[ -n "${FAKE_RCLONE_CORRUPT_BASENAME:-}" && "${base}" == "${FAKE_RCLONE_CORRUPT_BASENAME}" ]]; then
+      printf 'x' >>"${STORE}/${remote_rel}"
+    fi
+    exit 0
     ;;
   check)
     [[ "$2" == "R2:fixture-origin" ]]
@@ -103,18 +124,50 @@ cat >"${FIXTURE}/bin/psql" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'psql|%s\n' "$*" >>"${FAKE_PSQL_CALLS}"
-# Never require callers to print the URL; accept URI as argv0-style first arg.
 if [[ "${FAKE_PSQL_EXIT_CODE:-0}" != "0" ]]; then
   exit "${FAKE_PSQL_EXIT_CODE}"
 fi
-if [[ "$*" == *"SHOW server_version"* ]]; then
-  printf '%s\n' "${FAKE_PG_VERSION:-17.4}"
+
+# One-shot probe mode (-c / -Atqc).
+if [[ " $* " == *" -c "* || " $* " == *" -Atqc "* || "$*" == *"-Atqc"* ]]; then
+  if [[ "$*" == *"SHOW server_version"* ]]; then
+    printf '%s\n' "${FAKE_PG_VERSION:-17.4}"
+    exit 0
+  fi
+  if [[ "$*" == *"select version()"* ]]; then
+    printf 'PostgreSQL %s\n' "${FAKE_PG_VERSION:-17.4}"
+    exit 0
+  fi
   exit 0
 fi
-if [[ "$*" == *"select version()"* ]]; then
-  printf 'PostgreSQL %s\n' "${FAKE_PG_VERSION:-17.4}"
+
+# Interactive / coproc snapshot exporter mode.
+printf '%s\n' "${BASHPID}" >>"${FAKE_EXPORTER_PIDS:?}"
+if [[ "${FAKE_SNAPSHOT_FAIL:-false}" == "true" ]]; then
+  # Produce no snapshot id; backup must abort before pg_dump.
+  while IFS= read -r line; do
+    case "${line}" in
+      COMMIT*|ROLLBACK*|'\\q'*) exit 0 ;;
+    esac
+  done
   exit 0
 fi
+
+exported=false
+while IFS= read -r line; do
+  case "${line}" in
+    *pg_export_snapshot*)
+      printf '%s\n' "${FAKE_SNAPSHOT_ID:-00000004-0000002A-1}"
+      exported=true
+      if [[ "${FAKE_EXPORTER_DIE_AFTER_SNAPSHOT:-false}" == "true" ]]; then
+        exit 42
+      fi
+      ;;
+    COMMIT*|ROLLBACK*|'\\q'*)
+      exit 0
+      ;;
+  esac
+done
 exit 0
 MOCK
 chmod 0755 "${FIXTURE}/bin/psql"
@@ -130,6 +183,8 @@ out=""
 schema=""
 data_only=false
 table=""
+snapshot=""
+no_privileges=false
 args=("$@")
 i=0
 while [[ ${i} -lt ${#args[@]} ]]; do
@@ -147,13 +202,26 @@ while [[ ${i} -lt ${#args[@]} ]]; do
     --table=*)
       table="${args[$i]#--table=}"
       ;;
+    --snapshot=*)
+      snapshot="${args[$i]#--snapshot=}"
+      ;;
+    --snapshot)
+      i=$((i + 1))
+      snapshot="${args[$i]}"
+      ;;
     --data-only)
       data_only=true
+      ;;
+    --no-privileges)
+      no_privileges=true
       ;;
   esac
   i=$((i + 1))
 done
 [[ -n "${out}" ]]
+[[ -n "${snapshot}" ]]
+printf 'snapshot|%s|schema=%s|table=%s|data_only=%s|no_privileges=%s\n' \
+  "${snapshot}" "${schema}" "${table}" "${data_only}" "${no_privileges}" >>"${FAKE_PG_DUMP_CALLS}.meta"
 payload="dump"
 if [[ -n "${schema}" ]]; then
   payload="${payload}:${schema}"
@@ -164,7 +232,6 @@ fi
 if [[ "${data_only}" == "true" ]]; then
   payload="${payload}:data-only"
 fi
-# custom format is binary-ish; write a non-empty marker payload
 printf 'FAKE-PGDUMP|%s|%s\n' "${payload}" "$(date -u +%Y%m%d%H%M%S)" >"${out}"
 exit 0
 MOCK
@@ -174,7 +241,24 @@ cat >"${FIXTURE}/bin/pg_restore" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
-  printf 'pg_restore|%s\n' "$*" >>"${FAKE_PG_RESTORE_CALLS}"
+  section="full"
+  data_only=false
+  no_privileges=false
+  args=("$@")
+  i=0
+  while [[ ${i} -lt ${#args[@]} ]]; do
+    case "${args[$i]}" in
+      --section=*) section="${args[$i]#--section=}" ;;
+      --section) i=$((i + 1)); section="${args[$i]}" ;;
+      --data-only) data_only=true ;;
+      --no-privileges) no_privileges=true ;;
+    esac
+    i=$((i + 1))
+  done
+  if [[ "${data_only}" == "true" ]]; then
+    section="data-only"
+  fi
+  printf 'pg_restore|%s|no_privileges=%s\n' "${section}" "${no_privileges}" >>"${FAKE_PG_RESTORE_CALLS}"
 fi
 exit "${FAKE_PG_RESTORE_EXIT_CODE:-0}"
 MOCK
@@ -194,6 +278,8 @@ run_script() {
     FAKE_RCLONE_RELEASE="${FIXTURE}/release" FAKE_RCLONE_STORE="${FIXTURE}/remote" \
     FAKE_PSQL_CALLS="${FIXTURE}/psql-calls" FAKE_PG_DUMP_CALLS="${FIXTURE}/pgdump-calls" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
+    FAKE_EXPORTER_PIDS="${FIXTURE}/exporter.pid" \
+    FAKE_SNAPSHOT_ID="${FAKE_SNAPSHOT_ID}" \
     GESTCOPY_DATABASE_URL='postgresql://fixture:secret@fixture.invalid:5432/postgres' \
     GESTCOPY_BACKUP_AGE_RECIPIENT="${AGE_RECIPIENT}" \
     GESTCOPY_B2_DATABASE_PREFIX=database \
@@ -217,6 +303,10 @@ expect_failure() {
   fi
   [[ "${status}" -eq "${expected}" ]]
   ! grep -q '_SUCCESS' "${FIXTURE}/failure"
+}
+
+remote_has_manifest() {
+  find "${FIXTURE}/remote" -name manifest.json 2>/dev/null | grep -q .
 }
 
 # --- Files / shared lock suite (B1.2) ---
@@ -283,15 +373,12 @@ for holder in backup-all.sh verify-files.sh; do
   pass "${holder}: a subsequent copy can acquire the released lock"
 done
 
-# Lock release after a completed holder is already covered above. An explicit
-# SIGTERM race against rclone is environment-sensitive under Docker Desktop and
-# is omitted here to keep the suite deterministic.
-
-# --- Database backup suite (B1.3) ---
+# --- Database backup suite (B1.3 hardening) ---
 
 : >"${FIXTURE}/psql-calls"
 : >"${FIXTURE}/pgdump-calls"
 : >"${FIXTURE}/calls"
+: >"${FIXTURE}/exporter.pid"
 rm -rf "${FIXTURE}/remote"
 mkdir -p "${FIXTURE}/remote"
 
@@ -310,10 +397,24 @@ expect_failure 9 backup-database.sh FAKE_PSQL_EXIT_CODE=9
 [[ ! -s "${FIXTURE}/pgdump-calls" ]]
 pass 'backup-database: psql probe failure propagates without success'
 
+: >"${FIXTURE}/pgdump-calls"
+expect_failure 1 backup-database.sh FAKE_SNAPSHOT_FAIL=true
+[[ ! -s "${FIXTURE}/pgdump-calls" ]]
+pass 'backup-database: snapshot acquisition failure runs no pg_dump'
+
+: >"${FIXTURE}/pgdump-calls"
+if run_script backup-database.sh FAKE_EXPORTER_DIE_AFTER_SNAPSHOT=true >"${FIXTURE}/failure" 2>&1; then
+  echo "Expected exporter death failure" >&2
+  cat "${FIXTURE}/failure" >&2
+  exit 1
+fi
+! grep -q '_SUCCESS' "${FIXTURE}/failure"
+grep -q 'snapshot exporter terminated unexpectedly\|exited before dumps' "${FIXTURE}/failure"
+pass 'backup-database: exporter death during dumps fails without success'
+
 expect_failure 11 backup-database.sh FAKE_PG_DUMP_EXIT_CODE=11
 pass 'backup-database: pg_dump failure propagates without success'
 
-# Force age failure by pointing to a broken age binary once dumps succeed.
 cat >"${FIXTURE}/bin/age" <<'BROKEN'
 #!/usr/bin/env bash
 exit 13
@@ -327,97 +428,196 @@ if run_script backup-database.sh >"${FIXTURE}/failure" 2>&1; then
   exit 1
 fi
 ! grep -q '_SUCCESS' "${FIXTURE}/failure"
-# Dumps may have started; upload must not succeed.
-! grep -q 'db-copy|' "${FIXTURE}/calls"
+! grep -q 'db-copyto|' "${FIXTURE}/calls"
 rm -f "${FIXTURE}/bin/age"
 pass 'backup-database: encryption failure propagates without success'
 
-expect_failure 7 backup-database.sh FAKE_RCLONE_EXIT_CODE=7
-pass 'backup-database: rclone upload failure propagates without success'
+for n in 1 2 3; do
+  : >"${FIXTURE}/calls"
+  rm -f "${FIXTURE}/calls.seq"
+  rm -rf "${FIXTURE}/remote"
+  mkdir -p "${FIXTURE}/remote"
+  expect_failure 7 backup-database.sh FAKE_RCLONE_FAIL_ON_N="${n}" FAKE_RCLONE_EXIT_CODE=7
+  ! remote_has_manifest
+  pass "backup-database: rclone fail on artifact ${n} leaves no remote manifest"
+done
+
+: >"${FIXTURE}/calls"
+rm -f "${FIXTURE}/calls.seq"
+rm -rf "${FIXTURE}/remote"
+mkdir -p "${FIXTURE}/remote"
+if run_script backup-database.sh FAKE_RCLONE_CORRUPT_BASENAME=gestcopy-auth.dump.age >"${FIXTURE}/failure" 2>&1; then
+  echo "Expected size mismatch failure" >&2
+  cat "${FIXTURE}/failure" >&2
+  exit 1
+fi
+! grep -q '_SUCCESS' "${FIXTURE}/failure"
+! remote_has_manifest
+pass 'backup-database: remote size mismatch leaves no remote manifest'
 
 : >"${FIXTURE}/psql-calls"
 : >"${FIXTURE}/pgdump-calls"
+: >"${FIXTURE}/pgdump-calls.meta"
 : >"${FIXTURE}/calls"
+: >"${FIXTURE}/exporter.pid"
+rm -f "${FIXTURE}/calls.seq"
 rm -rf "${FIXTURE}/remote"
 mkdir -p "${FIXTURE}/remote"
 run_script backup-database.sh >"${FIXTURE}/db-output"
 grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/db-output"
 ! grep -F 'postgresql://fixture:secret@fixture.invalid:5432/postgres' "${FIXTURE}/db-output"
-! grep -F 'postgresql://fixture:secret@fixture.invalid:5432/postgres' "${FIXTURE}/failure" 2>/dev/null || true
-grep -q 'pg_dump|--schema=public' "${FIXTURE}/pgdump-calls" || grep -q -- '--schema=public' "${FIXTURE}/pgdump-calls"
+grep -q -- '--schema=public' "${FIXTURE}/pgdump-calls"
 grep -q -- '--schema=auth' "${FIXTURE}/pgdump-calls"
 grep -q 'supabase_migrations.schema_migrations' "${FIXTURE}/pgdump-calls"
-grep -q 'db-copy|' "${FIXTURE}/calls"
 
-# Locate uploaded artifacts under fake remote store
+# All three dumps share the exact same snapshot id.
+mapfile -t snaps < <(awk -F'|' '/^snapshot\|/{print $2}' "${FIXTURE}/pgdump-calls.meta")
+[[ "${#snaps[@]}" -eq 3 ]]
+[[ "${snaps[0]}" == "${FAKE_SNAPSHOT_ID}" ]]
+[[ "${snaps[0]}" == "${snaps[1]}" && "${snaps[1]}" == "${snaps[2]}" ]]
+grep -q 'schema=public|.*|no_privileges=false' "${FIXTURE}/pgdump-calls.meta"
+grep -q 'schema=auth|.*|no_privileges=true' "${FIXTURE}/pgdump-calls.meta"
+
+# Manifest is the last uploaded object.
+mapfile -t copy_order < <(awk -F'|' '/^db-copyto\|/{print $3}' "${FIXTURE}/calls")
+[[ "${#copy_order[@]}" -eq 4 ]]
+[[ "${copy_order[0]}" == "gestcopy-application.dump.age" ]]
+[[ "${copy_order[1]}" == "gestcopy-auth.dump.age" ]]
+[[ "${copy_order[2]}" == "gestcopy-migrations.dump.age" ]]
+[[ "${copy_order[3]}" == "manifest.json" ]]
+
 mapfile -t uploaded < <(find "${FIXTURE}/remote" -type f | sort)
 [[ "${#uploaded[@]}" -eq 4 ]]
-printf '%s\n' "${uploaded[@]}" | grep -q 'gestcopy-application.dump.age$'
-printf '%s\n' "${uploaded[@]}" | grep -q 'gestcopy-auth.dump.age$'
-printf '%s\n' "${uploaded[@]}" | grep -q 'gestcopy-migrations.dump.age$'
-printf '%s\n' "${uploaded[@]}" | grep -q 'manifest.json$'
-# No leftover plaintext dumps in remote store
-! find "${FIXTURE}/remote" -name '*.dump' | grep -q .
 manifest="$(find "${FIXTURE}/remote" -name manifest.json | head -n1)"
 jq -e '.encryption == "age"' "${manifest}" >/dev/null
-jq -e '.source == "gestcopy-production-postgres"' "${manifest}" >/dev/null
+jq -e '.consistency == "postgresql-exported-snapshot"' "${manifest}" >/dev/null
+jq -e '.status == "complete"' "${manifest}" >/dev/null
 jq -e '.artifacts | length == 3' "${manifest}" >/dev/null
-! grep -Eiq 'password|secret|postgresql://|AGE-SECRET|access_key|@fixture' "${manifest}"
-pass 'backup-database: happy path produces 3 encrypted artifacts + safe manifest'
+! grep -Eiq 'password|secret|postgresql://|AGE-SECRET|access_key|@fixture|00000004' "${manifest}"
+pass 'backup-database: happy path shares snapshot, uploads dumps then manifest'
 
-# Plaintext cleanup: workdir trap removes the mktemp tree; remote must not hold dumps.
 ! find "${FIXTURE}/remote" -name 'gestcopy-*.dump' | grep -q .
-pass 'backup-database: plaintext dumps are cleaned up'
+# No live exporter PIDs remain after success.
+alive=0
+if [[ -s "${FIXTURE}/exporter.pid" ]]; then
+  while read -r pid; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      alive=$((alive + 1))
+    fi
+  done <"${FIXTURE}/exporter.pid"
+fi
+[[ "${alive}" -eq 0 ]]
+pass 'backup-database: plaintext cleaned and snapshot exporter not left running'
 
-# --- Restore guards ---
+# --- Restore guards + section order ---
 
 printf 'app\n' >"${FIXTURE}/restore/app.dump"
 printf 'auth\n' >"${FIXTURE}/restore/auth.dump"
 printf 'mig\n' >"${FIXTURE}/restore/mig.dump"
 
-if GESTCOPY_ALLOW_RESTORE=isolated-only \
-  GESTCOPY_RESTORE_TARGET_URL='postgresql://restore@fixture.invalid/db' \
+run_restore() {
+  env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
+    FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
+    "$@" bash "${SCRIPT_DIR}/restore-database-local.sh" \
+      --application "${FIXTURE}/restore/app.dump" \
+      --auth "${FIXTURE}/restore/auth.dump" \
+      --migrations "${FIXTURE}/restore/mig.dump"
+}
+
+: >"${FIXTURE}/pgrestore-calls"
+if ! run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref:secret@aws-0.pooler.supabase.com:5432/postgres' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
   GESTCOPY_DATABASE_URL='postgresql://fixture:secret@fixture.invalid:5432/postgres' \
-  PATH="${FIXTURE}/bin:${PATH}" \
-  bash "${SCRIPT_DIR}/restore-database-local.sh" \
-    --application "${FIXTURE}/restore/app.dump" \
-    --auth "${FIXTURE}/restore/auth.dump" \
-    --migrations "${FIXTURE}/restore/mig.dump" \
-    >"${FIXTURE}/restore-out" 2>&1; then
-  grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
-else
+  >"${FIXTURE}/restore-out" 2>&1; then
   echo 'expected isolated restore success' >&2
   cat "${FIXTURE}/restore-out" >&2
   exit 1
 fi
-pass 'restore: isolated-only happy path'
+grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
+mapfile -t restore_order < <(awk -F'|' '{print $2}' "${FIXTURE}/pgrestore-calls")
+[[ "${#restore_order[@]}" -eq 5 ]]
+[[ "${restore_order[0]}" == "pre-data" ]]
+[[ "${restore_order[1]}" == "data" ]]
+[[ "${restore_order[2]}" == "data-only" ]]
+[[ "${restore_order[3]}" == "data-only" ]]
+[[ "${restore_order[4]}" == "post-data" ]]
+# application sections must not use --no-privileges; auth/migrations may.
+grep -q 'pg_restore|pre-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
+grep -q 'pg_restore|data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
+grep -q 'pg_restore|post-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
+pass 'restore: isolated happy path uses section order without application --no-privileges'
 
-if GESTCOPY_ALLOW_RESTORE=yes-please \
-  GESTCOPY_RESTORE_TARGET_URL='postgresql://restore@fixture.invalid/db' \
-  PATH="${FIXTURE}/bin:${PATH}" \
-  bash "${SCRIPT_DIR}/restore-database-local.sh" \
-    --application "${FIXTURE}/restore/app.dump" \
-    --skip-auth --skip-migrations \
-    >"${FIXTURE}/restore-out" 2>&1; then
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=yes-please \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
   echo 'expected restore to reject missing isolated-only' >&2
   exit 1
 fi
 ! grep -q _SUCCESS "${FIXTURE}/restore-out"
 pass 'restore: requires isolated-only confirmation'
 
-if GESTCOPY_ALLOW_RESTORE=isolated-only \
+: >"${FIXTURE}/pgrestore-calls"
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=prodref123 \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected production ref equality reject' >&2
+  exit 1
+fi
+grep -q 'restore target resolves to Production project ref' "${FIXTURE}/restore-out"
+[[ ! -s "${FIXTURE}/pgrestore-calls" ]]
+! grep -qi 'postgresql://' "${FIXTURE}/restore-out"
+pass 'restore: production ref == target ref fails before pg_restore'
+
+: >"${FIXTURE}/pgrestore-calls"
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.prodref123.supabase.co/postgres' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected URL containing production ref to fail' >&2
+  exit 1
+fi
+grep -q 'restore target resolves to Production project ref' "${FIXTURE}/restore-out"
+[[ ! -s "${FIXTURE}/pgrestore-calls" ]]
+pass 'restore: target URL containing production ref fails'
+
+: >"${FIXTURE}/pgrestore-calls"
+# Absent GESTCOPY_DATABASE_URL must not weaken project-ref guards.
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
+  GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.prodref123.supabase.co/postgres' \
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
+  echo 'expected project-ref guard without DATABASE_URL' >&2
+  exit 1
+fi
+grep -q 'restore target resolves to Production project ref' "${FIXTURE}/restore-out"
+[[ ! -s "${FIXTURE}/pgrestore-calls" ]]
+pass 'restore: project-ref guards work without GESTCOPY_DATABASE_URL'
+
+if run_restore \
+  GESTCOPY_ALLOW_RESTORE=isolated-only \
   GESTCOPY_DATABASE_URL='postgresql://same@fixture.invalid/db' \
   GESTCOPY_RESTORE_TARGET_URL='postgresql://same@fixture.invalid/db' \
-  PATH="${FIXTURE}/bin:${PATH}" \
-  bash "${SCRIPT_DIR}/restore-database-local.sh" \
-    --application "${FIXTURE}/restore/app.dump" \
-    --skip-auth --skip-migrations \
-    >"${FIXTURE}/restore-out" 2>&1; then
+  GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+  >"${FIXTURE}/restore-out" 2>&1; then
   echo 'expected restore to reject source==target' >&2
   exit 1
 fi
 grep -q 'must not equal GESTCOPY_DATABASE_URL' "${FIXTURE}/restore-out"
 ! grep -q _SUCCESS "${FIXTURE}/restore-out"
-pass 'restore: rejects source == target'
+pass 'restore: rejects source == target URL'
 
 printf '1..%s\n' "${TEST_COUNT}"

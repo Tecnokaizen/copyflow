@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Logical encrypted PostgreSQL/Supabase backup → Backblaze B2 (additive, never sync/delete).
 # Platform-global dump (application / auth data / migration history). Not per-tenant.
+# The three dumps share one exported PostgreSQL snapshot for a coherent recovery set.
 set -Eeuo pipefail
 
 require_var() {
@@ -34,7 +35,37 @@ source "${SCRIPT_DIR}/runner-lock.sh"
 acquire_runner_lock
 
 WORK_DIR=""
+EXPORTER_PID=""
+SNAPSHOT_ID=""
+EXPORTER_FD_OPEN=false
+
+stop_snapshot_exporter() {
+  if [[ -n "${EXPORTER_PID}" ]]; then
+    if kill -0 "${EXPORTER_PID}" 2>/dev/null; then
+      # Prefer ROLLBACK so a failed backup does not leave an open read txn.
+      if [[ "${EXPORTER_FD_OPEN}" == "true" ]]; then
+        printf 'ROLLBACK;\n\\q\n' >&3 2>/dev/null || true
+      fi
+      if [[ "${EXPORTER_FD_OPEN}" == "true" ]]; then
+        exec 3>&- 2>/dev/null || true
+        EXPORTER_FD_OPEN=false
+      fi
+      wait "${EXPORTER_PID}" 2>/dev/null || true
+    else
+      if [[ "${EXPORTER_FD_OPEN}" == "true" ]]; then
+        exec 3>&- 2>/dev/null || true
+        EXPORTER_FD_OPEN=false
+      fi
+    fi
+    EXPORTER_PID=""
+  elif [[ "${EXPORTER_FD_OPEN}" == "true" ]]; then
+    exec 3>&- 2>/dev/null || true
+    EXPORTER_FD_OPEN=false
+  fi
+}
+
 cleanup() {
+  stop_snapshot_exporter
   if [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]]; then
     rm -rf "${WORK_DIR}"
   fi
@@ -53,7 +84,7 @@ REMOTE="B2:${GESTCOPY_B2_BUCKET}/${REMOTE_PREFIX}"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "backup-database: start ${STARTED_AT} UTC"
 echo "backup-database: dest   ${REMOTE}"
-echo "backup-database: mode   pg_dump custom + age + rclone copy (additive; no delete)"
+echo "backup-database: mode   pg_dump custom + shared snapshot + age + rclone copyto (additive; no delete)"
 
 # Connectivity / version probe — never echo GESTCOPY_DATABASE_URL.
 echo "backup-database: probing postgres (select version)"
@@ -65,17 +96,73 @@ APPLICATION_DUMP="${WORK_DIR}/gestcopy-application.dump"
 AUTH_DUMP="${WORK_DIR}/gestcopy-auth.dump"
 MIGRATIONS_DUMP="${WORK_DIR}/gestcopy-migrations.dump"
 
-echo "backup-database: dumping application schema=public"
+echo "backup-database: opening REPEATABLE READ snapshot exporter"
+# Keep one read-only transaction open and export its snapshot for all three dumps.
+# stdin stays open via FIFO so the transaction is not closed until we COMMIT.
+# Never print GESTCOPY_DATABASE_URL.
+SQL_FIFO="${WORK_DIR}/exporter.sql.fifo"
+PSQL_OUT="${WORK_DIR}/exporter.out"
+PSQL_ERR="${WORK_DIR}/exporter.err"
+mkfifo "${SQL_FIFO}"
+psql "${GESTCOPY_DATABASE_URL}" -v ON_ERROR_STOP=1 -Atq \
+  <"${SQL_FIFO}" >"${PSQL_OUT}" 2>"${PSQL_ERR}" &
+EXPORTER_PID=$!
+# Opening the write end unblocks psql's read on the FIFO.
+exec 3>"${SQL_FIFO}"
+EXPORTER_FD_OPEN=true
+
+printf '%s\n' \
+  "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;" \
+  "SELECT pg_export_snapshot();" >&3
+
+SNAPSHOT_ID=""
+for _attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+  21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+  if [[ -s "${PSQL_OUT}" ]]; then
+    IFS= read -r SNAPSHOT_ID <"${PSQL_OUT}" || true
+    break
+  fi
+  if ! kill -0 "${EXPORTER_PID}" 2>/dev/null; then
+    break
+  fi
+  sleep 0.05
+done
+
+if [[ -z "${SNAPSHOT_ID}" || "${SNAPSHOT_ID}" == *" "* ]]; then
+  echo "ERROR: failed to obtain a valid PostgreSQL exported snapshot" >&2
+  if [[ -s "${PSQL_ERR}" ]]; then
+    # Log exporter diagnostics without connection strings.
+    sed -E 's#postgresql://[^[:space:]]+#postgresql://[redacted]#gi' "${PSQL_ERR}" >&2 || true
+  fi
+  exit 1
+fi
+if ! kill -0 "${EXPORTER_PID}" 2>/dev/null; then
+  echo "ERROR: snapshot exporter exited before dumps started" >&2
+  exit 1
+fi
+echo "backup-database: acquired shared exported snapshot"
+
+ensure_exporter_alive() {
+  if ! kill -0 "${EXPORTER_PID}" 2>/dev/null; then
+    echo "ERROR: snapshot exporter terminated unexpectedly during dumps" >&2
+    exit 1
+  fi
+}
+
+echo "backup-database: dumping application schema=public (ACL preserved)"
+ensure_exporter_alive
+# Preserve public GRANT/REVOKE/ACL (do not pass privilege-suppression).
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
   --format=custom \
   --no-owner \
-  --no-privileges \
   --no-subscriptions \
   --schema=public \
+  --snapshot="${SNAPSHOT_ID}" \
   --file="${APPLICATION_DUMP}"
 
 echo "backup-database: dumping auth schema data-only"
+ensure_exporter_alive
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
   --format=custom \
@@ -83,9 +170,11 @@ pg_dump \
   --no-owner \
   --no-privileges \
   --schema=auth \
+  --snapshot="${SNAPSHOT_ID}" \
   --file="${AUTH_DUMP}"
 
 echo "backup-database: dumping supabase_migrations.schema_migrations data-only"
+ensure_exporter_alive
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
   --format=custom \
@@ -93,7 +182,16 @@ pg_dump \
   --no-owner \
   --no-privileges \
   --table=supabase_migrations.schema_migrations \
+  --snapshot="${SNAPSHOT_ID}" \
   --file="${MIGRATIONS_DUMP}"
+
+ensure_exporter_alive
+echo "backup-database: closing snapshot exporter"
+printf 'COMMIT;\n\\q\n' >&3
+exec 3>&-
+EXPORTER_FD_OPEN=false
+wait "${EXPORTER_PID}"
+EXPORTER_PID=""
 
 for dump in "${APPLICATION_DUMP}" "${AUTH_DUMP}" "${MIGRATIONS_DUMP}"; do
   if [[ ! -s "${dump}" ]]; then
@@ -158,20 +256,11 @@ jq -nc \
     postgres_server_version: $postgres_server_version,
     backup_format: "postgresql-custom",
     encryption: "age",
+    consistency: "postgresql-exported-snapshot",
+    status: "complete",
     source: "gestcopy-production-postgres",
     artifacts: [$application, $auth, $migrations]
   }' >"${MANIFEST}"
-
-echo "backup-database: uploading encrypted artifacts (rclone copy)"
-# Intentionally NO rclone sync and NO --delete-* flags.
-rclone copy \
-  "${WORK_DIR}/" \
-  "${REMOTE}/" \
-  --include "gestcopy-*.dump.age" \
-  --include "manifest.json" \
-  --stats 30s \
-  --stats-one-line \
-  --log-level INFO
 
 verify_remote_size() {
   local name="$1"
@@ -189,12 +278,32 @@ verify_remote_size() {
   fi
 }
 
-echo "backup-database: verifying remote listing and sizes (no re-download)"
-# Deep checksum verification without download is deferred to recovery drills;
-# B2/rclone hash probes are not required on every scheduled backup run.
+upload_artifact() {
+  local local_path="$1"
+  local name
+  name="$(basename "${local_path}")"
+  # Intentionally NO rclone sync and NO --delete-* flags.
+  rclone copyto \
+    "${local_path}" \
+    "${REMOTE}/${name}" \
+    --stats 30s \
+    --stats-one-line \
+    --log-level INFO
+}
+
+echo "backup-database: phase A — uploading encrypted dumps (manifest withheld)"
+upload_artifact "${APPLICATION_AGE}"
+upload_artifact "${AUTH_AGE}"
+upload_artifact "${MIGRATIONS_AGE}"
+
+echo "backup-database: phase B — verifying encrypted dump sizes (no re-download)"
+# Deep checksum verification without download is deferred to recovery drills.
 verify_remote_size "gestcopy-application.dump.age" "$(echo "${APPLICATION_META}" | jq -r '.bytes')"
 verify_remote_size "gestcopy-auth.dump.age" "$(echo "${AUTH_META}" | jq -r '.bytes')"
 verify_remote_size "gestcopy-migrations.dump.age" "$(echo "${MIGRATIONS_META}" | jq -r '.bytes')"
+
+echo "backup-database: phase C — uploading manifest.json as completion marker"
+upload_artifact "${MANIFEST}"
 verify_remote_size "manifest.json" "$(wc -c <"${MANIFEST}" | tr -d ' ')"
 
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

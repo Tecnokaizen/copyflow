@@ -88,7 +88,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /DATABASE_BACKUP_SUCCESS/);
     assert.match(backupDatabase, /\btrap\b/);
     assert.match(backupDatabase, /mktemp/);
-    assert.match(backupDatabase, /\brclone copy\b/);
+    assert.match(backupDatabase, /\brclone copyto\b/);
+    assert.match(backupDatabase, /pg_export_snapshot/);
+    assert.match(backupDatabase, /--snapshot=/);
+    assert.match(backupDatabase, /postgresql-exported-snapshot/);
+    assert.match(backupDatabase, /status: "complete"/);
     assert.equal(/\brclone\s+sync\b/.test(executable), false);
     assert.equal(/--delete(?:-|$)/.test(executable), false);
     assert.equal(/AGE-SECRET-KEY/i.test(backupDatabase), false);
@@ -101,21 +105,38 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupDatabase, /SHOW server_version/);
     assert.match(backupDatabase, /manifest\.json/);
     assert.match(backupDatabase, /encryption.*age|encryption: "age"/);
+
+    const appDump = stripComments(
+      backupDatabase.match(/dumping application[\s\S]*?(?=dumping auth)/)?.[0] ?? ""
+    );
+    assert.ok(appDump, "application dump section missing");
+    assert.doesNotMatch(appDump, /--no-privileges/);
+    assert.match(appDump, /--snapshot=/);
+    assert.match(appDump, /--schema=public/);
   });
 
-  it("restore helper guards against production restores", () => {
+  it("restore helper guards against production restores and uses section order", () => {
     assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_URL/);
     assert.match(restoreDatabase, /GESTCOPY_ALLOW_RESTORE=isolated-only/);
+    assert.match(restoreDatabase, /GESTCOPY_PRODUCTION_PROJECT_REF/);
+    assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_PROJECT_REF/);
+    assert.match(restoreDatabase, /restore target resolves to Production project ref/);
     assert.match(restoreDatabase, /must not equal GESTCOPY_DATABASE_URL/);
     assert.match(restoreDatabase, /pg_restore/);
+    assert.match(restoreDatabase, /--section=/);
     assert.match(restoreDatabase, /--no-owner/);
-    assert.match(restoreDatabase, /--no-privileges/);
     assert.match(restoreDatabase, /--exit-on-error/);
     assert.match(restoreDatabase, /--skip-auth/);
     assert.doesNotMatch(
       stripComments(restoreDatabase),
       /--dbname="\$\{GESTCOPY_DATABASE_URL\}"/
     );
+
+    const appRestore = stripComments(
+      restoreDatabase.match(/restore_application_section[\s\S]*?^}/m)?.[0] ?? ""
+    );
+    assert.ok(appRestore, "application restore helper missing");
+    assert.doesNotMatch(appRestore, /--no-privileges/);
   });
 
   it("does not hardcode secrets or rclone.conf credentials", () => {
@@ -178,5 +199,12 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /exit 75/);
     assert.match(readme, /isolated/);
     assert.match(readme, /provider-native/);
+    assert.match(readme, /exported snapshot|postgresql-exported-snapshot/);
+    assert.match(readme, /INCOMPLETE BACKUP SET|incomplete/i);
+    assert.match(readme, /completion marker|manifest\.json/);
+    assert.match(readme, /GESTCOPY_PRODUCTION_PROJECT_REF/);
+    assert.match(readme, /ACL|GRANT/);
+    assert.match(readme, /pre-data/);
+    assert.match(readme, /post-data/);
   });
 });

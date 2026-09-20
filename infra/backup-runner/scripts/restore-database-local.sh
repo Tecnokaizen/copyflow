@@ -8,17 +8,26 @@ usage() {
 Usage: restore-database-local.sh --application PATH [--auth PATH] [--migrations PATH]
 
 Requires:
-  GESTCOPY_RESTORE_TARGET_URL   connection URI of an ISOLATED restore target
   GESTCOPY_ALLOW_RESTORE=isolated-only
+  GESTCOPY_RESTORE_TARGET_URL
+  GESTCOPY_PRODUCTION_PROJECT_REF
+  GESTCOPY_RESTORE_TARGET_PROJECT_REF
 
-Refuses:
-  GESTCOPY_DATABASE_URL as restore target
-  identical source and target URLs
-  any restore when GESTCOPY_ALLOW_RESTORE is not exactly isolated-only
+Refuses Production when:
+  - target project ref equals production project ref
+  - target URL contains the production project ref (case-insensitive)
+  - GESTCOPY_DATABASE_URL is set and equals the target URL
 
 Optional:
   --skip-auth     omit auth data restore (e.g. vanilla PostgreSQL without Auth schema)
   --skip-migrations
+
+Restore order (sectioned, so FKs to auth.users apply after auth data):
+  1. application --section=pre-data
+  2. application --section=data
+  3. auth data (unless --skip-auth)
+  4. migration history data (unless --skip-migrations)
+  5. application --section=post-data
 
 Artifacts must already be decrypted locally (*.dump, not *.dump.age).
 EOF
@@ -85,7 +94,32 @@ if [[ -z "${GESTCOPY_RESTORE_TARGET_URL:-}" ]]; then
   exit 1
 fi
 
-# Never treat the production backup source URL as a restore target.
+if [[ -z "${GESTCOPY_PRODUCTION_PROJECT_REF:-}" ]]; then
+  echo "ERROR: GESTCOPY_PRODUCTION_PROJECT_REF is required" >&2
+  exit 1
+fi
+
+if [[ -z "${GESTCOPY_RESTORE_TARGET_PROJECT_REF:-}" ]]; then
+  echo "ERROR: GESTCOPY_RESTORE_TARGET_PROJECT_REF is required" >&2
+  exit 1
+fi
+
+# Normalize refs for comparison without echoing connection strings.
+prod_ref="$(printf '%s' "${GESTCOPY_PRODUCTION_PROJECT_REF}" | tr '[:upper:]' '[:lower:]')"
+target_ref="$(printf '%s' "${GESTCOPY_RESTORE_TARGET_PROJECT_REF}" | tr '[:upper:]' '[:lower:]')"
+target_url_lc="$(printf '%s' "${GESTCOPY_RESTORE_TARGET_URL}" | tr '[:upper:]' '[:lower:]')"
+
+if [[ "${target_ref}" == "${prod_ref}" ]]; then
+  echo "ERROR: restore target resolves to Production project ref" >&2
+  exit 1
+fi
+
+if [[ "${target_url_lc}" == *"${prod_ref}"* ]]; then
+  echo "ERROR: restore target resolves to Production project ref" >&2
+  exit 1
+fi
+
+# Defense in depth when the production backup URL is also present in the environment.
 if [[ -n "${GESTCOPY_DATABASE_URL:-}" && "${GESTCOPY_RESTORE_TARGET_URL}" == "${GESTCOPY_DATABASE_URL}" ]]; then
   echo "ERROR: restore target must not equal GESTCOPY_DATABASE_URL (production source)" >&2
   exit 1
@@ -95,13 +129,23 @@ fi
 : "${PGAPPNAME:=gestcopy-restore-isolated}"
 export PGSSLMODE PGAPPNAME
 
-echo "restore-database-local: restoring application dump (isolated target)"
-pg_restore \
-  --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
-  --no-owner \
-  --no-privileges \
-  --exit-on-error \
-  "${APPLICATION_DUMP}"
+restore_application_section() {
+  local section="$1"
+  echo "restore-database-local: application section=${section}"
+  # Apply ACL/GRANT/REVOKE from the application archive (do not suppress privileges).
+  pg_restore \
+    --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
+    --section="${section}" \
+    --no-owner \
+    --exit-on-error \
+    "${APPLICATION_DUMP}"
+}
+
+echo "restore-database-local: restoring application pre-data (isolated target)"
+restore_application_section pre-data
+
+echo "restore-database-local: restoring application data"
+restore_application_section data
 
 if [[ "${SKIP_AUTH}" == "true" ]]; then
   echo "restore-database-local: skipping auth dump (--skip-auth)"
@@ -110,7 +154,7 @@ elif [[ -n "${AUTH_DUMP}" ]]; then
     echo "ERROR: auth dump missing or empty" >&2
     exit 1
   fi
-  echo "restore-database-local: restoring auth data (compat must be validated separately)"
+  echo "restore-database-local: restoring auth data before application post-data (FK to auth.users)"
   pg_restore \
     --dbname="${GESTCOPY_RESTORE_TARGET_URL}" \
     --data-only \
@@ -142,5 +186,8 @@ else
   echo "ERROR: provide --migrations PATH or pass --skip-migrations" >&2
   exit 1
 fi
+
+echo "restore-database-local: restoring application post-data (constraints/indexes/triggers/ACL)"
+restore_application_section post-data
 
 echo "RESTORE_DATABASE_ISOLATED_SUCCESS"
