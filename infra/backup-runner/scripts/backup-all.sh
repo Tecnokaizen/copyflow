@@ -11,8 +11,9 @@ echo "backup-all: start ${STARTED_AT} UTC"
 # --- Files (B1.2) ---
 "${SCRIPT_DIR}/backup-files.sh"
 
-# --- Database (B1.3 placeholder) ---
-# "${SCRIPT_DIR}/backup-database.sh"
+# --- Database (B1.3) ---
+# Database backups run on a separate Coolify Scheduled Task (backup-database.sh).
+# Do NOT wire them into this hourly Files job.
 
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "backup-all: finished ${FINISHED_AT} UTC"
