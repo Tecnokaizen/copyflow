@@ -2,11 +2,12 @@
 # Does NOT run backups on start; Coolify Scheduled Tasks invoke /app/scripts/*.sh
 #
 # Base: Alpine stable (pinned). Includes rclone + bash tooling for Files backup,
-# and PostgreSQL 17 client for upcoming B1.3 pg_dump scaffolding.
+# PostgreSQL 17 client + age for B1.3 encrypted logical database dumps.
 
 FROM alpine:3.24
 
 RUN apk add --no-cache \
+      age \
       bash \
       ca-certificates \
       curl \

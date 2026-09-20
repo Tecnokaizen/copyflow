@@ -12,32 +12,40 @@ function read(rel: string): string {
   return readFileSync(path.join(runnerDir, rel), "utf8");
 }
 
+function stripComments(source: string): string {
+  return source.replace(/^\s*#.*$/gm, "");
+}
+
 describe("infra/backup-runner static contract", () => {
   const dockerfile = read("Dockerfile");
   const backupFiles = read("scripts/backup-files.sh");
   const verifyFiles = read("scripts/verify-files.sh");
   const backupAll = read("scripts/backup-all.sh");
+  const backupDatabase = read("scripts/backup-database.sh");
+  const restoreDatabase = read("scripts/restore-database-local.sh");
+  const runnerLock = read("scripts/runner-lock.sh");
   const readme = read("README.md");
 
-  it("Dockerfile installs rclone, bash tooling, and postgres 17 client", () => {
+  it("Dockerfile installs rclone, bash tooling, postgres 17 client, and age", () => {
     assert.match(dockerfile, /FROM alpine:3\.24/);
     assert.match(dockerfile, /\brclone\b/);
     assert.match(dockerfile, /\bbash\b/);
     assert.match(dockerfile, /\bjq\b/);
     assert.match(dockerfile, /\bcurl\b/);
     assert.match(dockerfile, /\bflock\b/);
+    assert.match(dockerfile, /\bage\b/);
     assert.match(dockerfile, /ca-certificates/);
     assert.match(dockerfile, /postgresql17-client/);
     assert.match(dockerfile, /sleep", "infinity/);
     assert.match(dockerfile, /USER backup/);
-    // No Docker ENTRYPOINT instruction (comments mentioning the word are fine).
     assert.equal(/^\s*ENTRYPOINT\b/im.test(dockerfile), false);
   });
 
   it("backup-files uses rclone copy and never sync/delete", () => {
-    const executable = backupFiles
-      .replace(/^\s*#.*$/gm, "")
-      .replace(/\$\{[^}]*HARD_DELETE[^}]*\}/g, "");
+    const executable = stripComments(backupFiles).replace(
+      /\$\{[^}]*HARD_DELETE[^}]*\}/g,
+      ""
+    );
     assert.match(backupFiles, /\brclone copy\b/);
     assert.equal(/\brclone\s+sync\b/.test(executable), false);
     assert.equal(/--delete(?:-|$)/.test(executable), false);
@@ -54,28 +62,119 @@ describe("infra/backup-runner static contract", () => {
     assert.match(verifyFiles, /VERIFY_FILES_SUCCESS/);
   });
 
-  it("backup-all runs the copy without a full verification", () => {
+  it("backup-all runs Files copy only and does not schedule database", () => {
     assert.match(backupAll, /backup-files\.sh/);
     assert.doesNotMatch(backupAll, /verify-files\.sh/);
+    assert.doesNotMatch(stripComments(backupAll), /backup-database\.sh/);
     assert.match(backupAll, /BACKUP_ALL_SUCCESS/);
     assert.match(backupAll, /B1\.3/);
   });
 
-  it("does not hardcode secrets or rclone.conf credentials", () => {
-    const corpus = [dockerfile, backupFiles, verifyFiles, backupAll, readme].join(
-      "\n"
+  it("backup-database dumps public/auth/migrations, encrypts with age, and uploads safely", () => {
+    const executable = stripComments(backupDatabase).replace(
+      /\$\{[^}]*HARD_DELETE[^}]*\}/g,
+      ""
     );
+    assert.match(backupDatabase, /set -Eeuo pipefail/);
+    assert.match(backupDatabase, /\bpg_dump\b/);
+    assert.match(backupDatabase, /--schema=public/);
+    assert.match(backupDatabase, /--schema=auth/);
+    assert.match(backupDatabase, /--data-only/);
+    assert.match(backupDatabase, /supabase_migrations\.schema_migrations/);
+    assert.match(backupDatabase, /\bage\b/);
+    assert.match(backupDatabase, /GESTCOPY_BACKUP_AGE_RECIPIENT/);
+    assert.match(backupDatabase, /runner-lock\.sh/);
+    assert.match(backupDatabase, /acquire_runner_lock/);
+    assert.match(backupDatabase, /DATABASE_BACKUP_SUCCESS/);
+    assert.match(backupDatabase, /\btrap\b/);
+    assert.match(backupDatabase, /mktemp/);
+    assert.match(backupDatabase, /\brclone copyto\b/);
+    assert.match(backupDatabase, /pg_export_snapshot/);
+    assert.match(backupDatabase, /--snapshot=/);
+    assert.match(backupDatabase, /postgresql-exported-snapshot/);
+    assert.match(backupDatabase, /status: "complete"/);
+    assert.equal(/\brclone\s+sync\b/.test(executable), false);
+    assert.equal(/--delete(?:-|$)/.test(executable), false);
+    assert.equal(/AGE-SECRET-KEY/i.test(backupDatabase), false);
+    assert.equal(/age-keygen/.test(executable), false);
+    assert.equal(/\becho\b.*GESTCOPY_DATABASE_URL/.test(executable), false);
+    assert.equal(/printf\b.*GESTCOPY_DATABASE_URL/.test(executable), false);
+    assert.match(backupDatabase, /PGSSLMODE/);
+    assert.match(backupDatabase, /PGAPPNAME/);
+    assert.match(backupDatabase, /select version\(\)/);
+    assert.match(backupDatabase, /SHOW server_version/);
+    assert.match(backupDatabase, /manifest\.json/);
+    assert.match(backupDatabase, /encryption.*age|encryption: "age"/);
+    assert.match(backupDatabase, /pg_restore --list/);
+    assert.match(backupDatabase, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
+    assert.match(backupDatabase, /PGCONNECT_TIMEOUT/);
+    assert.match(backupDatabase, /supabase-vault:files_signing_secret/);
+
+    const appDump = stripComments(
+      backupDatabase.match(/dumping application[\s\S]*?(?=dumping auth)/)?.[0] ?? ""
+    );
+    assert.ok(appDump, "application dump section missing");
+    assert.doesNotMatch(appDump, /--no-privileges/);
+    assert.match(appDump, /--snapshot=/);
+    assert.match(appDump, /--schema=public/);
+  });
+
+  it("restore helper guards against production restores and uses section order", () => {
+    assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_URL/);
+    assert.match(restoreDatabase, /GESTCOPY_ALLOW_RESTORE=isolated-only/);
+    assert.match(restoreDatabase, /GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only/);
+    assert.match(restoreDatabase, /GESTCOPY_PRODUCTION_PROJECT_REF/);
+    assert.match(restoreDatabase, /GESTCOPY_RESTORE_TARGET_PROJECT_REF/);
+    assert.match(restoreDatabase, /restore target resolves to Production project ref/);
+    assert.match(restoreDatabase, /must not equal GESTCOPY_DATABASE_URL/);
+    assert.match(restoreDatabase, /pg_restore/);
+    assert.match(restoreDatabase, /--section=/);
+    assert.match(restoreDatabase, /--no-owner/);
+    assert.match(restoreDatabase, /--exit-on-error/);
+    assert.doesNotMatch(restoreDatabase, /--skip-auth/);
+    assert.match(restoreDatabase, /pg_restore --list/);
+    assert.match(restoreDatabase, /DROP SCHEMA IF EXISTS public CASCADE/);
+    assert.match(restoreDatabase, /application archive does not define schema public/);
+    assert.doesNotMatch(
+      stripComments(restoreDatabase),
+      /--dbname="\$\{GESTCOPY_DATABASE_URL\}"/
+    );
+
+    const appRestore = stripComments(
+      restoreDatabase.match(/restore_application_section[\s\S]*?^}/m)?.[0] ?? ""
+    );
+    assert.ok(appRestore, "application restore helper missing");
+    assert.doesNotMatch(appRestore, /--no-privileges/);
+  });
+
+  it("does not hardcode secrets or rclone.conf credentials", () => {
+    const corpus = [
+      dockerfile,
+      backupFiles,
+      verifyFiles,
+      backupAll,
+      backupDatabase,
+      restoreDatabase,
+      runnerLock,
+      readme,
+    ].join("\n");
     assert.equal(/AKIA[0-9A-Z]{16}/.test(corpus), false);
     assert.equal(/sk_live_|sk_test_/.test(corpus), false);
     assert.equal(/BEGIN (RSA |OPENSSH )?PRIVATE KEY/.test(corpus), false);
+    assert.equal(/AGE-SECRET-KEY-1[A-Z0-9]+/i.test(corpus), false);
     assert.equal(/secret_access_key\s*=\s*\S+/i.test(corpus), false);
-    assert.equal(/RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=.+[^A-Z_]/.test(backupFiles), false);
+    assert.equal(
+      /RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=.+[^A-Z_]/.test(backupFiles),
+      false
+    );
     assert.match(readme, /No `rclone\.conf` with secrets/);
   });
 
   it("scripts are executable and pass bash -n", () => {
     const scripts = readdirSync(scriptsDir).filter((name) => name.endsWith(".sh"));
-    assert.ok(scripts.length >= 3);
+    assert.ok(scripts.length >= 5);
+    assert.ok(scripts.includes("backup-database.sh"));
+    assert.ok(scripts.includes("restore-database-local.sh"));
 
     for (const name of scripts) {
       const full = path.join(scriptsDir, name);
@@ -90,14 +189,36 @@ describe("infra/backup-runner static contract", () => {
     }
   });
 
-  it("documents Coolify schedule and forbids sync", () => {
+  it("documents Files + Database schedules, age key offline, and Object Lock", () => {
     assert.match(readme, /17 \* \* \* \*/);
     assert.match(readme, /35 2 \* \* 0/);
+    assert.match(readme, /27 \*\/6 \* \* \*/);
     assert.match(readme, /\/app\/scripts\/backup-all\.sh/);
+    assert.match(readme, /\/app\/scripts\/backup-database\.sh/);
     assert.match(readme, /\/infra\/backup-runner/);
     assert.match(readme, /Dockerfile Location/);
     assert.match(readme, /Do not use `rclone sync`/);
     assert.match(readme, /Object Lock/);
     assert.match(readme, /Compliance/);
+    assert.match(readme, /GESTCOPY_BACKUP_AGE_RECIPIENT/);
+    assert.match(readme, /age-keygen/);
+    assert.match(readme, /private key/);
+    assert.match(readme, /database\//);
+    assert.match(readme, /exit 75/);
+    assert.match(readme, /isolated/);
+    assert.match(readme, /provider-native/);
+    assert.match(readme, /exported snapshot|postgresql-exported-snapshot/);
+    assert.match(readme, /INCOMPLETE BACKUP SET|incomplete/i);
+    assert.match(readme, /completion marker|manifest\.json/);
+    assert.match(readme, /GESTCOPY_PRODUCTION_PROJECT_REF/);
+    assert.match(readme, /ACL|GRANT/);
+    assert.match(readme, /pre-data/);
+    assert.match(readme, /post-data/);
+    assert.match(readme, /GESTCOPY_ALLOW_PUBLIC_RESET/);
+    assert.match(readme, /DROP SCHEMA IF EXISTS public CASCADE/);
+    assert.match(readme, /files_signing_secret/);
+    assert.match(readme, /EXTERNAL RECOVERY REQUIREMENTS/);
+    assert.match(readme, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
+    assert.doesNotMatch(readme, /--skip-auth/);
   });
 });
