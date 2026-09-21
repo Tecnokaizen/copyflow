@@ -105,16 +105,16 @@ declare
     pg_catalog.current_setting('app.allow_kiosk_channel_mutation', true),
     ''
   );
-  v_role text := coalesce(auth.role(), '');
 begin
   -- Privileged / future dedicated Kiosk RPCs can opt in per-transaction.
   if v_setting = 'true' then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
 
-  -- Only constrain normal authenticated sessions (PostgREST / Settings UI).
-  -- Seeds, postgres tests, and service_role paths without JWT are unaffected.
-  if v_role is distinct from 'authenticated' then
+  -- Only constrain sessions that are actually running as the PostgREST
+  -- `authenticated` DB role. Seeds/tests/postgres (even with leftover JWT
+  -- claims) and SECURITY DEFINER paths remain usable for privileged opt-in.
+  if current_user is distinct from 'authenticated' then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
 

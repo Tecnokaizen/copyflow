@@ -129,13 +129,15 @@ begin
   ) values (
     v_status_demo, v_tenant_demo, 'Recibido', 'received', true, true, 1
   );
-  -- Explicit configuration opts DEMO in. SUR4 remains disabled.
+  execute 'reset role';
+
+  -- Explicit privileged opt-in for DEMO. Generic authenticated catalog writes
+  -- (Settings / PostgREST) cannot create code='kiosk'; SUR4 stays disabled.
   insert into public.entry_channels (
     id, tenant_id, name, code, active, sort_order
   ) values (
     v_channel_demo, v_tenant_demo, 'Kiosk', 'kiosk', true, 1000
   );
-  execute 'reset role';
 
   if kiosk_private.kiosk_payload_fingerprint(
     'Tarjetas',
