@@ -81,15 +81,8 @@ begin
     raise exception 'phase23: basic core features mismatch (% )', v_count;
   end if;
 
-  if exists (
-    select 1
-    from public.plan_features pf
-    join public.features f on f.id = pf.feature_id
-    where pf.plan_id = v_basic_id
-      and f.code = 'storage_bytes'
-  ) then
-    raise exception 'phase23: basic must not have storage_bytes plan_feature';
-  end if;
+  -- storage_bytes on basic is owned by B2 (5 GiB). B1 intentionally left it unset;
+  -- phase24 asserts the quota value. mvp must remain without storage_bytes.
 
   -- mvp intact: still 0 EUR and no storage_bytes attachment required by B1
   if not exists (
