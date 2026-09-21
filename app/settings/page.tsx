@@ -45,6 +45,16 @@ export default async function SettingsPage() {
         </SectionCard>
 
         <SectionCard
+          title="Catálogos operativos"
+          description="Tipos de cliente, canales de entrada, contextos y opciones de archivo, presupuesto, pago y entrega."
+          bodyClassName="p-5 sm:p-6"
+        >
+          <Button asChild>
+            <Link href="/settings/catalogs">Gestionar catálogos</Link>
+          </Button>
+        </SectionCard>
+
+        <SectionCard
           title="Tiendas"
           description="Gestiona las sedes disponibles para asignar pedidos. Desactiva una tienda cuando deje de utilizarse para conservar el histórico."
           bodyClassName="p-5 sm:p-6"
@@ -56,7 +66,7 @@ export default async function SettingsPage() {
 
         <SectionCard
           title="Servicios"
-          description="Configura los servicios, requisitos y plazos estándar que utiliza el flujo de pedidos."
+          description="Configura los servicios, categorías, requisitos y plazos estándar que utiliza el flujo de pedidos."
           bodyClassName="p-5 sm:p-6"
         >
           <Button asChild variant="outline">
