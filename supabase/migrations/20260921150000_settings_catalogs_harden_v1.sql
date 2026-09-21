@@ -3,7 +3,7 @@
 -- Reserve entry_channels.code='kiosk' for dedicated Kiosk paths.
 -- Does not revoke authenticated INSERT/UPDATE (Settings API depends on them).
 -- create_organization / seeds / kiosk tests that run as postgres remain unaffected
--- unless auth.role() = 'authenticated'. Privileged bypass:
+-- (guard keys off current_user = 'authenticated'). Privileged bypass:
 --   select set_config('app.allow_kiosk_channel_mutation', 'true', true);
 
 begin;
