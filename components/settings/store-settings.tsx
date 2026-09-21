@@ -193,7 +193,9 @@ export function StoreSettings() {
   }, []);
 
   useEffect(() => {
-    void loadStores();
+    queueMicrotask(() => {
+      void loadStores();
+    });
   }, [loadStores]);
 
   async function saveStore(payload: StorePayload) {

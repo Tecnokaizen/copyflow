@@ -9,11 +9,11 @@ import { SectionCard } from "@/components/gestcopy/section-card";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { Button } from "@/components/ui/button";
 import {
-  ORDER_STATUS_KINDS,
+  ORDER_STATUS_EDITABLE_KINDS,
   ORDER_STATUS_KIND_LABELS,
   orderStatusKindFromFlags,
+  type OrderStatusEditableKind,
   type OrderStatusItem,
-  type OrderStatusKind,
   type OrderStatusPayload,
 } from "@/lib/settings/order-statuses";
 
@@ -28,17 +28,39 @@ type Editor =
 
 type FormState = {
   name: string;
-  kind: OrderStatusKind;
+  kind: OrderStatusEditableKind;
   active: boolean;
   sort_order: string;
 };
 
 function formForStatus(status: OrderStatusItem | null): FormState {
+  const kind = status
+    ? orderStatusKindFromFlags(status)
+    : "in_progress";
+
   return {
     name: status?.name ?? "",
-    kind: status ? orderStatusKindFromFlags(status) : "in_progress",
+    kind:
+      kind === "initial"
+        ? "in_progress"
+        : (kind as OrderStatusEditableKind),
     active: status?.active ?? true,
     sort_order: String(status?.sort_order ?? 0),
+  };
+}
+
+function patchPayloadForStatus(
+  status: OrderStatusItem,
+  overrides: Partial<Pick<OrderStatusPayload, "active" | "name" | "sort_order" | "kind">> = {}
+): OrderStatusPayload {
+  const kind = orderStatusKindFromFlags(status);
+  return {
+    name: overrides.name ?? status.name,
+    kind:
+      overrides.kind ??
+      (kind === "initial" ? "in_progress" : (kind as OrderStatusEditableKind)),
+    active: overrides.active ?? status.active,
+    sort_order: overrides.sort_order ?? status.sort_order,
   };
 }
 
@@ -80,7 +102,7 @@ function StatusEditorModal({
     onSubmit({
       name,
       kind: form.kind,
-      active: form.kind === "initial" ? true : form.active,
+      active: editingCurrentInitial ? true : form.active,
       sort_order: sortOrder,
     });
   }
@@ -125,46 +147,40 @@ function StatusEditorModal({
             />
           </label>
 
-          <label className="grid gap-1.5 text-sm">
-            Tipo
-            <select
-              className="gc-field-control"
-              value={form.kind}
-              disabled={saving || editingCurrentInitial}
-              onChange={(event) => {
-                const kind = event.target.value as OrderStatusKind;
-                setForm((current) => ({
-                  ...current,
-                  kind,
-                  active: kind === "initial" ? true : current.active,
-                }));
-              }}
-            >
-              {ORDER_STATUS_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {ORDER_STATUS_KIND_LABELS[kind]}
-                </option>
-              ))}
-            </select>
-          </label>
-
           {editingCurrentInitial ? (
             <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-              Para cambiar el estado inicial, edita otro estado y márcalo como
-              Inicial. El cambio se realiza de forma atómica.
+              Este es el estado Inicial del tenant. Para cambiar cuál es el
+              inicial, usa «Establecer como inicial» en otro estado activo.
             </p>
-          ) : form.kind === "initial" ? (
-            <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-              Al guardar, este estado sustituirá al Inicial actual y quedará
-              activo automáticamente.
-            </p>
-          ) : null}
+          ) : (
+            <label className="grid gap-1.5 text-sm">
+              Tipo
+              <select
+                className="gc-field-control"
+                value={form.kind}
+                disabled={saving}
+                onChange={(event) => {
+                  const kind = event.target.value as OrderStatusEditableKind;
+                  setForm((current) => ({
+                    ...current,
+                    kind,
+                  }));
+                }}
+              >
+                {ORDER_STATUS_EDITABLE_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {ORDER_STATUS_KIND_LABELS[kind]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={form.kind === "initial" ? true : form.active}
-              disabled={saving || form.kind === "initial"}
+              checked={editingCurrentInitial ? true : form.active}
+              disabled={saving || editingCurrentInitial}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
@@ -174,6 +190,13 @@ function StatusEditorModal({
             />
             Estado activo
           </label>
+
+          {editingCurrentInitial ? (
+            <p className="text-sm text-muted-foreground">
+              Debes establecer otro estado inicial antes de desactivar este
+              estado.
+            </p>
+          ) : null}
 
           <label className="grid gap-1.5 text-sm">
             Orden
@@ -224,6 +247,8 @@ export function OrderStatusSettings() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const loadStatuses = useCallback(async () => {
     setLoading(true);
@@ -253,7 +278,9 @@ export function OrderStatusSettings() {
   }, []);
 
   useEffect(() => {
-    void loadStatuses();
+    queueMicrotask(() => {
+      void loadStatuses();
+    });
   }, [loadStatuses]);
 
   async function saveStatus(payload: OrderStatusPayload) {
@@ -295,6 +322,71 @@ export function OrderStatusSettings() {
     }
   }
 
+  async function setAsInitial(status: OrderStatusItem) {
+    if (busyId || status.is_initial || !status.active) {
+      return;
+    }
+
+    setBusyId(status.id);
+    setActionError(null);
+
+    try {
+      const response = await fetch(
+        `/api/order-statuses/${status.id}/set-initial`,
+        { method: "POST" }
+      );
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          result.error || "No se pudo establecer el estado inicial"
+        );
+      }
+      await loadStatuses();
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo establecer el estado inicial"
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleActive(status: OrderStatusItem) {
+    if (busyId || status.is_initial) {
+      return;
+    }
+
+    setBusyId(status.id);
+    setActionError(null);
+
+    try {
+      const response = await fetch(`/api/order-statuses/${status.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(
+          patchPayloadForStatus(status, { active: !status.active })
+        ),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "No se pudo actualizar el estado");
+      }
+      await loadStatuses();
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el estado"
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <>
       <SectionCard
@@ -327,6 +419,11 @@ export function OrderStatusSettings() {
           />
         ) : (
           <div className="overflow-x-auto">
+            {actionError ? (
+              <p className="border-b px-5 py-3 text-sm text-destructive sm:px-6">
+                {actionError}
+              </p>
+            ) : null}
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/50">
                 <tr>
@@ -350,6 +447,7 @@ export function OrderStatusSettings() {
               <tbody>
                 {statuses.map((status) => {
                   const kind = orderStatusKindFromFlags(status);
+                  const busy = busyId === status.id;
 
                   return (
                     <tr
@@ -357,11 +455,15 @@ export function OrderStatusSettings() {
                       className="border-b last:border-b-0 hover:bg-muted/30"
                     >
                       <td className="px-5 py-4 sm:px-6">
-                        <StatusBadge status={status} />
-                        <div className="mt-1 font-medium">{status.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {status.code}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge status={status} />
+                          {status.is_initial ? (
+                            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              Inicial
+                            </span>
+                          ) : null}
                         </div>
+                        <div className="mt-1 font-medium">{status.name}</div>
                       </td>
                       <td className="px-5 py-4 sm:px-6">
                         {ORDER_STATUS_KIND_LABELS[kind]}
@@ -373,17 +475,63 @@ export function OrderStatusSettings() {
                         {status.sort_order}
                       </td>
                       <td className="px-5 py-4 text-right sm:px-6">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setFormError(null);
-                            setEditor({ mode: "edit", status });
-                          }}
-                        >
-                          Editar
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => {
+                              setFormError(null);
+                              setEditor({ mode: "edit", status });
+                            }}
+                          >
+                            Editar
+                          </Button>
+                          {!status.is_initial ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy || !status.active}
+                              title={
+                                status.active
+                                  ? undefined
+                                  : "Reactiva el estado antes de marcarlo como inicial"
+                              }
+                              onClick={() => void setAsInitial(status)}
+                            >
+                              Establecer como inicial
+                            </Button>
+                          ) : null}
+                          {status.is_initial ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled
+                              title="Debes establecer otro estado inicial antes de desactivar este estado."
+                            >
+                              Desactivar
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => void toggleActive(status)}
+                            >
+                              {status.active ? "Desactivar" : "Activar"}
+                            </Button>
+                          )}
+                        </div>
+                        {status.is_initial ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Debes establecer otro estado inicial antes de
+                            desactivar este estado.
+                          </p>
+                        ) : null}
                       </td>
                     </tr>
                   );

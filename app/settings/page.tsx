@@ -40,7 +40,7 @@ export default async function SettingsPage() {
           bodyClassName="p-5 sm:p-6"
         >
           <Button asChild>
-            <Link href="/settings/statuses">Gestionar estados</Link>
+            <Link href="/settings/order-statuses">Gestionar estados</Link>
           </Button>
         </SectionCard>
 

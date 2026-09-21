@@ -239,9 +239,11 @@ export function CatalogSettings() {
   }, [catalog]);
 
   useEffect(() => {
-    setEditor(null);
-    setFormError(null);
-    void loadItems();
+    queueMicrotask(() => {
+      setEditor(null);
+      setFormError(null);
+      void loadItems();
+    });
   }, [loadItems]);
 
   async function saveItem(payload: SettingsCatalogPayload) {

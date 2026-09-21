@@ -4,6 +4,8 @@ import { canManageSettingsCatalogs } from "@/lib/auth/membership-roles";
 import {
   mapOrderStatus,
   nextAvailableStatusCode,
+  orderStatusDomainError,
+  orderStatusDomainErrorMessage,
   orderStatusWriteHttpStatus,
   parseOrderStatusPayload,
   unwrapOrderStatusRpc,
@@ -21,6 +23,7 @@ export async function GET() {
     );
   }
 
+  // Any tenant member can read statuses (needed by orders UI).
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -76,7 +79,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const parsed = parseOrderStatusPayload(body as Record<string, unknown>);
+  const raw = body as Record<string, unknown>;
+  if ("is_initial" in raw && raw.is_initial === true) {
+    return NextResponse.json(
+      { error: "initial_status_must_use_set_initial" },
+      { status: 400 }
+    );
+  }
+
+  const parsed = parseOrderStatusPayload(raw);
   if (!parsed.ok) {
     return NextResponse.json({ error: "Invalid value" }, { status: 400 });
   }
@@ -117,21 +128,21 @@ export async function POST(request: NextRequest) {
 
   const status = unwrapOrderStatusRpc(data);
   if (error || !status) {
+    const domain = orderStatusDomainError(error?.code, error?.message);
     console.error("[POST /api/order-statuses] Could not create order status", {
       tenantId: context.tenant.id,
       code: error?.code,
+      domain,
     });
 
     return NextResponse.json(
       {
-        error:
-          error?.code === "23514"
-            ? "El tenant debe conservar un estado inicial activo"
-            : error?.code === "23505"
-              ? "Ya existe un estado equivalente"
-              : "Could not create order status",
+        error: orderStatusDomainErrorMessage(
+          domain,
+          "Could not create order status"
+        ),
       },
-      { status: orderStatusWriteHttpStatus(error?.code) }
+      { status: orderStatusWriteHttpStatus(domain, error?.code) }
     );
   }
 
