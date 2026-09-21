@@ -6,16 +6,13 @@ import {
   isSettingsCatalogKey,
   mapSettingsCatalogItem,
   parseSettingsCatalogPayload,
+  settingsCatalogDomainError,
+  settingsCatalogDomainErrorMessage,
+  settingsCatalogWriteHttpStatus,
 } from "@/lib/settings/catalogs";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { isUuid } from "@/lib/team/payload";
-
-function writeErrorStatus(code: string | undefined) {
-  if (code === "23505") return 409;
-  if (code === "42501") return 403;
-  return 500;
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -85,10 +82,7 @@ export async function PATCH(
       existing.active !== parsed.data.active
     ) {
       return NextResponse.json(
-        {
-          error:
-            "El canal Kiosk se gestiona desde la configuración específica de Kiosk",
-        },
+        { error: "kiosk_channel_active_immutable" },
         { status: 409 }
       );
     }
@@ -108,25 +102,28 @@ export async function PATCH(
 
   const item = mapSettingsCatalogItem(data);
   if (error) {
+    const domain = settingsCatalogDomainError(error.code, error.message);
     console.error("[PATCH /api/settings/catalogs/:catalog/:id] update failed", {
       tenantId: context.tenant.id,
       catalog,
       itemId: id,
       code: error.code,
+      domain,
     });
 
     return NextResponse.json(
       {
-        error:
-          error.code === "23505"
-            ? "Ya existe un elemento equivalente"
-            : "Could not update catalog item",
+        error: settingsCatalogDomainErrorMessage(
+          domain,
+          "Could not update catalog item"
+        ),
       },
-      { status: writeErrorStatus(error.code) }
+      { status: settingsCatalogWriteHttpStatus(domain, error.code) }
     );
   }
 
   if (!item) {
+    // Cross-tenant or missing id: same opaque not-found (no leak).
     return NextResponse.json(
       { error: "Catalog item not found" },
       { status: 404 }

@@ -118,6 +118,106 @@ export type SettingsCatalogPayload = {
   sort_order: number;
 };
 
+/**
+ * `file_statuses`, `quote_statuses` and `payment_statuses` have a nullable
+ * `color` column in PostgreSQL. Settings V1 does not expose or edit it —
+ * nothing in the current app UI consumes catalog colors functionally.
+ */
+
+export type SettingsCatalogDomainError =
+  | "catalog_tenant_immutable"
+  | "catalog_code_immutable"
+  | "kiosk_channel_reserved"
+  | "kiosk_channel_active_immutable"
+  | "duplicate_catalog_item"
+  | "forbidden"
+  | "not_found"
+  | "invalid_value";
+
+export function settingsCatalogDomainError(
+  code: string | undefined,
+  message: string | undefined
+): SettingsCatalogDomainError | null {
+  const text = (message ?? "").toLowerCase();
+
+  if (text.includes("catalog_tenant_immutable")) {
+    return "catalog_tenant_immutable";
+  }
+  if (text.includes("catalog_code_immutable")) {
+    return "catalog_code_immutable";
+  }
+  if (text.includes("kiosk_channel_reserved")) {
+    return "kiosk_channel_reserved";
+  }
+  if (text.includes("kiosk_channel_active_immutable")) {
+    return "kiosk_channel_active_immutable";
+  }
+
+  switch (code) {
+    case "28000":
+    case "42501":
+      return "forbidden";
+    case "P0002":
+      return "not_found";
+    case "23505":
+      return "duplicate_catalog_item";
+    case "22023":
+      return "invalid_value";
+    default:
+      return null;
+  }
+}
+
+export function settingsCatalogWriteHttpStatus(
+  domain: SettingsCatalogDomainError | null,
+  code?: string
+) {
+  switch (domain) {
+    case "forbidden":
+    case "catalog_tenant_immutable":
+    case "catalog_code_immutable":
+    case "kiosk_channel_reserved":
+      return 403;
+    case "not_found":
+      return 404;
+    case "kiosk_channel_active_immutable":
+    case "duplicate_catalog_item":
+      return 409;
+    case "invalid_value":
+      return 400;
+    default:
+      if (code === "23505") return 409;
+      if (code === "42501" || code === "28000") return 403;
+      return 500;
+  }
+}
+
+export function settingsCatalogDomainErrorMessage(
+  domain: SettingsCatalogDomainError | null,
+  fallback: string
+) {
+  switch (domain) {
+    case "catalog_tenant_immutable":
+      return "catalog_tenant_immutable";
+    case "catalog_code_immutable":
+      return "catalog_code_immutable";
+    case "kiosk_channel_reserved":
+      return "kiosk_channel_reserved";
+    case "kiosk_channel_active_immutable":
+      return "kiosk_channel_active_immutable";
+    case "duplicate_catalog_item":
+      return "Ya existe un elemento equivalente";
+    case "forbidden":
+      return "Unauthorized or tenant access denied";
+    case "not_found":
+      return "Catalog item not found";
+    case "invalid_value":
+      return "Invalid value";
+    default:
+      return fallback;
+  }
+}
+
 export function isSettingsCatalogKey(
   value: unknown
 ): value is SettingsCatalogKey {

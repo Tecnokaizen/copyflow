@@ -7,15 +7,12 @@ import {
   mapSettingsCatalogItem,
   nextAvailableCatalogCode,
   parseSettingsCatalogPayload,
+  settingsCatalogDomainError,
+  settingsCatalogDomainErrorMessage,
+  settingsCatalogWriteHttpStatus,
 } from "@/lib/settings/catalogs";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-
-function writeErrorStatus(code: string | undefined) {
-  if (code === "23505") return 409;
-  if (code === "42501") return 403;
-  return 500;
-}
 
 export async function GET(
   _request: NextRequest,
@@ -159,20 +156,22 @@ export async function POST(
 
   const item = mapSettingsCatalogItem(data);
   if (error || !item) {
+    const domain = settingsCatalogDomainError(error?.code, error?.message);
     console.error("[POST /api/settings/catalogs/:catalog] create failed", {
       tenantId: context.tenant.id,
       catalog,
       code: error?.code,
+      domain,
     });
 
     return NextResponse.json(
       {
-        error:
-          error?.code === "23505"
-            ? "Ya existe un elemento equivalente"
-            : "Could not create catalog item",
+        error: settingsCatalogDomainErrorMessage(
+          domain,
+          "Could not create catalog item"
+        ),
       },
-      { status: writeErrorStatus(error?.code) }
+      { status: settingsCatalogWriteHttpStatus(domain, error?.code) }
     );
   }
 
