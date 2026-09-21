@@ -1,5 +1,5 @@
 -- Settings V1 · Order status catalog hardening.
--- Tenant-aware catalog writes move behind controlled RPCs.
+-- Tenant-aware catalog writes gain controlled RPCs plus database invariants.
 -- Existing data is preserved; no tenant-specific seed is introduced.
 
 begin;
