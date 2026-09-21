@@ -12,6 +12,8 @@ on:
       - "supabase/tests/phase21_services_catalog.sql"
       - "supabase/tests/phase22_tenant_file_limits.sql"
       - "supabase/tests/phase22_storage_quota_concurrency.sh"
+      - "supabase/tests/phase23_billing_foundation.sql"
+      - "lib/billing/**"
       - "supabase/rollbacks/**"
       - "app/api/kiosk/**"
       - "app/kiosk/**"
@@ -88,6 +90,8 @@ jobs:
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
             -f supabase/tests/phase22_tenant_file_limits.sql
           bash supabase/tests/phase22_storage_quota_concurrency.sh "${LOCAL_DB_URL}"
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/phase23_billing_foundation.sql
 
       - name: Apply and verify exact rollback
         run: |
