@@ -43,7 +43,7 @@ async function main() {
       "Required: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_MODE=test|live"
     );
     console.error(
-      "Also required for DB upsert: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
+      "Also required for DB upsert: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY)"
     );
     process.exitCode = 1;
     return;
@@ -66,7 +66,14 @@ async function main() {
   }
 
   const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceKey =
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceKey) {
+    throw new Error(
+      "Missing SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY"
+    );
+  }
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

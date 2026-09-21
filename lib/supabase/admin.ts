@@ -2,15 +2,17 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
-export function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { resolveSupabaseSecretKey } from "@/lib/supabase/secret-key";
 
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing Supabase service role configuration");
+export function createAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const secretKey = resolveSupabaseSecretKey();
+
+  if (!url || !secretKey) {
+    throw new Error("Missing Supabase secret key configuration");
   }
 
-  return createClient(url, serviceRoleKey, {
+  return createClient(url, secretKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
