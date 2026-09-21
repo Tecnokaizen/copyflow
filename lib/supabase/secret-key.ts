@@ -1,7 +1,7 @@
 /**
  * Server secret for privileged Supabase access.
  * Prefer the new Secret API Key; keep legacy service_role as fallback.
- * Never expose via NEXT_PUBLIC_*.
+ * Never expose this value to the browser or client bundles.
  */
 export function resolveSupabaseSecretKey(): string | null {
   const secretKey = process.env.SUPABASE_SECRET_KEY?.trim();
