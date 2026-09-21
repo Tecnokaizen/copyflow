@@ -322,11 +322,19 @@ describe("billing B2 access and status mapping", () => {
 
   it("webhook passes cancel_at without coercing cancel_at_period_end", () => {
     const webhook = readSource("lib/billing/webhook.ts");
-    assert.match(webhook, /p_cancel_at:\s*stripeCancelAtToIso/);
-    assert.match(webhook, /subscription\.cancel_at_period_end/);
-    assert.doesNotMatch(
+    assert.match(
       webhook,
-      /cancel_at_period_end:\s*.*cancel_at|p_cancel_at_period_end:\s*.*cancel_at[^_]/
+      /p_cancel_at:\s*stripeCancelAtToIso\(subscription\.cancel_at\)/
+    );
+    assert.match(
+      webhook,
+      /p_cancel_at_period_end:\s*Boolean\(subscription\.cancel_at_period_end\)/
+    );
+    assert.equal(
+      /p_cancel_at_period_end:\s*Boolean\(subscription\.cancel_at\)/.test(
+        webhook
+      ),
+      false
     );
   });
 
