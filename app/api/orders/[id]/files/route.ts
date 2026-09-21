@@ -12,6 +12,7 @@ import {
   validateOrderFileInit,
 } from "@/lib/files/validation";
 import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
+import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { presignPut } from "@/lib/storage/r2";
@@ -76,6 +77,16 @@ export async function GET(
     return NextResponse.json({ error: "Could not list files" }, { status: 500 });
   }
 
+  const { data: settingsRow } = await supabase
+    .from("tenant_settings")
+    .select("preferences")
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+
+  const maxFileBytes = resolveMaxFileBytesFromPreferences(
+    settingsRow?.preferences
+  );
+
   const uploaderIds = [
     ...new Set(
       (files ?? [])
@@ -104,6 +115,7 @@ export async function GET(
   return NextResponse.json({
     tenant: context.tenant.slug,
     order_id: orderId,
+    max_file_bytes: maxFileBytes,
     files: (files ?? []).map((row) =>
       toPublicOrderFileDto(
         row as Record<string, unknown>,
@@ -143,14 +155,6 @@ export async function POST(
   }
 
   const record = body as Record<string, unknown>;
-  const validated = validateOrderFileInit({
-    filename: record.filename,
-    content_type: record.content_type,
-    size_bytes: record.size_bytes,
-  });
-  if (!validated.ok) {
-    return NextResponse.json({ error: validated.error }, { status: 400 });
-  }
 
   const supabase = await createClient();
   const { data: order, error: orderError } = await loadOrderForTenant(
@@ -168,6 +172,25 @@ export async function POST(
   });
   if (!mutate.ok) {
     return NextResponse.json(mutate.body, { status: mutate.status });
+  }
+
+  const { data: settingsRow } = await supabase
+    .from("tenant_settings")
+    .select("preferences")
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+  const maxFileBytes = resolveMaxFileBytesFromPreferences(
+    settingsRow?.preferences
+  );
+
+  const validated = validateOrderFileInit({
+    filename: record.filename,
+    content_type: record.content_type,
+    size_bytes: record.size_bytes,
+    max_file_bytes: maxFileBytes,
+  });
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: 400 });
   }
 
   let signingSecret: string;

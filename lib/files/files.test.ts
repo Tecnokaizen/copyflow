@@ -319,6 +319,15 @@ describe("API contracts (source)", () => {
     assert.equal(/GRANT SELECT, INSERT, UPDATE/.test(migration), false);
     assert.equal(/\bTO service_role\b/.test(migration), false);
 
+    const quota = read(
+      "supabase",
+      "migrations",
+      "20260921181000_tenant_file_limits_and_storage_quota_v1.sql"
+    );
+    assert.match(quota, /file-quota:/);
+    assert.match(quota, /storage_quota_exceeded/);
+    assert.match(quota, /resolve_tenant_storage_limit_bytes/);
+
     const rollback = read(
       "supabase",
       "rollbacks",

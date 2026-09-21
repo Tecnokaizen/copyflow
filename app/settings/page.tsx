@@ -74,6 +74,16 @@ export default async function SettingsPage() {
           </Button>
         </SectionCard>
 
+        <SectionCard
+          title="Archivos y almacenamiento"
+          description="Consulta el uso de almacenamiento y el tamaño máximo por archivo. La cuota comercial la define el plan."
+          bodyClassName="p-5 sm:p-6"
+        >
+          <Button asChild variant="outline">
+            <Link href="/settings/files">Gestionar archivos</Link>
+          </Button>
+        </SectionCard>
+
         {canManageQuickOrder ? (
           <SectionCard
             title="Pedido rápido"

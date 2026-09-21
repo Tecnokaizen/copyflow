@@ -160,6 +160,8 @@ export function validateOrderFileInit(input: {
   filename: unknown;
   content_type: unknown;
   size_bytes: unknown;
+  /** Effective tenant max (already capped by platform). Defaults to platform 100 MiB. */
+  max_file_bytes?: number;
 }): FileInitValidation {
   const filename = sanitizeOriginalFilename(input.filename);
   const extension = extensionOf(filename);
@@ -168,10 +170,18 @@ export function validateOrderFileInit(input: {
     return { ok: false, error: "Unsupported file type" };
   }
 
+  const tenantMax =
+    typeof input.max_file_bytes === "number" &&
+    Number.isInteger(input.max_file_bytes) &&
+    input.max_file_bytes > 0
+      ? Math.min(input.max_file_bytes, MAX_ORDER_FILE_BYTES)
+      : MAX_ORDER_FILE_BYTES;
+
   if (
     typeof input.size_bytes !== "number" ||
     !Number.isInteger(input.size_bytes) ||
     input.size_bytes <= 0 ||
+    input.size_bytes > tenantMax ||
     input.size_bytes > MAX_ORDER_FILE_BYTES
   ) {
     return { ok: false, error: "Invalid file size" };

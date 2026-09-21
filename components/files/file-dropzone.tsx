@@ -10,12 +10,15 @@ type FileDropzoneProps = {
   disabled?: boolean;
   onFilesSelected: (files: File[]) => void;
   className?: string;
+  /** Human label for max size, e.g. "50 MiB". Defaults to 100 MiB. */
+  maxSizeLabel?: string;
 };
 
 export function FileDropzone({
   disabled = false,
   onFilesSelected,
   className,
+  maxSizeLabel = "100 MiB",
 }: FileDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -69,7 +72,7 @@ export function FileDropzone({
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
         PDF, imágenes, Office, ZIP…
         <br />
-        Máximo 100 MB por archivo
+        Máximo {maxSizeLabel} por archivo
       </p>
       <input
         ref={inputRef}
