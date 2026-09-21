@@ -264,6 +264,70 @@ describe("billing B2 access and status mapping", () => {
     assert.equal(mapStripeSubscriptionStatus("past_due"), "past_due");
     assert.equal(mapStripeSubscriptionStatus("incomplete_expired"), "canceled");
     assert.equal(mapStripeSubscriptionStatus("something_else"), null);
+    // canceled_at is not a status field; only subscription.status maps.
+    assert.equal(mapStripeSubscriptionStatus("active"), "active");
+  });
+
+  it("formats cancellation labels from cancel_at and cancel_at_period_end", async () => {
+    const {
+      formatCancellationLabel,
+      formatSubscriptionStatusLabel,
+      stripeCancelAtToIso,
+    } = await import("./cancellation-display");
+
+    const periodEnd = "2026-10-01T00:00:00.000Z";
+
+    assert.equal(
+      formatCancellationLabel({
+        cancelAt: periodEnd,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: periodEnd,
+      }),
+      "Cancelará al final del periodo"
+    );
+
+    assert.equal(
+      formatCancellationLabel({
+        cancelAt: null,
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: periodEnd,
+      }),
+      "Cancelará al final del periodo"
+    );
+
+    assert.equal(
+      formatCancellationLabel({
+        cancelAt: null,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: periodEnd,
+      }),
+      "No programada"
+    );
+
+    const custom = formatCancellationLabel({
+      cancelAt: "2026-10-15T00:00:00.000Z",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: periodEnd,
+    });
+    assert.match(custom, /^Cancelación programada para /);
+
+    assert.equal(formatSubscriptionStatusLabel("active"), "Activa");
+    assert.equal(formatSubscriptionStatusLabel("past_due"), "Pago pendiente");
+    assert.equal(
+      stripeCancelAtToIso(1_720_000_000),
+      new Date(1_720_000_000 * 1000).toISOString()
+    );
+    assert.equal(stripeCancelAtToIso(null), null);
+  });
+
+  it("webhook passes cancel_at without coercing cancel_at_period_end", () => {
+    const webhook = readSource("lib/billing/webhook.ts");
+    assert.match(webhook, /p_cancel_at:\s*stripeCancelAtToIso/);
+    assert.match(webhook, /subscription\.cancel_at_period_end/);
+    assert.doesNotMatch(
+      webhook,
+      /cancel_at_period_end:\s*.*cancel_at|p_cancel_at_period_end:\s*.*cancel_at[^_]/
+    );
   });
 
   it("rejects mismatched tenant identifiers from webhook sources", async () => {
@@ -360,5 +424,14 @@ describe("billing B2 access and status mapping", () => {
     assert.match(migration, /provider_event_created_at/);
     assert.match(migration, /stale/);
     assert.match(migration, /p_provider_event_created_at/);
+  });
+
+  it("cancel_at migration persists Stripe absolute cancellation", () => {
+    const migration = readSource(
+      "supabase/migrations/20260922010000_billing_subscription_cancel_at_v1.sql"
+    );
+    assert.match(migration, /add column if not exists cancel_at/);
+    assert.match(migration, /p_cancel_at/);
+    assert.match(migration, /cancel_at = p_cancel_at/);
   });
 });

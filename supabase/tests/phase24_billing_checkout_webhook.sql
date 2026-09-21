@@ -21,6 +21,8 @@ declare
   v_sur4_status text;
   v_old timestamptz := timestamptz '2026-01-01 00:00:00+00';
   v_new timestamptz := timestamptz '2026-01-02 00:00:00+00';
+  v_period_end timestamptz;
+  v_custom_cancel timestamptz;
 begin
   select p.code, s.provider, s.status
   into v_demo_plan, v_demo_provider, v_demo_status
@@ -198,6 +200,146 @@ begin
   v_limit := public.resolve_tenant_storage_limit_bytes(v_tenant);
   if v_limit is distinct from 5368709120::bigint then
     raise exception 'phase24: basic current quota expected 5GiB, got %', v_limit;
+  end if;
+
+  -- cancel_at column exists
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'subscriptions'
+      and column_name = 'cancel_at'
+  ) then
+    raise exception 'phase24: cancel_at column missing';
+  end if;
+
+  -- A: active + cancel_at_period_end=false + cancel_at=period_end
+  v_period_end := now() + interval '14 days';
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    v_period_end,
+    false,
+    '{}'::jsonb,
+    v_new + interval '1 hour',
+    v_period_end
+  );
+
+  if coalesce((v_sync ->> 'stale')::boolean, false) then
+    raise exception 'phase24: cancel_at sync unexpectedly stale';
+  end if;
+
+  if not exists (
+    select 1 from public.subscriptions
+    where id = v_sub_id
+      and status = 'active'
+      and cancel_at_period_end is false
+      and cancel_at is not distinct from v_period_end
+  ) then
+    raise exception 'phase24: cancel_at=period_end not persisted while active';
+  end if;
+
+  -- B: cancel_at_period_end=true still works
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    v_period_end,
+    true,
+    '{}'::jsonb,
+    v_new + interval '2 hours',
+    null
+  );
+
+  if not exists (
+    select 1 from public.subscriptions
+    where id = v_sub_id
+      and status = 'active'
+      and cancel_at_period_end is true
+      and cancel_at is null
+  ) then
+    raise exception 'phase24: cancel_at_period_end=true path broken';
+  end if;
+
+  -- C: no schedule
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    v_period_end,
+    false,
+    '{}'::jsonb,
+    v_new + interval '3 hours',
+    null
+  );
+
+  if not exists (
+    select 1 from public.subscriptions
+    where id = v_sub_id
+      and cancel_at_period_end is false
+      and cancel_at is null
+  ) then
+    raise exception 'phase24: unscheduled cancellation not cleared';
+  end if;
+
+  -- D: custom cancel_at != period end
+  v_custom_cancel := v_period_end + interval '7 days';
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    v_period_end,
+    false,
+    '{}'::jsonb,
+    v_new + interval '4 hours',
+    v_custom_cancel
+  );
+
+  if not exists (
+    select 1 from public.subscriptions
+    where id = v_sub_id
+      and status = 'active'
+      and cancel_at is not distinct from v_custom_cancel
+      and cancel_at_period_end is false
+  ) then
+    raise exception 'phase24: custom cancel_at not persisted';
+  end if;
+
+  -- E: status stays active even if metadata mentions canceled_at
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    v_period_end,
+    false,
+    jsonb_build_object('canceled_at_note', 'present_but_ignored'),
+    v_new + interval '5 hours',
+    v_period_end
+  );
+
+  if (v_sync ->> 'status') is distinct from 'active' then
+    raise exception 'phase24: status must remain active when Stripe status is active';
   end if;
 
   delete from public.subscriptions where tenant_id = v_tenant;

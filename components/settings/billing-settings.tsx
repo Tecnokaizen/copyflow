@@ -7,6 +7,11 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
 import { formatBinaryStorage } from "@/lib/settings/files";
+import {
+  formatBillingDate,
+  formatCancellationLabel,
+  formatSubscriptionStatusLabel,
+} from "@/lib/billing/cancellation-display";
 
 type BillingSubscriptionResponse = {
   tenant: { id: string; slug: string; name: string };
@@ -14,6 +19,7 @@ type BillingSubscriptionResponse = {
     status: string;
     provider: string | null;
     cancel_at_period_end: boolean;
+    cancel_at: string | null;
     current_period_start: string | null;
     current_period_end: string | null;
     has_stripe_customer: boolean;
@@ -46,19 +52,6 @@ function formatPrice(monthly: number | string | null, currency: string) {
   } catch {
     return `${value} ${currency}`;
   }
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-  return new Intl.DateTimeFormat("es-ES", {
-    dateStyle: "medium",
-  }).format(date);
 }
 
 export function BillingSettings() {
@@ -182,7 +175,9 @@ export function BillingSettings() {
           </div>
           <div>
             <dt className="text-muted-foreground">Estado</dt>
-            <dd className="font-medium">{subscription?.status ?? "—"}</dd>
+            <dd className="font-medium">
+              {formatSubscriptionStatusLabel(subscription?.status ?? null)}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Precio</dt>
@@ -195,17 +190,19 @@ export function BillingSettings() {
           <div>
             <dt className="text-muted-foreground">Periodo actual</dt>
             <dd className="font-medium">
-              {formatDate(subscription?.current_period_start ?? null)}
+              {formatBillingDate(subscription?.current_period_start ?? null)}
               {" → "}
-              {formatDate(subscription?.current_period_end ?? null)}
+              {formatBillingDate(subscription?.current_period_end ?? null)}
             </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Cancelación</dt>
             <dd className="font-medium">
-              {subscription?.cancel_at_period_end
-                ? "Cancelará al final del periodo"
-                : "No programada"}
+              {formatCancellationLabel({
+                cancelAt: subscription?.cancel_at,
+                cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+                currentPeriodEnd: subscription?.current_period_end,
+              })}
             </dd>
           </div>
           <div>

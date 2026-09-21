@@ -8,6 +8,7 @@ import {
   mapStripeSubscriptionStatus,
   stripeEventCreatedAt,
 } from "@/lib/billing/stripe-status";
+import { stripeCancelAtToIso } from "@/lib/billing/cancellation-display";
 import { resolveTenantIdFromWebhookSources } from "@/lib/billing/tenant-from-webhook";
 
 export type WebhookProcessResult = {
@@ -156,6 +157,7 @@ async function syncSubscriptionFromStripe(input: {
       plan_code: plan.planCode,
     },
     p_provider_event_created_at: input.eventCreatedAt?.toISOString() ?? null,
+    p_cancel_at: stripeCancelAtToIso(subscription.cancel_at),
   });
 
   if (error) {

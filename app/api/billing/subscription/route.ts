@@ -30,6 +30,7 @@ export async function GET() {
       status,
       provider,
       cancel_at_period_end,
+      cancel_at,
       current_period_start,
       current_period_end,
       provider_customer_id,
@@ -59,6 +60,7 @@ export async function GET() {
         status: string;
         provider: string | null;
         cancel_at_period_end: boolean;
+        cancel_at: string | null;
         current_period_start: string | null;
         current_period_end: string | null;
         provider_customer_id: string | null;
@@ -129,6 +131,7 @@ export async function GET() {
           status: row.status,
           provider: row.provider,
           cancel_at_period_end: row.cancel_at_period_end,
+          cancel_at: row.cancel_at,
           current_period_start: row.current_period_start,
           current_period_end: row.current_period_end,
           has_stripe_customer: Boolean(row.provider_customer_id),
