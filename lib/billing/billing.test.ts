@@ -248,3 +248,117 @@ describe("billing price resolution", () => {
     assert.match(migration, /delete from public\.plan_features/);
   });
 });
+
+describe("billing B2 access and status mapping", () => {
+  it("allows only owner for billing mutations", async () => {
+    const { canManageBilling } = await import("./access");
+    assert.equal(canManageBilling("owner"), true);
+    for (const role of ["admin", "manager", "staff", "viewer", null]) {
+      assert.equal(canManageBilling(role), false);
+    }
+  });
+
+  it("maps Stripe subscription statuses explicitly", async () => {
+    const { mapStripeSubscriptionStatus } = await import("./stripe-status");
+    assert.equal(mapStripeSubscriptionStatus("active"), "active");
+    assert.equal(mapStripeSubscriptionStatus("past_due"), "past_due");
+    assert.equal(mapStripeSubscriptionStatus("incomplete_expired"), "canceled");
+    assert.equal(mapStripeSubscriptionStatus("something_else"), null);
+  });
+
+  it("rejects mismatched tenant identifiers from webhook sources", async () => {
+    const { resolveTenantIdFromWebhookSources } = await import(
+      "./tenant-from-webhook"
+    );
+    const tenant = "11111111-1111-4111-8111-111111111111";
+    const other = "22222222-2222-4222-8222-222222222222";
+
+    assert.deepEqual(
+      resolveTenantIdFromWebhookSources({
+        subscriptionTenantId: tenant,
+        sessionClientReferenceId: tenant,
+        sessionMetadataTenantId: tenant,
+      }),
+      { ok: true, tenantId: tenant }
+    );
+
+    assert.deepEqual(
+      resolveTenantIdFromWebhookSources({
+        subscriptionTenantId: tenant,
+        sessionClientReferenceId: other,
+        sessionMetadataTenantId: tenant,
+      }),
+      { ok: false, errorCode: "tenant_id_mismatch" }
+    );
+  });
+
+  it("parses checkout body allowlist and rejects tenant_id", async () => {
+    const { parseCheckoutRequest } = await import("./checkout-parse");
+    assert.deepEqual(
+      parseCheckoutRequest({
+        plan_code: "basic",
+        billing_interval: "month",
+      }),
+      { ok: true, planCode: "basic", billingInterval: "month" }
+    );
+    assert.equal(
+      parseCheckoutRequest({
+        plan_code: "basic",
+        billing_interval: "month",
+        tenant_id: "x",
+      }).ok,
+      false
+    );
+    assert.equal(
+      parseCheckoutRequest({ plan_code: "pro", billing_interval: "month" }).ok,
+      false
+    );
+  });
+
+  it("detects secret key mode mismatch via assertStripeConfig", async () => {
+    const { assertStripeConfig: assertConfig, detectStripeSecretKeyMode } =
+      await import("./stripe-config");
+    assert.equal(detectStripeSecretKeyMode("sk_test_abc"), "test");
+    assert.equal(detectStripeSecretKeyMode("sk_live_abc"), "live");
+
+    process.env.STRIPE_MODE = "live";
+    process.env.STRIPE_SECRET_KEY = "sk_test_placeholder";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_placeholder";
+    const result = assertConfig();
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "mode_key_mismatch");
+    }
+  });
+
+  it("routes and webhook verify signature before JSON parse", () => {
+    const checkout = readSource(
+      "app/api/billing/checkout-session/route.ts"
+    );
+    const portal = readSource("app/api/billing/portal-session/route.ts");
+    const webhook = readSource("app/api/webhooks/stripe/route.ts");
+    assert.match(checkout, /canManageBilling/);
+    assert.match(portal, /canManageBilling/);
+    assert.match(webhook, /request\.text\(\)/);
+    assert.match(webhook, /constructEvent/);
+    assert.match(webhook, /recordWebhookEventReceived/);
+  });
+
+  it("B2 storage migration assigns 5 GiB to basic only", () => {
+    const migration = readSource(
+      "supabase/migrations/20260921210000_billing_basic_storage_5gib_v1.sql"
+    );
+    assert.match(migration, /5368709120/);
+    assert.match(migration, /storage_bytes/);
+    assert.match(migration, /mvp must not have storage_bytes/);
+  });
+
+  it("event ordering migration extends sync RPC", () => {
+    const migration = readSource(
+      "supabase/migrations/20260921211000_billing_subscription_event_ordering_v1.sql"
+    );
+    assert.match(migration, /provider_event_created_at/);
+    assert.match(migration, /stale/);
+    assert.match(migration, /p_provider_event_created_at/);
+  });
+});

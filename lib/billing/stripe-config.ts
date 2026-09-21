@@ -23,6 +23,19 @@ export function stripeModeToLivemode(mode: StripeMode): boolean {
   return mode === "live";
 }
 
+/** Best-effort detect from secret key prefix when recognizable. */
+export function detectStripeSecretKeyMode(
+  secretKey: string
+): StripeMode | "unknown" {
+  if (secretKey.startsWith("sk_test_")) {
+    return "test";
+  }
+  if (secretKey.startsWith("sk_live_")) {
+    return "live";
+  }
+  return "unknown";
+}
+
 export type StripeConfig =
   | {
       ok: true;
@@ -35,7 +48,8 @@ export type StripeConfig =
       reason:
         | "missing_secret_key"
         | "missing_webhook_secret"
-        | "missing_or_invalid_mode";
+        | "missing_or_invalid_mode"
+        | "mode_key_mismatch";
     };
 
 export function assertStripeConfig(): StripeConfig {
@@ -55,6 +69,11 @@ export function assertStripeConfig(): StripeConfig {
 
   if (!webhookSecret) {
     return { ok: false, reason: "missing_webhook_secret" };
+  }
+
+  const keyMode = detectStripeSecretKeyMode(secretKey);
+  if (keyMode !== "unknown" && keyMode !== mode) {
+    return { ok: false, reason: "mode_key_mismatch" };
   }
 
   return { ok: true, secretKey, webhookSecret, mode };
