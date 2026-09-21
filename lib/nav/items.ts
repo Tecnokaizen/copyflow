@@ -1,9 +1,9 @@
 import {
+  canManageSettingsCatalogs,
   canViewActivity,
   canWriteOrders,
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
-import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 
 export type AppNavItemId =
   | "home"
@@ -57,7 +57,7 @@ const NAV_BY_ID: Record<AppNavItemId, AppNavItem> = {
   activity: { id: "activity", href: "/activity", label: "Actividad" },
   settings: {
     id: "settings",
-    href: "/settings/quick-order",
+    href: "/settings",
     label: "Configuración",
   },
 };
@@ -132,7 +132,7 @@ export function isNavItemVisible(
     case "activity":
       return canViewActivity(role);
     case "settings":
-      return canManageQuickOrderLayout(role);
+      return canManageSettingsCatalogs(role);
     default:
       return false;
   }
@@ -245,10 +245,7 @@ export function navItemIsActive(item: AppNavItem, location: NavLocation | string
     return pathname === "/activity";
   }
   if (item.id === "settings") {
-    return (
-      pathname === "/settings/quick-order" ||
-      pathname.startsWith("/settings/")
-    );
+    return pathname === "/settings" || pathname.startsWith("/settings/");
   }
   return false;
 }

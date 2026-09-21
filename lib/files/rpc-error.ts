@@ -27,6 +27,26 @@ export function mapOrderFileRpcError(
     };
   }
 
+  if (message.includes("storage_quota_exceeded")) {
+    return {
+      status: 409,
+      body: {
+        error: "Storage quota exceeded",
+        code: "STORAGE_QUOTA_EXCEEDED",
+      },
+    };
+  }
+
+  if (message.includes("file_too_large")) {
+    return {
+      status: 400,
+      body: {
+        error: "File too large",
+        code: "FILE_TOO_LARGE",
+      },
+    };
+  }
+
   const mapped = mapLifecycleRpcError(error, fallbackError);
   return { status: mapped.status, body: mapped.body };
 }

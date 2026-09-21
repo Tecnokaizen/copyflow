@@ -14,8 +14,20 @@ describe("prevalidateClientFile / max size", () => {
     } as File;
     const message = prevalidateClientFile(file);
     assert.equal(typeof message, "string");
-    assert.match(message!, /100 MB/);
+    assert.match(message!, /100 MiB/);
     assert.equal(MAX_ORDER_FILE_BYTES, 104_857_600);
+  });
+
+  it("uses tenant max when provided", async () => {
+    const { prevalidateClientFile } = await import("./client");
+    const fiftyMib = 50 * 1_048_576;
+    const file = {
+      name: "mid.pdf",
+      type: "application/pdf",
+      size: fiftyMib + 1,
+    } as File;
+    const message = prevalidateClientFile(file, fiftyMib);
+    assert.match(message!, /50 MiB/);
   });
 
   it("rejects blocked extensions", async () => {

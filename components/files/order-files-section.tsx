@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button";
 import {
   type ClientUploadItem,
   type OrderFileDto,
+  MAX_ORDER_FILE_BYTES,
   deleteOrderFile,
+  formatMaxFileMiB,
   listOrderFiles,
   prevalidateClientFile,
   requestOrderFileDownload,
@@ -53,6 +55,7 @@ export function OrderFilesSection({
   onChanged,
 }: OrderFilesSectionProps) {
   const [files, setFiles] = useState<OrderFileDto[]>([]);
+  const [maxFileBytes, setMaxFileBytes] = useState(MAX_ORDER_FILE_BYTES);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [showDropzone, setShowDropzone] = useState(false);
@@ -101,7 +104,8 @@ export function OrderFilesSection({
           signal: controller.signal,
         });
         if (controller.signal.aborted || !alive(requestOrderId)) return;
-        setFiles(next.filter((file) => file.status === "ready"));
+        setFiles(next.files.filter((file) => file.status === "ready"));
+        setMaxFileBytes(next.max_file_bytes);
         setListError(null);
         // Any successful LIST clears a prior silent-refresh notice
         // (including "Reintentar carga", which calls refreshList non-silent).
@@ -145,7 +149,8 @@ export function OrderFilesSection({
     void listOrderFiles(requestOrderId, { signal: controller.signal })
       .then((next) => {
         if (controller.signal.aborted || !alive(requestOrderId)) return;
-        setFiles(next.filter((file) => file.status === "ready"));
+        setFiles(next.files.filter((file) => file.status === "ready"));
+        setMaxFileBytes(next.max_file_bytes);
         setListError(null);
         setLoading(false);
       })
@@ -227,7 +232,7 @@ export function OrderFilesSection({
             if (!alive(capturedOrderId)) return;
             patchUpload(item.localId, { phase: "uploading", progress });
           },
-        });
+        }, maxFileBytes);
 
         if (!alive(capturedOrderId)) return;
 
@@ -273,7 +278,7 @@ export function OrderFilesSection({
 
     const nextItems: ClientUploadItem[] = [];
     for (const file of selected) {
-      const clientError = prevalidateClientFile(file);
+      const clientError = prevalidateClientFile(file, maxFileBytes);
       const localId = newLocalId();
       if (clientError) {
         nextItems.push({
@@ -315,7 +320,7 @@ export function OrderFilesSection({
     // Guard before any state update — double-click must not double INIT.
     if (!claimUploadLocalId(claimedUploadsRef.current, localId)) return;
 
-    const clientError = prevalidateClientFile(current.file);
+    const clientError = prevalidateClientFile(current.file, maxFileBytes);
     if (clientError) {
       releaseUploadLocalId(claimedUploadsRef.current, localId);
       patchUpload(localId, {
@@ -420,7 +425,10 @@ export function OrderFilesSection({
       >
         {canMutate && showDropzone ? (
           <div className="border-b border-border/70 px-4 py-4 sm:px-5">
-            <FileDropzone onFilesSelected={startFiles} />
+            <FileDropzone
+              onFilesSelected={startFiles}
+              maxSizeLabel={formatMaxFileMiB(maxFileBytes)}
+            />
           </div>
         ) : null}
 

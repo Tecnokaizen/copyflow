@@ -20,6 +20,7 @@ export type ListOrderFilesResponse = {
   tenant: string;
   order_id: string;
   files: OrderFileDto[];
+  max_file_bytes?: number;
 };
 
 export type InitUploadResponse = {
@@ -90,12 +91,22 @@ export const ORDER_FILE_ACCEPT = [
 
 export { MAX_ORDER_FILE_BYTES };
 
-export function mapInitValidationMessage(error: string, sizeBytes?: number): string {
-  if (
-    typeof sizeBytes === "number" &&
-    sizeBytes > MAX_ORDER_FILE_BYTES
-  ) {
-    return "El archivo supera el máximo de 100 MB.";
+export function formatMaxFileMiB(maxFileBytes: number): string {
+  const mib = Math.max(1, Math.round(maxFileBytes / 1_048_576));
+  return `${mib} MiB`;
+}
+
+export function mapInitValidationMessage(
+  error: string,
+  sizeBytes?: number,
+  maxFileBytes: number = MAX_ORDER_FILE_BYTES,
+): string {
+  const effectiveMax = Math.min(
+    maxFileBytes > 0 ? maxFileBytes : MAX_ORDER_FILE_BYTES,
+    MAX_ORDER_FILE_BYTES,
+  );
+  if (typeof sizeBytes === "number" && sizeBytes > effectiveMax) {
+    return `El archivo supera el máximo de ${formatMaxFileMiB(effectiveMax)} configurado para esta organización.`;
   }
   switch (error) {
     case "Unsupported file type":
@@ -104,22 +115,32 @@ export function mapInitValidationMessage(error: string, sizeBytes?: number): str
     case "Invalid file size":
       return sizeBytes !== undefined && sizeBytes <= 0
         ? "El archivo está vacío."
-        : "El archivo supera el máximo de 100 MB.";
+        : `El archivo supera el máximo de ${formatMaxFileMiB(effectiveMax)} configurado para esta organización.`;
     case "Invalid content type":
       return "Tipo de archivo no válido.";
+    case "Storage quota exceeded":
+    case "STORAGE_QUOTA_EXCEEDED":
+      return "No queda suficiente espacio de almacenamiento para subir este archivo.";
+    case "File too large":
+    case "FILE_TOO_LARGE":
+      return `El archivo supera el máximo de ${formatMaxFileMiB(effectiveMax)} configurado para esta organización.`;
     default:
       return "No se puede subir este archivo.";
   }
 }
 
-export function prevalidateClientFile(file: File): string | null {
+export function prevalidateClientFile(
+  file: File,
+  maxFileBytes: number = MAX_ORDER_FILE_BYTES,
+): string | null {
   const result = validateOrderFileInit({
     filename: file.name,
     content_type: file.type || "application/octet-stream",
     size_bytes: file.size,
+    max_file_bytes: maxFileBytes,
   });
   if (result.ok) return null;
-  return mapInitValidationMessage(result.error, file.size);
+  return mapInitValidationMessage(result.error, file.size, maxFileBytes);
 }
 
 type ApiErrorBody = {
@@ -142,10 +163,15 @@ async function readApiError(
   return fallback;
 }
 
+export type ListOrderFilesResult = {
+  files: OrderFileDto[];
+  max_file_bytes: number;
+};
+
 export async function listOrderFiles(
   orderId: string,
   init?: RequestInit,
-): Promise<OrderFileDto[]> {
+): Promise<ListOrderFilesResult> {
   const response = await fetch(`/api/orders/${orderId}/files`, {
     ...init,
     method: "GET",
@@ -162,7 +188,17 @@ export async function listOrderFiles(
   }
 
   const body = (await response.json()) as ListOrderFilesResponse;
-  return Array.isArray(body.files) ? body.files : [];
+  const maxFileBytes =
+    typeof body.max_file_bytes === "number" &&
+    Number.isInteger(body.max_file_bytes) &&
+    body.max_file_bytes > 0
+      ? Math.min(body.max_file_bytes, MAX_ORDER_FILE_BYTES)
+      : MAX_ORDER_FILE_BYTES;
+
+  return {
+    files: Array.isArray(body.files) ? body.files : [],
+    max_file_bytes: maxFileBytes,
+  };
 }
 
 export async function initOrderFileUpload(
@@ -179,9 +215,24 @@ export async function initOrderFileUpload(
   });
 
   if (!response.ok) {
-    throw new Error(
-      await readApiError(response, "No se ha podido preparar la subida."),
-    );
+    let body: ApiErrorBody | null = null;
+    try {
+      body = (await response.json()) as ApiErrorBody;
+    } catch {
+      body = null;
+    }
+    if (body?.code === "STORAGE_QUOTA_EXCEEDED") {
+      throw new Error(
+        "No queda suficiente espacio de almacenamiento para subir este archivo.",
+      );
+    }
+    if (body?.code === "FILE_TOO_LARGE" || body?.error === "File too large") {
+      throw new Error("File too large");
+    }
+    if (typeof body?.error === "string" && body.error.trim()) {
+      throw new Error(body.error.trim());
+    }
+    throw new Error("No se ha podido preparar la subida.");
   }
 
   return (await response.json()) as InitUploadResponse;
@@ -310,8 +361,9 @@ export async function uploadOrderFile(
   orderId: string,
   file: File,
   callbacks?: UploadSingleCallbacks,
+  maxFileBytes: number = MAX_ORDER_FILE_BYTES,
 ): Promise<{ fileId: string }> {
-  const clientError = prevalidateClientFile(file);
+  const clientError = prevalidateClientFile(file, maxFileBytes);
   if (clientError) {
     callbacks?.onPhase?.("error");
     throw Object.assign(new Error(clientError), { kind: "client" as const });
@@ -336,8 +388,9 @@ export async function uploadOrderFile(
       "Unsupported content type",
       "Invalid file size",
       "Invalid content type",
+      "File too large",
     ].includes(raw)
-      ? mapInitValidationMessage(raw, file.size)
+      ? mapInitValidationMessage(raw, file.size, maxFileBytes)
       : raw === "Could not create file" ||
           raw === "Could not create upload URL" ||
           raw === "Unauthorized or tenant access denied"

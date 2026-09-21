@@ -182,6 +182,10 @@ export function canWriteStores(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
+export function canManageSettingsCatalogs(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}
+
 export function canViewActivity(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
