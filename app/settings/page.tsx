@@ -15,10 +15,7 @@ export const instant = false;
 export default async function SettingsPage() {
   const context = await getCurrentContext();
 
-  if (
-    !context ||
-    !canManageSettingsCatalogs(context.membership.role)
-  ) {
+  if (!context || !canManageSettingsCatalogs(context.membership.role)) {
     notFound();
   }
 
@@ -38,11 +35,21 @@ export default async function SettingsPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <SectionCard
+          title="Estados de pedido"
+          description="Define el flujo operativo: estado inicial, estados intermedios, listo, entregado y cancelado."
+          bodyClassName="p-5 sm:p-6"
+        >
+          <Button asChild>
+            <Link href="/settings/statuses">Gestionar estados</Link>
+          </Button>
+        </SectionCard>
+
+        <SectionCard
           title="Tiendas"
           description="Gestiona las sedes disponibles para asignar pedidos. Desactiva una tienda cuando deje de utilizarse para conservar el histórico."
           bodyClassName="p-5 sm:p-6"
         >
-          <Button asChild>
+          <Button asChild variant="outline">
             <Link href="/settings/stores">Gestionar tiendas</Link>
           </Button>
         </SectionCard>
