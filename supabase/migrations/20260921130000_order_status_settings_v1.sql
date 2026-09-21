@@ -12,10 +12,103 @@ alter table public.order_statuses
   check (is_initial is not true or active is true)
   not valid;
 
--- Reads remain available to all tenant members. Catalog writes now go only
--- through the RPCs below so the "one active initial" invariant is atomic.
-revoke insert, update on table public.order_statuses from authenticated;
-grant select on table public.order_statuses to authenticated;
+-- Semantic flags are mutually exclusive. NOT VALID preserves deployability
+-- if historical rows predate this invariant; all future INSERT/UPDATE writes
+-- are checked immediately.
+alter table public.order_statuses
+  add constraint order_statuses_semantic_flags_check
+  check (
+    not (is_initial is true and (
+      is_ready is true or is_closed is true or is_cancelled is true
+    ))
+    and not (is_ready is true and (
+      is_closed is true or is_cancelled is true
+    ))
+    and not (is_closed is true and is_cancelled is true)
+  )
+  not valid;
+
+-- Keep the existing tenant-aware INSERT/UPDATE RLS grants for backwards
+-- compatibility. Database guards below enforce the catalog invariants even
+-- if a management client writes through PostgREST instead of the Settings UI.
+
+create or replace function public.tg_order_statuses_immutable_identity()
+returns trigger
+language plpgsql
+set search_path to ''
+as $function$
+begin
+  if new.tenant_id is distinct from old.tenant_id
+     or new.code is distinct from old.code then
+    raise exception 'order status tenant/code are immutable'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$function$;
+
+drop trigger if exists trg_order_statuses_immutable_identity
+  on public.order_statuses;
+create trigger trg_order_statuses_immutable_identity
+  before update on public.order_statuses
+  for each row
+  execute function public.tg_order_statuses_immutable_identity();
+
+revoke all on function public.tg_order_statuses_immutable_identity()
+  from public;
+grant execute on function public.tg_order_statuses_immutable_identity()
+  to postgres;
+
+create or replace function public.tg_order_statuses_require_initial()
+returns trigger
+language plpgsql
+set search_path to ''
+as $function$
+declare
+  v_tenant_id uuid;
+  v_count integer;
+begin
+  v_tenant_id := case
+    when tg_op = 'DELETE' then old.tenant_id
+    else new.tenant_id
+  end;
+
+  -- Cascading tenant deletion must not be blocked by the catalog invariant.
+  if not exists (
+    select 1 from public.tenants t where t.id = v_tenant_id
+  ) then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  select count(*)
+  into v_count
+  from public.order_statuses s
+  where s.tenant_id = v_tenant_id
+    and s.is_initial = true
+    and s.active = true;
+
+  if v_count <> 1 then
+    raise exception 'tenant must keep exactly one active initial order status'
+      using errcode = '23514';
+  end if;
+
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$function$;
+
+drop trigger if exists order_statuses_require_initial
+  on public.order_statuses;
+create constraint trigger order_statuses_require_initial
+  after insert or update or delete on public.order_statuses
+  deferrable initially deferred
+  for each row
+  execute function public.tg_order_statuses_require_initial();
+
+revoke all on function public.tg_order_statuses_require_initial()
+  from public;
+grant execute on function public.tg_order_statuses_require_initial()
+  to postgres;
 
 create or replace function public.create_order_status_catalog(
   p_tenant_id uuid,
@@ -27,7 +120,7 @@ create or replace function public.create_order_status_catalog(
 )
 returns jsonb
 language plpgsql
-security definer
+security invoker
 set search_path to ''
 as $function$
 declare
@@ -140,7 +233,7 @@ end;
 $function$;
 
 comment on function public.create_order_status_catalog(uuid, text, text, text, boolean, integer) is
-  'DEFINER: management-only order status create. Semantic kind maps to flags. Switching initial is serialized and atomic.';
+  'INVOKER: management-only order status create. Semantic kind maps to flags. Switching initial is serialized and atomic.';
 
 revoke all on function public.create_order_status_catalog(uuid, text, text, text, boolean, integer)
   from public, anon;
@@ -157,7 +250,7 @@ create or replace function public.update_order_status_catalog(
 )
 returns jsonb
 language plpgsql
-security definer
+security invoker
 set search_path to ''
 as $function$
 declare
@@ -271,7 +364,7 @@ end;
 $function$;
 
 comment on function public.update_order_status_catalog(uuid, uuid, text, text, boolean, integer) is
-  'DEFINER: management-only order status update. Code is immutable. Exactly one active initial status is preserved by serialized writes.';
+  'INVOKER: management-only order status update. Code is immutable. Exactly one active initial status is preserved by serialized writes.';
 
 revoke all on function public.update_order_status_catalog(uuid, uuid, text, text, boolean, integer)
   from public, anon;
