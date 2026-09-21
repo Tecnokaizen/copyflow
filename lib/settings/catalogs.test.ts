@@ -133,6 +133,9 @@ describe("settings catalog authorization and routes", () => {
   const migration = readSource(
     "supabase/migrations/20260921150000_settings_catalogs_harden_v1.sql"
   );
+  const migrationV2 = readSource(
+    "supabase/migrations/20260921160000_settings_catalogs_kiosk_guard_v2.sql"
+  );
   const servicesCategories = readSource(
     "app/api/services/categories/route.ts"
   );
@@ -176,7 +179,6 @@ describe("settings catalog authorization and routes", () => {
     assert.match(migration, /tg_entry_channels_kiosk_guard/);
     assert.match(migration, /kiosk_channel_reserved/);
     assert.match(migration, /kiosk_channel_active_immutable/);
-    assert.match(migration, /app\.allow_kiosk_channel_mutation/);
     for (const table of [
       "customer_types",
       "entry_channels",
@@ -192,6 +194,18 @@ describe("settings catalog authorization and routes", () => {
         new RegExp(`trg_${table}_immutable_identity`)
       );
     }
+  });
+
+  it("kiosk guard v2 removes the generic session GUC bypass", () => {
+    assert.match(migrationV2, /create or replace function public\.tg_entry_channels_kiosk_guard/);
+    assert.match(migrationV2, /current_user is distinct from 'authenticated'/);
+    assert.match(migrationV2, /kiosk_channel_reserved/);
+    assert.match(migrationV2, /kiosk_channel_active_immutable/);
+    assert.equal(
+      migrationV2.includes("app.allow_kiosk_channel_mutation"),
+      false
+    );
+    assert.equal(migrationV2.includes("current_setting"), false);
   });
 
   it("Services only reads active service_categories; Settings owns writes", () => {

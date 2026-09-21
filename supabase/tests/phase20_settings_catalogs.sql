@@ -280,15 +280,43 @@ begin
     raise exception 'FAIL K viewer write should be denied';
   end if;
 
-  -- L) Admin / manager can write.
+  -- L) Admin / manager can write normal catalogs, but cannot insert kiosk.
   perform set_config('request.jwt.claim.sub', v_admin_a::text, true);
   insert into public.service_categories (tenant_id, name, active, sort_order)
   values (v_tenant_a, 'Gran formato', true, 2);
+
+  v_sqlstate := null;
+  v_message := null;
+  begin
+    insert into public.entry_channels (tenant_id, name, code, active, sort_order)
+    values (v_tenant_a, 'Kiosk admin', 'kiosk', true, 3);
+  exception when others then
+    v_sqlstate := sqlstate;
+    v_message := sqlerrm;
+  end;
+  if v_sqlstate is distinct from '42501'
+     or position('kiosk_channel_reserved' in coalesce(v_message, '')) = 0 then
+    raise exception 'FAIL L admin kiosk insert expected reserved, got % / %', v_sqlstate, v_message;
+  end if;
 
   perform set_config('request.jwt.claim.sub', v_manager_a::text, true);
   update public.service_categories
   set active = false
   where tenant_id = v_tenant_a and name = 'Gran formato';
+
+  v_sqlstate := null;
+  v_message := null;
+  begin
+    insert into public.entry_channels (tenant_id, name, code, active, sort_order)
+    values (v_tenant_a, 'Kiosk manager', 'kiosk', true, 3);
+  exception when others then
+    v_sqlstate := sqlstate;
+    v_message := sqlerrm;
+  end;
+  if v_sqlstate is distinct from '42501'
+     or position('kiosk_channel_reserved' in coalesce(v_message, '')) = 0 then
+    raise exception 'FAIL L2 manager kiosk insert expected reserved, got % / %', v_sqlstate, v_message;
+  end if;
 
   -- M) Cross-tenant isolation: owner A cannot see/update B.
   perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
@@ -305,28 +333,62 @@ begin
     raise exception 'FAIL M cross-tenant update must match zero rows';
   end if;
 
-  -- N) Privileged bypass can mutate kiosk active (future dedicated RPC path).
-  execute 'reset role';
+  -- N) Stale GUC bypass must have no effect under authenticated.
   perform set_config('app.allow_kiosk_channel_mutation', 'true', true);
-  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
-  perform set_config('request.jwt.claim.role', 'authenticated', true);
-  execute 'set local role authenticated';
 
+  v_sqlstate := null;
+  v_message := null;
+  begin
+    update public.entry_channels
+    set active = true
+    where id = v_kiosk_id and tenant_id = v_tenant_a;
+  exception when others then
+    v_sqlstate := sqlstate;
+    v_message := sqlerrm;
+  end;
+  if v_sqlstate is distinct from '42501'
+     or position('kiosk_channel_active_immutable' in coalesce(v_message, '')) = 0 then
+    raise exception 'FAIL N GUC must not bypass active guard, got % / %', v_sqlstate, v_message;
+  end if;
+
+  -- N2) Authenticated cannot deactivate kiosk either (even with GUC set).
+  execute 'reset role';
   update public.entry_channels
   set active = true
   where id = v_kiosk_id and tenant_id = v_tenant_a;
 
-  if not exists (
-    select 1 from public.entry_channels
-    where id = v_kiosk_id and active = true
-  ) then
-    raise exception 'FAIL N privileged kiosk active update failed';
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  perform set_config('app.allow_kiosk_channel_mutation', 'true', true);
+
+  v_sqlstate := null;
+  v_message := null;
+  begin
+    update public.entry_channels
+    set active = false
+    where id = v_kiosk_id and tenant_id = v_tenant_a;
+  exception when others then
+    v_sqlstate := sqlstate;
+    v_message := sqlerrm;
+  end;
+  if v_sqlstate is distinct from '42501'
+     or position('kiosk_channel_active_immutable' in coalesce(v_message, '')) = 0 then
+    raise exception 'FAIL N2 GUC must not bypass deactivate, got % / %', v_sqlstate, v_message;
   end if;
 
-  -- Restore dormant kiosk for cleanliness inside the rolled-back txn.
+  -- O) Privileged postgres maintenance can still mutate kiosk active.
+  execute 'reset role';
   update public.entry_channels
   set active = false
-  where id = v_kiosk_id;
+  where id = v_kiosk_id and tenant_id = v_tenant_a;
+
+  if not exists (
+    select 1 from public.entry_channels
+    where id = v_kiosk_id and active = false
+  ) then
+    raise exception 'FAIL O postgres kiosk maintenance update failed';
+  end if;
 
   execute 'reset role';
 end;
