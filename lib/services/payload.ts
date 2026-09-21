@@ -116,6 +116,22 @@ function normalizeLeadTime(
 export function parseServicePayload(
   payload: Record<string, unknown>
 ): { ok: true; data: ServicePayload } | { ok: false } {
+  const allowed = new Set([
+    "category_id",
+    "name",
+    "description",
+    "standard_lead_time_minutes",
+    "requires_file",
+    "requires_design",
+    "requires_quote",
+    "active",
+    "sort_order",
+  ]);
+
+  if (Object.keys(payload).some((key) => !allowed.has(key))) {
+    return { ok: false };
+  }
+
   if (typeof payload.name !== "string") {
     return { ok: false };
   }
