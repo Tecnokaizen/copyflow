@@ -46,16 +46,16 @@ describe("staff and management navigation", () => {
     ]);
   });
 
-  it("2. admin keeps operative navigation but cannot access Configuración", () => {
-    assert.equal(labels("admin").includes("Configuración"), false);
-    assert.equal(isNavItemVisible("settings", "admin"), false);
+  it("2. admin keeps operative navigation and can access catalog settings", () => {
+    assert.equal(labels("admin").includes("Configuración"), true);
+    assert.equal(isNavItemVisible("settings", "admin"), true);
   });
 
-  it("3. manager keeps operative navigation including Equipo and Actividad", () => {
+  it("3. manager keeps operative navigation including Equipo, Actividad and Configuración", () => {
     assert.deepEqual(labels("manager"), labels("admin"));
     assert.equal(isNavItemVisible("team", "manager"), true);
     assert.equal(isNavItemVisible("activity", "manager"), true);
-    assert.equal(isNavItemVisible("settings", "manager"), false);
+    assert.equal(isNavItemVisible("settings", "manager"), true);
   });
 
   it("4. staff sees a simplified work navigation", () => {
@@ -138,7 +138,18 @@ describe("staff and management navigation", () => {
       navItemIsActive(
         {
           id: "settings",
-          href: "/settings/quick-order",
+          href: "/settings",
+          label: "Configuración",
+        },
+        "/settings"
+      ),
+      true
+    );
+    assert.equal(
+      navItemIsActive(
+        {
+          id: "settings",
+          href: "/settings",
           label: "Configuración",
         },
         "/settings/quick-order"
@@ -170,6 +181,10 @@ describe("nav structure groups", () => {
       "Equipo",
     ]);
     assert.deepEqual(groupChildLabels("owner", "admin"), [
+      "Actividad",
+      "Configuración",
+    ]);
+    assert.deepEqual(groupChildLabels("manager", "admin"), [
       "Actividad",
       "Configuración",
     ]);
