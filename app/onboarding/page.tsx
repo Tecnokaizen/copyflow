@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { LogoutButton } from "@/components/logout-button";
@@ -26,7 +27,9 @@ export default async function OnboardingPage() {
       <div className="flex w-full max-w-sm flex-col items-end gap-4">
         <LogoutButton variant="outline" />
         <div className="w-full">
-          <OnboardingForm />
+          <Suspense fallback={null}>
+            <OnboardingForm />
+          </Suspense>
         </div>
       </div>
     </main>

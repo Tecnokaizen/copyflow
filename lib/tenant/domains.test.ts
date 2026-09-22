@@ -70,16 +70,15 @@ describe("tenant domains", () => {
   });
 
   it("onboarding success redirect uses resolveTenantOrigin, not production-only tenantOrigin", () => {
-    const form = readSource("components/onboarding/onboarding-form.tsx");
-    assert.match(form, /resolveTenantOrigin/);
-    assert.match(form, /tenantRequestContextFromLocation\(window\.location\)/);
-    assert.doesNotMatch(
-      form,
-      /window\.location\.assign\(tenantOrigin\(/
+    const success = readSource(
+      "components/onboarding/onboarding-success-status.tsx"
     );
+    assert.match(success, /resolveTenantOrigin/);
+    assert.match(success, /tenantRequestContextFromLocation\(window\.location\)/);
+    assert.match(success, /\/auth\/login/);
     assert.doesNotMatch(
-      form,
-      /const origin = tenantOrigin\(createdSlug\)/
+      success,
+      /window\.location\.assign\(tenantOrigin\(/
     );
 
     const local = resolveTenantOrigin(

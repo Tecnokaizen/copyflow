@@ -24,6 +24,17 @@ function requestOrigin(request: NextRequest, tenantSlug: string): string {
   return tenantOrigin(tenantSlug);
 }
 
+/** App-host origin from the current request (no tenant slug fallback). */
+export function appHostOriginFromRequest(request: NextRequest): string | null {
+  const host =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!host) {
+    return null;
+  }
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host.split(",")[0]!.trim()}`;
+}
+
 export async function createCheckoutSessionForTenant(input: {
   request: NextRequest;
   tenantId: string;
@@ -31,6 +42,10 @@ export async function createCheckoutSessionForTenant(input: {
   planCode: BillingPlanCode;
   billingInterval: BillingIntervalAllowed;
   customerEmail?: string | null;
+  /** Absolute or request-relative success URL template (may include {CHECKOUT_SESSION_ID}). */
+  successUrl?: string;
+  /** Absolute cancel URL. */
+  cancelUrl?: string;
 }): Promise<{ url: string; sessionId: string }> {
   const price = await resolveStripePrice({
     planCode: input.planCode,
@@ -42,12 +57,17 @@ export async function createCheckoutSessionForTenant(input: {
     input.tenantId
   );
   const origin = requestOrigin(input.request, input.tenantSlug);
+  const successUrl =
+    input.successUrl ??
+    `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl =
+    input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: price.providerPriceId, quantity: 1 }],
-    success_url: `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/settings/billing?canceled=1`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
     client_reference_id: input.tenantId,
     ...(existingCustomerId
       ? { customer: existingCustomerId }

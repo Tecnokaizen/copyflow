@@ -2,6 +2,8 @@ import "server-only";
 
 import Stripe from "stripe";
 
+import { activateTenantAfterBilling } from "@/lib/onboarding/activate";
+import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePlanFromStripePriceId } from "@/lib/billing/resolve-plan-from-price";
 import {
@@ -175,6 +177,27 @@ async function syncSubscriptionFromStripe(input: {
     (data as { stale?: boolean }).stale === true
   ) {
     return { status: "ignored", errorCode: "stale_event" };
+  }
+
+  // One-way provisioning: activate pending tenants only for commercially
+  // valid Stripe subscription states. Never deactivate; never mirror past_due.
+  if (isQualifyingActivationStatus(status)) {
+    const activation = await activateTenantAfterBilling({
+      tenantId: tenantResolve.tenantId,
+      providerSubscriptionId: subscription.id,
+      subscriptionStatus: status,
+    });
+
+    if (!activation) {
+      return { status: "failed", errorCode: "tenant_activation_failed" };
+    }
+
+    if (
+      activation.outcome === "rejected" &&
+      activation.reason === "tenant_not_found"
+    ) {
+      return { status: "failed", errorCode: "tenant_not_found" };
+    }
   }
 
   return { status: "processed" };
