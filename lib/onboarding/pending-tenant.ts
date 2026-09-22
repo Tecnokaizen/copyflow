@@ -1,10 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import {
-  getStripeMode,
-  stripeModeToLivemode,
-} from "@/lib/billing/stripe-config";
-
 export type PendingOnboardingTenant = {
   id: string;
   slug: string;
@@ -31,11 +26,13 @@ const CURRENT_STRIPE_STATUSES = new Set([
 /**
  * Resolve the single resumable pending commercial tenant for the authenticated user.
  * Requires active=false AND provisioning_state=pending_billing.
- * Fail closed on ambiguity. Never accepts tenant_id from the browser.
+ * Fail closed on ambiguity. Never accepts tenant_id or livemode from the browser.
+ * expectedLivemode must be derived server-side from validated STRIPE_MODE.
  */
 export async function resolvePendingCommercialTenant(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  expectedLivemode: boolean
 ): Promise<
   | { ok: true; tenant: PendingOnboardingTenant }
   | {
@@ -111,29 +108,17 @@ export async function resolvePendingCommercialTenant(
     .from("subscriptions")
     .select("id, provider, status, livemode")
     .eq("tenant_id", tenant.id)
-    .eq("provider", "stripe");
+    .eq("provider", "stripe")
+    .eq("livemode", expectedLivemode);
 
   if (subError) {
     throw new Error(`Failed to load subscriptions: ${subError.message}`);
   }
 
-  let expectedLivemode = false;
-  try {
-    expectedLivemode = stripeModeToLivemode(getStripeMode());
-  } catch {
-    // If Stripe mode is not configured, treat as Test (default) for the guard.
-    expectedLivemode = false;
-  }
-
-  const hasCurrentCommercial = (subscriptions ?? []).some((sub) => {
-    const rowLivemode =
-      (sub as { livemode?: boolean | null }).livemode === true;
-    return (
-      rowLivemode === expectedLivemode &&
-      typeof sub.status === "string" &&
-      CURRENT_STRIPE_STATUSES.has(sub.status)
-    );
-  });
+  const hasCurrentCommercial = (subscriptions ?? []).some(
+    (sub) =>
+      typeof sub.status === "string" && CURRENT_STRIPE_STATUSES.has(sub.status)
+  );
 
   if (hasCurrentCommercial) {
     return {

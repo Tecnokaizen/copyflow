@@ -17,7 +17,51 @@ function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: NO_STORE });
 }
 
-const CURRENT = new Set(["trialing", "active", "past_due"]);
+const CURRENT = ["trialing", "active", "past_due"] as const;
+
+type SubscriptionRow = {
+  id: string;
+  status: string;
+  provider: string | null;
+  livemode: boolean;
+  cancel_at_period_end: boolean;
+  cancel_at: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  provider_customer_id: string | null;
+  plans:
+    | {
+        code: string;
+        name: string;
+        price_monthly: number | string | null;
+        currency: string;
+      }
+    | {
+        code: string;
+        name: string;
+        price_monthly: number | string | null;
+        currency: string;
+      }[]
+    | null;
+};
+
+const SUBSCRIPTION_SELECT = `
+  id,
+  status,
+  provider,
+  livemode,
+  cancel_at_period_end,
+  cancel_at,
+  current_period_start,
+  current_period_end,
+  provider_customer_id,
+  plans (
+    code,
+    name,
+    price_monthly,
+    currency
+  )
+`;
 
 export async function GET() {
   const context = await getCurrentContext();
@@ -25,79 +69,60 @@ export async function GET() {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
   }
 
-  let livemode: boolean;
+  let expectedLivemode: boolean;
   try {
-    livemode = stripeModeToLivemode(getStripeMode());
+    expectedLivemode = stripeModeToLivemode(getStripeMode());
   } catch {
     return json({ error: "Billing is not configured" }, 503);
   }
 
   const admin = createAdminClient();
-  const { data: rows, error } = await admin
+
+  const { data: stripeRows, error: stripeError } = await admin
     .from("subscriptions")
-    .select(
-      `
-      id,
-      status,
-      provider,
-      cancel_at_period_end,
-      cancel_at,
-      current_period_start,
-      current_period_end,
-      provider_customer_id,
-      plans (
-        code,
-        name,
-        price_monthly,
-        currency
-      )
-    `
-    )
+    .select(SUBSCRIPTION_SELECT)
     .eq("tenant_id", context.tenant.id)
     .eq("provider", "stripe")
-    .eq("livemode", livemode)
+    .eq("livemode", expectedLivemode)
     .in("status", [...CURRENT])
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (error) {
-    console.error("[GET /api/billing/subscription] failed", {
-      message: error.message,
+  if (stripeError) {
+    console.error("[GET /api/billing/subscription] stripe query failed", {
+      message: stripeError.message,
     });
     return json({ error: "Could not load subscription" }, 500);
   }
 
-  const row = rows?.[0] as
-    | {
-        id: string;
-        status: string;
-        provider: string | null;
-        cancel_at_period_end: boolean;
-        cancel_at: string | null;
-        current_period_start: string | null;
-        current_period_end: string | null;
-        provider_customer_id: string | null;
-        plans:
-          | {
-              code: string;
-              name: string;
-              price_monthly: number | string | null;
-              currency: string;
-            }
-          | {
-              code: string;
-              name: string;
-              price_monthly: number | string | null;
-              currency: string;
-            }[]
-          | null;
-      }
-    | undefined;
+  let row = (stripeRows?.[0] as SubscriptionRow | undefined) ?? null;
 
-  const plan = row?.plans
-    ? Array.isArray(row.plans)
-      ? row.plans[0]
-      : row.plans
+  if (!row) {
+    const { data: internalRows, error: internalError } = await admin
+      .from("subscriptions")
+      .select(SUBSCRIPTION_SELECT)
+      .eq("tenant_id", context.tenant.id)
+      .neq("provider", "stripe")
+      .in("status", [...CURRENT])
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (internalError) {
+      console.error("[GET /api/billing/subscription] internal query failed", {
+        message: internalError.message,
+      });
+      return json({ error: "Could not load subscription" }, 500);
+    }
+
+    row = (internalRows?.[0] as SubscriptionRow | undefined) ?? null;
+  }
+
+  const display = row;
+
+  const plan = display?.plans
+    ? Array.isArray(display.plans)
+      ? display.plans[0]
+      : display.plans
     : null;
 
   let storageLimitBytes: number | null = null;
@@ -133,21 +158,25 @@ export async function GET() {
     }
   }
 
+  const isStripe = display?.provider === "stripe";
+
   return json({
     tenant: {
       id: context.tenant.id,
       slug: context.tenant.slug,
       name: context.tenant.name,
     },
-    subscription: row
+    subscription: display
       ? {
-          status: row.status,
-          provider: row.provider,
-          cancel_at_period_end: row.cancel_at_period_end,
-          cancel_at: row.cancel_at,
-          current_period_start: row.current_period_start,
-          current_period_end: row.current_period_end,
-          has_stripe_customer: Boolean(row.provider_customer_id),
+          status: display.status,
+          provider: display.provider,
+          cancel_at_period_end: display.cancel_at_period_end,
+          cancel_at: display.cancel_at,
+          current_period_start: display.current_period_start,
+          current_period_end: display.current_period_end,
+          has_stripe_customer: isStripe
+            ? Boolean(display.provider_customer_id)
+            : false,
           plan: plan
             ? {
                 code: plan.code,

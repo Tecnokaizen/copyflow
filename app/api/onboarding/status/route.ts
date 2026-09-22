@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { CHECKOUT_MODE_MISMATCH_CODE } from "@/lib/billing/checkout-attempts";
 import { resolveTenantIdFromCheckoutSession } from "@/lib/billing/tenant-from-webhook";
 import { getStripe } from "@/lib/billing/stripe";
 import {
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
   if (!stripeConfig.ok) {
     return json({ error: "Billing is not configured" }, 503);
   }
+  const expectedLivemode = stripeModeToLivemode(stripeConfig.mode);
 
   const supabase = await createClient();
   const {
@@ -62,6 +64,22 @@ export async function GET(request: NextRequest) {
       message: error instanceof Error ? error.message : "unknown",
     });
     return json({ error: "Could not validate checkout session" }, 400);
+  }
+
+  // Fail closed before tenant/membership/attempt/subscription work.
+  if (stripeSession.livemode !== expectedLivemode) {
+    console.error("[GET /api/onboarding/status] checkout_mode_mismatch", {
+      sessionId,
+      sessionLivemode: stripeSession.livemode,
+      expectedLivemode,
+    });
+    return json(
+      {
+        error: "Checkout session livemode does not match STRIPE_MODE",
+        code: CHECKOUT_MODE_MISMATCH_CODE,
+      },
+      400
+    );
   }
 
   if (stripeSession.mode !== "subscription") {
@@ -100,13 +118,14 @@ export async function GET(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Correlate session against a Gestcopy checkout attempt for this tenant.
+  // Correlate session against a Gestcopy checkout attempt for this tenant+mode.
   const { data: attempt, error: attemptError } = await admin
     .from("billing_checkout_attempts")
-    .select("id")
+    .select("id, livemode")
     .eq("tenant_id", tenantId)
     .eq("provider", "stripe")
     .eq("provider_session_id", sessionId)
+    .eq("livemode", expectedLivemode)
     .maybeSingle();
 
   if (attemptError || !attempt) {
@@ -128,7 +147,7 @@ export async function GET(request: NextRequest) {
     .select("status, provider")
     .eq("tenant_id", tenantId)
     .eq("provider", "stripe")
-    .eq("livemode", stripeModeToLivemode(stripeConfig.mode))
+    .eq("livemode", expectedLivemode)
     .in("status", [
       "trialing",
       "active",

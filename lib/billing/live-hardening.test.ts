@@ -8,6 +8,9 @@ import type Stripe from "stripe";
 import { subscriptionIdFromInvoice } from "./invoice-subscription";
 import {
   hasCurrentStripeSubscriptionForLivemode,
+  onboardingAttemptMatchesLivemode,
+  onboardingSessionLivemodeMatches,
+  pickBillingDisplaySubscription,
   pickStripeCustomerIdForLivemode,
 } from "./livemode-select";
 import { stripeModeToLivemode } from "./stripe-config";
@@ -252,6 +255,132 @@ describe("stripe live hardening · customer and current subscription", () => {
     assert.match(customer, /stripeModeToLivemode/);
     assert.match(current, /\.eq\("livemode", expected\)/);
     assert.match(current, /stripeModeToLivemode/);
+  });
+});
+
+describe("stripe live hardening · onboarding status mode correlation", () => {
+  it("A/B allows matching runtime and session livemode", () => {
+    assert.equal(onboardingSessionLivemodeMatches(false, false), true);
+    assert.equal(onboardingSessionLivemodeMatches(true, true), true);
+  });
+
+  it("C/D rejects mismatched runtime and session livemode", () => {
+    assert.equal(onboardingSessionLivemodeMatches(true, false), false);
+    assert.equal(onboardingSessionLivemodeMatches(false, true), false);
+  });
+
+  it("E rejects attempt with different livemode", () => {
+    assert.equal(
+      onboardingAttemptMatchesLivemode({ livemode: true }, false),
+      false
+    );
+    assert.equal(
+      onboardingAttemptMatchesLivemode({ livemode: false }, false),
+      true
+    );
+    assert.equal(onboardingAttemptMatchesLivemode(null, false), false);
+  });
+
+  it("status route enforces checkout_mode_mismatch before tenant work", () => {
+    const status = readSource("app/api/onboarding/status/route.ts");
+    assert.match(status, /CHECKOUT_MODE_MISMATCH_CODE/);
+    assert.match(status, /stripeSession\.livemode !== expectedLivemode/);
+    assert.match(status, /\.eq\("livemode", expectedLivemode\)/);
+    assert.match(status, /select\("id, livemode"\)/);
+  });
+});
+
+describe("stripe live hardening · billing subscription display", () => {
+  const CURRENT = ["trialing", "active", "past_due"] as const;
+
+  it("Test runtime prefers Stripe Test and never Live", () => {
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [
+          { id: "live", provider: "stripe", livemode: true, status: "active" },
+          { id: "test", provider: "stripe", livemode: false, status: "active" },
+        ],
+        false,
+        CURRENT
+      )?.id,
+      "test"
+    );
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [{ id: "live", provider: "stripe", livemode: true, status: "active" }],
+        false,
+        CURRENT
+      ),
+      null
+    );
+  });
+
+  it("Test runtime falls back to internal when no Stripe Test", () => {
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [
+          { id: "live", provider: "stripe", livemode: true, status: "active" },
+          {
+            id: "internal",
+            provider: "internal",
+            livemode: false,
+            status: "active",
+          },
+        ],
+        false,
+        CURRENT
+      )?.id,
+      "internal"
+    );
+  });
+
+  it("Live runtime prefers Stripe Live and never Test", () => {
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [
+          { id: "test", provider: "stripe", livemode: false, status: "active" },
+          { id: "live", provider: "stripe", livemode: true, status: "active" },
+        ],
+        true,
+        CURRENT
+      )?.id,
+      "live"
+    );
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [{ id: "test", provider: "stripe", livemode: false, status: "active" }],
+        true,
+        CURRENT
+      ),
+      null
+    );
+  });
+
+  it("Live runtime falls back to internal when no Stripe Live", () => {
+    assert.equal(
+      pickBillingDisplaySubscription(
+        [
+          { id: "test", provider: "stripe", livemode: false, status: "active" },
+          {
+            id: "internal",
+            provider: "internal",
+            livemode: false,
+            status: "active",
+          },
+        ],
+        true,
+        CURRENT
+      )?.id,
+      "internal"
+    );
+  });
+
+  it("billing subscription route queries Stripe mode then non-Stripe fallback", () => {
+    const route = readSource("app/api/billing/subscription/route.ts");
+    assert.match(route, /\.eq\("provider", "stripe"\)/);
+    assert.match(route, /\.eq\("livemode", expectedLivemode\)/);
+    assert.match(route, /\.neq\("provider", "stripe"\)/);
+    assert.match(route, /has_stripe_customer: isStripe/);
   });
 });
 

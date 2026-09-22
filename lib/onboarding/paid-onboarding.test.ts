@@ -106,7 +106,8 @@ describe("paid onboarding helpers", () => {
 
     const result = await resolvePendingCommercialTenant(
       supabase as never,
-      "user-1"
+      "user-1",
+      false
     );
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -124,7 +125,8 @@ describe("paid onboarding helpers", () => {
 
     const result = await resolvePendingCommercialTenant(
       supabase as never,
-      "user-1"
+      "user-1",
+      false
     );
     assert.equal(result.ok, false);
     if (!result.ok) {
@@ -156,7 +158,8 @@ describe("paid onboarding helpers", () => {
 
     const result = await resolvePendingCommercialTenant(
       supabase as never,
-      "user-1"
+      "user-1",
+      false
     );
     assert.equal(result.ok, false);
     if (!result.ok) {
@@ -179,12 +182,15 @@ describe("paid onboarding helpers", () => {
           provisioning_state: "pending_billing",
         },
       ],
-      subscriptions: [{ id: "s1", provider: "stripe", status: "active" }],
+      subscriptions: [
+        { id: "s1", provider: "stripe", status: "active", livemode: false },
+      ],
     });
 
     const result = await resolvePendingCommercialTenant(
       supabase as never,
-      "user-1"
+      "user-1",
+      false
     );
     assert.equal(result.ok, false);
     if (!result.ok) {
@@ -193,6 +199,48 @@ describe("paid onboarding helpers", () => {
         ONBOARDING_PENDING_CODES.HAS_COMMERCIAL_SUBSCRIPTION
       );
     }
+  });
+
+  it("does not treat opposite-mode Stripe current as blocking pending", async () => {
+    const supabase = mockSupabase({
+      memberships: [{ tenant_id: "t1" }],
+      tenants: [
+        {
+          id: "t1",
+          slug: "acme",
+          name: "Acme",
+          active: false,
+          provisioning_state: "pending_billing",
+        },
+      ],
+      // Mock returns rows regardless of .eq filter; empty means query filtered them out.
+      subscriptions: [],
+    });
+
+    const result = await resolvePendingCommercialTenant(
+      supabase as never,
+      "user-1",
+      false
+    );
+    assert.equal(result.ok, true);
+  });
+
+  it("onboarding GET/POST require Stripe config and pass expectedLivemode", () => {
+    const route = readSource("app/api/onboarding/route.ts");
+    assert.match(route, /assertStripeConfig\(\)/);
+    assert.match(route, /stripeModeToLivemode\(stripeConfig\.mode\)/);
+    assert.match(
+      route,
+      /resolvePendingCommercialTenant\(\s*supabase,\s*user\.id,\s*expectedLivemode/
+    );
+    assert.doesNotMatch(route, /getStripeMode\(\)/);
+    assert.doesNotMatch(
+      route,
+      /expectedLivemode\s*=\s*false/
+    );
+    const pending = readSource("lib/onboarding/pending-tenant.ts");
+    assert.doesNotMatch(pending, /getStripeMode/);
+    assert.doesNotMatch(pending, /stripeModeToLivemode/);
   });
 
   it("maps onboarding status states with provisioning_state", () => {
@@ -253,6 +301,17 @@ describe("paid onboarding helpers", () => {
     assert.match(route, /\/onboarding\/success\?session_id=/);
     assert.doesNotMatch(route, /p_provisioning_mode/);
     assert.doesNotMatch(route, /body\.tenant_id/);
+  });
+
+  it("status endpoint correlates session and attempt by livemode", () => {
+    const status = readSource("app/api/onboarding/status/route.ts");
+    assert.match(status, /checkout_mode_mismatch|CHECKOUT_MODE_MISMATCH_CODE/);
+    assert.match(status, /stripeSession\.livemode !== expectedLivemode/);
+    assert.match(status, /\.eq\("livemode", expectedLivemode\)/);
+    assert.match(status, /select\("id, livemode"\)/);
+    const modeIdx = status.indexOf("stripeSession.livemode !== expectedLivemode");
+    const membershipIdx = status.indexOf('.from("memberships")');
+    assert.ok(modeIdx > 0 && membershipIdx > modeIdx);
   });
 
   it("status endpoint and inactive UX use provisioning_state", () => {

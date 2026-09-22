@@ -9,7 +9,10 @@ import {
   appHostOriginFromRequest,
   createCheckoutSessionForTenant,
 } from "@/lib/billing/checkout";
-import { assertStripeConfig } from "@/lib/billing/stripe-config";
+import {
+  assertStripeConfig,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import { mapOnboardingPostgresError } from "@/lib/onboarding/errors";
 import {
   ONBOARDING_PENDING_CODES,
@@ -134,6 +137,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const stripeConfig = assertStripeConfig();
+  if (!stripeConfig.ok) {
+    return json({ error: "Billing is not configured" }, 503);
+  }
+  const expectedLivemode = stripeModeToLivemode(stripeConfig.mode);
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -144,7 +153,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const pending = await resolvePendingCommercialTenant(supabase, user.id);
+    const pending = await resolvePendingCommercialTenant(
+      supabase,
+      user.id,
+      expectedLivemode
+    );
     if (!pending.ok) {
       if (pending.code === ONBOARDING_PENDING_CODES.AMBIGUOUS_PENDING_TENANT) {
         return json(
@@ -200,6 +213,7 @@ export async function POST(request: NextRequest) {
   if (!stripeConfig.ok) {
     return json({ error: "Billing is not configured" }, 503);
   }
+  const expectedLivemode = stripeModeToLivemode(stripeConfig.mode);
 
   let body: unknown;
 
@@ -221,7 +235,11 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const pending = await resolvePendingCommercialTenant(supabase, user.id);
+      const pending = await resolvePendingCommercialTenant(
+        supabase,
+        user.id,
+        expectedLivemode
+      );
       if (!pending.ok) {
         if (pending.code === ONBOARDING_PENDING_CODES.AMBIGUOUS_PENDING_TENANT) {
           return json(
@@ -288,7 +306,11 @@ export async function POST(request: NextRequest) {
     // Organization limit: try resume path instead of trapping the user.
     if (error?.code === "54000") {
       try {
-        const pending = await resolvePendingCommercialTenant(supabase, user.id);
+        const pending = await resolvePendingCommercialTenant(
+          supabase,
+          user.id,
+          expectedLivemode
+        );
         if (pending.ok) {
           const session = await startOnboardingCheckout({
             request,

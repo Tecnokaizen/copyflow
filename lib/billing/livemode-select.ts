@@ -38,3 +38,53 @@ export function hasCurrentStripeSubscriptionForLivemode(
       allowed.has(row.status)
   );
 }
+
+/**
+ * Billing display selection:
+ * 1) Stripe current for expected livemode wins
+ * 2) else non-Stripe current (internal/MVP)
+ * Never returns Stripe of the opposite mode.
+ */
+export function pickBillingDisplaySubscription<
+  T extends {
+    provider: string | null;
+    livemode: boolean;
+    status: string;
+  },
+>(
+  candidates: T[],
+  expectedLivemode: boolean,
+  currentStatuses: ReadonlySet<string> | readonly string[]
+): T | null {
+  const allowed =
+    currentStatuses instanceof Set
+      ? currentStatuses
+      : new Set(currentStatuses);
+
+  const current = candidates.filter((row) => allowed.has(row.status));
+
+  const stripeForMode = current.find(
+    (row) => row.provider === "stripe" && row.livemode === expectedLivemode
+  );
+  if (stripeForMode) {
+    return stripeForMode;
+  }
+
+  return current.find((row) => row.provider !== "stripe") ?? null;
+}
+
+/** Onboarding status: session livemode must match runtime mode. */
+export function onboardingSessionLivemodeMatches(
+  sessionLivemode: boolean,
+  expectedLivemode: boolean
+): boolean {
+  return sessionLivemode === expectedLivemode;
+}
+
+/** Attempt correlation is fail-closed when livemode differs. */
+export function onboardingAttemptMatchesLivemode(
+  attempt: { livemode: boolean } | null | undefined,
+  expectedLivemode: boolean
+): boolean {
+  return Boolean(attempt) && attempt!.livemode === expectedLivemode;
+}
