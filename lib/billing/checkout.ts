@@ -5,7 +5,9 @@ import { NextRequest } from "next/server";
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
 import { parseCheckoutRequest } from "@/lib/billing/checkout-parse";
 import {
+  CHECKOUT_MODE_MISMATCH_CODE,
   CHECKOUT_PROCESSING_CODE,
+  CheckoutModeMismatchError,
   attachCheckoutSession,
   prepareCheckoutAttempt,
   resolveReusableCheckoutSession,
@@ -13,6 +15,10 @@ import {
 import { reservedExpiresAtUnix } from "@/lib/billing/checkout-attempts-keys";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
+import {
+  getStripeMode,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import type {
   BillingIntervalAllowed,
   BillingPlanCode,
@@ -26,6 +32,7 @@ import {
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
 export { CHECKOUT_PROCESSING_CODE };
+export { CHECKOUT_MODE_MISMATCH_CODE, CheckoutModeMismatchError };
 
 export class CheckoutConflictError extends Error {
   readonly code = CURRENT_SUBSCRIPTION_EXISTS_CODE;
@@ -54,6 +61,15 @@ export class CheckoutTransientError extends Error {
   }
 }
 
+export class CheckoutPriceModeMismatchError extends Error {
+  readonly code = "price_mode_mismatch";
+
+  constructor() {
+    super("Stripe price livemode does not match STRIPE_MODE");
+    this.name = "CheckoutPriceModeMismatchError";
+  }
+}
+
 /** @deprecated Prefer resolveTrustedAppOrigin — kept for onboarding call sites. */
 export function appHostOriginFromRequest(request: NextRequest): string {
   return resolveTrustedAppOrigin(request);
@@ -71,15 +87,21 @@ async function createStripeCheckoutForAttempt(input: {
   attemptId: string;
   idempotencyKey: string;
   expiresAt: string;
+  livemode: boolean;
 }): Promise<{ url: string; sessionId: string }> {
   const price = await resolveStripePrice({
     planCode: input.planCode,
     interval: input.billingInterval,
   });
 
+  if (price.livemode !== input.livemode) {
+    throw new CheckoutPriceModeMismatchError();
+  }
+
   const stripe = getStripe();
   const existingCustomerId = await resolveStripeCustomerIdForTenant(
-    input.tenantId
+    input.tenantId,
+    input.livemode
   );
   const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
   const successUrl =
@@ -148,6 +170,8 @@ export async function createCheckoutSessionForTenant(input: {
   cancelUrl?: string;
   flow?: "billing" | "onboarding";
 }): Promise<{ url: string; sessionId: string }> {
+  const livemode = stripeModeToLivemode(getStripeMode());
+
   // Up to two prepare passes: first may expire an open Stripe session.
   for (let pass = 0; pass < 2; pass += 1) {
     const prepared = await prepareCheckoutAttempt({
@@ -155,6 +179,7 @@ export async function createCheckoutSessionForTenant(input: {
       planCode: input.planCode,
       billingInterval: input.billingInterval,
       flow: input.flow ?? "billing",
+      livemode,
     });
 
     if (prepared.outcome === "current_subscription_exists") {
@@ -169,6 +194,7 @@ export async function createCheckoutSessionForTenant(input: {
       const resolved = await resolveReusableCheckoutSession({
         attemptId: prepared.attemptId,
         sessionId: prepared.sessionId,
+        livemode,
       });
 
       if (resolved.kind === "open") {
@@ -195,6 +221,7 @@ export async function createCheckoutSessionForTenant(input: {
       attemptId: prepared.attemptId,
       idempotencyKey: prepared.idempotencyKey,
       expiresAt: prepared.expiresAt,
+      livemode,
     });
   }
 

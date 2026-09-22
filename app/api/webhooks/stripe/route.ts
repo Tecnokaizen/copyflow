@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { getStripe } from "@/lib/billing/stripe";
-import { assertStripeConfig } from "@/lib/billing/stripe-config";
+import {
+  assertStripeConfig,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import { stripeEventCreatedAt } from "@/lib/billing/stripe-status";
 import {
   claimWebhookEvent,
@@ -10,6 +13,7 @@ import {
   isRetryableWebhookFailure,
   processStripeEvent,
 } from "@/lib/billing/webhook";
+import { eventLivemodeMatchesExpected } from "@/lib/billing/webhook-mode";
 
 function objectIdFromEvent(event: Stripe.Event): string | null {
   const object = event.data?.object as { id?: unknown } | undefined;
@@ -42,6 +46,25 @@ export async function POST(request: NextRequest) {
       message: error instanceof Error ? error.message : "unknown",
     });
     return new NextResponse("Invalid signature", { status: 400 });
+  }
+
+  // Fail closed on Test/Live mismatch BEFORE claim or any DB write.
+  const expectedLivemode = stripeModeToLivemode(config.mode);
+  if (!eventLivemodeMatchesExpected(event.livemode, expectedLivemode)) {
+    console.error("[POST /api/webhooks/stripe] stripe_mode_mismatch", {
+      eventId: event.id,
+      eventLivemode: event.livemode,
+      expectedLivemode,
+      stripeMode: config.mode,
+    });
+    return NextResponse.json(
+      {
+        error: "stripe_mode_mismatch",
+        event_livemode: event.livemode,
+        expected_livemode: expectedLivemode,
+      },
+      { status: 400 }
+    );
   }
 
   try {
