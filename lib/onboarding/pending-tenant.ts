@@ -5,7 +5,10 @@ export type PendingOnboardingTenant = {
   slug: string;
   name: string;
   active: boolean;
+  provisioning_state: "pending_billing";
 };
+
+export type TenantProvisioningState = "pending_billing" | "ready";
 
 export const ONBOARDING_PENDING_CODES = {
   AMBIGUOUS_PENDING_TENANT: "ambiguous_pending_tenant",
@@ -22,6 +25,7 @@ const CURRENT_STRIPE_STATUSES = new Set([
 
 /**
  * Resolve the single resumable pending commercial tenant for the authenticated user.
+ * Requires active=false AND provisioning_state=pending_billing.
  * Fail closed on ambiguity. Never accepts tenant_id from the browser.
  */
 export async function resolvePendingCommercialTenant(
@@ -62,9 +66,10 @@ export async function resolvePendingCommercialTenant(
 
   const { data: tenants, error: tenantsError } = await supabase
     .from("tenants")
-    .select("id, slug, name, active")
+    .select("id, slug, name, active, provisioning_state")
     .in("id", tenantIds)
-    .eq("active", false);
+    .eq("active", false)
+    .eq("provisioning_state", "pending_billing");
 
   if (tenantsError) {
     throw new Error(`Failed to load pending tenants: ${tenantsError.message}`);
@@ -75,7 +80,8 @@ export async function resolvePendingCommercialTenant(
       typeof t.id === "string" &&
       typeof t.slug === "string" &&
       typeof t.name === "string" &&
-      t.active === false
+      t.active === false &&
+      t.provisioning_state === "pending_billing"
   );
 
   if (pending.length === 0) {
@@ -124,4 +130,58 @@ export async function resolvePendingCommercialTenant(
 
 export function isQualifyingActivationStatus(status: string | null | undefined) {
   return status === "active" || status === "trialing";
+}
+
+export type OnboardingStatusState =
+  | "awaiting_payment"
+  | "processing"
+  | "active"
+  | "failed"
+  | "disabled";
+
+/**
+ * Pure status mapping for onboarding success polling (read-only; never activates).
+ */
+export function resolveOnboardingStatusState(input: {
+  tenantActive: boolean;
+  provisioningState: string | null | undefined;
+  sessionStatus: string | null | undefined;
+  paymentStatus: string | null | undefined;
+  subscriptionStatus: string | null | undefined;
+}): OnboardingStatusState {
+  if (input.tenantActive) {
+    return "active";
+  }
+
+  if (input.provisioningState === "ready") {
+    return "disabled";
+  }
+
+  // pending_billing (or unknown → treat as pending path)
+  if (input.sessionStatus === "expired") {
+    return "failed";
+  }
+  if (input.sessionStatus === "open") {
+    return "awaiting_payment";
+  }
+  if (
+    input.subscriptionStatus &&
+    [
+      "incomplete",
+      "incomplete_expired",
+      "unpaid",
+      "canceled",
+      "paused",
+    ].includes(input.subscriptionStatus)
+  ) {
+    return "failed";
+  }
+  if (
+    input.paymentStatus === "paid" ||
+    input.sessionStatus === "complete" ||
+    isQualifyingActivationStatus(input.subscriptionStatus)
+  ) {
+    return "processing";
+  }
+  return "awaiting_payment";
 }

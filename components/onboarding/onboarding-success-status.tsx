@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { LogoutButton } from "@/components/logout-button";
 import {
   Card,
   CardContent,
@@ -17,7 +18,7 @@ import {
 } from "@/lib/tenant/domains";
 
 type StatusPayload = {
-  state?: "awaiting_payment" | "processing" | "active" | "failed";
+  state?: "awaiting_payment" | "processing" | "active" | "failed" | "disabled";
   tenant?: { slug?: string; name?: string; active?: boolean };
 };
 
@@ -61,7 +62,7 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
           if (body.state === "active") {
             return;
           }
-          if (body.state === "failed") {
+          if (body.state === "failed" || body.state === "disabled") {
             return;
           }
         }
@@ -135,6 +136,23 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
           <Button asChild className="w-full">
             <Link href="/onboarding?canceled=1">Volver al onboarding</Link>
           </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "disabled") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Este espacio está desactivado</CardTitle>
+          <CardDescription>
+            El espacio Gestcopy ya no está disponible para completar el
+            onboarding. Contacta con el administrador si necesitas acceso.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LogoutButton variant="outline" className="w-full" />
         </CardContent>
       </Card>
     );

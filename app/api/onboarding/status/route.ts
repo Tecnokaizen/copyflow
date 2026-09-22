@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveTenantIdFromCheckoutSession } from "@/lib/billing/tenant-from-webhook";
 import { getStripe } from "@/lib/billing/stripe";
 import { assertStripeConfig } from "@/lib/billing/stripe-config";
-import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
+import { resolveOnboardingStatusState } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
 
   const { data: tenant, error: tenantError } = await admin
     .from("tenants")
-    .select("id, slug, name, active")
+    .select("id, slug, name, active, provisioning_state")
     .eq("id", tenantId)
     .maybeSingle();
 
@@ -138,43 +138,23 @@ export async function GET(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  const paymentStatus = stripeSession.payment_status;
-  const sessionStatus = stripeSession.status;
-
-  let state: "awaiting_payment" | "processing" | "active" | "failed" =
-    "processing";
-
-  if (tenant.active === true) {
-    state = "active";
-  } else if (sessionStatus === "expired") {
-    state = "failed";
-  } else if (sessionStatus === "open") {
-    state = "awaiting_payment";
-  } else if (
-    subscription &&
-    typeof subscription.status === "string" &&
-    [
-      "incomplete",
-      "incomplete_expired",
-      "unpaid",
-      "canceled",
-      "paused",
-    ].includes(subscription.status)
-  ) {
-    state = "failed";
-  } else if (
-    paymentStatus === "paid" ||
-    sessionStatus === "complete" ||
-    (subscription &&
-      isQualifyingActivationStatus(
-        typeof subscription.status === "string" ? subscription.status : null
-      ))
-  ) {
-    // Checkout may be complete while webhook activation is still pending.
-    state = "processing";
-  } else {
-    state = "awaiting_payment";
-  }
+  const state = resolveOnboardingStatusState({
+    tenantActive: tenant.active === true,
+    provisioningState:
+      typeof tenant.provisioning_state === "string"
+        ? tenant.provisioning_state
+        : null,
+    sessionStatus:
+      typeof stripeSession.status === "string" ? stripeSession.status : null,
+    paymentStatus:
+      typeof stripeSession.payment_status === "string"
+        ? stripeSession.payment_status
+        : null,
+    subscriptionStatus:
+      subscription && typeof subscription.status === "string"
+        ? subscription.status
+        : null,
+  });
 
   // session_id alone never activates — only report DB truth.
   return json(
@@ -185,6 +165,10 @@ export async function GET(request: NextRequest) {
         slug: tenant.slug,
         name: tenant.name,
         active: tenant.active === true,
+        provisioning_state:
+          typeof tenant.provisioning_state === "string"
+            ? tenant.provisioning_state
+            : null,
       },
       subscription: subscription
         ? {

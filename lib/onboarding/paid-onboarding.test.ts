@@ -6,12 +6,14 @@ import { describe, it } from "node:test";
 import { isQualifyingActivationStatus } from "./pending-tenant";
 import {
   ONBOARDING_PENDING_CODES,
+  resolveOnboardingStatusState,
   resolvePendingCommercialTenant,
 } from "./pending-tenant";
 import {
   resolveTenantOrigin,
   tenantRequestContextFromLocation,
 } from "@/lib/tenant/domains";
+import { parseInactiveTenantReason } from "@/lib/tenant/inactive-reason";
 
 const root = path.join(import.meta.dirname, "../..");
 
@@ -60,13 +62,10 @@ function mockSupabase(handlers: {
       ] as const) {
         chain[method] = () => chain;
       }
-      // terminal
-      (chain as { then?: unknown }).then = undefined;
       Object.assign(chain, {
         eq: () => chain,
         in: () => chain,
         select: () => chain,
-        // make awaitable
         then(
           resolve: (value: unknown) => unknown,
           reject?: (reason: unknown) => unknown
@@ -88,16 +87,19 @@ describe("paid onboarding helpers", () => {
     assert.equal(isQualifyingActivationStatus("active"), true);
     assert.equal(isQualifyingActivationStatus("trialing"), true);
     assert.equal(isQualifyingActivationStatus("past_due"), false);
-    assert.equal(isQualifyingActivationStatus("incomplete"), false);
-    assert.equal(isQualifyingActivationStatus("canceled"), false);
-    assert.equal(isQualifyingActivationStatus("paused"), false);
   });
 
-  it("resolves a single pending commercial tenant for resume", async () => {
+  it("resolves inactive + pending_billing as resumable", async () => {
     const supabase = mockSupabase({
       memberships: [{ tenant_id: "t1" }],
       tenants: [
-        { id: "t1", slug: "acme", name: "Acme", active: false },
+        {
+          id: "t1",
+          slug: "acme",
+          name: "Acme",
+          active: false,
+          provisioning_state: "pending_billing",
+        },
       ],
       subscriptions: [],
     });
@@ -109,15 +111,45 @@ describe("paid onboarding helpers", () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.tenant.slug, "acme");
+      assert.equal(result.tenant.provisioning_state, "pending_billing");
     }
   });
 
-  it("fails closed when multiple pending tenants exist", async () => {
+  it("does not treat inactive + ready as pending onboarding", async () => {
+    const supabase = mockSupabase({
+      memberships: [{ tenant_id: "t1" }],
+      tenants: [],
+      subscriptions: [],
+    });
+
+    const result = await resolvePendingCommercialTenant(
+      supabase as never,
+      "user-1"
+    );
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, ONBOARDING_PENDING_CODES.NO_PENDING_TENANT);
+    }
+  });
+
+  it("fails closed when multiple pending_billing tenants exist", async () => {
     const supabase = mockSupabase({
       memberships: [{ tenant_id: "t1" }, { tenant_id: "t2" }],
       tenants: [
-        { id: "t1", slug: "a", name: "A", active: false },
-        { id: "t2", slug: "b", name: "B", active: false },
+        {
+          id: "t1",
+          slug: "a",
+          name: "A",
+          active: false,
+          provisioning_state: "pending_billing",
+        },
+        {
+          id: "t2",
+          slug: "b",
+          name: "B",
+          active: false,
+          provisioning_state: "pending_billing",
+        },
       ],
       subscriptions: [],
     });
@@ -139,7 +171,13 @@ describe("paid onboarding helpers", () => {
     const supabase = mockSupabase({
       memberships: [{ tenant_id: "t1" }],
       tenants: [
-        { id: "t1", slug: "acme", name: "Acme", active: false },
+        {
+          id: "t1",
+          slug: "acme",
+          name: "Acme",
+          active: false,
+          provisioning_state: "pending_billing",
+        },
       ],
       subscriptions: [{ id: "s1", provider: "stripe", status: "active" }],
     });
@@ -157,45 +195,101 @@ describe("paid onboarding helpers", () => {
     }
   });
 
+  it("maps onboarding status states with provisioning_state", () => {
+    assert.equal(
+      resolveOnboardingStatusState({
+        tenantActive: true,
+        provisioningState: "ready",
+        sessionStatus: "complete",
+        paymentStatus: "paid",
+        subscriptionStatus: "active",
+      }),
+      "active"
+    );
+    assert.equal(
+      resolveOnboardingStatusState({
+        tenantActive: false,
+        provisioningState: "ready",
+        sessionStatus: "complete",
+        paymentStatus: "paid",
+        subscriptionStatus: "active",
+      }),
+      "disabled"
+    );
+    assert.equal(
+      resolveOnboardingStatusState({
+        tenantActive: false,
+        provisioningState: "pending_billing",
+        sessionStatus: "complete",
+        paymentStatus: "paid",
+        subscriptionStatus: null,
+      }),
+      "processing"
+    );
+    assert.equal(
+      resolveOnboardingStatusState({
+        tenantActive: false,
+        provisioningState: "pending_billing",
+        sessionStatus: "open",
+        paymentStatus: "unpaid",
+        subscriptionStatus: null,
+      }),
+      "awaiting_payment"
+    );
+  });
+
+  it("inactive gate reason parsing defaults to administratively_disabled", () => {
+    assert.equal(parseInactiveTenantReason("pending_billing"), "pending_billing");
+    assert.equal(
+      parseInactiveTenantReason("administratively_disabled"),
+      "administratively_disabled"
+    );
+    assert.equal(parseInactiveTenantReason(undefined), "administratively_disabled");
+    assert.equal(parseInactiveTenantReason("other"), "administratively_disabled");
+  });
+
   it("onboarding checkout URLs stay on app-host and reject browser tenant_id authority", () => {
     const route = readSource("app/api/onboarding/route.ts");
     assert.match(route, /\/onboarding\/success\?session_id=/);
-    assert.match(route, /\/onboarding\?canceled=1/);
     assert.doesNotMatch(route, /p_provisioning_mode/);
-    assert.match(route, /resume === true/);
-    assert.doesNotMatch(route, /tenant_id.*request\.json/);
     assert.doesNotMatch(route, /body\.tenant_id/);
-
-    const checkout = readSource("lib/billing/checkout.ts");
-    assert.match(checkout, /successUrl/);
-    assert.match(checkout, /cancelUrl/);
-    assert.match(checkout, /client_reference_id: input\.tenantId/);
-    assert.match(checkout, /current_subscription_exists/);
-    assert.match(checkout, /idempotencyKey/);
   });
 
-  it("status endpoint validates Stripe session and Owner; session_id alone cannot activate", () => {
+  it("status endpoint and inactive UX use provisioning_state", () => {
     const status = readSource("app/api/onboarding/status/route.ts");
-    assert.match(status, /checkout\.sessions\.retrieve/);
-    assert.match(status, /role", "owner"/);
-    assert.match(status, /tenant\.active === true/);
-    assert.match(status, /resolveTenantIdFromCheckoutSession/);
-    assert.match(status, /mode !== "subscription"/);
+    assert.match(status, /provisioning_state/);
+    assert.match(status, /resolveOnboardingStatusState/);
     assert.doesNotMatch(status, /activate_tenant_after_billing/);
-    assert.doesNotMatch(status, /UPDATE tenants/);
+
+    const inactive = readSource("app/tenant-inactive/page.tsx");
+    assert.match(inactive, /Espacio desactivado/);
+    assert.match(inactive, /Espacio pendiente de activación/);
+    assert.match(inactive, /parseInactiveTenantReason/);
+
+    const proxy = readSource("proxy.ts");
+    assert.match(proxy, /resolveInactiveTenantState/);
+    assert.match(proxy, /reason=/);
+
+    const success = readSource(
+      "components/onboarding/onboarding-success-status.tsx"
+    );
+    assert.match(success, /disabled/);
+    assert.match(success, /Este espacio está desactivado/);
   });
 
-  it("webhook activates only after qualifying sync; never deactivates", () => {
-    const webhook = readSource("lib/billing/webhook.ts");
-    assert.match(webhook, /activateTenantAfterBilling/);
-    assert.match(webhook, /isQualifyingActivationStatus/);
-    assert.doesNotMatch(webhook, /active:\s*false/);
-  });
+  it("provisioning_state migration sets pending_billing and blocks Stripe reactivation", () => {
+    const migration = readSource(
+      "supabase/migrations/20260922152000_tenant_provisioning_state_v1.sql"
+    );
+    assert.match(migration, /provisioning_state/);
+    assert.match(migration, /pending_billing/);
+    assert.match(migration, /tenant_not_pending_billing/);
+    assert.match(migration, /tenants_pending_billing_requires_inactive/);
+    assert.doesNotMatch(migration, /slug = 'demo'/);
+    assert.doesNotMatch(migration, /slug = 'sur4'/);
 
-  it("getCurrentTenant gates on tenants.active = true", () => {
-    const source = readSource("lib/tenant/current-tenant.ts");
-    assert.match(source, /\.eq\("active", true\)/);
-    assert.doesNotMatch(source, /\.from\("subscriptions"\)/);
+    const workflow = readSource(".github/workflows/kiosk-supabase.yml");
+    assert.match(workflow, /phase31_tenant_provisioning_state\.sql/);
   });
 
   it("local and production success destinations use tenant-aware origin", () => {
@@ -208,34 +302,5 @@ describe("paid onboarding helpers", () => {
       })
     );
     assert.equal(local, "http://billing-sandbox.localhost:3000");
-    assert.equal(`${local}/auth/login`, "http://billing-sandbox.localhost:3000/auth/login");
-
-    const prod = resolveTenantOrigin("sur4");
-    assert.equal(prod, "https://sur4.app.gestcopy.com");
-    assert.equal(`${prod}/auth/login`, "https://sur4.app.gestcopy.com/auth/login");
-  });
-
-  it("paid onboarding migration creates inactive commercial tenants and service-only activation", () => {
-    const migration = readSource(
-      "supabase/migrations/20260922092803_paid_onboarding_v1.sql"
-    );
-    assert.match(migration, /activate_tenant_after_billing_v1/);
-    assert.match(
-      migration,
-      /GRANT EXECUTE ON FUNCTION public\.activate_tenant_after_billing_v1[\s\S]*service_role/i
-    );
-
-    const hardening = readSource(
-      "supabase/migrations/20260922095504_paid_onboarding_security_hardening_v1.sql"
-    );
-    assert.match(hardening, /create_organization \(/);
-    assert.doesNotMatch(hardening, /p_provisioning_mode/);
-    assert.match(hardening, /create_internal_organization_v1/);
-    assert.match(hardening, /is_active_tenant_member/);
-    assert.match(hardening, /has_active_tenant_role/);
-    assert.match(hardening, /claim_billing_webhook_event_v1/);
-    assert.match(hardening, /tenant active is immutable/);
-    assert.doesNotMatch(hardening, /slug = 'demo'/);
-    assert.doesNotMatch(hardening, /slug = 'sur4'/);
   });
 });

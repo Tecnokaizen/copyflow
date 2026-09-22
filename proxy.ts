@@ -6,8 +6,8 @@ import { createServerClient } from "@supabase/ssr";
 import { hasEnvVars } from "@/lib/utils";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
 import {
-  isInactiveTenantSlug,
   isTenantAppExemptPath,
+  resolveInactiveTenantState,
 } from "@/lib/tenant/inactive-gate";
 import { type NextRequest, NextResponse } from "next/server";
 
@@ -63,10 +63,11 @@ export async function proxy(request: NextRequest) {
             },
           }
         );
-        if (await isInactiveTenantSlug(supabase, slug)) {
+        const reason = await resolveInactiveTenantState(supabase, slug);
+        if (reason) {
           const url = request.nextUrl.clone();
           url.pathname = "/tenant-inactive";
-          url.search = "";
+          url.search = `?reason=${encodeURIComponent(reason)}`;
           const redirect = NextResponse.redirect(url);
           sessionResponse.cookies.getAll().forEach((cookie) => {
             redirect.cookies.set(cookie.name, cookie.value);
