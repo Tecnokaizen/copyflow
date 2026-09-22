@@ -6,6 +6,7 @@ import { activateTenantAfterBilling } from "@/lib/onboarding/activate";
 import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { finalizeCheckoutAttempt } from "@/lib/billing/checkout-attempts";
+import { subscriptionIdFromInvoice } from "@/lib/billing/invoice-subscription";
 import { resolvePlanFromStripePriceId } from "@/lib/billing/resolve-plan-from-price";
 import {
   mapStripeSubscriptionStatus,
@@ -14,6 +15,7 @@ import {
 import { stripeCancelAtToIso } from "@/lib/billing/cancellation-display";
 import { resolveTenantIdFromWebhookSources } from "@/lib/billing/tenant-from-webhook";
 import { isRetryableWebhookFailure } from "@/lib/billing/webhook-errors";
+import { objectLivemodeMatchesEvent } from "@/lib/billing/webhook-mode";
 
 export type WebhookProcessResult = {
   status: "processed" | "ignored" | "failed";
@@ -191,6 +193,7 @@ async function syncSubscriptionFromStripe(input: {
     },
     p_provider_event_created_at: input.eventCreatedAt?.toISOString() ?? null,
     p_cancel_at: stripeCancelAtToIso(subscription.cancel_at),
+    p_livemode: input.livemode,
   });
 
   if (error) {
@@ -272,6 +275,15 @@ export async function processStripeEvent(input: {
   try {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
+      if (
+        !objectLivemodeMatchesEvent(session.livemode, event.livemode)
+      ) {
+        return {
+          status: "failed",
+          errorCode: "stripe_object_mode_mismatch",
+          retryable: false,
+        };
+      }
       if (session.mode !== "subscription") {
         return {
           status: "ignored",
@@ -300,6 +312,15 @@ export async function processStripeEvent(input: {
       }
 
       const subscription = await loadStripeSubscription(stripe, subscriptionId);
+      if (
+        !objectLivemodeMatchesEvent(subscription.livemode, event.livemode)
+      ) {
+        return {
+          status: "failed",
+          errorCode: "stripe_object_mode_mismatch",
+          retryable: false,
+        };
+      }
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
@@ -315,6 +336,15 @@ export async function processStripeEvent(input: {
       event.type === "customer.subscription.deleted"
     ) {
       const subscription = event.data.object as Stripe.Subscription;
+      if (
+        !objectLivemodeMatchesEvent(subscription.livemode, event.livemode)
+      ) {
+        return {
+          status: "failed",
+          errorCode: "stripe_object_mode_mismatch",
+          retryable: false,
+        };
+      }
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
@@ -327,25 +357,43 @@ export async function processStripeEvent(input: {
       event.type === "invoice.payment_failed"
     ) {
       const invoice = event.data.object as Stripe.Invoice;
-      const subscriptionRef =
-        (invoice as { subscription?: string | Stripe.Subscription | null })
-          .subscription ?? null;
-      const subscriptionId =
-        typeof subscriptionRef === "string"
-          ? subscriptionRef
-          : subscriptionRef && typeof subscriptionRef === "object"
-            ? subscriptionRef.id
-            : null;
-
-      if (!subscriptionId) {
+      if (!objectLivemodeMatchesEvent(invoice.livemode, event.livemode)) {
         return {
-          status: "ignored",
-          errorCode: "invoice_without_subscription",
+          status: "failed",
+          errorCode: "stripe_object_mode_mismatch",
           retryable: false,
         };
       }
 
-      const subscription = await loadStripeSubscription(stripe, subscriptionId);
+      const resolved = subscriptionIdFromInvoice(invoice);
+      if (!resolved.ok) {
+        if (resolved.errorCode === "invoice_without_subscription") {
+          return {
+            status: "ignored",
+            errorCode: "invoice_without_subscription",
+            retryable: false,
+          };
+        }
+        return {
+          status: "failed",
+          errorCode: resolved.errorCode,
+          retryable: false,
+        };
+      }
+
+      const subscription = await loadStripeSubscription(
+        stripe,
+        resolved.subscriptionId
+      );
+      if (
+        !objectLivemodeMatchesEvent(subscription.livemode, event.livemode)
+      ) {
+        return {
+          status: "failed",
+          errorCode: "stripe_object_mode_mismatch",
+          retryable: false,
+        };
+      }
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,

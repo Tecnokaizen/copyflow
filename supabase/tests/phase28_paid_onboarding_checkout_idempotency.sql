@@ -239,10 +239,10 @@ begin
   end if;
 
   -- service_role only grants
-  if has_function_privilege('anon', 'public.prepare_billing_checkout_attempt_v2(uuid, text, text, text)', 'execute') then
+  if has_function_privilege('anon', 'public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean)', 'execute') then
     raise exception 'phase28: anon must not execute prepare_v2';
   end if;
-  if has_function_privilege('authenticated', 'public.prepare_billing_checkout_attempt_v2(uuid, text, text, text)', 'execute') then
+  if has_function_privilege('authenticated', 'public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean)', 'execute') then
     raise exception 'phase28: authenticated must not execute prepare_v2';
   end if;
 

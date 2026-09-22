@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  getStripeMode,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
+
 export type PendingOnboardingTenant = {
   id: string;
   slug: string;
@@ -104,7 +109,7 @@ export async function resolvePendingCommercialTenant(
 
   const { data: subscriptions, error: subError } = await supabase
     .from("subscriptions")
-    .select("id, provider, status")
+    .select("id, provider, status, livemode")
     .eq("tenant_id", tenant.id)
     .eq("provider", "stripe");
 
@@ -112,10 +117,23 @@ export async function resolvePendingCommercialTenant(
     throw new Error(`Failed to load subscriptions: ${subError.message}`);
   }
 
-  const hasCurrentCommercial = (subscriptions ?? []).some(
-    (sub) =>
-      typeof sub.status === "string" && CURRENT_STRIPE_STATUSES.has(sub.status)
-  );
+  let expectedLivemode = false;
+  try {
+    expectedLivemode = stripeModeToLivemode(getStripeMode());
+  } catch {
+    // If Stripe mode is not configured, treat as Test (default) for the guard.
+    expectedLivemode = false;
+  }
+
+  const hasCurrentCommercial = (subscriptions ?? []).some((sub) => {
+    const rowLivemode =
+      (sub as { livemode?: boolean | null }).livemode === true;
+    return (
+      rowLivemode === expectedLivemode &&
+      typeof sub.status === "string" &&
+      CURRENT_STRIPE_STATUSES.has(sub.status)
+    );
+  });
 
   if (hasCurrentCommercial) {
     return {

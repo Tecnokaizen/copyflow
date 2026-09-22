@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
+import {
+  getStripeMode,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -19,6 +23,13 @@ export async function GET() {
   const context = await getCurrentContext();
   if (!context || !canManageBilling(context.membership.role)) {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
+  }
+
+  let livemode: boolean;
+  try {
+    livemode = stripeModeToLivemode(getStripeMode());
+  } catch {
+    return json({ error: "Billing is not configured" }, 503);
   }
 
   const admin = createAdminClient();
@@ -43,6 +54,8 @@ export async function GET() {
     `
     )
     .eq("tenant_id", context.tenant.id)
+    .eq("provider", "stripe")
+    .eq("livemode", livemode)
     .in("status", [...CURRENT])
     .order("created_at", { ascending: false })
     .limit(1);

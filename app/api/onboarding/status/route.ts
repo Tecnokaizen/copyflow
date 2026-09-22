@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { resolveTenantIdFromCheckoutSession } from "@/lib/billing/tenant-from-webhook";
 import { getStripe } from "@/lib/billing/stripe";
-import { assertStripeConfig } from "@/lib/billing/stripe-config";
+import {
+  assertStripeConfig,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import { resolveOnboardingStatusState } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -125,6 +128,7 @@ export async function GET(request: NextRequest) {
     .select("status, provider")
     .eq("tenant_id", tenantId)
     .eq("provider", "stripe")
+    .eq("livemode", stripeModeToLivemode(stripeConfig.mode))
     .in("status", [
       "trialing",
       "active",

@@ -122,6 +122,8 @@ jobs:
             -f supabase/tests/phase30_order_statuses_require_initial_security_definer.sql
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
             -f supabase/tests/phase31_tenant_provisioning_state.sql
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/phase32_stripe_live_hardening.sql
 
       - name: Apply and verify exact rollback
         run: |

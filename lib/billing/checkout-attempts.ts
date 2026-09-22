@@ -3,6 +3,10 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/billing/stripe";
 import {
+  getStripeMode,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
+import {
   CHECKOUT_IDEMPOTENCY_KEY_PREFIX,
   checkoutIdempotencyKey,
   reservedExpiresAtUnix,
@@ -14,6 +18,16 @@ export {
   reservedExpiresAtUnix,
 };
 export const CHECKOUT_PROCESSING_CODE = "checkout_processing";
+export const CHECKOUT_MODE_MISMATCH_CODE = "checkout_mode_mismatch";
+
+export class CheckoutModeMismatchError extends Error {
+  readonly code = CHECKOUT_MODE_MISMATCH_CODE;
+
+  constructor(message = "Checkout Session livemode does not match STRIPE_MODE") {
+    super(message);
+    this.name = "CheckoutModeMismatchError";
+  }
+}
 
 export type PreparedCheckoutAttemptV2 =
   | {
@@ -47,7 +61,11 @@ export async function prepareCheckoutAttempt(input: {
   planCode?: string;
   billingInterval?: string;
   flow?: "billing" | "onboarding";
+  /** Derived server-side from STRIPE_MODE when omitted. Never trust the browser. */
+  livemode?: boolean;
 }): Promise<PreparedCheckoutAttemptV2> {
+  const livemode =
+    input.livemode ?? stripeModeToLivemode(getStripeMode());
   const admin = createAdminClient();
   const { data, error } = await admin.rpc(
     "prepare_billing_checkout_attempt_v2",
@@ -56,6 +74,7 @@ export async function prepareCheckoutAttempt(input: {
       p_plan_code: input.planCode ?? null,
       p_billing_interval: input.billingInterval ?? null,
       p_flow: input.flow ?? "billing",
+      p_livemode: livemode,
     }
   );
 
@@ -186,7 +205,11 @@ export type ResolveReusableResult =
 export async function resolveReusableCheckoutSession(input: {
   attemptId: string;
   sessionId: string;
+  /** Derived server-side from STRIPE_MODE when omitted. */
+  livemode?: boolean;
 }): Promise<ResolveReusableResult> {
+  const expectedLivemode =
+    input.livemode ?? stripeModeToLivemode(getStripeMode());
   const stripe = getStripe();
   let session;
   try {
@@ -202,6 +225,16 @@ export async function resolveReusableCheckoutSession(input: {
       sessionId: input.sessionId,
       cause: error,
     };
+  }
+
+  if (session.livemode !== expectedLivemode) {
+    console.error("[billing.checkout] reuse livemode mismatch (fail closed)", {
+      sessionId: input.sessionId,
+      attemptId: input.attemptId,
+      sessionLivemode: session.livemode,
+      expectedLivemode,
+    });
+    throw new CheckoutModeMismatchError();
   }
 
   if (session.status === "open" && session.url) {
