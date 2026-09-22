@@ -19,3 +19,4 @@ export function isRetryableWebhookFailure(errorCode: string | undefined) {
 }
 
 export const CURRENT_SUBSCRIPTION_EXISTS_CODE = "current_subscription_exists";
+export const CHECKOUT_PROCESSING_CODE = "checkout_processing";

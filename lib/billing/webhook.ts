@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { activateTenantAfterBilling } from "@/lib/onboarding/activate";
 import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { finalizeCheckoutAttempt } from "@/lib/billing/checkout-attempts";
 import { resolvePlanFromStripePriceId } from "@/lib/billing/resolve-plan-from-price";
 import {
   mapStripeSubscriptionStatus,
@@ -278,6 +279,11 @@ export async function processStripeEvent(input: {
           retryable: false,
         };
       }
+
+      await finalizeCheckoutAttempt({
+        sessionId: session.id,
+        status: "completed",
+      });
 
       const subscriptionRef = session.subscription;
       const subscriptionId =

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
 import {
+  CHECKOUT_PROCESSING_CODE,
   CheckoutConflictError,
+  CheckoutProcessingError,
+  CheckoutTransientError,
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   createCheckoutSessionForTenant,
   parseCheckoutRequest,
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
       planCode: parsed.planCode,
       billingInterval: parsed.billingInterval,
       customerEmail: context.user.email,
+      flow: "billing",
     });
 
     return json({ url: session.url, session_id: session.sessionId }, 200);
@@ -60,6 +64,24 @@ export async function POST(request: NextRequest) {
           code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
         },
         409
+      );
+    }
+    if (error instanceof CheckoutProcessingError) {
+      return json(
+        {
+          error: "Checkout completed; subscription confirmation in progress",
+          code: CHECKOUT_PROCESSING_CODE,
+        },
+        409
+      );
+    }
+    if (error instanceof CheckoutTransientError) {
+      return json(
+        {
+          error: "Checkout temporarily unavailable",
+          code: "checkout_transient",
+        },
+        503
       );
     }
     console.error("[POST /api/billing/checkout-session] failed", {

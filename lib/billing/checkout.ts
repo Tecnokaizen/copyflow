@@ -5,32 +5,48 @@ import { NextRequest } from "next/server";
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
 import { parseCheckoutRequest } from "@/lib/billing/checkout-parse";
 import {
+  CHECKOUT_PROCESSING_CODE,
+  attachCheckoutSession,
   prepareCheckoutAttempt,
-  registerCheckoutAttempt,
   resolveReusableCheckoutSession,
 } from "@/lib/billing/checkout-attempts";
-import {
-  CURRENT_SUBSCRIPTION_EXISTS_CODE,
-  tenantHasCurrentStripeSubscription,
-} from "@/lib/billing/current-subscription";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
 import type {
   BillingIntervalAllowed,
   BillingPlanCode,
 } from "@/lib/billing/access";
-import { CURRENT_SUBSCRIPTION_EXISTS_CODE as CONFLICT_CODE } from "@/lib/billing/webhook-errors";
+import { CURRENT_SUBSCRIPTION_EXISTS_CODE } from "@/lib/billing/webhook-errors";
 import { tenantOrigin } from "@/lib/tenant/domains";
 
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
+export { CHECKOUT_PROCESSING_CODE };
 
 export class CheckoutConflictError extends Error {
-  readonly code = CONFLICT_CODE;
+  readonly code = CURRENT_SUBSCRIPTION_EXISTS_CODE;
 
   constructor() {
     super("Current Stripe subscription already exists");
     this.name = "CheckoutConflictError";
+  }
+}
+
+export class CheckoutProcessingError extends Error {
+  readonly code = CHECKOUT_PROCESSING_CODE;
+
+  constructor() {
+    super("Checkout completed; subscription sync in progress");
+    this.name = "CheckoutProcessingError";
+  }
+}
+
+export class CheckoutTransientError extends Error {
+  readonly retryable = true;
+
+  constructor(message = "Checkout provider temporarily unavailable") {
+    super(message);
+    this.name = "CheckoutTransientError";
   }
 }
 
@@ -63,31 +79,18 @@ function sessionExpiresAt(expiresAt: number | null | undefined): Date {
   return new Date(Date.now() + 24 * 60 * 60 * 1000);
 }
 
-export async function createCheckoutSessionForTenant(input: {
+async function createStripeCheckoutForAttempt(input: {
   request: NextRequest;
   tenantId: string;
   tenantSlug: string;
   planCode: BillingPlanCode;
   billingInterval: BillingIntervalAllowed;
   customerEmail?: string | null;
-  /** Absolute or request-relative success URL template (may include {CHECKOUT_SESSION_ID}). */
   successUrl?: string;
-  /** Absolute cancel URL. */
   cancelUrl?: string;
+  attemptId: string;
+  idempotencyKey: string;
 }): Promise<{ url: string; sessionId: string }> {
-  if (await tenantHasCurrentStripeSubscription(input.tenantId)) {
-    throw new CheckoutConflictError();
-  }
-
-  const prepared = await prepareCheckoutAttempt(input.tenantId);
-  if (prepared.outcome === "reuse") {
-    const reused = await resolveReusableCheckoutSession(prepared.sessionId);
-    if (reused.ok) {
-      return { url: reused.url, sessionId: reused.sessionId };
-    }
-    // Expired/canceled locally finalized — fall through to create.
-  }
-
   const price = await resolveStripePrice({
     planCode: input.planCode,
     interval: input.billingInterval,
@@ -104,55 +107,113 @@ export async function createCheckoutSessionForTenant(input: {
   const cancelUrl =
     input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [{ price: price.providerPriceId, quantity: 1 }],
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    client_reference_id: input.tenantId,
-    ...(existingCustomerId
-      ? { customer: existingCustomerId }
-      : input.customerEmail
-        ? { customer_email: input.customerEmail }
-        : {}),
-    metadata: {
-      tenant_id: input.tenantId,
-      plan_code: input.planCode,
-    },
-    subscription_data: {
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "subscription",
+      line_items: [{ price: price.providerPriceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: input.tenantId,
+      ...(existingCustomerId
+        ? { customer: existingCustomerId }
+        : input.customerEmail
+          ? { customer_email: input.customerEmail }
+          : {}),
       metadata: {
         tenant_id: input.tenantId,
         plan_code: input.planCode,
+        checkout_attempt_id: input.attemptId,
+      },
+      subscription_data: {
+        metadata: {
+          tenant_id: input.tenantId,
+          plan_code: input.planCode,
+        },
       },
     },
-  });
+    { idempotencyKey: input.idempotencyKey }
+  );
 
   if (!session.url) {
     throw new Error("Stripe Checkout Session missing url");
   }
 
-  const registered = await registerCheckoutAttempt({
-    tenantId: input.tenantId,
+  await attachCheckoutSession({
+    attemptId: input.attemptId,
     sessionId: session.id,
     expiresAt: sessionExpiresAt(session.expires_at),
-    planCode: input.planCode,
-    billingInterval: input.billingInterval,
   });
 
-  if (registered.outcome === "reuse" && registered.sessionId !== session.id) {
-    // Lost the race — prefer the winning open session.
-    try {
-      await stripe.checkout.sessions.expire(session.id);
-    } catch {
-      // best-effort
+  return { url: session.url, sessionId: session.id };
+}
+
+/**
+ * Reserve a DB attempt under advisory lock, then create Stripe Checkout with
+ * attempt-scoped idempotency. Concurrent callers share one usable session.
+ */
+export async function createCheckoutSessionForTenant(input: {
+  request: NextRequest;
+  tenantId: string;
+  tenantSlug: string;
+  planCode: BillingPlanCode;
+  billingInterval: BillingIntervalAllowed;
+  customerEmail?: string | null;
+  /** Absolute or request-relative success URL template (may include {CHECKOUT_SESSION_ID}). */
+  successUrl?: string;
+  /** Absolute cancel URL. */
+  cancelUrl?: string;
+  flow?: "billing" | "onboarding";
+}): Promise<{ url: string; sessionId: string }> {
+  // Up to two prepare passes: first may expire an open Stripe session.
+  for (let pass = 0; pass < 2; pass += 1) {
+    const prepared = await prepareCheckoutAttempt({
+      tenantId: input.tenantId,
+      planCode: input.planCode,
+      billingInterval: input.billingInterval,
+      flow: input.flow ?? "billing",
+    });
+
+    if (prepared.outcome === "current_subscription_exists") {
+      throw new CheckoutConflictError();
     }
-    const winner = await resolveReusableCheckoutSession(registered.sessionId);
-    if (winner.ok) {
-      return { url: winner.url, sessionId: winner.sessionId };
+
+    if (prepared.outcome === "checkout_processing") {
+      throw new CheckoutProcessingError();
     }
+
+    if (prepared.outcome === "reuse") {
+      const resolved = await resolveReusableCheckoutSession({
+        attemptId: prepared.attemptId,
+        sessionId: prepared.sessionId,
+      });
+
+      if (resolved.kind === "open") {
+        return { url: resolved.url, sessionId: resolved.sessionId };
+      }
+
+      if (resolved.kind === "processing") {
+        throw new CheckoutProcessingError();
+      }
+
+      if (resolved.kind === "retryable") {
+        throw new CheckoutTransientError(
+          "Could not verify existing Checkout Session"
+        );
+      }
+
+      // Explicitly expired (or canceled) locally — prepare again for a new attempt.
+      continue;
+    }
+
+    // reserved
+    return createStripeCheckoutForAttempt({
+      ...input,
+      attemptId: prepared.attemptId,
+      idempotencyKey: prepared.idempotencyKey,
+    });
   }
 
-  return { url: session.url, sessionId: session.id };
+  throw new CheckoutTransientError("Could not reserve a Checkout attempt");
 }
 
 export async function createPortalSessionForTenant(input: {

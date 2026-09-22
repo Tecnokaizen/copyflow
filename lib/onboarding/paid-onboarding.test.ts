@@ -170,7 +170,8 @@ describe("paid onboarding helpers", () => {
     assert.match(checkout, /successUrl/);
     assert.match(checkout, /cancelUrl/);
     assert.match(checkout, /client_reference_id: input\.tenantId/);
-    assert.match(checkout, /tenantHasCurrentStripeSubscription/);
+    assert.match(checkout, /current_subscription_exists/);
+    assert.match(checkout, /idempotencyKey/);
   });
 
   it("status endpoint validates Stripe session and Owner; session_id alone cannot activate", () => {

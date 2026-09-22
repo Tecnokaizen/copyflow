@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  CHECKOUT_PROCESSING_CODE,
   CheckoutConflictError,
+  CheckoutProcessingError,
+  CheckoutTransientError,
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   appHostOriginFromRequest,
   createCheckoutSessionForTenant,
@@ -22,6 +25,37 @@ const NO_STORE = {
 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: NO_STORE });
+}
+
+function checkoutErrorResponse(error: unknown): NextResponse | null {
+  if (error instanceof CheckoutConflictError) {
+    return json(
+      {
+        error: "Current subscription already exists",
+        code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+      },
+      409
+    );
+  }
+  if (error instanceof CheckoutProcessingError) {
+    return json(
+      {
+        error: "Checkout completed; subscription confirmation in progress",
+        code: CHECKOUT_PROCESSING_CODE,
+      },
+      409
+    );
+  }
+  if (error instanceof CheckoutTransientError) {
+    return json(
+      {
+        error: "Checkout temporarily unavailable",
+        code: "checkout_transient",
+      },
+      503
+    );
+  }
+  return null;
 }
 
 function emptyToNull(value: unknown): string | null {
@@ -91,6 +125,7 @@ async function startOnboardingCheckout(input: {
     customerEmail: input.customerEmail,
     successUrl: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${origin}/onboarding?canceled=1`,
+    flow: "onboarding",
   });
 }
 
@@ -228,14 +263,9 @@ export async function POST(request: NextRequest) {
         200
       );
     } catch (error) {
-      if (error instanceof CheckoutConflictError) {
-        return json(
-          {
-            error: "Current subscription already exists",
-            code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
-          },
-          409
-        );
+      const mapped = checkoutErrorResponse(error);
+      if (mapped) {
+        return mapped;
       }
       console.error("[POST /api/onboarding] resume checkout failed", {
         userId: user.id,
@@ -286,14 +316,9 @@ export async function POST(request: NextRequest) {
           );
         }
       } catch (resumeError) {
-        if (resumeError instanceof CheckoutConflictError) {
-          return json(
-            {
-              error: "Current subscription already exists",
-              code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
-            },
-            409
-          );
+        const mapped = checkoutErrorResponse(resumeError);
+        if (mapped) {
+          return mapped;
         }
         console.error("[POST /api/onboarding] auto-resume failed", {
           userId: user.id,
@@ -371,6 +396,36 @@ export async function POST(request: NextRequest) {
           },
         },
         409
+      );
+    }
+    if (checkoutError instanceof CheckoutProcessingError) {
+      return json(
+        {
+          error: "Checkout completed; subscription confirmation in progress",
+          code: CHECKOUT_PROCESSING_CODE,
+          tenant: {
+            id: tenantId,
+            slug,
+            name,
+          },
+        },
+        409
+      );
+    }
+    if (checkoutError instanceof CheckoutTransientError) {
+      return json(
+        {
+          ok: true,
+          checkout_pending: true,
+          code: "checkout_transient",
+          error: "Checkout temporarily unavailable",
+          tenant: {
+            id: tenantId,
+            slug,
+            name,
+          },
+        },
+        201
       );
     }
     console.error("[POST /api/onboarding] checkout after create failed", {

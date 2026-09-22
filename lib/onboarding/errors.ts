@@ -57,12 +57,24 @@ export function onboardingUserFacingError(
     return "Esta cuenta ya administra una organización y no puede crear otra desde este proceso.";
   }
 
+  if (code === "checkout_processing") {
+    return "Estamos confirmando tu suscripción.";
+  }
+
+  if (code === "current_subscription_exists") {
+    return "Ya existe una suscripción activa para esta organización.";
+  }
+
   if (status === 400) {
     return "El valor no es válido.";
   }
 
   if (status === 401) {
     return "Tu sesión no es válida. Vuelve a iniciar sesión.";
+  }
+
+  if (status === 503) {
+    return "El pago no está disponible ahora mismo. Inténtalo de nuevo en unos segundos.";
   }
 
   if (status === 409) {

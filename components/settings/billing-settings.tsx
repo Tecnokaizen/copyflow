@@ -105,7 +105,22 @@ export function BillingSettings() {
           billing_interval: "month",
         }),
       });
-      const body = (await response.json()) as { url?: string; error?: string };
+      const body = (await response.json()) as {
+        url?: string;
+        error?: string;
+        code?: string;
+      };
+      if (response.status === 409 && body.code === "checkout_processing") {
+        throw new Error("Estamos confirmando tu suscripción.");
+      }
+      if (response.status === 409 && body.code === "current_subscription_exists") {
+        throw new Error("Ya existe una suscripción activa para esta organización.");
+      }
+      if (response.status === 503) {
+        throw new Error(
+          "El pago no está disponible ahora mismo. Inténtalo de nuevo en unos segundos."
+        );
+      }
       if (!response.ok || !body.url) {
         throw new Error(body.error ?? "No se ha podido iniciar el pago.");
       }
