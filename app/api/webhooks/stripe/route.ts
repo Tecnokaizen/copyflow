@@ -5,9 +5,10 @@ import { getStripe } from "@/lib/billing/stripe";
 import { assertStripeConfig } from "@/lib/billing/stripe-config";
 import { stripeEventCreatedAt } from "@/lib/billing/stripe-status";
 import {
+  claimWebhookEvent,
   finalizeWebhookEvent,
+  isRetryableWebhookFailure,
   processStripeEvent,
-  recordWebhookEventReceived,
 } from "@/lib/billing/webhook";
 
 function objectIdFromEvent(event: Stripe.Event): string | null {
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const recorded = await recordWebhookEventReceived({
+    const claim = await claimWebhookEvent({
       providerEventId: event.id,
       eventType: event.type,
       livemode: event.livemode,
@@ -52,42 +53,68 @@ export async function POST(request: NextRequest) {
       objectId: objectIdFromEvent(event),
     });
 
-    if (recorded === "duplicate") {
-      return NextResponse.json({ received: true, duplicate: true });
+    if (claim.outcome === "already_final") {
+      return NextResponse.json({
+        received: true,
+        duplicate: true,
+        status: claim.status ?? null,
+      });
     }
+
+    // Do not ACK Stripe while another worker still owns a fresh lease.
+    if (claim.outcome === "in_progress") {
+      return new NextResponse("Webhook event already being processed", {
+        status: 503,
+      });
+    }
+
+    if (claim.outcome !== "claimed" || !claim.attempt) {
+      return new NextResponse("Could not claim webhook event", { status: 500 });
+    }
+
+    const processingAttempt = claim.attempt;
 
     const result = await processStripeEvent({
       stripe: getStripe(),
       event,
     });
 
-    await finalizeWebhookEvent({
+    const retryable =
+      result.status === "failed"
+        ? (result.retryable ?? isRetryableWebhookFailure(result.errorCode))
+        : false;
+
+    const finalized = await finalizeWebhookEvent({
       providerEventId: event.id,
       status: result.status,
       errorCode: result.errorCode,
+      retryable,
+      processingAttempt,
     });
 
-    // Always 200 after accepted+recorded so Stripe does not retry forever on
-    // business failures we already persisted as failed.
+    if (finalized.outcome === "stale_claim") {
+      // A newer claim owns the event; do not ACK — let Stripe retry if needed.
+      return new NextResponse("Stale webhook claim", { status: 503 });
+    }
+
+    if (result.status === "failed" && retryable) {
+      return new NextResponse("Webhook processing retryable failure", {
+        status: 500,
+      });
+    }
+
     return NextResponse.json({
       received: true,
       status: result.status,
       error_code: result.errorCode ?? null,
+      attempt: processingAttempt,
     });
   } catch (error) {
     console.error("[POST /api/webhooks/stripe] processing failed", {
       message: error instanceof Error ? error.message : "unknown",
       eventId: event.id,
     });
-    try {
-      await finalizeWebhookEvent({
-        providerEventId: event.id,
-        status: "failed",
-        errorCode: "processing_exception",
-      });
-    } catch {
-      // ignore secondary failure
-    }
+    // Without a known attempt we cannot safely finalize; return retryable.
     return new NextResponse("Webhook processing error", { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,7 +23,6 @@ import {
 import {
   TENANT_BASE_DOMAIN,
   resolveTenantHost,
-  resolveTenantOrigin,
   tenantRequestContextFromLocation,
   type TenantRequestContext,
 } from "@/lib/tenant/domains";
@@ -37,15 +37,25 @@ const TIMEZONES = [
 const selectClassName =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
+type PendingTenant = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
 export function OnboardingForm() {
+  const searchParams = useSearchParams();
+  const canceled = searchParams.get("canceled") === "1";
+
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [createdSlug, setCreatedSlug] = useState<string | null>(null);
-  // null until mount keeps SSR/hydration stable; then mirror window.location once
+  const [preparingCheckout, setPreparingCheckout] = useState(false);
+  const [pending, setPending] = useState<PendingTenant | null>(null);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
   const [requestContext, setRequestContext] =
     useState<TenantRequestContext | null>(null);
 
@@ -62,20 +72,38 @@ export function OnboardingForm() {
   }, []);
 
   useEffect(() => {
-    if (!createdSlug) {
-      return;
+    let cancelled = false;
+
+    async function loadPending() {
+      try {
+        const response = await fetch("/api/onboarding", {
+          headers: { Accept: "application/json" },
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          return;
+        }
+        const body = (await response.json()) as {
+          pending?: { tenant?: PendingTenant } | null;
+        };
+        if (!cancelled && body.pending?.tenant?.slug) {
+          setPending(body.pending.tenant);
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) {
+          setPendingLoaded(true);
+        }
+      }
     }
 
-    const origin = resolveTenantOrigin(
-      createdSlug,
-      tenantRequestContextFromLocation(window.location)
-    );
-    const timeout = window.setTimeout(() => {
-      window.location.assign(origin);
-    }, 1600);
-
-    return () => window.clearTimeout(timeout);
-  }, [createdSlug]);
+    void loadPending();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleNameChange(value: string) {
     setName(value);
@@ -88,6 +116,51 @@ export function OnboardingForm() {
   function handleSlugChange(value: string) {
     setSlugTouched(true);
     setSlug(normalizeSlugInput(value));
+  }
+
+  async function redirectToCheckout(checkoutUrl: string) {
+    setPreparingCheckout(true);
+    window.location.assign(checkoutUrl);
+  }
+
+  async function resumeCheckout() {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ resume: true }),
+      });
+
+      let payload: {
+        code?: unknown;
+        error?: unknown;
+        checkout_url?: unknown;
+      } = {};
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        payload = {};
+      }
+
+      if (!response.ok) {
+        setError(onboardingUserFacingError(response.status, payload));
+        return;
+      }
+
+      if (typeof payload.checkout_url === "string") {
+        await redirectToCheckout(payload.checkout_url);
+        return;
+      }
+
+      setError("No se pudo preparar el pago.");
+    } catch {
+      setError("No se pudo preparar el pago.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -125,8 +198,13 @@ export function OnboardingForm() {
         }),
       });
 
-      let payload: { code?: unknown; error?: unknown; tenant?: { slug?: unknown } } =
-        {};
+      let payload: {
+        code?: unknown;
+        error?: unknown;
+        checkout_url?: unknown;
+        checkout_pending?: unknown;
+        tenant?: PendingTenant;
+      } = {};
 
       try {
         payload = (await response.json()) as typeof payload;
@@ -139,17 +217,23 @@ export function OnboardingForm() {
         return;
       }
 
-      const responseSlug =
-        typeof payload.tenant?.slug === "string"
-          ? finalizeSlug(payload.tenant.slug)
-          : "";
+      if (payload.tenant?.slug) {
+        setPending(payload.tenant);
+      }
 
-      if (!responseSlug) {
-        setError("No se pudo crear la organización.");
+      if (typeof payload.checkout_url === "string") {
+        await redirectToCheckout(payload.checkout_url);
         return;
       }
 
-      setCreatedSlug(responseSlug);
+      if (payload.checkout_pending) {
+        setError(
+          "La organización se creó, pero el pago no pudo iniciarse. Pulsa Continuar con el pago."
+        );
+        return;
+      }
+
+      setError("No se pudo preparar el pago.");
     } catch {
       setError("No se pudo crear la organización.");
     } finally {
@@ -157,26 +241,45 @@ export function OnboardingForm() {
     }
   }
 
-  if (createdSlug) {
-    const origin = resolveTenantOrigin(createdSlug, requestContext);
-    const host = resolveTenantHost(createdSlug, requestContext);
-
+  if (preparingCheckout) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Organización creada</CardTitle>
+          <CardTitle className="text-2xl">Preparando pago…</CardTitle>
           <CardDescription>
-            Te estamos llevando a tu espacio de Copyflow.
+            Te estamos llevando a Stripe Checkout para Gestcopy Basic (39 €/mes).
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  if (pendingLoaded && pending) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Continuar alta</CardTitle>
+          <CardDescription>
+            {canceled
+              ? "El pago no se completó."
+              : "Tienes un espacio pendiente de activación."}{" "}
+            Completa Gestcopy Basic para activar{" "}
+            <span className="font-medium text-foreground">{pending.name}</span>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Tu copistería ya está lista en{" "}
-            <span className="font-medium text-foreground">{host}</span>
-            .
+            Identificador:{" "}
+            <span className="font-medium text-foreground">{pending.slug}</span>
           </p>
-          <Button asChild className="w-full">
-            <a href={origin}>Entrar ahora</a>
+          {error ? <p className="text-sm text-red-500">{error}</p> : null}
+          <Button
+            type="button"
+            className="w-full"
+            disabled={isLoading}
+            onClick={() => void resumeCheckout()}
+          >
+            {isLoading ? "Preparando…" : "Continuar con el pago"}
           </Button>
         </CardContent>
       </Card>
@@ -188,11 +291,14 @@ export function OnboardingForm() {
       <CardHeader>
         <CardTitle className="text-2xl">Crear organización</CardTitle>
         <CardDescription>
-          Da de alta tu copistería. Este identificador será la dirección de tu
-          espacio.
+          Da de alta tu copistería. Tras crear el espacio completarás el pago de
+          Gestcopy Basic (39 €/mes).
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {canceled ? (
+          <p className="mb-4 text-sm text-red-500">El pago no se completó.</p>
+        ) : null}
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           <div className="grid gap-2">
             <Label htmlFor="business-name">Nombre del negocio</Label>
@@ -248,7 +354,7 @@ export function OnboardingForm() {
           {error ? <p className="text-sm text-red-500">{error}</p> : null}
 
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Creando..." : "Crear organización"}
+            {isLoading ? "Creando…" : "Crear y continuar al pago"}
           </Button>
         </form>
       </CardContent>

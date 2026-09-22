@@ -2,7 +2,10 @@ import "server-only";
 
 import Stripe from "stripe";
 
+import { activateTenantAfterBilling } from "@/lib/onboarding/activate";
+import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { finalizeCheckoutAttempt } from "@/lib/billing/checkout-attempts";
 import { resolvePlanFromStripePriceId } from "@/lib/billing/resolve-plan-from-price";
 import {
   mapStripeSubscriptionStatus,
@@ -10,11 +13,21 @@ import {
 } from "@/lib/billing/stripe-status";
 import { stripeCancelAtToIso } from "@/lib/billing/cancellation-display";
 import { resolveTenantIdFromWebhookSources } from "@/lib/billing/tenant-from-webhook";
+import { isRetryableWebhookFailure } from "@/lib/billing/webhook-errors";
 
 export type WebhookProcessResult = {
   status: "processed" | "ignored" | "failed";
   errorCode?: string;
+  retryable?: boolean;
 };
+
+export type WebhookClaimOutcome =
+  | "claimed"
+  | "already_final"
+  | "in_progress"
+  | "rejected";
+
+export { isRetryableWebhookFailure };
 
 const SUPPORTED_TYPES = new Set([
   "checkout.session.completed",
@@ -112,16 +125,28 @@ async function syncSubscriptionFromStripe(input: {
   });
 
   if (!tenantResolve.ok) {
-    return { status: "failed", errorCode: tenantResolve.errorCode };
+    return {
+      status: "failed",
+      errorCode: tenantResolve.errorCode,
+      retryable: false,
+    };
   }
 
   if (!(await tenantExists(tenantResolve.tenantId))) {
-    return { status: "failed", errorCode: "tenant_not_found" };
+    return {
+      status: "failed",
+      errorCode: "tenant_not_found",
+      retryable: false,
+    };
   }
 
   const priceId = primaryPriceId(subscription);
   if (!priceId) {
-    return { status: "failed", errorCode: "missing_price_id" };
+    return {
+      status: "failed",
+      errorCode: "missing_price_id",
+      retryable: false,
+    };
   }
 
   const plan = await resolvePlanFromStripePriceId({
@@ -130,12 +155,20 @@ async function syncSubscriptionFromStripe(input: {
   });
 
   if (!plan) {
-    return { status: "failed", errorCode: "unknown_price_mapping" };
+    return {
+      status: "failed",
+      errorCode: "unknown_price_mapping",
+      retryable: false,
+    };
   }
 
   const status = mapStripeSubscriptionStatus(subscription.status);
   if (!status) {
-    return { status: "failed", errorCode: "unmapped_subscription_status" };
+    return {
+      status: "failed",
+      errorCode: "unmapped_subscription_status",
+      retryable: false,
+    };
   }
 
   const customerId = customerIdFrom(subscription.customer);
@@ -165,7 +198,11 @@ async function syncSubscriptionFromStripe(input: {
       message: error.message,
       code: error.code,
     });
-    return { status: "failed", errorCode: "sync_rpc_failed" };
+    return {
+      status: "failed",
+      errorCode: "sync_rpc_failed",
+      retryable: true,
+    };
   }
 
   if (
@@ -174,7 +211,34 @@ async function syncSubscriptionFromStripe(input: {
     !Array.isArray(data) &&
     (data as { stale?: boolean }).stale === true
   ) {
-    return { status: "ignored", errorCode: "stale_event" };
+    return { status: "ignored", errorCode: "stale_event", retryable: false };
+  }
+
+  if (isQualifyingActivationStatus(status)) {
+    const activation = await activateTenantAfterBilling({
+      tenantId: tenantResolve.tenantId,
+      providerSubscriptionId: subscription.id,
+      subscriptionStatus: status,
+    });
+
+    if (!activation) {
+      return {
+        status: "failed",
+        errorCode: "tenant_activation_failed",
+        retryable: true,
+      };
+    }
+
+    if (
+      activation.outcome === "rejected" &&
+      activation.reason === "tenant_not_found"
+    ) {
+      return {
+        status: "failed",
+        errorCode: "tenant_not_found",
+        retryable: false,
+      };
+    }
   }
 
   return { status: "processed" };
@@ -196,81 +260,171 @@ export async function processStripeEvent(input: {
   const { stripe, event } = input;
 
   if (!SUPPORTED_TYPES.has(event.type)) {
-    return { status: "ignored", errorCode: "unsupported_event_type" };
+    return {
+      status: "ignored",
+      errorCode: "unsupported_event_type",
+      retryable: false,
+    };
   }
 
   const eventCreatedAt = stripeEventCreatedAt(event.created);
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    if (session.mode !== "subscription") {
-      return { status: "ignored", errorCode: "checkout_not_subscription" };
+  try {
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode !== "subscription") {
+        return {
+          status: "ignored",
+          errorCode: "checkout_not_subscription",
+          retryable: false,
+        };
+      }
+
+      await finalizeCheckoutAttempt({
+        sessionId: session.id,
+        status: "completed",
+      });
+
+      const subscriptionRef = session.subscription;
+      const subscriptionId =
+        typeof subscriptionRef === "string"
+          ? subscriptionRef
+          : subscriptionRef?.id;
+
+      if (!subscriptionId) {
+        return {
+          status: "failed",
+          errorCode: "checkout_missing_subscription",
+          retryable: false,
+        };
+      }
+
+      const subscription = await loadStripeSubscription(stripe, subscriptionId);
+      return syncSubscriptionFromStripe({
+        subscription,
+        livemode: event.livemode,
+        eventCreatedAt,
+        sessionClientReferenceId: session.client_reference_id,
+        sessionMetadataTenantId: session.metadata?.tenant_id,
+      });
     }
 
-    const subscriptionRef = session.subscription;
-    const subscriptionId =
-      typeof subscriptionRef === "string"
-        ? subscriptionRef
-        : subscriptionRef?.id;
-
-    if (!subscriptionId) {
-      return { status: "failed", errorCode: "checkout_missing_subscription" };
+    if (
+      event.type === "customer.subscription.created" ||
+      event.type === "customer.subscription.updated" ||
+      event.type === "customer.subscription.deleted"
+    ) {
+      const subscription = event.data.object as Stripe.Subscription;
+      return syncSubscriptionFromStripe({
+        subscription,
+        livemode: event.livemode,
+        eventCreatedAt,
+      });
     }
 
-    const subscription = await loadStripeSubscription(stripe, subscriptionId);
-    return syncSubscriptionFromStripe({
-      subscription,
-      livemode: event.livemode,
-      eventCreatedAt,
-      sessionClientReferenceId: session.client_reference_id,
-      sessionMetadataTenantId: session.metadata?.tenant_id,
-    });
-  }
+    if (
+      event.type === "invoice.paid" ||
+      event.type === "invoice.payment_failed"
+    ) {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionRef =
+        (invoice as { subscription?: string | Stripe.Subscription | null })
+          .subscription ?? null;
+      const subscriptionId =
+        typeof subscriptionRef === "string"
+          ? subscriptionRef
+          : subscriptionRef && typeof subscriptionRef === "object"
+            ? subscriptionRef.id
+            : null;
 
-  if (
-    event.type === "customer.subscription.created" ||
-    event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted"
-  ) {
-    const subscription = event.data.object as Stripe.Subscription;
-    // deleted still carries final status (usually canceled)
-    return syncSubscriptionFromStripe({
-      subscription,
-      livemode: event.livemode,
-      eventCreatedAt,
-    });
-  }
+      if (!subscriptionId) {
+        return {
+          status: "ignored",
+          errorCode: "invoice_without_subscription",
+          retryable: false,
+        };
+      }
 
-  if (
-    event.type === "invoice.paid" ||
-    event.type === "invoice.payment_failed"
-  ) {
-    const invoice = event.data.object as Stripe.Invoice;
-    const subscriptionRef =
-      (invoice as { subscription?: string | Stripe.Subscription | null })
-        .subscription ?? null;
-    const subscriptionId =
-      typeof subscriptionRef === "string"
-        ? subscriptionRef
-        : subscriptionRef && typeof subscriptionRef === "object"
-          ? subscriptionRef.id
-          : null;
-
-    if (!subscriptionId) {
-      return { status: "ignored", errorCode: "invoice_without_subscription" };
+      const subscription = await loadStripeSubscription(stripe, subscriptionId);
+      return syncSubscriptionFromStripe({
+        subscription,
+        livemode: event.livemode,
+        eventCreatedAt,
+      });
     }
 
-    const subscription = await loadStripeSubscription(stripe, subscriptionId);
-    return syncSubscriptionFromStripe({
-      subscription,
-      livemode: event.livemode,
-      eventCreatedAt,
+    return {
+      status: "ignored",
+      errorCode: "unsupported_event_type",
+      retryable: false,
+    };
+  } catch (error) {
+    console.error("[billing.webhook] processStripeEvent exception", {
+      message: error instanceof Error ? error.message : "unknown",
+      type: event.type,
     });
+    return {
+      status: "failed",
+      errorCode: "processing_exception",
+      retryable: true,
+    };
   }
-
-  return { status: "ignored", errorCode: "unsupported_event_type" };
 }
 
+export async function claimWebhookEvent(input: {
+  providerEventId: string;
+  eventType: string;
+  livemode: boolean;
+  providerCreatedAt: Date | null;
+  objectId: string | null;
+}): Promise<{
+  outcome: WebhookClaimOutcome;
+  status?: string;
+  retryable?: boolean;
+  errorCode?: string;
+  attempt?: number;
+}> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("claim_billing_webhook_event_v1", {
+    p_provider: "stripe",
+    p_provider_event_id: input.providerEventId,
+    p_event_type: input.eventType,
+    p_livemode: input.livemode,
+    p_provider_created_at: input.providerCreatedAt?.toISOString() ?? null,
+    p_object_id: input.objectId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to claim webhook event: ${error.message}`);
+  }
+
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  const outcome =
+    typeof record.outcome === "string"
+      ? (record.outcome as WebhookClaimOutcome)
+      : "rejected";
+
+  return {
+    outcome,
+    status: typeof record.status === "string" ? record.status : undefined,
+    retryable:
+      typeof record.retryable === "boolean" ? record.retryable : undefined,
+    errorCode:
+      typeof record.error_code === "string" ? record.error_code : undefined,
+    attempt:
+      typeof record.attempt === "number"
+        ? record.attempt
+        : typeof record.attempt === "string" && /^\d+$/.test(record.attempt)
+          ? Number(record.attempt)
+          : undefined,
+  };
+}
+
+/** @deprecated use claimWebhookEvent — kept for source-compat in older tests */
 export async function recordWebhookEventReceived(input: {
   providerEventId: string;
   eventType: string;
@@ -278,44 +432,50 @@ export async function recordWebhookEventReceived(input: {
   providerCreatedAt: Date | null;
   objectId: string | null;
 }): Promise<"inserted" | "duplicate"> {
-  const admin = createAdminClient();
-  const { error } = await admin.from("billing_webhook_events").insert({
-    provider: "stripe",
-    provider_event_id: input.providerEventId,
-    event_type: input.eventType,
-    livemode: input.livemode,
-    provider_created_at: input.providerCreatedAt?.toISOString() ?? null,
-    object_id: input.objectId,
-    status: "received",
-  });
-
-  if (error) {
-    if (error.code === "23505") {
-      return "duplicate";
-    }
-    throw new Error(`Failed to record webhook event: ${error.message}`);
+  const claim = await claimWebhookEvent(input);
+  if (claim.outcome === "claimed") {
+    return "inserted";
   }
-
-  return "inserted";
+  return "duplicate";
 }
 
 export async function finalizeWebhookEvent(input: {
   providerEventId: string;
   status: "processed" | "ignored" | "failed";
   errorCode?: string;
-}): Promise<void> {
+  retryable?: boolean;
+  processingAttempt: number;
+}): Promise<{ outcome: "finalized" | "stale_claim" | "rejected" }> {
   const admin = createAdminClient();
-  const { error } = await admin
-    .from("billing_webhook_events")
-    .update({
-      status: input.status,
-      error_code: input.errorCode ?? null,
-      processed_at: new Date().toISOString(),
-    })
-    .eq("provider", "stripe")
-    .eq("provider_event_id", input.providerEventId);
+  const retryable =
+    input.status === "failed"
+      ? (input.retryable ?? isRetryableWebhookFailure(input.errorCode))
+      : false;
+
+  const { data, error } = await admin.rpc("finalize_billing_webhook_event_v1", {
+    p_provider: "stripe",
+    p_provider_event_id: input.providerEventId,
+    p_status: input.status,
+    p_error_code: input.errorCode ?? null,
+    p_retryable: retryable,
+    p_processing_attempt: input.processingAttempt,
+  });
 
   if (error) {
     throw new Error(`Failed to finalize webhook event: ${error.message}`);
   }
+
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  const outcome =
+    typeof record.outcome === "string" ? record.outcome : "rejected";
+
+  if (outcome === "finalized" || outcome === "stale_claim") {
+    return { outcome };
+  }
+
+  return { outcome: "rejected" };
 }

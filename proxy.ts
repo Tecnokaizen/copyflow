@@ -2,7 +2,14 @@ import { updateSession } from "@/lib/supabase/proxy";
 import { loadKioskBootstrap } from "@/lib/kiosk/server";
 import { trustedKioskRequestContext } from "@/lib/kiosk/trusted-request";
 import { kioskUnavailableResponse } from "@/lib/kiosk/unavailable-response";
-import { type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { hasEnvVars } from "@/lib/utils";
+import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import {
+  isTenantAppExemptPath,
+  resolveInactiveTenantState,
+} from "@/lib/tenant/inactive-gate";
+import { type NextRequest, NextResponse } from "next/server";
 
 function isKioskPagePath(pathname: string) {
   return pathname === "/kiosk" || pathname === "/kiosk/";
@@ -26,7 +33,54 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  return await updateSession(request);
+  const sessionResponse = await updateSession(request);
+
+  // Central provisioning gate: inactive tenants must not render the app UI.
+  if (
+    hasEnvVars &&
+    !isTenantAppExemptPath(request.nextUrl.pathname) &&
+    sessionResponse.status >= 200 &&
+    sessionResponse.status < 400
+  ) {
+    const host =
+      request.headers.get("x-forwarded-host") ??
+      request.headers.get("host") ??
+      "";
+    const slug = getSubdomainFromHostname(host);
+    if (slug) {
+      try {
+        const supabase = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+          {
+            cookies: {
+              getAll() {
+                return request.cookies.getAll();
+              },
+              setAll() {
+                // session cookies already applied by updateSession
+              },
+            },
+          }
+        );
+        const reason = await resolveInactiveTenantState(supabase, slug);
+        if (reason) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/tenant-inactive";
+          url.search = `?reason=${encodeURIComponent(reason)}`;
+          const redirect = NextResponse.redirect(url);
+          sessionResponse.cookies.getAll().forEach((cookie) => {
+            redirect.cookies.set(cookie.name, cookie.value);
+          });
+          return redirect;
+        }
+      } catch (error) {
+        console.error("[proxy] inactive tenant gate failed", { error });
+      }
+    }
+  }
+
+  return sessionResponse;
 }
 
 export const config = {

@@ -4,10 +4,10 @@ import { resolveRequestTenantSlug } from "@/lib/tenant/request-host";
 /**
  * Resolves the tenant for the current request host.
  *
- * Billing note (B2+): paid onboarding will create tenants with `active=false`
- * until a verified Stripe webhook activates them. This helper does not yet
- * filter on `tenants.active`. That gate must stay separate from
- * `subscriptions.status` (commercial state ≠ administrative availability).
+ * Paid onboarding creates tenants with `active=false` until a verified Stripe
+ * webhook activates them. Normal tenant application context requires
+ * `tenants.active = true`. This gate is administrative/provisioning state only
+ * and must stay separate from `subscriptions.status`.
  */
 export async function getCurrentTenant() {
   const slug = await resolveRequestTenantSlug();
@@ -22,7 +22,8 @@ export async function getCurrentTenant() {
     .from("tenants")
     .select("id, name, slug")
     .eq("slug", slug)
-    .single();
+    .eq("active", true)
+    .maybeSingle();
 
   if (error || !tenant) {
     return null;

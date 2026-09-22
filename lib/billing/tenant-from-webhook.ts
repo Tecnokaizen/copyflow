@@ -33,3 +33,15 @@ export function resolveTenantIdFromWebhookSources(input: {
 
   return { ok: true, tenantId };
 }
+
+/** Checkout Session tenant refs only (no subscription metadata). Fail closed. */
+export function resolveTenantIdFromCheckoutSession(input: {
+  client_reference_id?: string | null;
+  metadata?: { tenant_id?: string | null } | null;
+}): { ok: true; tenantId: string } | { ok: false; errorCode: string } {
+  return resolveTenantIdFromWebhookSources({
+    subscriptionTenantId: null,
+    sessionClientReferenceId: input.client_reference_id,
+    sessionMetadataTenantId: input.metadata?.tenant_id,
+  });
+}
