@@ -66,8 +66,7 @@ begin
   v_result := public.create_organization(
     'Phase25 Paid',
     'phase25-paid',
-    'Europe/Madrid',
-    'commercial'
+    'Europe/Madrid'
   );
 
   v_tenant_id := (v_result ->> 'tenant_id')::uuid;
@@ -95,6 +94,11 @@ begin
     raise exception 'phase25: owner membership missing';
   end if;
 
+  -- Seed rows are written by DEFINER; verify as postgres (pending owner RLS
+  -- must NOT see operational catalogs until active=true).
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+
   select count(*) into v_seed_statuses
   from public.order_statuses where tenant_id = v_tenant_id;
   select count(*) into v_seed_stores
@@ -114,6 +118,10 @@ begin
   if v_sub_count <> 0 then
     raise exception 'phase25: commercial tenant must not get MVP subscription';
   end if;
+
+  perform set_config('request.jwt.claim.sub', v_owner::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('role', 'authenticated', true);
 
   -- Activation permissions: authenticated must not execute
   begin
@@ -205,8 +213,7 @@ begin
   v_result := public.create_organization(
     'Phase25 Active Path',
     'phase25-active-path',
-    'Europe/Madrid',
-    'commercial'
+    'Europe/Madrid'
   );
   v_tenant_id := (v_result ->> 'tenant_id')::uuid;
 

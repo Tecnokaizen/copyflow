@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  CheckoutConflictError,
+  CURRENT_SUBSCRIPTION_EXISTS_CODE,
   appHostOriginFromRequest,
   createCheckoutSessionForTenant,
 } from "@/lib/billing/checkout";
@@ -226,6 +228,15 @@ export async function POST(request: NextRequest) {
         200
       );
     } catch (error) {
+      if (error instanceof CheckoutConflictError) {
+        return json(
+          {
+            error: "Current subscription already exists",
+            code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+          },
+          409
+        );
+      }
       console.error("[POST /api/onboarding] resume checkout failed", {
         userId: user.id,
         message: error instanceof Error ? error.message : "unknown",
@@ -244,7 +255,6 @@ export async function POST(request: NextRequest) {
     p_name: parsed.name,
     p_slug: parsed.slug,
     p_timezone: parsed.timezone,
-    p_provisioning_mode: "commercial",
   });
 
   if (error || !data) {
@@ -276,6 +286,15 @@ export async function POST(request: NextRequest) {
           );
         }
       } catch (resumeError) {
+        if (resumeError instanceof CheckoutConflictError) {
+          return json(
+            {
+              error: "Current subscription already exists",
+              code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+            },
+            409
+          );
+        }
         console.error("[POST /api/onboarding] auto-resume failed", {
           userId: user.id,
           message:
@@ -340,6 +359,20 @@ export async function POST(request: NextRequest) {
       201
     );
   } catch (checkoutError) {
+    if (checkoutError instanceof CheckoutConflictError) {
+      return json(
+        {
+          error: "Current subscription already exists",
+          code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+          tenant: {
+            id: tenantId,
+            slug,
+            name,
+          },
+        },
+        409
+      );
+    }
     console.error("[POST /api/onboarding] checkout after create failed", {
       userId: user.id,
       tenantId,

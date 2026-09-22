@@ -5,9 +5,10 @@ import { getStripe } from "@/lib/billing/stripe";
 import { assertStripeConfig } from "@/lib/billing/stripe-config";
 import { stripeEventCreatedAt } from "@/lib/billing/stripe-status";
 import {
+  claimWebhookEvent,
   finalizeWebhookEvent,
+  isRetryableWebhookFailure,
   processStripeEvent,
-  recordWebhookEventReceived,
 } from "@/lib/billing/webhook";
 
 function objectIdFromEvent(event: Stripe.Event): string | null {
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const recorded = await recordWebhookEventReceived({
+    const claim = await claimWebhookEvent({
       providerEventId: event.id,
       eventType: event.type,
       livemode: event.livemode,
@@ -52,8 +53,23 @@ export async function POST(request: NextRequest) {
       objectId: objectIdFromEvent(event),
     });
 
-    if (recorded === "duplicate") {
-      return NextResponse.json({ received: true, duplicate: true });
+    if (claim.outcome === "already_final") {
+      return NextResponse.json({
+        received: true,
+        duplicate: true,
+        status: claim.status ?? null,
+      });
+    }
+
+    if (claim.outcome === "in_progress") {
+      return NextResponse.json({
+        received: true,
+        in_progress: true,
+      });
+    }
+
+    if (claim.outcome !== "claimed") {
+      return new NextResponse("Could not claim webhook event", { status: 500 });
     }
 
     const result = await processStripeEvent({
@@ -61,14 +77,24 @@ export async function POST(request: NextRequest) {
       event,
     });
 
+    const retryable =
+      result.status === "failed"
+        ? (result.retryable ?? isRetryableWebhookFailure(result.errorCode))
+        : false;
+
     await finalizeWebhookEvent({
       providerEventId: event.id,
       status: result.status,
       errorCode: result.errorCode,
+      retryable,
     });
 
-    // Always 200 after accepted+recorded so Stripe does not retry forever on
-    // business failures we already persisted as failed.
+    if (result.status === "failed" && retryable) {
+      return new NextResponse("Webhook processing retryable failure", {
+        status: 500,
+      });
+    }
+
     return NextResponse.json({
       received: true,
       status: result.status,
@@ -84,6 +110,7 @@ export async function POST(request: NextRequest) {
         providerEventId: event.id,
         status: "failed",
         errorCode: "processing_exception",
+        retryable: true,
       });
     } catch {
       // ignore secondary failure

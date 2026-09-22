@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
 import {
+  CheckoutConflictError,
+  CURRENT_SUBSCRIPTION_EXISTS_CODE,
   createCheckoutSessionForTenant,
   parseCheckoutRequest,
 } from "@/lib/billing/checkout";
@@ -51,6 +53,15 @@ export async function POST(request: NextRequest) {
 
     return json({ url: session.url, session_id: session.sessionId }, 200);
   } catch (error) {
+    if (error instanceof CheckoutConflictError) {
+      return json(
+        {
+          error: "Current subscription already exists",
+          code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+        },
+        409
+      );
+    }
     console.error("[POST /api/billing/checkout-session] failed", {
       message: error instanceof Error ? error.message : "unknown",
     });

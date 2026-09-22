@@ -4,15 +4,30 @@ import { NextRequest } from "next/server";
 
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
 import { parseCheckoutRequest } from "@/lib/billing/checkout-parse";
+import {
+  CURRENT_SUBSCRIPTION_EXISTS_CODE,
+  tenantHasCurrentStripeSubscription,
+} from "@/lib/billing/current-subscription";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
 import type {
   BillingIntervalAllowed,
   BillingPlanCode,
 } from "@/lib/billing/access";
+import { CURRENT_SUBSCRIPTION_EXISTS_CODE as CONFLICT_CODE } from "@/lib/billing/webhook-errors";
 import { tenantOrigin } from "@/lib/tenant/domains";
 
 export { parseCheckoutRequest };
+export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
+
+export class CheckoutConflictError extends Error {
+  readonly code = CONFLICT_CODE;
+
+  constructor() {
+    super("Current Stripe subscription already exists");
+    this.name = "CheckoutConflictError";
+  }
+}
 
 function requestOrigin(request: NextRequest, tenantSlug: string): string {
   const host =
@@ -47,6 +62,10 @@ export async function createCheckoutSessionForTenant(input: {
   /** Absolute cancel URL. */
   cancelUrl?: string;
 }): Promise<{ url: string; sessionId: string }> {
+  if (await tenantHasCurrentStripeSubscription(input.tenantId)) {
+    throw new CheckoutConflictError();
+  }
+
   const price = await resolveStripePrice({
     planCode: input.planCode,
     interval: input.billingInterval,

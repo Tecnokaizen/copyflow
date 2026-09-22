@@ -161,7 +161,7 @@ describe("paid onboarding helpers", () => {
     const route = readSource("app/api/onboarding/route.ts");
     assert.match(route, /\/onboarding\/success\?session_id=/);
     assert.match(route, /\/onboarding\?canceled=1/);
-    assert.match(route, /p_provisioning_mode:\s*"commercial"/);
+    assert.doesNotMatch(route, /p_provisioning_mode/);
     assert.match(route, /resume === true/);
     assert.doesNotMatch(route, /tenant_id.*request\.json/);
     assert.doesNotMatch(route, /body\.tenant_id/);
@@ -170,6 +170,7 @@ describe("paid onboarding helpers", () => {
     assert.match(checkout, /successUrl/);
     assert.match(checkout, /cancelUrl/);
     assert.match(checkout, /client_reference_id: input\.tenantId/);
+    assert.match(checkout, /tenantHasCurrentStripeSubscription/);
   });
 
   it("status endpoint validates Stripe session and Owner; session_id alone cannot activate", () => {
@@ -215,20 +216,23 @@ describe("paid onboarding helpers", () => {
     const migration = readSource(
       "supabase/migrations/20260922092803_paid_onboarding_v1.sql"
     );
-    assert.match(migration, /p_provisioning_mode/);
-    assert.match(migration, /v_tenant_active := \(v_mode = 'internal'\)/);
     assert.match(migration, /activate_tenant_after_billing_v1/);
-    assert.match(migration, /never deactivates/i);
-    assert.match(
-      migration,
-      /REVOKE ALL ON FUNCTION public\.activate_tenant_after_billing_v1[\s\S]*authenticated/i
-    );
     assert.match(
       migration,
       /GRANT EXECUTE ON FUNCTION public\.activate_tenant_after_billing_v1[\s\S]*service_role/i
     );
-    assert.doesNotMatch(migration, /update public\.tenants[\s\S]*active = false/i);
-    assert.doesNotMatch(migration, /slug = 'demo'/);
-    assert.doesNotMatch(migration, /slug = 'sur4'/);
+
+    const hardening = readSource(
+      "supabase/migrations/20260922095504_paid_onboarding_security_hardening_v1.sql"
+    );
+    assert.match(hardening, /create_organization \(/);
+    assert.doesNotMatch(hardening, /p_provisioning_mode/);
+    assert.match(hardening, /create_internal_organization_v1/);
+    assert.match(hardening, /is_active_tenant_member/);
+    assert.match(hardening, /has_active_tenant_role/);
+    assert.match(hardening, /claim_billing_webhook_event_v1/);
+    assert.match(hardening, /tenant active is immutable/);
+    assert.doesNotMatch(hardening, /slug = 'demo'/);
+    assert.doesNotMatch(hardening, /slug = 'sur4'/);
   });
 });
