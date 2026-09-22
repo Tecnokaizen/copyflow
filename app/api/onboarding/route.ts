@@ -112,9 +112,6 @@ async function startOnboardingCheckout(input: {
   customerEmail?: string | null;
 }): Promise<{ url: string; sessionId: string }> {
   const origin = appHostOriginFromRequest(input.request);
-  if (!origin) {
-    throw new Error("missing_request_origin");
-  }
 
   return createCheckoutSessionForTenant({
     request: input.request,

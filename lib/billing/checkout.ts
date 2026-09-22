@@ -18,7 +18,10 @@ import type {
   BillingPlanCode,
 } from "@/lib/billing/access";
 import { CURRENT_SUBSCRIPTION_EXISTS_CODE } from "@/lib/billing/webhook-errors";
-import { tenantOrigin } from "@/lib/tenant/domains";
+import {
+  resolveTrustedAppOrigin,
+  resolveTrustedTenantOrigin,
+} from "@/lib/tenant/request-origin";
 
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
@@ -51,25 +54,9 @@ export class CheckoutTransientError extends Error {
   }
 }
 
-function requestOrigin(request: NextRequest, tenantSlug: string): string {
-  const host =
-    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (host) {
-    const proto = request.headers.get("x-forwarded-proto") ?? "https";
-    return `${proto}://${host.split(",")[0]!.trim()}`;
-  }
-  return tenantOrigin(tenantSlug);
-}
-
-/** App-host origin from the current request (no tenant slug fallback). */
-export function appHostOriginFromRequest(request: NextRequest): string | null {
-  const host =
-    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!host) {
-    return null;
-  }
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
-  return `${proto}://${host.split(",")[0]!.trim()}`;
+/** @deprecated Prefer resolveTrustedAppOrigin — kept for onboarding call sites. */
+export function appHostOriginFromRequest(request: NextRequest): string {
+  return resolveTrustedAppOrigin(request);
 }
 
 async function createStripeCheckoutForAttempt(input: {
@@ -94,7 +81,7 @@ async function createStripeCheckoutForAttempt(input: {
   const existingCustomerId = await resolveStripeCustomerIdForTenant(
     input.tenantId
   );
-  const origin = requestOrigin(input.request, input.tenantSlug);
+  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
   const successUrl =
     input.successUrl ??
     `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
@@ -225,7 +212,7 @@ export async function createPortalSessionForTenant(input: {
   }
 
   const stripe = getStripe();
-  const origin = requestOrigin(input.request, input.tenantSlug);
+  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
 
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,

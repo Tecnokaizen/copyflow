@@ -179,6 +179,8 @@ describe("paid onboarding helpers", () => {
     assert.match(status, /checkout\.sessions\.retrieve/);
     assert.match(status, /role", "owner"/);
     assert.match(status, /tenant\.active === true/);
+    assert.match(status, /resolveTenantIdFromCheckoutSession/);
+    assert.match(status, /mode !== "subscription"/);
     assert.doesNotMatch(status, /activate_tenant_after_billing/);
     assert.doesNotMatch(status, /UPDATE tenants/);
   });

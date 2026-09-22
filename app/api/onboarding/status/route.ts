@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { resolveTenantIdFromCheckoutSession } from "@/lib/billing/tenant-from-webhook";
 import { getStripe } from "@/lib/billing/stripe";
 import { assertStripeConfig } from "@/lib/billing/stripe-config";
 import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
@@ -21,18 +22,6 @@ function isTenantHostFromRequest(request: NextRequest) {
     request.headers.get("host") ??
     "";
   return getSubdomainFromHostname(hostname) !== null;
-}
-
-function tenantIdFromCheckoutSession(session: {
-  client_reference_id?: string | null;
-  metadata?: Record<string, string> | null;
-}): string | null {
-  const fromRef = session.client_reference_id?.trim();
-  if (fromRef) {
-    return fromRef;
-  }
-  const fromMeta = session.metadata?.tenant_id?.trim();
-  return fromMeta || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -72,10 +61,26 @@ export async function GET(request: NextRequest) {
     return json({ error: "Could not validate checkout session" }, 400);
   }
 
-  const tenantId = tenantIdFromCheckoutSession(stripeSession);
-  if (!tenantId) {
-    return json({ error: "Checkout session missing tenant reference" }, 400);
+  if (stripeSession.mode !== "subscription") {
+    return json({ error: "Checkout session is not a subscription" }, 400);
   }
+
+  const resolvedTenant = resolveTenantIdFromCheckoutSession({
+    client_reference_id: stripeSession.client_reference_id,
+    metadata: stripeSession.metadata,
+  });
+
+  if (!resolvedTenant.ok) {
+    return json(
+      {
+        error: "Checkout session tenant reference is invalid",
+        code: resolvedTenant.errorCode,
+      },
+      400
+    );
+  }
+
+  const tenantId = resolvedTenant.tenantId;
 
   const { data: membership, error: membershipError } = await supabase
     .from("memberships")
@@ -91,6 +96,20 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  // Correlate session against a Gestcopy checkout attempt for this tenant.
+  const { data: attempt, error: attemptError } = await admin
+    .from("billing_checkout_attempts")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("provider", "stripe")
+    .eq("provider_session_id", sessionId)
+    .maybeSingle();
+
+  if (attemptError || !attempt) {
+    return json({ error: "Checkout session is not recognized" }, 400);
+  }
+
   const { data: tenant, error: tenantError } = await admin
     .from("tenants")
     .select("id, slug, name, active")
@@ -106,7 +125,15 @@ export async function GET(request: NextRequest) {
     .select("status, provider")
     .eq("tenant_id", tenantId)
     .eq("provider", "stripe")
-    .in("status", ["trialing", "active", "past_due", "incomplete", "unpaid", "canceled", "paused"])
+    .in("status", [
+      "trialing",
+      "active",
+      "past_due",
+      "incomplete",
+      "unpaid",
+      "canceled",
+      "paused",
+    ])
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
