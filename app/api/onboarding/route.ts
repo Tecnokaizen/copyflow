@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mapOnboardingPostgresError } from "@/lib/onboarding/errors";
 import { createClient } from "@/lib/supabase/server";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
 
@@ -41,37 +42,6 @@ function parseOnboardingPayload(payload: unknown):
   const timezone = emptyToNull(record.timezone) ?? DEFAULT_TIMEZONE;
 
   return { ok: true, name, slug, timezone };
-}
-
-function statusForOnboardingError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return 401;
-    case "22023":
-    case "23514":
-      return 400;
-    case "23505":
-    case "54000":
-      return 409;
-    default:
-      return 500;
-  }
-}
-
-function errorMessageForOnboardingError(code: string | undefined) {
-  switch (code) {
-    case "28000":
-      return "Unauthorized";
-    case "22023":
-    case "23514":
-      return "Invalid value";
-    case "23505":
-      return "Slug already exists";
-    case "54000":
-      return "Organization limit reached";
-    default:
-      return "Could not create organization";
-  }
 }
 
 function isTenantHostFromRequest(request: NextRequest) {
@@ -130,16 +100,19 @@ export async function POST(request: NextRequest) {
   });
 
   if (error || !data) {
-    const status = statusForOnboardingError(error?.code);
+    const mapped = mapOnboardingPostgresError(error?.code);
 
     console.error("[POST /api/onboarding] Could not create organization", {
       userId: user.id,
       error,
+      code: mapped.code,
     });
 
     return NextResponse.json(
-      { error: errorMessageForOnboardingError(error?.code) },
-      { status }
+      mapped.code
+        ? { error: mapped.error, code: mapped.code }
+        : { error: mapped.error },
+      { status: mapped.status }
     );
   }
 
