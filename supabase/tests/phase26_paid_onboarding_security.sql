@@ -232,7 +232,7 @@ begin
 
   -- finalize failed retryable
   perform public.finalize_billing_webhook_event_v1(
-    'stripe', 'evt_phase26_1', 'failed', 'tenant_activation_failed', true
+    'stripe', 'evt_phase26_1', 'failed', 'tenant_activation_failed', true, 1
   );
 
   -- J) failed retryable can be reclaimed
@@ -244,7 +244,8 @@ begin
   end if;
 
   perform public.finalize_billing_webhook_event_v1(
-    'stripe', 'evt_phase26_1', 'processed', null, false
+    'stripe', 'evt_phase26_1', 'processed', null, false,
+    (v_claim ->> 'attempt')::integer
   );
 
   -- I) duplicate processed stays final
@@ -260,7 +261,8 @@ begin
     'stripe', 'evt_phase26_det', 'customer.subscription.updated', false, now(), 'sub_x'
   );
   perform public.finalize_billing_webhook_event_v1(
-    'stripe', 'evt_phase26_det', 'failed', 'unknown_price_mapping', false
+    'stripe', 'evt_phase26_det', 'failed', 'unknown_price_mapping', false,
+    (v_claim ->> 'attempt')::integer
   );
   v_claim := public.claim_billing_webhook_event_v1(
     'stripe', 'evt_phase26_det', 'customer.subscription.updated', false, now(), 'sub_x'

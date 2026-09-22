@@ -5,6 +5,11 @@ import { NextRequest } from "next/server";
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
 import { parseCheckoutRequest } from "@/lib/billing/checkout-parse";
 import {
+  prepareCheckoutAttempt,
+  registerCheckoutAttempt,
+  resolveReusableCheckoutSession,
+} from "@/lib/billing/checkout-attempts";
+import {
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   tenantHasCurrentStripeSubscription,
 } from "@/lib/billing/current-subscription";
@@ -50,6 +55,14 @@ export function appHostOriginFromRequest(request: NextRequest): string | null {
   return `${proto}://${host.split(",")[0]!.trim()}`;
 }
 
+function sessionExpiresAt(expiresAt: number | null | undefined): Date {
+  if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
+    return new Date(expiresAt * 1000);
+  }
+  // Stripe Checkout Sessions expire after ~24h by default.
+  return new Date(Date.now() + 24 * 60 * 60 * 1000);
+}
+
 export async function createCheckoutSessionForTenant(input: {
   request: NextRequest;
   tenantId: string;
@@ -64,6 +77,15 @@ export async function createCheckoutSessionForTenant(input: {
 }): Promise<{ url: string; sessionId: string }> {
   if (await tenantHasCurrentStripeSubscription(input.tenantId)) {
     throw new CheckoutConflictError();
+  }
+
+  const prepared = await prepareCheckoutAttempt(input.tenantId);
+  if (prepared.outcome === "reuse") {
+    const reused = await resolveReusableCheckoutSession(prepared.sessionId);
+    if (reused.ok) {
+      return { url: reused.url, sessionId: reused.sessionId };
+    }
+    // Expired/canceled locally finalized — fall through to create.
   }
 
   const price = await resolveStripePrice({
@@ -107,6 +129,27 @@ export async function createCheckoutSessionForTenant(input: {
 
   if (!session.url) {
     throw new Error("Stripe Checkout Session missing url");
+  }
+
+  const registered = await registerCheckoutAttempt({
+    tenantId: input.tenantId,
+    sessionId: session.id,
+    expiresAt: sessionExpiresAt(session.expires_at),
+    planCode: input.planCode,
+    billingInterval: input.billingInterval,
+  });
+
+  if (registered.outcome === "reuse" && registered.sessionId !== session.id) {
+    // Lost the race — prefer the winning open session.
+    try {
+      await stripe.checkout.sessions.expire(session.id);
+    } catch {
+      // best-effort
+    }
+    const winner = await resolveReusableCheckoutSession(registered.sessionId);
+    if (winner.ok) {
+      return { url: winner.url, sessionId: winner.sessionId };
+    }
   }
 
   return { url: session.url, sessionId: session.id };

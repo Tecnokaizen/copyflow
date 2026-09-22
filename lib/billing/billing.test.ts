@@ -415,6 +415,9 @@ describe("billing B2 access and status mapping", () => {
     assert.match(webhook, /constructEvent/);
     assert.match(webhook, /claimWebhookEvent/);
     assert.match(webhook, /retryable/);
+    assert.match(webhook, /status: 503/);
+    assert.match(webhook, /in_progress/);
+    assert.match(webhook, /processingAttempt/);
   });
 
   it("B2 storage migration assigns 5 GiB to basic only", () => {

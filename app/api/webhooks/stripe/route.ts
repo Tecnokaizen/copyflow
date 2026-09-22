@@ -61,16 +61,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Do not ACK Stripe while another worker still owns a fresh lease.
     if (claim.outcome === "in_progress") {
-      return NextResponse.json({
-        received: true,
-        in_progress: true,
+      return new NextResponse("Webhook event already being processed", {
+        status: 503,
       });
     }
 
-    if (claim.outcome !== "claimed") {
+    if (claim.outcome !== "claimed" || !claim.attempt) {
       return new NextResponse("Could not claim webhook event", { status: 500 });
     }
+
+    const processingAttempt = claim.attempt;
 
     const result = await processStripeEvent({
       stripe: getStripe(),
@@ -82,12 +84,18 @@ export async function POST(request: NextRequest) {
         ? (result.retryable ?? isRetryableWebhookFailure(result.errorCode))
         : false;
 
-    await finalizeWebhookEvent({
+    const finalized = await finalizeWebhookEvent({
       providerEventId: event.id,
       status: result.status,
       errorCode: result.errorCode,
       retryable,
+      processingAttempt,
     });
+
+    if (finalized.outcome === "stale_claim") {
+      // A newer claim owns the event; do not ACK — let Stripe retry if needed.
+      return new NextResponse("Stale webhook claim", { status: 503 });
+    }
 
     if (result.status === "failed" && retryable) {
       return new NextResponse("Webhook processing retryable failure", {
@@ -99,22 +107,14 @@ export async function POST(request: NextRequest) {
       received: true,
       status: result.status,
       error_code: result.errorCode ?? null,
+      attempt: processingAttempt,
     });
   } catch (error) {
     console.error("[POST /api/webhooks/stripe] processing failed", {
       message: error instanceof Error ? error.message : "unknown",
       eventId: event.id,
     });
-    try {
-      await finalizeWebhookEvent({
-        providerEventId: event.id,
-        status: "failed",
-        errorCode: "processing_exception",
-        retryable: true,
-      });
-    } catch {
-      // ignore secondary failure
-    }
+    // Without a known attempt we cannot safely finalize; return retryable.
     return new NextResponse("Webhook processing error", { status: 500 });
   }
 }

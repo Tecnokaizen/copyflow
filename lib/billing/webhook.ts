@@ -376,6 +376,7 @@ export async function claimWebhookEvent(input: {
   status?: string;
   retryable?: boolean;
   errorCode?: string;
+  attempt?: number;
 }> {
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("claim_billing_webhook_event_v1", {
@@ -408,6 +409,12 @@ export async function claimWebhookEvent(input: {
       typeof record.retryable === "boolean" ? record.retryable : undefined,
     errorCode:
       typeof record.error_code === "string" ? record.error_code : undefined,
+    attempt:
+      typeof record.attempt === "number"
+        ? record.attempt
+        : typeof record.attempt === "string" && /^\d+$/.test(record.attempt)
+          ? Number(record.attempt)
+          : undefined,
   };
 }
 
@@ -420,7 +427,7 @@ export async function recordWebhookEventReceived(input: {
   objectId: string | null;
 }): Promise<"inserted" | "duplicate"> {
   const claim = await claimWebhookEvent(input);
-  if (claim.outcome === "claimed" && !("reclaimed" in (claim as object))) {
+  if (claim.outcome === "claimed") {
     return "inserted";
   }
   return "duplicate";
@@ -431,22 +438,38 @@ export async function finalizeWebhookEvent(input: {
   status: "processed" | "ignored" | "failed";
   errorCode?: string;
   retryable?: boolean;
-}): Promise<void> {
+  processingAttempt: number;
+}): Promise<{ outcome: "finalized" | "stale_claim" | "rejected" }> {
   const admin = createAdminClient();
   const retryable =
     input.status === "failed"
       ? (input.retryable ?? isRetryableWebhookFailure(input.errorCode))
       : false;
 
-  const { error } = await admin.rpc("finalize_billing_webhook_event_v1", {
+  const { data, error } = await admin.rpc("finalize_billing_webhook_event_v1", {
     p_provider: "stripe",
     p_provider_event_id: input.providerEventId,
     p_status: input.status,
     p_error_code: input.errorCode ?? null,
     p_retryable: retryable,
+    p_processing_attempt: input.processingAttempt,
   });
 
   if (error) {
     throw new Error(`Failed to finalize webhook event: ${error.message}`);
   }
+
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  const outcome =
+    typeof record.outcome === "string" ? record.outcome : "rejected";
+
+  if (outcome === "finalized" || outcome === "stale_claim") {
+    return { outcome };
+  }
+
+  return { outcome: "rejected" };
 }
