@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   try {
     admin = createAdminClient();
   } catch {
-    console.error("[POST /api/invitations/signup] missing service role");
+    console.error("[POST /api/invitations/signup] missing supabase secret key");
     return NextResponse.json(
       { error: "No se pudo activar el acceso." },
       { status: 500 }

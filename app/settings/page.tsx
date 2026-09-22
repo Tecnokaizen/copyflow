@@ -6,6 +6,7 @@ import { AppShell } from "@/components/gestcopy/app-shell";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
+import { canManageBilling } from "@/lib/billing/access";
 import { canManageSettingsCatalogs } from "@/lib/auth/membership-roles";
 import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
   const canManageQuickOrder = canManageQuickOrderLayout(
     context.membership.role
   );
+  const showBilling = canManageBilling(context.membership.role);
 
   return (
     <AppShell>
@@ -34,6 +36,18 @@ export default async function SettingsPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2">
+        {showBilling ? (
+          <SectionCard
+            title="Facturación"
+            description="Consulta el plan comercial y gestiona la suscripción Gestcopy Basic a través de Stripe."
+            bodyClassName="p-5 sm:p-6"
+          >
+            <Button asChild>
+              <Link href="/settings/billing">Ver facturación</Link>
+            </Button>
+          </SectionCard>
+        ) : null}
+
         <SectionCard
           title="Estados de pedido"
           description="Define el flujo operativo: estado inicial, estados intermedios, listo, entregado y cancelado."
