@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { onboardingUserFacingError } from "@/lib/onboarding/errors";
 import {
   DEFAULT_TIMEZONE,
   finalizeSlug,
@@ -20,8 +21,10 @@ import {
 } from "@/lib/onboarding/slug";
 import {
   TENANT_BASE_DOMAIN,
-  tenantHost,
-  tenantOrigin,
+  resolveTenantHost,
+  resolveTenantOrigin,
+  tenantRequestContextFromLocation,
+  type TenantRequestContext,
 } from "@/lib/tenant/domains";
 
 const TIMEZONES = [
@@ -34,22 +37,6 @@ const TIMEZONES = [
 const selectClassName =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
-function errorFromStatus(status: number) {
-  if (status === 400) {
-    return "El valor no es válido.";
-  }
-
-  if (status === 409) {
-    return "Ese identificador ya está en uso.";
-  }
-
-  if (status === 401) {
-    return "Tu sesión no es válida. Vuelve a iniciar sesión.";
-  }
-
-  return "No se pudo crear la organización.";
-}
-
 export function OnboardingForm() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -58,16 +45,31 @@ export function OnboardingForm() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [createdSlug, setCreatedSlug] = useState<string | null>(null);
+  // null until mount keeps SSR/hydration stable; then mirror window.location once
+  const [requestContext, setRequestContext] =
+    useState<TenantRequestContext | null>(null);
 
   const previewSlug = finalizeSlug(slug);
   const slugIssue = previewSlug ? getSlugIssue(previewSlug) : null;
+  const previewHost = previewSlug
+    ? resolveTenantHost(previewSlug, requestContext)
+    : `tu-negocio.${TENANT_BASE_DOMAIN}`;
+
+  useEffect(() => {
+    // Intentional one-shot client mount: browser Location is unavailable during SSR.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync Location into state after mount
+    setRequestContext(tenantRequestContextFromLocation(window.location));
+  }, []);
 
   useEffect(() => {
     if (!createdSlug) {
       return;
     }
 
-    const origin = tenantOrigin(createdSlug);
+    const origin = resolveTenantOrigin(
+      createdSlug,
+      tenantRequestContextFromLocation(window.location)
+    );
     const timeout = window.setTimeout(() => {
       window.location.assign(origin);
     }, 1600);
@@ -123,14 +125,20 @@ export function OnboardingForm() {
         }),
       });
 
+      let payload: { code?: unknown; error?: unknown; tenant?: { slug?: unknown } } =
+        {};
+
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        payload = {};
+      }
+
       if (!response.ok) {
-        setError(errorFromStatus(response.status));
+        setError(onboardingUserFacingError(response.status, payload));
         return;
       }
 
-      const payload = (await response.json()) as {
-        tenant?: { slug?: unknown };
-      };
       const responseSlug =
         typeof payload.tenant?.slug === "string"
           ? finalizeSlug(payload.tenant.slug)
@@ -150,7 +158,8 @@ export function OnboardingForm() {
   }
 
   if (createdSlug) {
-    const origin = tenantOrigin(createdSlug);
+    const origin = resolveTenantOrigin(createdSlug, requestContext);
+    const host = resolveTenantHost(createdSlug, requestContext);
 
     return (
       <Card>
@@ -163,9 +172,7 @@ export function OnboardingForm() {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Tu copistería ya está lista en{" "}
-            <span className="font-medium text-foreground">
-              {tenantHost(createdSlug)}
-            </span>
+            <span className="font-medium text-foreground">{host}</span>
             .
           </p>
           <Button asChild className="w-full">
@@ -214,11 +221,7 @@ export function OnboardingForm() {
             />
             <p className="text-sm text-muted-foreground">
               Tu espacio será{" "}
-              <span className="font-medium text-foreground">
-                {previewSlug
-                  ? tenantHost(previewSlug)
-                  : `tu-negocio.${TENANT_BASE_DOMAIN}`}
-              </span>
+              <span className="font-medium text-foreground">{previewHost}</span>
             </p>
             {slugIssue ? (
               <p className="text-sm text-red-500">{slugIssue}</p>
