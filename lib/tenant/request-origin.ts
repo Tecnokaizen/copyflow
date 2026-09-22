@@ -13,6 +13,8 @@ function hintsFromRequest(request: NextRequest): TrustedOriginHints {
     hostHeader: request.headers.get("host"),
     forwardedHostHeader: request.headers.get("x-forwarded-host"),
     forwardedProtoHeader: request.headers.get("x-forwarded-proto"),
+    // Vercel Preview/Production run NODE_ENV=production → Gestcopy origins only.
+    allowLocalDevelopment: process.env.NODE_ENV === "development",
   };
 }
 

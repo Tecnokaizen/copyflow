@@ -16,6 +16,11 @@ export type TrustedOriginHints = {
   hostHeader?: string | null;
   forwardedHostHeader?: string | null;
   forwardedProtoHeader?: string | null;
+  /**
+   * When true, localhost / 127.0.0.1 / *.localhost may be preserved.
+   * Must only be set by the server adapter in real local development.
+   */
+  allowLocalDevelopment?: boolean;
 };
 
 type ParsedAuthority = {
@@ -89,13 +94,17 @@ export function isTrustedLocalHostname(hostname: string): boolean {
 }
 
 /**
- * Only trust Host when it is a recognized local authority.
- * Never reflect x-forwarded-host alone (spoofable).
+ * Only trust Host when local development is explicitly allowed AND Host is a
+ * recognized local authority. Never reflect x-forwarded-host alone (spoofable).
  * If forwarded-host is present and Host is local, ignore a non-matching/evil forwarder.
  */
 function resolveTrustedLocalAuthority(
   hints: TrustedOriginHints
 ): ParsedAuthority | null {
+  if (hints.allowLocalDevelopment !== true) {
+    return null;
+  }
+
   const host = parseTrustedAuthority(hints.hostHeader);
   if (!host || !isTrustedLocalHostname(host.hostname)) {
     return null;
@@ -140,9 +149,9 @@ function localOrigin(authority: ParsedAuthority, proto: "http" | "https") {
 
 /**
  * App-host origin for onboarding success/cancel and similar app URLs.
- * Production / unknown / malicious Host → https://app.gestcopy.com
- * Local Host localhost|127.0.0.1 → preserve proto/port
- * Local tenant Host {slug}.localhost → map to localhost with same port (app apex)
+ * Production / Preview / unknown / malicious Host → https://app.gestcopy.com
+ * Real local development + Host localhost|127.0.0.1 → preserve proto/port
+ * Real local development + Host {slug}.localhost → localhost with same port
  */
 export function resolveTrustedAppOriginFromHints(
   hints: TrustedOriginHints
