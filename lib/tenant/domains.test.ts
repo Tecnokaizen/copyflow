@@ -93,4 +93,17 @@ describe("tenant domains", () => {
     assert.equal(local, "http://billing-sandbox.localhost:3000");
     assert.doesNotMatch(local, /app\.gestcopy\.com/);
   });
+
+  it("onboarding form uses mount-time Location state, not useSyncExternalStore", () => {
+    const form = readSource("components/onboarding/onboarding-form.tsx");
+    assert.doesNotMatch(form, /useSyncExternalStore/);
+    assert.match(
+      form,
+      /useState<TenantRequestContext\s*\|\s*null>\(null\)/
+    );
+    assert.match(
+      form,
+      /setRequestContext\(\s*tenantRequestContextFromLocation\(window\.location\)\s*\)/
+    );
+  });
 });

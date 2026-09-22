@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,18 +37,6 @@ const TIMEZONES = [
 const selectClassName =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
-function subscribeNoop() {
-  return () => {};
-}
-
-function readBrowserTenantContext(): TenantRequestContext {
-  return tenantRequestContextFromLocation(window.location);
-}
-
-function serverTenantContext(): null {
-  return null;
-}
-
 export function OnboardingForm() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -57,17 +45,21 @@ export function OnboardingForm() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [createdSlug, setCreatedSlug] = useState<string | null>(null);
-  const requestContext = useSyncExternalStore(
-    subscribeNoop,
-    readBrowserTenantContext,
-    serverTenantContext
-  );
+  // null until mount keeps SSR/hydration stable; then mirror window.location once
+  const [requestContext, setRequestContext] =
+    useState<TenantRequestContext | null>(null);
 
   const previewSlug = finalizeSlug(slug);
   const slugIssue = previewSlug ? getSlugIssue(previewSlug) : null;
   const previewHost = previewSlug
     ? resolveTenantHost(previewSlug, requestContext)
     : `tu-negocio.${TENANT_BASE_DOMAIN}`;
+
+  useEffect(() => {
+    // Intentional one-shot client mount: browser Location is unavailable during SSR.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync Location into state after mount
+    setRequestContext(tenantRequestContextFromLocation(window.location));
+  }, []);
 
   useEffect(() => {
     if (!createdSlug) {
