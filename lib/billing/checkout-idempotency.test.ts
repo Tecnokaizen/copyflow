@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import {
   CHECKOUT_IDEMPOTENCY_KEY_PREFIX,
   checkoutIdempotencyKey,
+  reservedExpiresAtUnix,
 } from "./checkout-attempts-keys";
 import { CHECKOUT_PROCESSING_CODE } from "./webhook-errors";
 
@@ -25,11 +26,20 @@ describe("checkout idempotency hardening", () => {
     assert.ok(a.startsWith(CHECKOUT_IDEMPOTENCY_KEY_PREFIX));
   });
 
+  it("maps reserved ISO expiry to Stripe expires_at unix seconds (D)", () => {
+    const iso = "2030-01-15T12:00:00.000Z";
+    assert.equal(reservedExpiresAtUnix(iso), 1894708800);
+    assert.throws(() => reservedExpiresAtUnix("not-a-date"), /Invalid reserved/);
+  });
+
   it("reserves DB attempt before Stripe create and passes attempt idempotency key (A/B/C)", () => {
     const checkout = readSource("lib/billing/checkout.ts");
     const attempts = readSource("lib/billing/checkout-attempts.ts");
     const migration = readSource(
       "supabase/migrations/20260922111940_paid_onboarding_checkout_idempotency_v1.sql"
+    );
+    const recovery = readSource(
+      "supabase/migrations/20260922120000_paid_onboarding_checkout_creating_recovery_v1.sql"
     );
 
     assert.match(migration, /prepare_billing_checkout_attempt_v2/);
@@ -46,11 +56,19 @@ describe("checkout idempotency hardening", () => {
     assert.match(checkout, /prepareCheckoutAttempt/);
     assert.match(checkout, /idempotencyKey/);
     assert.match(checkout, /\{\s*idempotencyKey:\s*input\.idempotencyKey\s*\}/);
+    assert.match(checkout, /expires_at:\s*expiresAtUnix/);
+    assert.match(checkout, /reservedExpiresAtUnix/);
+    assert.match(checkout, /expiresAt:\s*prepared\.expiresAt/);
     // No best-effort expire of a losing second Stripe session.
     assert.doesNotMatch(checkout, /sessions\.expire/);
     // Subscription gate lives in prepare RPC outcome.
     assert.match(checkout, /current_subscription_exists/);
     assert.match(checkout, /CheckoutProcessingError/);
+
+    // Creating recovery: no created_at-only soft lease.
+    assert.doesNotMatch(recovery, /created_at <= .*5 minutes/);
+    assert.match(recovery, /expires_at \+ v_expiry_grace/);
+    assert.match(recovery, /'expires_at', v_active\.expires_at/);
   });
 
   it("registration attaches to the reserved attempt (D)", () => {
@@ -124,18 +142,28 @@ describe("checkout idempotency hardening", () => {
     assert.match(billingRoute, /CURRENT_SUBSCRIPTION_EXISTS_CODE/);
   });
 
-  it("phase28 suite exists and CI runs it (K)", () => {
+  it("phase28/29 suites exist and CI runs them (K)", () => {
     const phase28 = readSource(
       "supabase/tests/phase28_paid_onboarding_checkout_idempotency.sql"
+    );
+    const phase29 = readSource(
+      "supabase/tests/phase29_paid_onboarding_checkout_creating_recovery.sql"
     );
     const workflow = readSource(".github/workflows/kiosk-supabase.yml");
     assert.match(phase28, /DEMO mutated/);
     assert.match(phase28, /SUR4 mutated/);
     assert.match(phase28, /current_subscription_exists/);
     assert.match(phase28, /checkout_processing/);
+    assert.match(phase29, /attach-fail recovery/);
+    assert.match(phase29, /past-expiry creating must be expired/);
+    assert.match(phase29, /DEMO mutated/);
     assert.match(
       workflow,
       /phase28_paid_onboarding_checkout_idempotency\.sql/
+    );
+    assert.match(
+      workflow,
+      /phase29_paid_onboarding_checkout_creating_recovery\.sql/
     );
   });
 });

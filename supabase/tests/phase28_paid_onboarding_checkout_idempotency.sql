@@ -205,17 +205,17 @@ begin
       raise exception 'phase28 J past_due: expected current_subscription_exists, got %', v_prep;
     end if;
 
-    -- creating lease expiry allows a new attempt
+    -- creating older than 5 minutes with future provider expiry stays resumable
     insert into public.billing_checkout_attempts (
-      tenant_id, provider, provider_session_id, status, plan_code,
+      id, tenant_id, provider, provider_session_id, status, plan_code,
       billing_interval, expires_at, created_at, updated_at
     ) values (
+      'e2800000-0000-4000-8000-0000000000aa',
       v_tenant2, 'stripe', null, 'creating', 'basic', 'month',
-      now() + interval '24 hours',
+      now() + interval '20 hours',
       now() - interval '6 minutes',
       now() - interval '6 minutes'
     );
-    -- clear subscription so prepare can reserve after expiring stale creating
     delete from public.subscriptions
     where provider_subscription_id = 'sub_phase28_current';
 
@@ -223,7 +223,10 @@ begin
       v_tenant2, 'basic', 'month', 'billing'
     );
     if v_prep ->> 'outcome' <> 'reserved' then
-      raise exception 'phase28 creating lease: expected reserved after stale creating, got %', v_prep;
+      raise exception 'phase28 creating recovery: expected reserved, got %', v_prep;
+    end if;
+    if (v_prep ->> 'attempt_id')::uuid <> 'e2800000-0000-4000-8000-0000000000aa' then
+      raise exception 'phase28 creating recovery: must resume same attempt, got %', v_prep;
     end if;
   end;
 

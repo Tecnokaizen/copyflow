@@ -10,6 +10,7 @@ import {
   prepareCheckoutAttempt,
   resolveReusableCheckoutSession,
 } from "@/lib/billing/checkout-attempts";
+import { reservedExpiresAtUnix } from "@/lib/billing/checkout-attempts-keys";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
 import type {
@@ -71,14 +72,6 @@ export function appHostOriginFromRequest(request: NextRequest): string | null {
   return `${proto}://${host.split(",")[0]!.trim()}`;
 }
 
-function sessionExpiresAt(expiresAt: number | null | undefined): Date {
-  if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
-    return new Date(expiresAt * 1000);
-  }
-  // Stripe Checkout Sessions expire after ~24h by default.
-  return new Date(Date.now() + 24 * 60 * 60 * 1000);
-}
-
 async function createStripeCheckoutForAttempt(input: {
   request: NextRequest;
   tenantId: string;
@@ -90,6 +83,7 @@ async function createStripeCheckoutForAttempt(input: {
   cancelUrl?: string;
   attemptId: string;
   idempotencyKey: string;
+  expiresAt: string;
 }): Promise<{ url: string; sessionId: string }> {
   const price = await resolveStripePrice({
     planCode: input.planCode,
@@ -106,6 +100,7 @@ async function createStripeCheckoutForAttempt(input: {
     `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl =
     input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
+  const expiresAtUnix = reservedExpiresAtUnix(input.expiresAt);
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -114,6 +109,7 @@ async function createStripeCheckoutForAttempt(input: {
       success_url: successUrl,
       cancel_url: cancelUrl,
       client_reference_id: input.tenantId,
+      expires_at: expiresAtUnix,
       ...(existingCustomerId
         ? { customer: existingCustomerId }
         : input.customerEmail
@@ -141,7 +137,8 @@ async function createStripeCheckoutForAttempt(input: {
   await attachCheckoutSession({
     attemptId: input.attemptId,
     sessionId: session.id,
-    expiresAt: sessionExpiresAt(session.expires_at),
+    // Reserved DB expiry is authoritative; Stripe should match via idempotency.
+    expiresAt: new Date(expiresAtUnix * 1000),
   });
 
   return { url: session.url, sessionId: session.id };
@@ -210,6 +207,7 @@ export async function createCheckoutSessionForTenant(input: {
       ...input,
       attemptId: prepared.attemptId,
       idempotencyKey: prepared.idempotencyKey,
+      expiresAt: prepared.expiresAt,
     });
   }
 

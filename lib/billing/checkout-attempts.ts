@@ -5,11 +5,13 @@ import { getStripe } from "@/lib/billing/stripe";
 import {
   CHECKOUT_IDEMPOTENCY_KEY_PREFIX,
   checkoutIdempotencyKey,
+  reservedExpiresAtUnix,
 } from "@/lib/billing/checkout-attempts-keys";
 
 export {
   CHECKOUT_IDEMPOTENCY_KEY_PREFIX,
   checkoutIdempotencyKey,
+  reservedExpiresAtUnix,
 };
 export const CHECKOUT_PROCESSING_CODE = "checkout_processing";
 
@@ -18,6 +20,7 @@ export type PreparedCheckoutAttemptV2 =
       outcome: "reserved";
       attemptId: string;
       idempotencyKey: string;
+      expiresAt: string;
     }
   | {
       outcome: "reuse";
@@ -80,12 +83,14 @@ export async function prepareCheckoutAttempt(input: {
   if (
     record.outcome === "reserved" &&
     typeof record.attempt_id === "string" &&
-    typeof record.idempotency_key === "string"
+    typeof record.idempotency_key === "string" &&
+    typeof record.expires_at === "string"
   ) {
     return {
       outcome: "reserved",
       attemptId: record.attempt_id,
       idempotencyKey: record.idempotency_key,
+      expiresAt: record.expires_at,
     };
   }
 
