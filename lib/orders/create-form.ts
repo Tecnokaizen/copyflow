@@ -10,6 +10,7 @@ export type CreateOrderPayloadInput = {
   assignedTeamMemberId: string;
   storeId: string;
   notes: string;
+  fileStatusId?: string;
 };
 
 /** Shared POST /api/orders body for full and quick create modes. */
@@ -26,5 +27,6 @@ export function buildCreateOrderPayload(input: CreateOrderPayloadInput) {
     assigned_team_member_id: input.assignedTeamMemberId || null,
     store_id: input.storeId || null,
     notes: input.notes.trim() || null,
+    ...(input.fileStatusId !== undefined ? { file_status_id: input.fileStatusId || null } : {}),
   };
 }

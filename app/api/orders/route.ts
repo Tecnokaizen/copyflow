@@ -881,6 +881,17 @@ export async function POST(request: NextRequest) {
   const storeIdResult = parseOptionalStoreId(payload.store_id);
   const description = emptyToNull(payload.description);
   const notes = emptyToNull(payload.notes);
+  if (
+    payload.file_status_id != null &&
+    (typeof payload.file_status_id !== "string" ||
+      (payload.file_status_id !== "" && !isUuid(payload.file_status_id)))
+  ) {
+    return operationalJson(
+      { error: "Invalid related record for current tenant" },
+      { status: 400 }
+    );
+  }
+  const fileStatusId = emptyToNull(payload.file_status_id);
 
   if (!storeIdResult.ok) {
     return operationalJson(
@@ -893,6 +904,7 @@ export async function POST(request: NextRequest) {
   const tenantId = context.tenant.id;
 
   const relationChecks: Array<{ table: string; id: string | null }> = [
+    { table: "file_statuses", id: fileStatusId },
     { table: "clients", id: clientId },
     { table: "services", id: serviceId },
     { table: "entry_channels", id: entryChannelId },
@@ -972,6 +984,7 @@ export async function POST(request: NextRequest) {
       priority,
       due_at: dueAtResult.dueAt,
       notes,
+      file_status_id: fileStatusId,
       created_by: context.user.id,
     })
     .select(ORDER_SELECT)

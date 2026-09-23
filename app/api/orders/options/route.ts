@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
@@ -29,6 +30,7 @@ export async function GET() {
     teamMembersResult,
     storesResult,
     settingsResult,
+    fileStatusesResult,
   ] = await Promise.all([
     supabase
       .from("services")
@@ -65,6 +67,12 @@ export async function GET() {
       .select("preferences")
       .eq("tenant_id", tenantId)
       .maybeSingle(),
+    supabase
+      .from("file_statuses")
+      .select("id, code, name")
+      .eq("tenant_id", tenantId)
+      .eq("active", true)
+      .order("sort_order", { ascending: true }),
   ]);
 
   const firstError =
@@ -73,7 +81,8 @@ export async function GET() {
     orderContextsResult.error ??
     teamMembersResult.error ??
     storesResult.error ??
-    settingsResult.error;
+    settingsResult.error ??
+    fileStatusesResult.error;
 
   if (firstError) {
     console.error("[GET /api/orders/options] Could not load order options", {
@@ -91,6 +100,10 @@ export async function GET() {
     {
       tenant: context.tenant.slug,
       services: servicesResult.data ?? [],
+      file_statuses: fileStatusesResult.data ?? [],
+      max_file_bytes: resolveMaxFileBytesFromPreferences(
+        settingsResult.data?.preferences
+      ),
       entry_channels: entryChannelsResult.data ?? [],
       order_contexts: orderContextsResult.data ?? [],
       team_members: teamMembersResult.data ?? [],

@@ -23,7 +23,7 @@ export default async function QuickOrderSettingsPage() {
       <AppNav />
       <PageHeader
         title="Pedido rápido"
-        description="Elige qué campos quieres ver siempre al crear un pedido rápido. Los campos que no selecciones seguirán disponibles dentro de Más opciones."
+        description="Elige Principal, Más opciones u Oculto para cada campo. Oculto solo afecta al pedido rápido; el campo sigue disponible en la ficha del pedido."
         className="mb-5 sm:mb-6"
       />
       <QuickOrderLayoutSettings />

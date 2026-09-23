@@ -92,7 +92,7 @@ export function OrderProduction({
             ))}
           </DraftSelect>
         </FactRow>
-        <FactRow label="Archivos">
+        <FactRow label="Estado de archivos">
           <DraftSelect
             value={draft.file_status_id ?? ""}
             disabled={managementOptionsLoading}
@@ -172,7 +172,7 @@ export function OrderProduction({
       <FactRow label="Servicio">
         <FactValue value={serviceName} />
       </FactRow>
-      <FactRow label="Archivos">
+      <FactRow label="Estado de archivos">
         <FactValue value={order.file_status?.name} empty="Sin estado de archivo" />
       </FactRow>
       <FactRow label="Presupuesto">

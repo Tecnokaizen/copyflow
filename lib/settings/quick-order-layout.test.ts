@@ -22,6 +22,8 @@ import {
 } from "./quick-order-layout";
 
 const CUSTOM_LAYOUT = {
+  file_status: "more",
+  files: "more",
   client: "more",
   service: "primary",
   description: "more",
@@ -58,6 +60,8 @@ describe("quick order layout preferences", () => {
       title: "more",
       order_context: "more",
       notes: "more",
+      file_status: "more",
+      files: "more",
     };
 
     assert.deepEqual(DEFAULT_QUICK_ORDER_LAYOUT, expected);
@@ -110,6 +114,8 @@ describe("quick order layout preferences", () => {
         "Nombre del pedido",
         "Contexto",
         "Notas internas",
+        "Estado de archivos",
+        "Archivos adjuntos",
       ]
     );
   });
@@ -129,6 +135,8 @@ describe("quick order layout preferences", () => {
       "due_at",
       "assigned_team_member",
       "order_context",
+      "file_status",
+      "files",
     ]);
   });
 
@@ -149,7 +157,7 @@ describe("quick order layout preferences", () => {
       null,
       {},
       { layout: CUSTOM_LAYOUT },
-      { layout: { ...CUSTOM_LAYOUT, client: "hidden" }, revision: "rev" },
+      { layout: { ...CUSTOM_LAYOUT, client: "invalid" }, revision: "rev" },
       {
         layout: { ...CUSTOM_LAYOUT, unexpected: "more" },
         revision: "rev",
@@ -263,6 +271,8 @@ describe("quick order layout preferences", () => {
         title: "primary",
         order_context: "more",
         notes: "primary",
+        file_status: "more",
+        files: "more",
       }
     );
     assert.ok(

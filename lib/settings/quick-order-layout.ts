@@ -10,10 +10,12 @@ export const QUICK_ORDER_FIELDS = [
   "title",
   "order_context",
   "notes",
+  "file_status",
+  "files",
 ] as const;
 
 export type QuickOrderField = (typeof QUICK_ORDER_FIELDS)[number];
-export type QuickOrderPlacement = "primary" | "more";
+export type QuickOrderPlacement = "primary" | "more" | "hidden";
 export type QuickOrderLayout = Record<
   QuickOrderField,
   QuickOrderPlacement
@@ -31,6 +33,8 @@ export const QUICK_ORDER_FIELD_LABELS: Record<QuickOrderField, string> = {
   title: "Nombre del pedido",
   order_context: "Contexto",
   notes: "Notas internas",
+  file_status: "Estado de archivos",
+  files: "Archivos adjuntos",
 };
 
 export const DEFAULT_QUICK_ORDER_LAYOUT: QuickOrderLayout = {
@@ -45,6 +49,8 @@ export const DEFAULT_QUICK_ORDER_LAYOUT: QuickOrderLayout = {
   title: "more",
   order_context: "more",
   notes: "more",
+  file_status: "more",
+  files: "more",
 };
 
 const FIELD_SET = new Set<string>(QUICK_ORDER_FIELDS);
@@ -65,21 +71,29 @@ function parseLayout(value: unknown): QuickOrderLayout | null {
   }
 
   const keys = Object.keys(value);
-  if (
-    keys.length !== QUICK_ORDER_FIELDS.length ||
-    keys.some((key) => !FIELD_SET.has(key))
-  ) {
+  if (keys.some((key) => !FIELD_SET.has(key))) {
     return null;
   }
 
+  // Additive V1 extension: old tenants/clients omit the two new fields.
+  const normalized = { ...value };
+  for (const field of ["file_status", "files"] as const) {
+    if (!(field in normalized)) {
+      normalized[field] = DEFAULT_QUICK_ORDER_LAYOUT[field];
+    }
+  }
   for (const field of QUICK_ORDER_FIELDS) {
-    if (value[field] !== "primary" && value[field] !== "more") {
+    if (
+      normalized[field] !== "primary" &&
+      normalized[field] !== "more" &&
+      normalized[field] !== "hidden"
+    ) {
       return null;
     }
   }
 
   return Object.fromEntries(
-    QUICK_ORDER_FIELDS.map((field) => [field, value[field]])
+    QUICK_ORDER_FIELDS.map((field) => [field, normalized[field]])
   ) as QuickOrderLayout;
 }
 
@@ -103,7 +117,7 @@ export function resolveQuickOrderLayout(
 }
 
 export function fieldsForPlacement(
-  layout: QuickOrderLayout,
+  layout: Partial<QuickOrderLayout>,
   placement: QuickOrderPlacement
 ): QuickOrderField[] {
   return QUICK_ORDER_FIELDS.filter((field) => layout[field] === placement);

@@ -1,0 +1,52 @@
+name: Pedido V2
+
+on:
+  pull_request:
+    paths:
+      - "app/api/orders/**"
+      - "app/settings/quick-order/**"
+      - "components/orders/**"
+      - "components/files/**"
+      - "components/settings/quick-order-layout-settings.tsx"
+      - "lib/orders/**"
+      - "lib/files/**"
+      - "lib/settings/quick-order-layout*"
+      - "supabase/tests/pedido_v2.sql"
+      - "scripts/pedido-v2-ui-smoke.mjs"
+      - ".github/workflows/pedido-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --import tsx --test
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm run build
+      - name: Browser component integration (desktop and mobile)
+        run: |
+          npm install --prefix /tmp/pedido-v2-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
+          node /tmp/pedido-v2-browser/node_modules/playwright/cli.js install --with-deps chromium
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/pedido-v2-ui-smoke.mjs
+      - name: Start local database with all migrations
+        run: |
+          npx supabase@2.117.0 start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+          npx supabase@2.117.0 db reset --local --no-seed
+      - name: Tenant isolation, roles, file statuses and Files V1
+        run: |
+          for suite in pedido_v2 phase17_order_files phase22_tenant_file_limits; do
+            psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f "supabase/tests/${suite}.sql"
+          done

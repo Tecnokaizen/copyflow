@@ -430,7 +430,7 @@ export async function uploadOrderFile(
         : new Error(
             "El archivo se ha enviado pero no ha podido confirmarse.",
           ),
-      { kind: "complete" as const },
+      { kind: "complete" as const, fileId: init.file_id },
     );
   }
 
