@@ -137,6 +137,34 @@ describe("operational create actions", () => {
     assert.match(list, /quoteListQuery/);
   });
 
+  it("reuses parent access on orders and mine and keeps a fallback elsewhere", () => {
+    const actions = readFileSync(
+      new URL("../../components/quotes/operational-create-actions.tsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(actions, /accessProvided/);
+    assert.match(actions, /if \(accessProvided\)/);
+    assert.match(actions, /fetch\("\/api\/context"\)/);
+
+    const orders = readFileSync(
+      new URL("../../app/orders/page.tsx", import.meta.url),
+      "utf8"
+    );
+    const mine = readFileSync(
+      new URL("../../app/orders/mine/page.tsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(orders, /quotesEnabled=\{quoteAccess\.quotesEnabled\}/);
+    assert.match(mine, /quotesEnabled=\{quotesEnabled\}/);
+    assert.equal(orders.includes("setCreateApplied"), false);
+    assert.match(orders, /searchParams\.get\("create"\) === "1"/);
+    assert.match(orders, /showCreateFromQuery/);
+    assert.equal(
+      /if \(createRequested && canWrite && !createApplied\)/.test(orders),
+      false
+    );
+  });
+
   it("keeps status filters in the quotes URL", () => {
     assert.equal(quoteListQuery({ status: "sent" }), "/quotes?status=sent");
     assert.equal(

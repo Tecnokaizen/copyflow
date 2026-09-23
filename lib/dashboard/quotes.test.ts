@@ -30,6 +30,15 @@ describe("quote dashboard counts", () => {
     );
     assert.match(source, /tenantHasFeature/);
     assert.match(source, /canAccessQuotesModule/);
-    assert.match(source, /quotes:/);
+    assert.match(source, /if \(quotesEnabled\)/);
+    assert.match(source, /\.eq\("tenant_id", tenantId\)/);
+    assert.equal(source.includes("counts.quotes"), false);
+
+    const ui = readFileSync(
+      new URL("../../components/dashboard/tenant-dashboard.tsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(ui, /data\?\.quotes/);
+    assert.match(ui, /Presupuestos abiertos/);
   });
 });

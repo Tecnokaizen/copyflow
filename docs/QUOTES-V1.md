@@ -40,15 +40,13 @@ DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
 
 Repetirlo actualiza el mismo override local.
 
-## Habilitar en Production
+## Estado en Production
 
-No forma parte de este cambio. No usar el script. Un operador, con una sesión `postgres` o `service_role` en el SQL Editor del proyecto, ejecuta:
+`quotes` no está incluida en Gestcopy Basic ni en el plan `mvp`. Esta PR no crea, cambia ni borra overrides.
 
-```sql
-select public.set_tenant_feature('sur4', 'quotes', true, null);
-```
+SUR4 ya tiene un override explícito `quotes = true` en `tenant_feature_overrides`, aplicado en el smoke de #39. Los demás tenants no quedan habilitados por este cambio.
 
-La función no está concedida a `authenticated`. No hace falta copiar credenciales al repositorio.
+Para otro tenant, un operador con sesión `postgres` o `service_role` en el SQL Editor ejecuta `public.set_tenant_feature`. La función no está concedida a `authenticated`. No usar `scripts/set-tenant-feature.mjs` fuera de localhost y no copiar credenciales al repositorio.
 
 ## Archivos compartidos con Pedido V2
 
@@ -58,4 +56,4 @@ La función no está concedida a `authenticated`. No hace falta copiar credencia
 - `public.list_activity_log`, `public.create_organization` y `public.create_internal_organization_v1`
 - `supabase/seeds/demo-commercial.sql`
 
-Pedido V2 ya está en `main`. La conversión no envía `file_status_id`: queda vacío, igual que un pedido creado sin ese dato. No se ha modificado el pedido rápido, la UI de archivos ni el contrato de `POST /api/orders`.
+Pedido V2 ya está en `main`. La conversión no envía `file_status_id`: queda vacío, igual que un pedido creado sin ese dato. El pedido completo, el pedido rápido y la edición de entrega prevista usan el selector compartido de fecha y hora. No se ha modificado la UI de archivos, el kiosk ni el contrato de `POST /api/orders`.

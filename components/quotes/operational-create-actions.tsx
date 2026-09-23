@@ -10,6 +10,8 @@ type OperationalCreateActionsProps = {
   onNewOrder?: () => void;
   newOrderDisabled?: boolean;
   className?: string;
+  role?: string | null;
+  quotesEnabled?: boolean;
 };
 
 export function OperationalCreateActions({
@@ -17,13 +19,20 @@ export function OperationalCreateActions({
   onNewOrder,
   newOrderDisabled = false,
   className,
+  role,
+  quotesEnabled,
 }: OperationalCreateActionsProps) {
-  const [visibility, setVisibility] = useState<{
+  const accessProvided = role !== undefined && quotesEnabled !== undefined;
+  const [fetchedVisibility, setFetchedVisibility] = useState<{
     order: boolean;
     quote: boolean;
   } | null>(null);
 
   useEffect(() => {
+    if (accessProvided) {
+      return;
+    }
+
     let cancelled = false;
 
     fetch("/api/context")
@@ -42,24 +51,31 @@ export function OperationalCreateActions({
           return;
         }
 
-        const role =
+        const membershipRole =
           typeof context.membership?.role === "string"
             ? context.membership.role
             : null;
-        setVisibility(
-          operationalCreateVisibility(role, context.features?.quotes === true)
+        setFetchedVisibility(
+          operationalCreateVisibility(
+            membershipRole,
+            context.features?.quotes === true
+          )
         );
       })
       .catch(() => {
         if (!cancelled) {
-          setVisibility({ order: false, quote: false });
+          setFetchedVisibility({ order: false, quote: false });
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accessProvided]);
+
+  const visibility = accessProvided
+    ? operationalCreateVisibility(role ?? null, quotesEnabled === true)
+    : fetchedVisibility;
 
   if (!visibility || (!visibility.order && !visibility.quote)) {
     return null;

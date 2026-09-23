@@ -38,6 +38,8 @@ function MyOrdersContent() {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [actorRole, setActorRole] = useState<string | null>(null);
+  const [quotesEnabled, setQuotesEnabled] = useState(false);
+  const [accessReady, setAccessReady] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadOrders = useCallback(async (opts?: SilentLoadOptions) => {
@@ -91,18 +93,24 @@ function MyOrdersContent() {
       try {
         const response = await fetch("/api/context");
         if (!response.ok) {
+          setAccessReady(true);
           return;
         }
         const context = (await response.json()) as {
           membership?: { role?: unknown };
+          features?: { quotes?: unknown };
         };
         setActorRole(
           typeof context.membership?.role === "string"
             ? context.membership.role
             : null
         );
+        setQuotesEnabled(context.features?.quotes === true);
+        setAccessReady(true);
       } catch {
         setActorRole(null);
+        setQuotesEnabled(false);
+        setAccessReady(true);
       }
     }
 
@@ -122,7 +130,12 @@ function MyOrdersContent() {
         className="mb-5 sm:mb-6"
         actions={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-            <OperationalCreateActions />
+            {accessReady ? (
+              <OperationalCreateActions
+                role={actorRole}
+                quotesEnabled={quotesEnabled}
+              />
+            ) : null}
             {canWriteOrders(actorRole) ? (
               <Link
                 href="/orders/quick"

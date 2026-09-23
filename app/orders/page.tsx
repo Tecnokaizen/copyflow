@@ -503,8 +503,11 @@ function OrdersPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createApplied, setCreateApplied] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
+  const [quoteAccess, setQuoteAccess] = useState<{
+    role: string | null;
+    quotesEnabled: boolean;
+  } | null>(null);
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -561,18 +564,40 @@ function OrdersPageContent() {
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
   const createRequested = searchParams.get("create") === "1";
-  if (createRequested && canWrite && !createApplied) {
-    setCreateApplied(true);
-    setShowCreateForm(true);
+  const showCreateFromQuery = createRequested && canWrite;
+
+  function closeCreateForm() {
+    setShowCreateForm(false);
+    if (searchParams.get("create") !== "1") {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
   }
 
   useEffect(() => {
     async function loadContext() {
       const response = await fetch("/api/context");
-      if (response.ok) {
-        const context = await response.json();
-        setCanWrite(canWriteOrders(context?.membership?.role));
+      if (!response.ok) {
+        return;
       }
+
+      const context = (await response.json()) as {
+        membership?: { role?: unknown };
+        features?: { quotes?: unknown };
+      };
+      const role =
+        typeof context.membership?.role === "string"
+          ? context.membership.role
+          : null;
+      setCanWrite(canWriteOrders(role));
+      setQuoteAccess({
+        role,
+        quotesEnabled: context.features?.quotes === true,
+      });
     }
     void loadContext();
   }, []);
@@ -1217,10 +1242,14 @@ function OrdersPageContent() {
               : `${serviceOrdersForAssignee.length} pedidos activos · ${serviceGroups.length} servicios con carga`
         }
         actions={
-          <OperationalCreateActions
-            onNewOrder={() => setShowCreateForm(true)}
-            newOrderDisabled={showCreateForm}
-          />
+          quoteAccess ? (
+            <OperationalCreateActions
+              role={quoteAccess.role}
+              quotesEnabled={quoteAccess.quotesEnabled}
+              onNewOrder={() => setShowCreateForm(true)}
+              newOrderDisabled={showCreateForm || showCreateFromQuery}
+            />
+          ) : null
         }
       />
 
@@ -1347,8 +1376,8 @@ function OrdersPageContent() {
           </div>
         ) : null}
 
-        {canWrite && showCreateForm && (
-          <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
+        {canWrite && (showCreateForm || showCreateFromQuery) && (
+          <CreateOrderForm onCancel={closeCreateForm} />
         )}
 
         {view === "list" && (
