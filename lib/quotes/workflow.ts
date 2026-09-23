@@ -14,6 +14,14 @@ export type QuoteFlowCode = (typeof QUOTE_FLOW_CODES)[number];
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const FILTER_LABELS: Partial<
+  Record<QuoteFlowCode, { catalogName: string; label: string }>
+> = {
+  sent: { catalogName: "Enviado", label: "Enviados" },
+  accepted: { catalogName: "Aceptado", label: "Aceptados" },
+  rejected: { catalogName: "Rechazado", label: "Rechazados" },
+};
+
 export function quoteStatusFilters(
   statuses: Array<{ code: string; name: string }>
 ) {
@@ -25,8 +33,52 @@ export function quoteStatusFilters(
       return [];
     }
 
-    return [{ code, name }];
+    const plural = FILTER_LABELS[code];
+    return [
+      {
+        code,
+        name: plural && name === plural.catalogName ? plural.label : name,
+      },
+    ];
   });
+}
+
+export function parseQuoteListQuery(params: {
+  get: (key: string) => string | null;
+}) {
+  const rawStatus = params.get("status") ?? "";
+  const status = QUOTE_FLOW_CODES.includes(rawStatus as QuoteFlowCode)
+    ? rawStatus
+    : "";
+  const q = params.get("q")?.trim() ?? "";
+  const pageRaw = Number(params.get("page"));
+  const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+
+  return { status, q, page };
+}
+
+export function quoteListQuery(input: {
+  status?: string;
+  q?: string;
+  page?: number;
+}) {
+  const params = new URLSearchParams();
+  if (
+    input.status &&
+    QUOTE_FLOW_CODES.includes(input.status as QuoteFlowCode)
+  ) {
+    params.set("status", input.status);
+  }
+  const q = input.q?.trim();
+  if (q) {
+    params.set("q", q);
+  }
+  if (input.page && input.page > 1) {
+    params.set("page", String(input.page));
+  }
+
+  const query = params.toString();
+  return query ? `/quotes?${query}` : "/quotes";
 }
 
 export function quoteCountLabel(total: number) {

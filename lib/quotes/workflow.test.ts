@@ -6,6 +6,8 @@ import {
   operationalCreateVisibility,
   quoteCountLabel,
   quotePageRange,
+  parseQuoteListQuery,
+  quoteListQuery,
   quoteSearchFilter,
   quoteStatusFilters,
 } from "./workflow";
@@ -24,9 +26,9 @@ describe("quote status filters", () => {
       [
         { code: "draft", name: "Borrador" },
         { code: "pending", name: "En curso del cliente" },
-        { code: "sent", name: "Enviado" },
-        { code: "accepted", name: "Aceptado" },
-        { code: "rejected", name: "Rechazado" },
+        { code: "sent", name: "Enviados" },
+        { code: "accepted", name: "Aceptados" },
+        { code: "rejected", name: "Rechazados" },
       ]
     );
   });
@@ -132,5 +134,22 @@ describe("operational create actions", () => {
     assert.match(list, /converted_order/);
     assert.match(list, /quoteStatusFilters/);
     assert.match(list, /Mostrando/);
+    assert.match(list, /quoteListQuery/);
+  });
+
+  it("keeps status filters in the quotes URL", () => {
+    assert.equal(quoteListQuery({ status: "sent" }), "/quotes?status=sent");
+    assert.equal(
+      quoteListQuery({ status: "pending", q: "ana", page: 2 }),
+      "/quotes?status=pending&q=ana&page=2"
+    );
+    assert.deepEqual(
+      parseQuoteListQuery(new URLSearchParams("status=sent&q=ana&page=2")),
+      { status: "sent", q: "ana", page: 2 }
+    );
+    assert.equal(
+      parseQuoteListQuery(new URLSearchParams("status=nope")).status,
+      ""
+    );
   });
 });

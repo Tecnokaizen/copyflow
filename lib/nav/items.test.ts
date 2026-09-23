@@ -317,6 +317,27 @@ describe("nav structure groups", () => {
       false
     );
     assert.equal(labels("owner").includes("Presupuestos"), false);
+    assert.equal(
+      navItemIsActive(
+        { id: "quotes", href: "/quotes", label: "Presupuestos" },
+        "/quotes/new"
+      ),
+      true
+    );
+    assert.equal(
+      navItemIsActive(
+        { id: "quotes", href: "/quotes", label: "Presupuestos" },
+        "/quotes/abc"
+      ),
+      true
+    );
+    assert.equal(
+      navItemIsActive(
+        { id: "orders", href: "/orders?view=list&filter=all", label: "Todos los pedidos" },
+        "/quotes"
+      ),
+      false
+    );
   });
 
   it("Archivados uses the same gate as Todos los pedidos", () => {

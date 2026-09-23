@@ -43,6 +43,7 @@ import {
   showEntryChannelInMainForm,
   suggestedAssigneeId,
 } from "@/lib/orders/create-form-layout";
+import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
 import { fetchLive } from "@/lib/refresh/fetch-live";
@@ -579,16 +580,10 @@ export function CreateOrderForm({
 
   function renderDueAtField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
+      <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
-        <DraftInput
-          type="datetime-local"
-          value={dueAt}
-          disabled={submitting}
-          className="max-w-none text-base"
-          onChange={setDueAt}
-        />
-      </label>
+        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} />
+      </div>
     );
   }
 

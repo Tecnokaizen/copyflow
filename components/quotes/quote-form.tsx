@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
+import { DatePicker } from "@/components/gestcopy/date-picker";
 import {
   EMPTY_CLIENT_FORM,
   formatCreateDuplicateMessage,
@@ -219,7 +220,7 @@ export function QuoteForm({
         </section>
 
         <section className="grid gap-4">
-          <h2 className="gc-section-title">Contenido</h2>
+          <h2 className="gc-section-title">Trabajo</h2>
           <label className="gc-field">
             <span className="gc-field-label">Título</span>
             <input
@@ -250,21 +251,16 @@ export function QuoteForm({
 
         <section className="grid gap-4">
           <h2 className="gc-section-title">Validez y notas</h2>
-          <label className="gc-field">
+          <div className="gc-field">
             <span className="gc-field-label">Válido hasta</span>
-            <input
-              type="date"
-              className="gc-field-control"
+            <DatePicker
               value={values.validUntil}
               disabled={submitting}
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  validUntil: event.target.value,
-                }))
+              onChange={(validUntil) =>
+                setValues((current) => ({ ...current, validUntil }))
               }
             />
-          </label>
+          </div>
           <label className="gc-field">
             <span className="gc-field-label">Notas</span>
             <textarea

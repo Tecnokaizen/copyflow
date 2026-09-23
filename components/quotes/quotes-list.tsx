@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
@@ -11,9 +11,12 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
+import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
 import {
+  parseQuoteListQuery,
   quoteCountLabel,
+  quoteListQuery,
   quotePageRange,
   quoteStatusFilters,
 } from "@/lib/quotes/workflow";
@@ -34,40 +37,40 @@ function formatValidity(value: string | null) {
     return "—";
   }
 
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) {
-    return value;
-  }
-
-  return `${day}/${month}/${year}`;
+  return formatCivilDate(value) || value;
 }
 
 export function QuotesList() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const listQuery = parseQuoteListQuery(searchParams);
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [statuses, setStatuses] = useState<QuoteStatusRef[]>([]);
-  const [query, setQuery] = useState("");
-  const [appliedQuery, setAppliedQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState(listQuery.q);
+  const [trackedQuery, setTrackedQuery] = useState(listQuery.q);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
+  if (listQuery.q !== trackedQuery) {
+    setTrackedQuery(listQuery.q);
+    setQuery(listQuery.q);
+  }
+
   useEffect(() => {
     let cancelled = false;
     void reloadKey;
     const params = new URLSearchParams({
-      page: String(page),
+      page: String(listQuery.page),
       page_size: String(PAGE_SIZE),
     });
-    if (appliedQuery) {
-      params.set("q", appliedQuery);
+    if (listQuery.q) {
+      params.set("q", listQuery.q);
     }
-    if (status) {
-      params.set("status", status);
+    if (listQuery.status) {
+      params.set("status", listQuery.status);
     }
 
     Promise.all([
@@ -119,24 +122,43 @@ export function QuotesList() {
     return () => {
       cancelled = true;
     };
-  }, [appliedQuery, page, reloadKey, status]);
+  }, [listQuery.page, listQuery.q, listQuery.status, reloadKey]);
 
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setPage(1);
-    setAppliedQuery(query.trim());
-  }
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (query.trim() === listQuery.q) {
+        return;
+      }
+
+      setLoading(true);
+      router.replace(
+        quoteListQuery({
+          status: listQuery.status,
+          q: query,
+          page: 1,
+        }),
+        { scroll: false }
+      );
+    }, 250);
+
+    return () => window.clearTimeout(handle);
+  }, [listQuery.q, listQuery.status, query, router]);
 
   function selectStatus(code: string) {
     setLoading(true);
-    setStatus(code);
-    setPage(1);
+    router.replace(
+      quoteListQuery({
+        status: code,
+        q: listQuery.q,
+        page: 1,
+      }),
+      { scroll: false }
+    );
   }
 
-  const filteredEmpty = Boolean(appliedQuery || status);
+  const filteredEmpty = Boolean(listQuery.q || listQuery.status);
   const filters = quoteStatusFilters(statuses);
-  const range = quotePageRange(page, PAGE_SIZE, quotes.length, total);
+  const range = quotePageRange(listQuery.page, PAGE_SIZE, quotes.length, total);
 
   return (
     <AppShell>
@@ -147,12 +169,15 @@ export function QuotesList() {
         actions={<OperationalCreateActions primary="quote" />}
       />
 
-      <form onSubmit={search} className="gc-filter-bar">
+      <form
+        className="gc-filter-bar"
+        onSubmit={(event) => event.preventDefault()}
+      >
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => selectStatus("")}
-            className={cn("gc-chip", status === "" && "gc-chip-active")}
+            className={cn("gc-chip", listQuery.status === "" && "gc-chip-active")}
           >
             Todos
           </button>
@@ -161,7 +186,10 @@ export function QuotesList() {
               key={item.code}
               type="button"
               onClick={() => selectStatus(item.code)}
-              className={cn("gc-chip", status === item.code && "gc-chip-active")}
+              className={cn(
+                "gc-chip",
+                listQuery.status === item.code && "gc-chip-active"
+              )}
             >
               {item.name}
             </button>
@@ -253,7 +281,7 @@ export function QuotesList() {
                   <tr>
                     <th>Referencia</th>
                     <th>Cliente</th>
-                    <th>Presupuesto / Servicio</th>
+                    <th>Trabajo / Servicio</th>
                     <th>Estado</th>
                     <th>Responsable</th>
                     <th>Creado</th>
@@ -325,10 +353,17 @@ export function QuotesList() {
                 <button
                   type="button"
                   className="gc-action"
-                  disabled={page <= 1}
+                  disabled={listQuery.page <= 1}
                   onClick={() => {
                     setLoading(true);
-                    setPage((current) => Math.max(1, current - 1));
+                    router.replace(
+                      quoteListQuery({
+                        status: listQuery.status,
+                        q: listQuery.q,
+                        page: listQuery.page - 1,
+                      }),
+                      { scroll: false }
+                    );
                   }}
                 >
                   Anterior
@@ -336,10 +371,17 @@ export function QuotesList() {
                 <button
                   type="button"
                   className="gc-action"
-                  disabled={totalPages === 0 || page >= totalPages}
+                  disabled={totalPages === 0 || listQuery.page >= totalPages}
                   onClick={() => {
                     setLoading(true);
-                    setPage((current) => current + 1);
+                    router.replace(
+                      quoteListQuery({
+                        status: listQuery.status,
+                        q: listQuery.q,
+                        page: listQuery.page + 1,
+                      }),
+                      { scroll: false }
+                    );
                   }}
                 >
                   Siguiente

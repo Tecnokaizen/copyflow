@@ -49,4 +49,10 @@ export type DashboardResponse = {
     active_orders_count: number;
     members: DashboardWorkloadMember[];
   };
+  quotes: {
+    open: number;
+    in_review: number;
+    sent: number;
+    accepted_pending: number;
+  } | null;
 };

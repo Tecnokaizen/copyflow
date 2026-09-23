@@ -185,4 +185,20 @@
   .gc-field-control {
     @apply rounded-md border border-border/80 bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
+  .gc-day-picker {
+    --rdp-accent-color: hsl(var(--primary));
+    --rdp-accent-background-color: hsl(var(--primary) / 0.12);
+    --rdp-today-color: hsl(var(--primary));
+    --rdp-day_button-border-radius: 0.5rem;
+    color: hsl(var(--foreground));
+  }
+  .gc-day-picker .rdp-day_button:hover {
+    background: hsl(var(--secondary));
+  }
+  .gc-day-picker .rdp-day_button:focus-visible,
+  .gc-day-picker .rdp-button_previous:focus-visible,
+  .gc-day-picker .rdp-button_next:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }

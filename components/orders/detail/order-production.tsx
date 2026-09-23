@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import {
   DraftInput,
@@ -133,8 +134,7 @@ export function OrderProduction({
           />
         </FactRow>
         <FactRow label="Entrega prevista" emphasis>
-          <DraftInput
-            type="datetime-local"
+          <DateTimePicker
             value={toDateTimeLocalValue(draft.due_at)}
             disabled={orderOptionsLoading}
             onChange={(value) =>

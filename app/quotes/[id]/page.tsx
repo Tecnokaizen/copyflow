@@ -13,6 +13,7 @@ import { QuoteActivity } from "@/components/quotes/quote-activity";
 import { QuoteForm, type QuoteFormValues } from "@/components/quotes/quote-form";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
 import type { ClientSummary } from "@/lib/clients/types";
+import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
 import { QUOTE_FLOW_CODES } from "@/lib/quotes/workflow";
 
@@ -21,12 +22,7 @@ function formatValidity(value: string | null) {
     return "Sin fecha";
   }
 
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) {
-    return value;
-  }
-
-  return `${day}/${month}/${year}`;
+  return formatCivilDate(value) || value;
 }
 
 function formValues(quote: QuoteRecord): QuoteFormValues {
@@ -205,6 +201,7 @@ export default function QuoteDetailPage() {
       }
 
       setQuote(result.quote);
+      setSavedMessage("Estado actualizado");
       setActivityKey((current) => current + 1);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "No se pudo cambiar el estado");
@@ -241,6 +238,7 @@ export default function QuoteDetailPage() {
             }
           : current
       );
+      setSavedMessage("Presupuesto convertido");
       await refreshQuote();
     } catch (err) {
       setActionError(
