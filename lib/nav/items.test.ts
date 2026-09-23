@@ -284,6 +284,41 @@ describe("nav structure groups", () => {
     );
   });
 
+  it("shows Presupuestos only for owner or admin when the feature is enabled", () => {
+    const owner = navStructureForRole("owner", { quotes: true }).map((entry) =>
+      entry.type === "link" ? entry.item.label : entry.group.label
+    );
+    assert.deepEqual(owner, [
+      "Inicio",
+      "Pedidos",
+      "Clientes",
+      "Presupuestos",
+      "Gestión",
+      "Administración",
+    ]);
+    assert.equal(
+      navStructureForRole("admin", { quotes: true }).some(
+        (entry) => entry.type === "link" && entry.item.label === "Presupuestos"
+      ),
+      true
+    );
+    for (const role of ["manager", "staff", "viewer"] as const) {
+      assert.equal(
+        navStructureForRole(role, { quotes: true }).some(
+          (entry) => entry.type === "link" && entry.item.label === "Presupuestos"
+        ),
+        false
+      );
+    }
+    assert.equal(
+      navStructureForRole("owner").some(
+        (entry) => entry.type === "link" && entry.item.label === "Presupuestos"
+      ),
+      false
+    );
+    assert.equal(labels("owner").includes("Presupuestos"), false);
+  });
+
   it("Archivados uses the same gate as Todos los pedidos", () => {
     for (const role of ["owner", "admin", "manager", "viewer", "staff"] as const) {
       assert.equal(

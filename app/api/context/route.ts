@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
+import { QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -19,9 +21,17 @@ export async function GET() {
     context.tenant.id,
     context.user.id
   );
+  const quotes = await tenantHasFeature(
+    supabase,
+    context.tenant.id,
+    QUOTES_FEATURE_CODE
+  );
 
   return NextResponse.json({
     ...context,
     team_member: teamMember,
+    features: {
+      quotes,
+    },
   });
 }

@@ -3,6 +3,7 @@ import { canViewActivity } from "@/lib/auth/membership-roles";
 export const ACTIVITY_ENTITY_TYPES = [
   "order",
   "client",
+  "quote",
   "service",
   "team_member",
   "membership",
@@ -28,6 +29,10 @@ export const ACTIVITY_ACTIONS = [
   "team_member.created",
   "team_member.updated",
   "membership.role_changed",
+  "quote.created",
+  "quote.updated",
+  "quote.status_changed",
+  "quote.converted",
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -85,6 +90,7 @@ export type FormattedActivity = {
 export const ENTITY_TYPE_OPTIONS: { value: ActivityEntityType; label: string }[] =
   [
     { value: "order", label: "Pedidos" },
+    { value: "quote", label: "Presupuestos" },
     { value: "client", label: "Clientes" },
     { value: "service", label: "Servicios" },
     { value: "team_member", label: "Equipo" },
@@ -109,6 +115,10 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "team_member.created", label: "Miembro creado" },
   { value: "team_member.updated", label: "Miembro actualizado" },
   { value: "membership.role_changed", label: "Rol de acceso cambiado" },
+  { value: "quote.created", label: "Presupuesto creado" },
+  { value: "quote.updated", label: "Presupuesto actualizado" },
+  { value: "quote.status_changed", label: "Estado de presupuesto" },
+  { value: "quote.converted", label: "Presupuesto convertido" },
 ];
 
 export { canViewActivity };
