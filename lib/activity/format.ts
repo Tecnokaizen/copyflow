@@ -26,6 +26,10 @@ const FIELD_LABELS: Record<string, string> = {
   client: "Cliente",
   client_id: "Cliente",
   client_name: "Cliente",
+  service_name: "Servicio",
+  assigned_team_member_name: "Responsable",
+  valid_until: "Validez",
+  order_reference: "Pedido",
   priority: "Prioridad",
   name: "Nombre",
   contact_name: "Contacto",
@@ -205,6 +209,13 @@ function formatScalar(field: string, value: unknown): string {
     return formatLeadTimeMinutes(Number.isFinite(minutes) ? minutes : null);
   }
 
+  if (field === "valid_until" && typeof value === "string") {
+    const [year, month, day] = value.split("-");
+    if (year && month && day) {
+      return `${day}/${month}/${year}`;
+    }
+  }
+
   if (
     (field === "due_at" || field.endsWith("_at")) &&
     typeof value === "string"
@@ -302,6 +313,10 @@ function entityName(event: ActivityEvent) {
       return asString(metadata.reference) ?? "un pedido";
     }
 
+    if (event.entity_type === "quote") {
+      return asString(metadata.reference) ?? "un presupuesto";
+    }
+
     if (event.entity_type === "client") {
       return asString(metadata.client_name) ?? "un cliente";
     }
@@ -318,6 +333,8 @@ function entityHref(event: ActivityEvent) {
   switch (event.entity_type) {
     case "order":
       return id ? `/orders/${id}` : "/orders";
+    case "quote":
+      return id ? `/quotes/${id}` : "/quotes";
     case "client":
       return id ? `/clients/${id}` : "/clients";
     case "service":
@@ -386,10 +403,20 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
 
   switch (event.action) {
     case "order.status_changed":
+    case "quote.status_changed":
       return singleChange(
         "Estado",
         humanValue("status_name", prev, "status_id"),
         humanValue("status_name", next, "status_id")
+      );
+
+    case "quote.converted":
+      return singleChange(
+        "Pedido",
+        "Sin pedido",
+        asString(next.order_reference) ??
+          asString(asRecord(event.metadata).order_reference) ??
+          "Pedido"
       );
 
     case "order.archived":
@@ -477,6 +504,19 @@ function headlineFor(event: ActivityEvent, entity: string) {
   switch (event.action) {
     case "order.created":
       return `Creó el pedido ${entity}`;
+    case "quote.created":
+      return `Creó el presupuesto ${entity}`;
+    case "quote.updated":
+      return `Actualizó el presupuesto ${entity}`;
+    case "quote.status_changed":
+      return `Cambió el estado de ${entity}`;
+    case "quote.converted": {
+      const orderReference =
+        asString(asRecord(event.new_values).order_reference) ??
+        asString(asRecord(event.metadata).order_reference) ??
+        "un pedido";
+      return `Convirtió ${entity} en el pedido ${orderReference}`;
+    }
     case "order.status_changed":
       return `Cambió el estado de ${entity}`;
     case "order.archived":
@@ -607,6 +647,10 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "team_member.created",
     "team_member.updated",
     "membership.role_changed",
+    "quote.created",
+    "quote.updated",
+    "quote.status_changed",
+    "quote.converted",
   ].includes(event.action);
 
   const changes = extractChanges(event);

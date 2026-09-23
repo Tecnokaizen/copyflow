@@ -249,6 +249,7 @@ function AppNavFrame({
   tenant,
   identity,
   ready,
+  quotesEnabled,
 }: {
   pathname: string;
   searchParams: URLSearchParams;
@@ -256,10 +257,13 @@ function AppNavFrame({
   tenant: TenantLabel | null;
   identity: HeaderIdentity | null;
   ready: boolean;
+  quotesEnabled: boolean;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location: NavLocation = { pathname, searchParams };
-  const entries = navStructureForRole(ready ? role : null);
+  const entries = navStructureForRole(ready ? role : null, {
+    quotes: quotesEnabled,
+  });
 
   return (
     <header className="mb-6">
@@ -290,6 +294,7 @@ function AppNavContent() {
   const [role, setRole] = useState<string | null>(null);
   const [tenant, setTenant] = useState<TenantLabel | null>(null);
   const [identity, setIdentity] = useState<HeaderIdentity | null>(null);
+  const [quotesEnabled, setQuotesEnabled] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -299,6 +304,7 @@ function AppNavContent() {
         if (response.ok) {
           const context = await response.json();
           setRole(context?.membership?.role ?? null);
+          setQuotesEnabled(context?.features?.quotes === true);
           setIdentity(headerIdentityFromContext(context));
           const name =
             typeof context?.tenant?.name === "string"
@@ -323,14 +329,15 @@ function AppNavContent() {
   }, []);
 
   return (
-    <AppNavFrame
-      pathname={pathname}
-      searchParams={searchParams}
-      role={role}
-      tenant={tenant}
-      identity={identity}
-      ready={ready}
-    />
+      <AppNavFrame
+        pathname={pathname}
+        searchParams={searchParams}
+        role={role}
+        tenant={tenant}
+        identity={identity}
+        ready={ready}
+        quotesEnabled={quotesEnabled}
+      />
   );
 }
 
@@ -345,6 +352,7 @@ export function AppNav() {
           tenant={null}
           identity={null}
           ready={false}
+          quotesEnabled={false}
         />
       }
     >

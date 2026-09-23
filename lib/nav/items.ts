@@ -4,6 +4,7 @@ import {
   canWriteOrders,
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
+import { canAccessQuotesModule } from "@/lib/quotes/access";
 
 export type AppNavItemId =
   | "home"
@@ -13,10 +14,15 @@ export type AppNavItemId =
   | "orders"
   | "archived"
   | "clients"
+  | "quotes"
   | "services"
   | "team"
   | "activity"
   | "settings";
+
+export type NavCapabilities = {
+  quotes?: boolean;
+};
 
 export type AppNavGroupId = "orders" | "management" | "admin";
 
@@ -52,6 +58,7 @@ const NAV_BY_ID: Record<AppNavItemId, AppNavItem> = {
     label: "Archivados",
   },
   clients: { id: "clients", href: "/clients", label: "Clientes" },
+  quotes: { id: "quotes", href: "/quotes", label: "Presupuestos" },
   services: { id: "services", href: "/services", label: "Servicios" },
   team: { id: "team", href: "/team", label: "Equipo" },
   activity: { id: "activity", href: "/activity", label: "Actividad" },
@@ -133,6 +140,8 @@ export function isNavItemVisible(
       return canViewActivity(role);
     case "settings":
       return canManageSettingsCatalogs(role);
+    case "quotes":
+      return false;
     default:
       return false;
   }
@@ -156,7 +165,8 @@ function visibleItems(
  * Desktop and mobile must both use this structure.
  */
 export function navStructureForRole(
-  role: string | null | undefined
+  role: string | null | undefined,
+  capabilities?: NavCapabilities
 ): AppNavEntry[] {
   const entries: AppNavEntry[] = [];
 
@@ -174,6 +184,10 @@ export function navStructureForRole(
 
   if (isNavItemVisible("clients", role)) {
     entries.push({ type: "link", item: NAV_BY_ID.clients });
+  }
+
+  if (canAccessQuotesModule(role, capabilities?.quotes === true)) {
+    entries.push({ type: "link", item: NAV_BY_ID.quotes });
   }
 
   const managementItems = visibleItems(MANAGEMENT_GROUP_IDS, role);
@@ -234,6 +248,9 @@ export function navItemIsActive(item: AppNavItem, location: NavLocation | string
   }
   if (item.id === "clients") {
     return pathname === "/clients" || pathname.startsWith("/clients/");
+  }
+  if (item.id === "quotes") {
+    return pathname === "/quotes" || pathname.startsWith("/quotes/");
   }
   if (item.id === "services") {
     return pathname === "/services";
