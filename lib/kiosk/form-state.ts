@@ -1,6 +1,6 @@
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 
-export type KioskFormStep = "contact" | "order" | "confirmation";
+export type KioskFormStep = "service" | "details" | "contact" | "confirmation";
 
 export type KioskFormState = {
   submissionId: string;
@@ -32,14 +32,17 @@ export function createKioskFormState(submissionId: string): KioskFormState {
 
 export function canAdvanceKioskStep(
   step: KioskFormStep,
-  state: KioskFormState
+  state: KioskFormState,
 ) {
+  if (step === "service") {
+    return Boolean(state.serviceId);
+  }
   if (step === "contact") {
     return Boolean(
-      state.name.trim() && (state.email.trim() || state.phone.trim())
+      state.name.trim() && (state.email.trim() || state.phone.trim()),
     );
   }
-  if (step === "order") {
+  if (step === "details") {
     return Boolean(state.serviceId && state.description.trim());
   }
   return true;
@@ -47,7 +50,7 @@ export function canAdvanceKioskStep(
 
 export function markKioskSubmissionFailed(
   state: KioskFormState,
-  error: string
+  error: string,
 ): KioskFormState {
   return { ...state, submitting: false, error };
 }
