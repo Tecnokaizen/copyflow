@@ -8,6 +8,7 @@ import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
 import { canManageBilling } from "@/lib/billing/access";
 import { canManageSettingsCatalogs } from "@/lib/auth/membership-roles";
+import { canOpenKioskDemo } from "@/lib/kiosk/demo-access";
 import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
     context.membership.role
   );
   const showBilling = canManageBilling(context.membership.role);
+  const showKioskDemo = canOpenKioskDemo(context.membership.role);
 
   return (
     <AppShell>
@@ -106,6 +108,20 @@ export default async function SettingsPage() {
           >
             <Button asChild variant="outline">
               <Link href="/settings/quick-order">Configurar pedido rápido</Link>
+            </Button>
+          </SectionCard>
+        ) : null}
+
+        {showKioskDemo ? (
+          <SectionCard
+            title="Kiosk · Demo"
+            description="Abre el Kiosk público de esta organización en una pestaña nueva, en el mismo dominio."
+            bodyClassName="p-5 sm:p-6"
+          >
+            <Button asChild variant="outline">
+              <a href="/kiosk" target="_blank" rel="noopener noreferrer">
+                Kiosk · Demo
+              </a>
             </Button>
           </SectionCard>
         ) : null}
