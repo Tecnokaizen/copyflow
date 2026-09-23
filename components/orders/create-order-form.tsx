@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, FormEvent, useEffect, useState } from "react";
+import { CreateOrderFiles } from "@/components/files/create-order-files";
+import { OrderFilesSection } from "@/components/files/order-files-section";
+import { type ClientUploadItem, MAX_ORDER_FILE_BYTES } from "@/lib/files/client";
+import { createOrderUploadQueue } from "@/lib/files/create-order-queue";
+import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
@@ -63,6 +67,8 @@ type CreatedOrder = {
 
 type QuickOrderOptionsResponse = OrderOptionsResponse & {
   quick_order_layout: QuickOrderLayout;
+  file_statuses: { id: string; code: string; name: string }[];
+  max_file_bytes: number;
 };
 
 export function CreateOrderForm({
@@ -80,6 +86,23 @@ export function CreateOrderForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOrder | null>(null);
+
+  const submitLock = useRef(false);
+  const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
+  const [uploadQueue] = useState(() => createOrderUploadQueue(setUploads));
+  const maxFileBytes = options?.max_file_bytes ?? MAX_ORDER_FILE_BYTES;
+  const pendingUploads = uploads.some((item) => item.phase !== "success");
+  const [fileStatusId, setFileStatusId] = useState("");
+
+  useEffect(() => {
+    if (!pendingUploads) return;
+    function warnOnLeave(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", warnOnLeave);
+    return () => window.removeEventListener("beforeunload", warnOnLeave);
+  }, [pendingUploads]);
 
   const [title, setTitle] = useState("");
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(
@@ -136,6 +159,8 @@ export function CreateOrderForm({
   }
 
   function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
+    uploadQueue.clear();
+    setFileStatusId("");
     setTitle("");
     setSelectedClient(null);
     setServiceId("");
@@ -170,6 +195,8 @@ export function CreateOrderForm({
         const nextOptions = {
           tenant: result.tenant,
           services: result.services ?? [],
+          file_statuses: result.file_statuses ?? [],
+          max_file_bytes: result.max_file_bytes ?? MAX_ORDER_FILE_BYTES,
           entry_channels: result.entry_channels ?? [],
           order_contexts: result.order_contexts ?? [],
           team_members: result.team_members ?? [],
@@ -309,7 +336,7 @@ export function CreateOrderForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (submitting) {
+    if (submitLock.current || created) {
       return;
     }
 
@@ -319,6 +346,11 @@ export function CreateOrderForm({
       return;
     }
 
+    if (uploads.some((item) => item.errorKind === "client")) {
+      setError("Quita los archivos no válidos de la cola antes de crear el pedido.");
+      return;
+    }
+    submitLock.current = true;
     setSubmitting(true);
     setError(null);
 
@@ -344,6 +376,7 @@ export function CreateOrderForm({
             assignedTeamMemberId,
             storeId,
             notes,
+            fileStatusId,
           })
         ),
       });
@@ -360,25 +393,69 @@ export function CreateOrderForm({
         throw new Error("No se pudo crear el pedido");
       }
 
-      if (shouldStayOnCreateForm(mode)) {
-        setCreated({
-          id: result.order.id,
-          reference:
-            typeof result.order.reference === "string"
-              ? result.order.reference
-              : "Pedido",
-        });
-        setSubmitting(false);
-        return;
+      // Remember the saved order before any upload; failures only retry its queue.
+      const savedOrder = {
+        id: result.order.id as string,
+        reference: typeof result.order.reference === "string" ? result.order.reference : "Pedido",
+      };
+      setCreated(savedOrder);
+      const allUploaded = await uploadQueue.upload(savedOrder.id, maxFileBytes);
+      if (!allUploaded) {
+        setError("El pedido está creado. Algunos archivos no se han podido subir; reinténtalos aquí.");
+      } else if (!shouldStayOnCreateForm(mode)) {
+        router.push(`/orders/${savedOrder.id}?created=1`);
       }
-
-      router.push(`/orders/${result.order.id}?created=1`);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No se pudo crear el pedido"
       );
+    } finally {
       setSubmitting(false);
+      submitLock.current = false;
     }
+  }
+
+  async function retryUploads() {
+    if (!created || submitLock.current) return;
+    submitLock.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const complete = await uploadQueue.upload(created.id, maxFileBytes);
+      if (!complete) setError("Quedan archivos pendientes. Puedes volver a reintentar.");
+      else if (!shouldStayOnCreateForm(mode)) router.push(`/orders/${created.id}?created=1`);
+    } catch {
+      setError("No se han podido completar los archivos. El pedido ya está creado.");
+    } finally {
+      setSubmitting(false);
+      submitLock.current = false;
+    }
+  }
+
+  function renderFilesField() {
+    return (
+      <CreateOrderFiles
+        items={uploads}
+        busy={submitting}
+        saved={Boolean(created)}
+        maxFileBytes={maxFileBytes}
+        onAdd={(files) => uploadQueue.add(files, maxFileBytes)}
+        onRemove={(id) => uploadQueue.remove(id)}
+      />
+    );
+  }
+
+  function renderFileStatusField() {
+    return (
+      <label className="grid gap-2 text-sm font-medium text-foreground">
+        Estado de archivos
+        <DraftSelect value={fileStatusId} disabled={submitting} className="max-w-none text-base" onChange={setFileStatusId}>
+          <option value="">Sin estado de archivos</option>
+          {options?.file_statuses.map((status) => <option key={status.id} value={status.id}>{status.name}</option>)}
+        </DraftSelect>
+        <span className="text-xs font-normal text-muted-foreground">Estado operativo del material. Adjuntar un archivo no cambia este estado.</span>
+      </label>
+    );
   }
 
   function renderChannelField() {
@@ -639,6 +716,10 @@ export function CreateOrderForm({
         return renderContextField();
       case "notes":
         return renderNotesField();
+      case "file_status":
+        return renderFileStatusField();
+      case "files":
+        return renderFilesField();
     }
   }
 
@@ -666,15 +747,24 @@ export function CreateOrderForm({
     </ClientModal>
   ) : null;
 
-  if (shouldStayOnCreateForm(mode) && created) {
+  if (created) {
     return (
       <SectionCard
-        title="Pedido creado"
+        title={submitting ? "Completando pedido…" : "Pedido creado"}
         description={`${created.reference} ya está registrado.`}
         className="mb-6"
         bodyClassName="px-5 py-5 sm:px-6"
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="mb-5 grid gap-3" aria-live="polite">
+          {uploads.length > 0 && (pendingUploads || submitting) ? renderFilesField() : null}
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          {pendingUploads && !submitting ? <button type="button" className="gc-cta min-h-11" onClick={() => void retryUploads()}>Reintentar archivos pendientes</button> : null}
+          {!submitting && uploads.some((item) => item.phase === "success") ? (
+            <OrderFilesSection key={uploads.filter((item) => item.phase === "success").length} orderId={created.id} canMutate={false} archived={false} />
+          ) : null}
+          {pendingUploads && !submitting ? <p className="text-sm text-muted-foreground">Los archivos pendientes siguen en esta pantalla. Si sales, tendrás que seleccionarlos de nuevo en la ficha.</p> : null}
+        </div>
+        {!submitting ? <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Link
             href={`/orders/${created.id}`}
             className="gc-cta min-h-11 w-full sm:w-auto"
@@ -683,6 +773,7 @@ export function CreateOrderForm({
           </Link>
           <button
             type="button"
+            disabled={pendingUploads}
             onClick={() => resetQuickForm(options)}
             className="gc-action min-h-11 w-full sm:w-auto"
           >
@@ -696,7 +787,7 @@ export function CreateOrderForm({
               Volver a Mostrador
             </Link>
           ) : null}
-        </div>
+        </div> : null}
       </SectionCard>
     );
   }
@@ -755,6 +846,8 @@ export function CreateOrderForm({
               {renderDueAtField()}
               {renderAssigneeField()}
               {renderPriorityField()}
+              {renderFileStatusField()}
+              {renderFilesField()}
               {showChannelInMain ? renderChannelField() : null}
               <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                 <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">

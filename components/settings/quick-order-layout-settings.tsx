@@ -9,11 +9,10 @@ import {
   QUICK_ORDER_FIELDS,
   QUICK_ORDER_FIELD_LABELS,
   layoutsEqual,
-  toggleQuickOrderField,
   userFacingQuickOrderLayoutSaveError,
   type QuickOrderLayout,
+  type QuickOrderPlacement,
 } from "@/lib/settings/quick-order-layout";
-import { cn } from "@/lib/utils";
 
 type SettingsResponse = {
   ok?: boolean;
@@ -115,11 +114,11 @@ export function QuickOrderLayoutSettings() {
     };
   }, []);
 
-  function toggle(field: (typeof QUICK_ORDER_FIELDS)[number], checked: boolean) {
+  function setPlacement(field: (typeof QUICK_ORDER_FIELDS)[number], placement: QuickOrderPlacement) {
     setSaved(false);
     setError(null);
     setLayout((current) =>
-      current ? toggleQuickOrderField(current, field, checked) : current
+      current ? { ...current, [field]: placement } : current
     );
   }
 
@@ -203,29 +202,24 @@ export function QuickOrderLayoutSettings() {
             <legend className="sr-only">
               Campos visibles al crear un pedido rápido
             </legend>
-            {QUICK_ORDER_FIELDS.map((field) => {
-              const checked = layout[field] === "primary";
-              return (
-                <label
-                  key={field}
-                  className={cn(
-                    "flex min-h-12 cursor-pointer items-center gap-3.5 border-b border-border/60 px-5 py-3.5 last:border-b-0 transition-colors hover:bg-secondary/35 sm:px-6",
-                    checked ? "bg-secondary/25" : "bg-transparent"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={saving}
-                    onChange={(event) => toggle(field, event.target.checked)}
-                    className="size-5 shrink-0 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
-                  />
-                  <span className="text-[0.975rem] font-medium leading-snug text-foreground">
-                    {QUICK_ORDER_FIELD_LABELS[field]}
-                  </span>
+            {QUICK_ORDER_FIELDS.map((field) => (
+              <div key={field} className="flex min-h-12 flex-col gap-2 border-b border-border/60 px-5 py-3.5 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <label htmlFor={`quick-placement-${field}`} className="text-sm font-medium text-foreground">
+                  {QUICK_ORDER_FIELD_LABELS[field]}
                 </label>
-              );
-            })}
+                <select
+                  id={`quick-placement-${field}`}
+                  value={layout[field]}
+                  disabled={saving}
+                  onChange={(event) => setPlacement(field, event.target.value as QuickOrderPlacement)}
+                  className="min-h-11 rounded-md border border-input bg-background px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-48"
+                >
+                  <option value="primary">Principal</option>
+                  <option value="more">Más opciones</option>
+                  <option value="hidden">Oculto</option>
+                </select>
+              </div>
+            ))}
           </fieldset>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
