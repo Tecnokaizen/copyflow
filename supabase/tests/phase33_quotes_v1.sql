@@ -31,6 +31,11 @@ declare
   v_status_b uuid;
   v_label text;
   v_payload jsonb;
+  v_founder uuid := 'e3300000-0000-4000-8000-000000000031';
+  v_internal_user uuid := 'e3300000-0000-4000-8000-000000000032';
+  v_org jsonb;
+  v_new_tenant uuid;
+  v_feature boolean;
 begin
   if position(
     'seed_quote_statuses' in pg_get_functiondef(
@@ -38,6 +43,14 @@ begin
     )
   ) = 0 then
     raise exception 'phase33: create_organization does not seed quote statuses';
+  end if;
+
+  if position(
+    'seed_quote_statuses' in pg_get_functiondef(
+      'public.create_internal_organization_v1(uuid,text,text,text)'::regprocedure
+    )
+  ) = 0 then
+    raise exception 'phase33: create_internal_organization_v1 does not seed quote statuses';
   end if;
 
   select count(*)::int into v_count
@@ -433,6 +446,124 @@ begin
   if v_label is distinct from 'PHASE33A-P0001'
      and v_label is distinct from 'PHASE33A-P0002' then
     raise exception 'phase33: activity label was %', v_label;
+  end if;
+
+  -- Cross-tenant RPC: owner A must not learn tenant B's feature.
+  execute 'reset role';
+  perform public.set_tenant_feature('phase33b', 'quotes', true, null);
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+
+  v_feature := public.tenant_has_feature(v_tenant_b, 'quotes');
+  if v_feature is distinct from false then
+    raise exception 'phase33: owner A resolved tenant B feature as %', v_feature;
+  end if;
+
+  v_feature := public.tenant_has_feature(v_tenant_a, 'quotes');
+  if v_feature is distinct from true then
+    raise exception 'phase33: owner A could not resolve own feature';
+  end if;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claim.role', '', true);
+  v_feature := public.tenant_has_feature(v_tenant_b, 'quotes');
+  if v_feature is distinct from true then
+    raise exception 'phase33: postgres could not resolve tenant B feature';
+  end if;
+
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  v_feature := public.tenant_has_feature(v_tenant_b, 'quotes');
+  if v_feature is distinct from true then
+    raise exception 'phase33: service_role could not resolve tenant B feature';
+  end if;
+
+  execute 'set local role authenticated';
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  v_sqlstate := null;
+  begin
+    update public.quotes
+    set archived_at = pg_catalog.now()
+    where id = v_quote;
+  exception when others then
+    v_sqlstate := sqlstate;
+  end;
+  if v_sqlstate is distinct from '42501' then
+    raise exception 'phase33: archived_at update expected 42501, got %', v_sqlstate;
+  end if;
+
+  -- Commercial and internal provisioning both seed quote statuses.
+  execute 'reset role';
+  insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at, confirmation_token, recovery_token,
+    email_change_token_new, email_change
+  ) values
+    (v_founder, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+     'founder@phase33.test', crypt('pw', gen_salt('bf')), now(),
+     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+     now(), now(), '', '', '', ''),
+    (v_internal_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+     'internal@phase33.test', crypt('pw', gen_salt('bf')), now(),
+     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+     now(), now(), '', '', '', '');
+
+  perform set_config('request.jwt.claim.sub', v_founder::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  v_org := public.create_organization(
+    'Phase33 Commercial', 'phase33-commercial', 'Europe/Madrid'
+  );
+  v_new_tenant := (v_org ->> 'tenant_id')::uuid;
+  if coalesce((v_org ->> 'active')::boolean, true) is not false
+     or v_org ->> 'provisioning_state' is distinct from 'pending_billing' then
+    raise exception 'phase33: commercial provisioning changed, got %', v_org;
+  end if;
+
+  execute 'reset role';
+  select count(*)::int into v_count
+  from public.quote_statuses
+  where tenant_id = v_new_tenant
+    and code in ('draft', 'pending', 'accepted', 'rejected');
+  if v_count <> 4 then
+    raise exception 'phase33: commercial tenant missing quote statuses, got %', v_count;
+  end if;
+
+  execute 'set local role authenticated';
+  v_sqlstate := null;
+  begin
+    perform public.create_internal_organization_v1(
+      v_internal_user, 'Phase33 Internal', 'phase33-internal', 'Europe/Madrid'
+    );
+  exception when others then
+    v_sqlstate := sqlstate;
+  end;
+  if v_sqlstate is distinct from '42501' then
+    raise exception 'phase33: authenticated internal provisioning expected 42501, got %', v_sqlstate;
+  end if;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claim.role', '', true);
+  v_org := public.create_internal_organization_v1(
+    v_internal_user, 'Phase33 Internal', 'phase33-internal', 'Europe/Madrid'
+  );
+  v_new_tenant := (v_org ->> 'tenant_id')::uuid;
+  if coalesce((v_org ->> 'active')::boolean, false) is not true
+     or v_org ->> 'provisioning_state' is distinct from 'ready' then
+    raise exception 'phase33: internal provisioning changed, got %', v_org;
+  end if;
+
+  select count(*)::int into v_count
+  from public.quote_statuses
+  where tenant_id = v_new_tenant
+    and code in ('draft', 'pending', 'accepted', 'rejected');
+  if v_count <> 4 then
+    raise exception 'phase33: internal tenant missing quote statuses, got %', v_count;
   end if;
 
   execute 'reset role';

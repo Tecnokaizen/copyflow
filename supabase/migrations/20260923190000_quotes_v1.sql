@@ -42,42 +42,68 @@ create or replace function public.tenant_has_feature (
   p_code text
 )
   returns boolean
-  language sql
+  language plpgsql
   stable
   security definer
   set search_path to ''
 as $function$
-  select case
-    when exists (
-      select 1
-      from public.tenant_feature_overrides o
-      join public.features f on f.id = o.feature_id
-      where o.tenant_id = p_tenant_id
-        and f.code = p_code
-    )
-    then (
-      select o.enabled
-      from public.tenant_feature_overrides o
-      join public.features f on f.id = o.feature_id
-      where o.tenant_id = p_tenant_id
-        and f.code = p_code
-    )
-    else coalesce((
-      select pf.enabled
-      from public.subscriptions s
-      join public.plan_features pf on pf.plan_id = s.plan_id
-      join public.features f on f.id = pf.feature_id
-      where s.tenant_id = p_tenant_id
-        and f.code = p_code
-        and s.status in ('active', 'trialing')
-      order by s.created_at desc
-      limit 1
-    ), false)
-  end;
+declare
+  v_role text := coalesce(auth.role(), '');
+  v_enabled boolean;
+begin
+  -- authenticated may only resolve tenants where they have an active membership.
+  -- service_role and a direct postgres/supabase_admin session keep operational access.
+  -- A JWT role of authenticated is never treated as operational, even if session_user is postgres.
+  if v_role = 'service_role'
+     or (
+       v_role = ''
+       and session_user in ('postgres', 'supabase_admin')
+     )
+  then
+    null;
+  elsif v_role = 'authenticated'
+     and exists (
+       select 1
+       from public.memberships m
+       where m.tenant_id = p_tenant_id
+         and m.user_id = auth.uid()
+         and m.active is true
+     )
+  then
+    null;
+  else
+    return false;
+  end if;
+
+  select o.enabled into v_enabled
+  from public.tenant_feature_overrides o
+  join public.features f on f.id = o.feature_id
+  where o.tenant_id = p_tenant_id
+    and f.code = p_code;
+
+  if found then
+    return coalesce(v_enabled, false);
+  end if;
+
+  -- Plan fallback does not filter subscriptions.livemode.
+  -- Do not use this resolver for Stripe-sensitive features until that mode is part of the rule.
+  -- quotes is not attached to Basic or mvp, so this fallback does not enable it.
+  select pf.enabled into v_enabled
+  from public.subscriptions s
+  join public.plan_features pf on pf.plan_id = s.plan_id
+  join public.features f on f.id = pf.feature_id
+  where s.tenant_id = p_tenant_id
+    and f.code = p_code
+    and s.status in ('active', 'trialing')
+  order by s.created_at desc
+  limit 1;
+
+  return coalesce(v_enabled, false);
+end;
 $function$;
 
 comment on function public.tenant_has_feature(uuid, text) is
-  'DEFINER read: explicit override, then active/trialing plan feature, else false.';
+  'DEFINER read. authenticated: false without an active membership on p_tenant_id. service_role and postgres/supabase_admin: operational. Resolution: override, then active/trialing plan feature, else false. Plan fallback ignores subscriptions.livemode; do not use it for Stripe-sensitive features. quotes is not on Basic or mvp.';
 
 revoke all on function public.tenant_has_feature(uuid, text) from public;
 grant execute on function public.tenant_has_feature(uuid, text) to authenticated, service_role;
@@ -675,8 +701,7 @@ grant update (
   title,
   description,
   valid_until,
-  notes,
-  archived_at
+  notes
 ) on table public.quotes to authenticated;
 
 CREATE OR REPLACE FUNCTION public.create_organization (
@@ -820,6 +845,117 @@ $function$;
 
 COMMENT ON FUNCTION public.create_organization(text, text, text) IS
   'DEFINER authenticated: commercial onboarding only. Always active=false and provisioning_state=pending_billing. Seeds quote statuses. No client-selectable provisioning.';
+
+CREATE OR REPLACE FUNCTION public.create_internal_organization_v1 (
+  p_user_id  uuid,
+  p_name     text,
+  p_slug     text,
+  p_timezone text DEFAULT 'Europe/Madrid'::text
+)
+  RETURNS jsonb
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO ''
+  AS $function$
+declare
+  v_name text;
+  v_slug text;
+  v_timezone text;
+  v_tenant public.tenants%rowtype;
+begin
+  if p_user_id is null then
+    raise exception 'invalid value'
+      using errcode = '22023';
+  end if;
+
+  if not exists (select 1 from auth.users u where u.id = p_user_id) then
+    raise exception 'invalid value'
+      using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_user_id::text, 0)
+  );
+
+  v_name := nullif(pg_catalog.btrim(p_name), '');
+  if v_name is null then
+    raise exception 'invalid value'
+      using errcode = '22023';
+  end if;
+
+  v_slug := pg_catalog.lower(pg_catalog.btrim(coalesce(p_slug, '')));
+  v_slug := pg_catalog.regexp_replace(v_slug, '\s+', '-', 'g');
+
+  if v_slug !~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' then
+    raise exception 'invalid value'
+      using errcode = '22023';
+  end if;
+
+  if exists (select 1 from public.tenants t where t.slug = v_slug) then
+    raise exception 'slug already exists'
+      using errcode = '23505';
+  end if;
+
+  v_timezone := nullif(pg_catalog.btrim(coalesce(p_timezone, '')), '');
+  if v_timezone is null then
+    v_timezone := 'Europe/Madrid';
+  end if;
+
+  insert into public.profiles (id, full_name)
+  values (p_user_id, null)
+  on conflict (id) do nothing;
+
+  insert into public.tenants (name, slug, active, provisioning_state)
+  values (v_name, v_slug, true, 'ready')
+  returning * into v_tenant;
+
+  insert into public.memberships (tenant_id, user_id, role, active)
+  values (v_tenant.id, p_user_id, 'owner', true);
+
+  insert into public.tenant_settings (
+    tenant_id, business_name, timezone, locale, currency
+  ) values (
+    v_tenant.id, v_name, v_timezone, 'es-ES', 'EUR'
+  );
+
+  insert into public.order_statuses (
+    tenant_id, name, code, is_initial, is_ready, is_closed, is_cancelled, active, sort_order
+  ) values
+    (v_tenant.id, 'Recibido', 'received', true, false, false, false, true, 1),
+    (v_tenant.id, 'En proceso', 'in_progress', false, false, false, false, true, 2),
+    (v_tenant.id, 'Listo', 'ready', false, true, false, false, true, 3),
+    (v_tenant.id, 'Entregado', 'closed', false, false, true, false, true, 4),
+    (v_tenant.id, 'Cancelado', 'cancelled', false, false, false, true, true, 5);
+
+  insert into public.customer_types (tenant_id, name, active, sort_order)
+  values
+    (v_tenant.id, 'Particular', true, 1),
+    (v_tenant.id, 'Empresa', true, 2);
+
+  insert into public.entry_channels (tenant_id, name, code, active, sort_order)
+  values
+    (v_tenant.id, 'Mostrador', 'counter', true, 1),
+    (v_tenant.id, 'Teléfono', 'phone', true, 2),
+    (v_tenant.id, 'Email', 'email', true, 3),
+    (v_tenant.id, 'Web', 'web', true, 4);
+
+  insert into public.stores (tenant_id, name, active)
+  values (v_tenant.id, 'Principal', true);
+
+  perform public.seed_quote_statuses(v_tenant.id);
+
+  return pg_catalog.jsonb_build_object(
+    'tenant_id', v_tenant.id,
+    'slug', v_tenant.slug,
+    'name', v_tenant.name,
+    'active', v_tenant.active,
+    'provisioning_state', v_tenant.provisioning_state
+  );
+end;
+$function$;
+
+COMMENT ON FUNCTION public.create_internal_organization_v1(uuid, text, text, text) IS
+  'DEFINER service-only: internal/ops provisioning with active=true and provisioning_state=ready. Seeds quote statuses. Never callable by authenticated.';
 
 CREATE OR REPLACE FUNCTION public.list_activity_log (
   p_tenant_id   uuid,
