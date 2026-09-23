@@ -34,13 +34,13 @@ async function KioskContent() {
   }
 
   return (
-    <main lang="es" className="min-h-svh bg-background">
-      <header className="border-b border-border/70 bg-card px-5 py-5 sm:px-8 sm:py-6">
+    <main lang="es" className="min-h-svh bg-muted">
+      <header className="border-b border-border/70 bg-card px-5 py-5 shadow-sm sm:px-8 sm:py-6">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <p className="min-w-0 break-words text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+          <p className="min-w-0 break-words text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {bootstrap.tenant.name}
           </p>
-          <p className="text-sm font-medium text-muted-foreground">
+          <p className="shrink-0 text-sm font-medium text-muted-foreground">
             Solicita tu pedido
           </p>
         </div>

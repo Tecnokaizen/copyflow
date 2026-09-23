@@ -28,6 +28,39 @@ const STEPS: Array<{ id: KioskFormStep; label: string }> = [
   { id: "confirmation", label: "Confirmación" },
 ];
 
+function ServiceArtwork({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "relative grid h-28 shrink-0 place-items-center overflow-hidden border-b",
+        selected
+          ? "border-primary/25 bg-primary/10"
+          : "border-border/70 bg-muted/70",
+      )}
+    >
+      <span className="absolute -left-4 -top-5 size-16 rounded-2xl bg-primary/10" />
+      <span className="absolute -right-5 bottom-1 size-14 rotate-12 rounded-xl border border-primary/15 bg-card/90" />
+      <span className="absolute bottom-3 left-5 size-8 rounded-md bg-primary/15" />
+      <span
+        className={cn(
+          "relative grid size-14 place-items-center rounded-2xl shadow-sm",
+          selected
+            ? "bg-primary text-primary-foreground"
+            : "bg-card text-primary",
+        )}
+      >
+        <FileText className="size-7" aria-hidden="true" />
+      </span>
+      {selected ? (
+        <span className="absolute right-3 top-3 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
+          <Check className="size-4" aria-hidden="true" />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function Field({
   label,
   hint,
@@ -191,7 +224,7 @@ export function KioskOrderForm({
             <span
               aria-hidden="true"
               className={cn(
-                "relative z-10 grid size-10 place-items-center rounded-full border-4 border-background text-sm font-semibold",
+                "relative z-10 grid size-10 place-items-center rounded-full border-4 border-muted text-sm font-semibold",
                 index <= stepIndex
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground",
@@ -219,7 +252,7 @@ export function KioskOrderForm({
       >
         {step === "service" ? (
           <div>
-            <div className="mb-8 text-center sm:mb-10">
+            <div className="mb-7 text-center sm:mb-9">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary sm:text-sm">
                 Tu pedido en solo unos pasos
               </p>
@@ -227,11 +260,11 @@ export function KioskOrderForm({
                 ref={headingRef}
                 tabIndex={-1}
                 id="service-heading"
-                className="mx-auto mt-4 max-w-3xl text-3xl font-bold leading-tight tracking-tight outline-none sm:text-4xl lg:text-5xl"
+                className="mx-auto mt-3 max-w-3xl text-3xl font-bold leading-tight tracking-tight outline-none sm:text-4xl"
               >
                 ¿Qué necesitas imprimir hoy?
               </h1>
-              <p className="mt-4 text-base text-muted-foreground sm:text-lg">
+              <p className="mt-3 text-base text-muted-foreground sm:text-lg">
                 Selecciona un servicio para empezar
               </p>
             </div>
@@ -252,32 +285,15 @@ export function KioskOrderForm({
                       />
                       <span
                         className={cn(
-                          "flex h-full min-h-44 flex-col rounded-2xl border-2 p-5 transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-4 peer-focus-visible:ring-offset-background sm:min-h-48 sm:p-6",
+                          "flex h-full flex-col overflow-hidden rounded-2xl border-2 bg-card shadow-sm transition-[border-color,box-shadow,transform] peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-muted",
                           selected
-                            ? "border-primary bg-primary/5 shadow-sm"
-                            : "border-border/80 bg-card hover:border-primary/40 hover:bg-primary/5",
+                            ? "border-primary bg-primary/[0.04] shadow-md"
+                            : "border-border/80 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
                         )}
                       >
-                        <span className="mb-6 flex items-center justify-between gap-3">
-                          <span
-                            className={cn(
-                              "grid size-12 place-items-center rounded-xl",
-                              selected
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-primary/10 text-primary",
-                            )}
-                          >
-                            <FileText className="size-6" aria-hidden="true" />
-                          </span>
-                          {selected ? (
-                            <Check
-                              className="size-5 text-primary"
-                              aria-hidden="true"
-                            />
-                          ) : null}
-                        </span>
-                        <span className="mt-auto flex items-center justify-between gap-3">
-                          <span className="min-w-0 break-words text-base font-semibold leading-snug sm:text-lg">
+                        <ServiceArtwork selected={selected} />
+                        <span className="flex min-h-14 items-center justify-between gap-3 px-4 py-3">
+                          <span className="min-w-0 break-words text-base font-semibold leading-snug">
                             {service.name}
                           </span>
                           <ArrowRight
@@ -459,7 +475,13 @@ export function KioskOrderForm({
           {state.error}
         </p>
 
-        <div className="mt-3 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+        <div
+          className={cn(
+            step === "service"
+              ? "mt-8 flex justify-center sm:mt-10"
+              : "mt-3 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between",
+          )}
+        >
           {step !== "service" ? (
             <button
               type="button"
@@ -470,9 +492,7 @@ export function KioskOrderForm({
               <ArrowLeft className="size-4" aria-hidden="true" />
               Atrás
             </button>
-          ) : (
-            <span />
-          )}
+          ) : null}
           {step === "confirmation" ? (
             <button
               type="button"
@@ -487,7 +507,10 @@ export function KioskOrderForm({
               type="button"
               onClick={next}
               disabled={!canAdvanceKioskStep(step, state)}
-              className="gc-cta min-h-14 gap-3 rounded-xl px-8 text-base font-semibold sm:min-w-52"
+              className={cn(
+                "gc-cta min-h-14 gap-3 rounded-xl px-8 text-base font-semibold",
+                step === "service" ? "w-full sm:w-[300px]" : "sm:min-w-52",
+              )}
             >
               Continuar
               <ArrowRight className="size-5" aria-hidden="true" />
@@ -497,7 +520,7 @@ export function KioskOrderForm({
       </div>
 
       {step === "service" ? (
-        <div className="mt-10 grid gap-6 border-t border-border/70 pt-8 sm:mt-12 sm:grid-cols-3 sm:gap-8">
+        <div className="mt-8 grid gap-6 rounded-3xl border border-border/70 bg-background/80 px-5 py-6 sm:mt-10 sm:grid-cols-3 sm:gap-8 sm:px-8 sm:py-8">
           {[
             {
               icon: Zap,
