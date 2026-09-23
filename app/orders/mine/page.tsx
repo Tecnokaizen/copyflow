@@ -14,6 +14,7 @@ import {
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
 import { canAccessCounter } from "@/lib/nav/items";
+import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import type { MineQueueSection } from "@/lib/orders/mine";
 import {
   MINE_ORDERS_PAGE_DESCRIPTION,
@@ -120,7 +121,8 @@ function MyOrdersContent() {
         description={MINE_ORDERS_PAGE_DESCRIPTION}
         className="mb-5 sm:mb-6"
         actions={
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+            <OperationalCreateActions />
             {canWriteOrders(actorRole) ? (
               <Link
                 href="/orders/quick"

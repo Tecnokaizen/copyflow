@@ -9,21 +9,12 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { QuoteActivity } from "@/components/quotes/quote-activity";
 import { QuoteForm, type QuoteFormValues } from "@/components/quotes/quote-form";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
-import { Button } from "@/components/ui/button";
 import type { ClientSummary } from "@/lib/clients/types";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
-
-function formatWhen(value: string) {
-  return new Intl.DateTimeFormat("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+import { QUOTE_FLOW_CODES } from "@/lib/quotes/workflow";
 
 function formatValidity(value: string | null) {
   if (!value) {
@@ -65,6 +56,15 @@ function formValues(quote: QuoteRecord): QuoteFormValues {
   };
 }
 
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="gc-fact-label">{label}</dt>
+      <dd className="gc-fact-value mt-1">{value}</dd>
+    </div>
+  );
+}
+
 export default function QuoteDetailPage() {
   const params = useParams<{ id: string }>();
   const [quote, setQuote] = useState<QuoteRecord | null>(null);
@@ -73,11 +73,13 @@ export default function QuoteDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [converting, setConverting] = useState(false);
-
   const [reloadKey, setReloadKey] = useState(0);
+  const [activityKey, setActivityKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +130,17 @@ export default function QuoteDetailPage() {
     };
   }, [params.id, reloadKey]);
 
+  async function refreshQuote() {
+    const response = await fetch(`/api/quotes/${params.id}`);
+    const result = await response.json();
+    if (!response.ok || !result.quote) {
+      throw new Error(result.error ?? "No se encontró el presupuesto");
+    }
+
+    setQuote(result.quote as QuoteRecord);
+    setActivityKey((current) => current + 1);
+  }
+
   async function save(values: QuoteFormValues) {
     if (!quote || saving) {
       return;
@@ -135,6 +148,7 @@ export default function QuoteDetailPage() {
 
     setSaving(true);
     setFormError(null);
+    setSavedMessage(null);
 
     try {
       const response = await fetch(`/api/quotes/${quote.id}`, {
@@ -158,6 +172,8 @@ export default function QuoteDetailPage() {
 
       setQuote(result.quote);
       setEditing(false);
+      setSavedMessage("Cambios guardados");
+      setActivityKey((current) => current + 1);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "No se pudo guardar el presupuesto");
     } finally {
@@ -166,26 +182,35 @@ export default function QuoteDetailPage() {
   }
 
   async function changeStatus(statusId: string) {
-    if (!quote || statusId === quote.status?.id) {
+    if (!quote || statusSaving || statusId === quote.status?.id) {
       return;
     }
 
+    setStatusSaving(true);
     setActionError(null);
-    const response = await fetch(`/api/quotes/${quote.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status_id: statusId,
-        expected_row_version: quote.row_version,
-      }),
-    });
-    const result = await response.json();
-    if (!response.ok || !result.quote) {
-      setActionError(result.error ?? "No se pudo cambiar el estado");
-      return;
-    }
+    setSavedMessage(null);
 
-    setQuote(result.quote);
+    try {
+      const response = await fetch(`/api/quotes/${quote.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status_id: statusId,
+          expected_row_version: quote.row_version,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.quote) {
+        throw new Error(result.error ?? "No se pudo cambiar el estado");
+      }
+
+      setQuote(result.quote);
+      setActivityKey((current) => current + 1);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "No se pudo cambiar el estado");
+    } finally {
+      setStatusSaving(false);
+    }
   }
 
   async function convert() {
@@ -216,6 +241,7 @@ export default function QuoteDetailPage() {
             }
           : current
       );
+      await refreshQuote();
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : "No se pudo convertir el presupuesto"
@@ -226,7 +252,7 @@ export default function QuoteDetailPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell innerClassName="max-w-5xl">
       <AppNav />
       {loading ? <LoadingState label="Cargando presupuesto" /> : null}
       {!loading && error ? (
@@ -247,112 +273,158 @@ export default function QuoteDetailPage() {
             description={quote.title || "Presupuesto"}
             actions={
               quote.converted_order ? (
-                <Button asChild variant="outline">
-                  <Link href={`/orders/${quote.converted_order.id}`}>Abrir pedido</Link>
-                </Button>
+                <Link
+                  href={`/orders/${quote.converted_order.id}`}
+                  className="gc-cta min-h-11 w-full sm:w-auto"
+                >
+                  Abrir pedido {quote.converted_order.reference}
+                </Link>
               ) : (
-                <Button type="button" onClick={convert} disabled={converting}>
+                <button
+                  type="button"
+                  onClick={convert}
+                  disabled={converting}
+                  className="gc-cta min-h-11 w-full sm:w-auto"
+                >
                   {converting ? "Convirtiendo…" : "Convertir en pedido"}
-                </Button>
+                </button>
               )
             }
           />
 
-          {quote.converted_order ? (
-            <SectionCard className="mb-5">
-              <p className="text-base">
-                Pedido creado:{" "}
-                <Link
-                  href={`/orders/${quote.converted_order.id}`}
-                  className="font-semibold text-primary"
-                >
-                  {quote.converted_order.reference}
-                </Link>
-              </p>
-            </SectionCard>
+          <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+            {quote.status ? (
+              <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
+            ) : null}
+            <p className="text-sm">
+              <span className="gc-fact-label">Cliente </span>
+              <span className="gc-fact-value">{quote.client?.name ?? "Sin cliente"}</span>
+            </p>
+            <p className="text-sm">
+              <span className="gc-fact-label">Validez </span>
+              <span className="gc-fact-value">{formatValidity(quote.valid_until)}</span>
+            </p>
+          </div>
+
+          {savedMessage ? (
+            <p className="mb-4 text-sm text-muted-foreground">{savedMessage}</p>
+          ) : null}
+          {actionError ? (
+            <p className="mb-4 text-sm text-destructive">{actionError}</p>
           ) : null}
 
           <div className="grid gap-5">
-            <SectionCard
-              title="Estado"
-              actions={
-                <select
-                  aria-label="Estado del presupuesto"
-                  className="min-h-11 rounded-md border bg-background px-3 py-2 text-base"
-                  value={quote.status?.id ?? ""}
-                  onChange={(event) => changeStatus(event.target.value)}
-                >
-                  {statuses.map((status) => (
-                    <option key={status.id} value={status.id}>
-                      {status.name}
-                    </option>
-                  ))}
-                </select>
-              }
-            >
-              {quote.status ? (
-                <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
-              ) : (
-                <p>Sin estado</p>
-              )}
-              {actionError ? <p className="mt-3 text-sm text-destructive">{actionError}</p> : null}
-            </SectionCard>
-
-            <SectionCard
-              title="Contenido"
-              actions={
-                editing ? null : (
-                  <Button type="button" variant="outline" onClick={() => setEditing(true)}>
-                    Editar
-                  </Button>
-                )
-              }
-            >
-              {editing ? (
+            {editing ? (
+              <SectionCard title="Editar presupuesto" bodyClassName="p-5 sm:p-6">
                 <QuoteForm
                   initial={formValues(quote)}
                   submitting={saving}
                   error={formError}
-                  submitLabel="Guardar cambios"
+                  submitLabel="Guardar presupuesto"
                   onSubmit={save}
+                  onCancel={() => {
+                    if (!saving) {
+                      setEditing(false);
+                      setFormError(null);
+                    }
+                  }}
                 />
+              </SectionCard>
+            ) : (
+              <>
+                <SectionCard
+                  title="Resumen"
+                  actions={
+                    <button
+                      type="button"
+                      className="gc-action"
+                      onClick={() => {
+                        setSavedMessage(null);
+                        setEditing(true);
+                      }}
+                    >
+                      Editar
+                    </button>
+                  }
+                  bodyClassName="p-5 sm:p-6"
+                >
+                  <dl className="grid gap-4 sm:grid-cols-2">
+                    <Fact label="Cliente" value={quote.client?.name ?? "Sin cliente"} />
+                    <Fact label="Servicio" value={quote.service?.name ?? "Sin servicio"} />
+                    <Fact label="Responsable" value={quote.assignee?.name ?? "Sin responsable"} />
+                    <Fact label="Estado" value={quote.status?.name ?? "Sin estado"} />
+                    <Fact label="Validez" value={formatValidity(quote.valid_until)} />
+                  </dl>
+                </SectionCard>
+
+                <SectionCard title="Contenido" bodyClassName="p-5 sm:p-6">
+                  <dl className="grid gap-4">
+                    <Fact label="Título" value={quote.title || "Sin título"} />
+                    <div>
+                      <dt className="gc-fact-label">Descripción</dt>
+                      <dd className="gc-fact-value mt-1 whitespace-pre-wrap">
+                        {quote.description}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="gc-fact-label">Notas</dt>
+                      <dd className="gc-fact-value mt-1 whitespace-pre-wrap">
+                        {quote.notes || "Sin notas"}
+                      </dd>
+                    </div>
+                  </dl>
+                </SectionCard>
+              </>
+            )}
+
+            <SectionCard title="Gestión" bodyClassName="p-5 sm:p-6">
+              <label className="gc-field max-w-sm">
+                <span className="gc-field-label">Estado</span>
+                <select
+                  aria-label="Estado del presupuesto"
+                  className="gc-field-control"
+                  value={quote.status?.id ?? ""}
+                  disabled={statusSaving || editing}
+                  onChange={(event) => changeStatus(event.target.value)}
+                >
+                  {[...statuses]
+                    .sort((left, right) => {
+                      const leftIndex = QUOTE_FLOW_CODES.indexOf(
+                        left.code as (typeof QUOTE_FLOW_CODES)[number]
+                      );
+                      const rightIndex = QUOTE_FLOW_CODES.indexOf(
+                        right.code as (typeof QUOTE_FLOW_CODES)[number]
+                      );
+                      return (
+                        (leftIndex === -1 ? QUOTE_FLOW_CODES.length : leftIndex) -
+                        (rightIndex === -1 ? QUOTE_FLOW_CODES.length : rightIndex)
+                      );
+                    })
+                    .map((status) => (
+                      <option key={status.id} value={status.id}>
+                        {status.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {quote.converted_order ? (
+                <p className="mt-4 text-sm">
+                  Pedido generado:{" "}
+                  <Link
+                    href={`/orders/${quote.converted_order.id}`}
+                    className="font-semibold text-foreground hover:underline"
+                  >
+                    {quote.converted_order.reference}
+                  </Link>
+                </p>
               ) : (
-                <dl className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Cliente</dt>
-                    <dd>{quote.client?.name ?? "Sin cliente"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Servicio</dt>
-                    <dd>{quote.service?.name ?? "Sin servicio"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Responsable</dt>
-                    <dd>{quote.assignee?.name ?? "Sin responsable"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Validez</dt>
-                    <dd>{formatValidity(quote.valid_until)}</dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-sm text-muted-foreground">Descripción</dt>
-                    <dd className="whitespace-pre-wrap">{quote.description}</dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-sm text-muted-foreground">Notas</dt>
-                    <dd className="whitespace-pre-wrap">{quote.notes || "Sin notas"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Creado</dt>
-                    <dd>{formatWhen(quote.created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Actualizado</dt>
-                    <dd>{formatWhen(quote.updated_at)}</dd>
-                  </div>
-                </dl>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Todavía no se ha convertido en pedido.
+                </p>
               )}
             </SectionCard>
+
+            <QuoteActivity quoteId={quote.id} reloadKey={activityKey} />
           </div>
         </>
       ) : null}

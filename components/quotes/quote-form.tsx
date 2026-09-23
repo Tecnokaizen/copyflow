@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
-import { Button } from "@/components/ui/button";
 import {
   EMPTY_CLIENT_FORM,
   formatCreateDuplicateMessage,
@@ -31,21 +30,20 @@ type NamedOption = {
   name: string;
 };
 
-const fieldClassName =
-  "min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base";
-
 export function QuoteForm({
   initial,
   submitting,
   error,
   submitLabel,
   onSubmit,
+  onCancel,
 }: {
   initial: QuoteFormValues;
   submitting: boolean;
   error: string | null;
   submitLabel: string;
   onSubmit: (values: QuoteFormValues) => void;
+  onCancel?: () => void;
 }) {
   const [values, setValues] = useState(initial);
   const [services, setServices] = useState<NamedOption[]>([]);
@@ -166,121 +164,140 @@ export function QuoteForm({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="grid gap-5">
-        <div className="grid gap-2">
-          <span className="text-sm font-medium">Cliente</span>
-          <ClientSelector
-            value={values.client}
-            onChange={(client) => setValues((current) => ({ ...current, client }))}
-            allowNoClient
-            onCreateNew={openCreateClient}
-            disabled={submitting}
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="grid gap-8">
+        <section className="grid gap-4">
+          <h2 className="gc-section-title">Cliente y asignación</h2>
+          <div className="gc-field">
+            <span className="gc-field-label">Cliente</span>
+            <ClientSelector
+              value={values.client}
+              onChange={(client) => setValues((current) => ({ ...current, client }))}
+              allowNoClient
+              onCreateNew={openCreateClient}
+              disabled={submitting}
+            />
+          </div>
+          <label className="gc-field">
+            <span className="gc-field-label">Servicio</span>
+            <select
+              className="gc-field-control"
+              value={values.serviceId}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, serviceId: event.target.value }))
+              }
+            >
+              <option value="">Sin servicio</option>
+              {services.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="gc-field">
+            <span className="gc-field-label">Responsable</span>
+            <select
+              className="gc-field-control"
+              value={values.assigneeId}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  assigneeId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Sin responsable</option>
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Servicio
-          <select
-            className={fieldClassName}
-            value={values.serviceId}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, serviceId: event.target.value }))
-            }
-          >
-            <option value="">Sin servicio</option>
-            {services.map((service) => (
-              <option key={service.id} value={service.id}>
-                {service.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <section className="grid gap-4">
+          <h2 className="gc-section-title">Contenido</h2>
+          <label className="gc-field">
+            <span className="gc-field-label">Título</span>
+            <input
+              className="gc-field-control"
+              value={values.title}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, title: event.target.value }))
+              }
+            />
+          </label>
+          <label className="gc-field">
+            <span className="gc-field-label">Descripción</span>
+            <textarea
+              className="gc-field-control min-h-32"
+              required
+              value={values.description}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+            />
+          </label>
+        </section>
 
-        <label className="grid gap-2 text-sm font-medium">
-          Responsable
-          <select
-            className={fieldClassName}
-            value={values.assigneeId}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                assigneeId: event.target.value,
-              }))
-            }
-          >
-            <option value="">Sin responsable</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium">
-          Título
-          <input
-            className={fieldClassName}
-            value={values.title}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, title: event.target.value }))
-            }
-          />
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium">
-          Descripción
-          <textarea
-            className={`${fieldClassName} min-h-32`}
-            required
-            value={values.description}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                description: event.target.value,
-              }))
-            }
-          />
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium">
-          Válido hasta
-          <input
-            type="date"
-            className={fieldClassName}
-            value={values.validUntil}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                validUntil: event.target.value,
-              }))
-            }
-          />
-        </label>
-
-        <label className="grid gap-2 text-sm font-medium">
-          Notas
-          <textarea
-            className={`${fieldClassName} min-h-24`}
-            value={values.notes}
-            disabled={submitting}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, notes: event.target.value }))
-            }
-          />
-        </label>
+        <section className="grid gap-4">
+          <h2 className="gc-section-title">Validez y notas</h2>
+          <label className="gc-field">
+            <span className="gc-field-label">Válido hasta</span>
+            <input
+              type="date"
+              className="gc-field-control"
+              value={values.validUntil}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  validUntil: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <label className="gc-field">
+            <span className="gc-field-label">Notas</span>
+            <textarea
+              className="gc-field-control min-h-24"
+              value={values.notes}
+              disabled={submitting}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+          </label>
+        </section>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <div className="flex justify-end">
-          <Button type="submit" disabled={submitting || !values.description.trim()}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {onCancel ? (
+            <button
+              type="button"
+              className="gc-action min-h-11"
+              disabled={submitting}
+              onClick={onCancel}
+            >
+              Cancelar
+            </button>
+          ) : null}
+          <button
+            type="submit"
+            className="gc-cta min-h-11"
+            disabled={submitting || !values.description.trim()}
+          >
             {submitting ? "Guardando…" : submitLabel}
-          </Button>
+          </button>
         </div>
       </form>
 

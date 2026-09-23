@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { CounterBoard } from "@/components/orders/counter-board";
+import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import {
   COUNTER_VIEW_STORAGE_KEY,
   hasActiveCounterFilters,
@@ -258,14 +259,17 @@ function CounterContent() {
         title="Mostrador"
         description="Entregas, avisos y urgencias de la tienda. Abre el pedido para trabajarlo."
         actions={
-          canWrite ? (
-            <Link
-              href="/orders/quick?from=counter"
-              className="gc-cta min-h-11 w-full sm:w-auto"
-            >
-              Pedido rápido
-            </Link>
-          ) : null
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+            <OperationalCreateActions />
+            {canWrite ? (
+              <Link
+                href="/orders/quick?from=counter"
+                className="gc-cta min-h-11 w-full sm:w-auto"
+              >
+                Pedido rápido
+              </Link>
+            ) : null}
+          </div>
         }
       />
 

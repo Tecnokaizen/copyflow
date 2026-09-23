@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
@@ -58,13 +59,18 @@ export default function NewQuotePage() {
   }
 
   return (
-    <AppShell>
+    <AppShell innerClassName="max-w-5xl">
       <AppNav />
       <PageHeader
         title="Nuevo presupuesto"
         description="Registra la solicitud. El número se asigna al guardar."
+        actions={
+          <Link href="/quotes" className="gc-action min-h-11 w-full sm:w-auto">
+            Cancelar
+          </Link>
+        }
       />
-      <SectionCard className="mx-auto max-w-3xl">
+      <SectionCard bodyClassName="p-5 sm:p-6">
         <QuoteForm
           initial={EMPTY_VALUES}
           submitting={submitting}

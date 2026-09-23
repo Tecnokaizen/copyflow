@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
 import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
 import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
@@ -502,6 +503,7 @@ function OrdersPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createApplied, setCreateApplied] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
@@ -558,6 +560,11 @@ function OrdersPageContent() {
   const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}|${debouncedQuery}`;
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
+  const createRequested = searchParams.get("create") === "1";
+  if (createRequested && canWrite && !createApplied) {
+    setCreateApplied(true);
+    setShowCreateForm(true);
+  }
 
   useEffect(() => {
     async function loadContext() {
@@ -1210,16 +1217,10 @@ function OrdersPageContent() {
               : `${serviceOrdersForAssignee.length} pedidos activos · ${serviceGroups.length} servicios con carga`
         }
         actions={
-          canWrite ? (
-            <button
-              type="button"
-              onClick={() => setShowCreateForm(true)}
-              disabled={showCreateForm}
-              className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
-            >
-              Nuevo pedido
-            </button>
-          ) : null
+          <OperationalCreateActions
+            onNewOrder={() => setShowCreateForm(true)}
+            newOrderDisabled={showCreateForm}
+          />
         }
       />
 

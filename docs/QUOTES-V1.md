@@ -5,7 +5,7 @@ Módulo independiente de presupuestos. No sustituye `orders.quote_status_id`.
 ## Diferencias con el diseño de partida
 
 - `quote_statuses` ya existía y no tiene `is_initial`. El estado inicial de un presupuesto es el código `draft`.
-- El seed comercial de DEMO solo creaba `pending` y `accepted`, y borra el catálogo de DEMO en cada reset. El seed ahora inserta también `draft` y `rejected`. Los códigos que ya existan no se renombran.
+- El catálogo visible es `draft` Borrador, `pending` En revisión, `sent` Enviado, `accepted` Aceptado y `rejected` Rechazado. `pending` se conserva. Si el nombre sigue siendo exactamente "Pendiente", pasa a "En revisión"; un nombre ya personalizado no se pisa. `sent` se añade sin borrar estados.
 - `create_organization` y `create_internal_organization_v1` no sembraban estados de presupuesto. Ambos llaman a `seed_quote_statuses` y conservan el resto de su comportamiento. No hay un trigger en `tenants`: varios tests insertan ellos mismos el código `draft` y un trigger los rompería.
 - La referencia de pedidos usa `order_number_counters` y el formato `PREFIJO-0001`. Presupuestos usa `quote_number_counters` y `PREFIJO-P0001`.
 - No existe una RPC `create_order`. La creación oficial inserta en `orders` y deja que los triggers asignen la referencia y la actividad. `convert_quote_to_order` hace ese mismo insert, con el estado inicial del tenant, prioridad `normal` y sin tienda, canal ni fecha de entrega. `valid_until` no se copia a `due_at`. Si el presupuesto no tiene título, el pedido usa los primeros 120 caracteres de la descripción.

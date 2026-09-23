@@ -372,9 +372,10 @@ BEGIN
 
   INSERT INTO public.quote_statuses (id, tenant_id, name, code, active, sort_order) VALUES
     (pg_temp.demo_uuid(c_seed || ':quote:draft'), v_demo, 'Borrador', 'draft', true, 10),
-    (pg_temp.demo_uuid(c_seed || ':quote:pending'), v_demo, 'Pendiente', 'pending', true, 20),
-    (pg_temp.demo_uuid(c_seed || ':quote:accepted'), v_demo, 'Aceptado', 'accepted', true, 30),
-    (pg_temp.demo_uuid(c_seed || ':quote:rejected'), v_demo, 'Rechazado', 'rejected', true, 40);
+    (pg_temp.demo_uuid(c_seed || ':quote:pending'), v_demo, 'En revisión', 'pending', true, 20),
+    (pg_temp.demo_uuid(c_seed || ':quote:sent'), v_demo, 'Enviado', 'sent', true, 30),
+    (pg_temp.demo_uuid(c_seed || ':quote:accepted'), v_demo, 'Aceptado', 'accepted', true, 40),
+    (pg_temp.demo_uuid(c_seed || ':quote:rejected'), v_demo, 'Rechazado', 'rejected', true, 50);
 
   v_quote_pending := pg_temp.demo_uuid(c_seed || ':quote:pending');
   v_quote_accepted := pg_temp.demo_uuid(c_seed || ':quote:accepted');
