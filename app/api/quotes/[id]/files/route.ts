@@ -1,0 +1,246 @@
+import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import {
+  createQuoteFilesCapability,
+  filesCapabilityIssuedAtNow,
+  requireFilesSigningSecret,
+} from "@/lib/files/capability";
+import { toPublicOrderFileDto } from "@/lib/files/dto";
+import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
+import {
+  PUT_PRESIGN_TTL_SECONDS,
+  validateOrderFileInit,
+} from "@/lib/files/validation";
+import { requireQuotesAccess } from "@/lib/quotes/guard";
+import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
+import { presignPut } from "@/lib/storage/r2";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const access = await requireQuotesAccess();
+  if (!access.ok) return access.response;
+
+  const { id: quoteId } = await params;
+  if (!UUID_PATTERN.test(quoteId)) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  const { context, supabase } = access;
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id")
+    .eq("id", quoteId)
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+
+  if (quoteError || !quote) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  const { data: files, error } = await supabase
+    .from("quote_files")
+    .select(
+      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by"
+    )
+    .eq("tenant_id", context.tenant.id)
+    .eq("quote_id", quoteId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[GET /api/quotes/:id/files] list failed", {
+      message: error.message,
+    });
+    return NextResponse.json({ error: "Could not list files" }, { status: 500 });
+  }
+
+  const { data: settingsRow } = await supabase
+    .from("tenant_settings")
+    .select("preferences")
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+
+  const maxFileBytes = resolveMaxFileBytesFromPreferences(
+    settingsRow?.preferences
+  );
+
+  const uploaderIds = [
+    ...new Set(
+      (files ?? [])
+        .map((row) => row.uploaded_by)
+        .filter((id): id is string => typeof id === "string")
+    ),
+  ];
+  const nameByUser = new Map<string, string>();
+  if (uploaderIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", uploaderIds);
+    for (const profile of profiles ?? []) {
+      if (
+        typeof profile.id === "string" &&
+        typeof profile.full_name === "string" &&
+        profile.full_name.trim()
+      ) {
+        nameByUser.set(profile.id, profile.full_name.trim());
+      }
+    }
+  }
+
+  return NextResponse.json({
+    tenant: context.tenant.slug,
+    quote_id: quoteId,
+    max_file_bytes: maxFileBytes,
+    files: (files ?? []).map((row) =>
+      toPublicOrderFileDto(
+        row as Record<string, unknown>,
+        typeof row.uploaded_by === "string"
+          ? (nameByUser.get(row.uploaded_by) ?? null)
+          : null
+      )
+    ),
+  });
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const access = await requireQuotesAccess();
+  if (!access.ok) return access.response;
+
+  const { id: quoteId } = await params;
+  if (!UUID_PATTERN.test(quoteId)) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const record = body as Record<string, unknown>;
+  const { context, supabase } = access;
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .select("id")
+    .eq("id", quoteId)
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+
+  if (quoteError || !quote) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  const { data: settingsRow } = await supabase
+    .from("tenant_settings")
+    .select("preferences")
+    .eq("tenant_id", context.tenant.id)
+    .maybeSingle();
+  const maxFileBytes = resolveMaxFileBytesFromPreferences(
+    settingsRow?.preferences
+  );
+  const validated = validateOrderFileInit({
+    filename: record.filename,
+    content_type: record.content_type,
+    size_bytes: record.size_bytes,
+    max_file_bytes: maxFileBytes,
+  });
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: 400 });
+  }
+
+  let signingSecret: string;
+  try {
+    signingSecret = requireFilesSigningSecret();
+  } catch {
+    return NextResponse.json({ error: "Could not create file" }, { status: 500 });
+  }
+
+  const fileId = randomUUID();
+  const expiresAt = new Date(Date.now() + PUT_PRESIGN_TTL_SECONDS * 1000);
+  const issuedAt = filesCapabilityIssuedAtNow();
+  const capability = createQuoteFilesCapability(
+    {
+      purpose: "create",
+      userId: context.user.id,
+      tenantId: context.tenant.id,
+      quoteId,
+      fileId,
+      issuedAt,
+    },
+    signingSecret
+  );
+
+  const { data: created, error: createError } = await supabase.rpc(
+    "create_quote_file_upload",
+    {
+      p_quote_id: quoteId,
+      p_file_id: fileId,
+      p_original_name: validated.filename,
+      p_content_type: validated.contentType,
+      p_size_bytes: validated.sizeBytes,
+      p_upload_expires_at: expiresAt.toISOString(),
+      p_issued_at: capability.issuedAt,
+      p_signature: capability.signature,
+    }
+  );
+
+  if (createError || !created) {
+    const mapped = mapOrderFileRpcError(createError, "Could not create file");
+    return NextResponse.json(mapped.body, { status: mapped.status });
+  }
+
+  const payload = created as {
+    storage_key?: unknown;
+    upload_expires_at?: unknown;
+  };
+  const storageKey =
+    typeof payload.storage_key === "string" ? payload.storage_key : null;
+  if (!storageKey) {
+    return NextResponse.json({ error: "Could not create file" }, { status: 500 });
+  }
+
+  let uploadUrl: string;
+  try {
+    uploadUrl = await presignPut({
+      key: storageKey,
+      contentType: validated.contentType,
+      expiresIn: PUT_PRESIGN_TTL_SECONDS,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Could not create upload URL" },
+      { status: 500 }
+    );
+  }
+
+  const requiredHeaders: Record<string, string> = {};
+  if (validated.contentType) {
+    requiredHeaders["Content-Type"] = validated.contentType;
+  }
+
+  return NextResponse.json(
+    {
+      file_id: fileId,
+      upload_url: uploadUrl,
+      required_headers: requiredHeaders,
+      expires_at:
+        typeof payload.upload_expires_at === "string"
+          ? payload.upload_expires_at
+          : expiresAt.toISOString(),
+    },
+    { status: 201 }
+  );
+}

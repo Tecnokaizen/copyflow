@@ -10,6 +10,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { QuoteActivity } from "@/components/quotes/quote-activity";
+import { QuoteFilesSection } from "@/components/quotes/quote-files-section";
 import { QuoteForm, type QuoteFormValues } from "@/components/quotes/quote-form";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
 import type { ClientSummary } from "@/lib/clients/types";
@@ -421,6 +422,11 @@ export default function QuoteDetailPage() {
                 </p>
               )}
             </SectionCard>
+
+            <QuoteFilesSection
+              quoteId={quote.id}
+              onChanged={() => setActivityKey((current) => current + 1)}
+            />
 
             <QuoteActivity quoteId={quote.id} reloadKey={activityKey} />
           </div>

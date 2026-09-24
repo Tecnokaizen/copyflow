@@ -45,6 +45,51 @@ export function requireFilesSigningSecret(
   return value;
 }
 
+export type QuoteFilesCapabilityInput = {
+  purpose: FilesCapabilityPurpose;
+  userId: string;
+  tenantId: string;
+  quoteId: string;
+  fileId: string;
+  issuedAt: number;
+};
+
+/** Canonical payload: files-v1-quote|{purpose}|{user_id}|{tenant_id}|{quote_id}|{file_id}|{issued_at} */
+export function buildQuoteFilesCapabilityPayload(
+  input: QuoteFilesCapabilityInput
+): string {
+  return [
+    "files-v1-quote",
+    input.purpose,
+    input.userId,
+    input.tenantId,
+    input.quoteId,
+    input.fileId,
+    String(input.issuedAt),
+  ].join("|");
+}
+
+export function createQuoteFilesCapability(
+  input: QuoteFilesCapabilityInput,
+  secret: string
+): FilesCapability {
+  const signingSecret = requireFilesSigningSecret(secret);
+  if (
+    !Number.isInteger(input.issuedAt) ||
+    input.issuedAt < 0 ||
+    !Number.isSafeInteger(input.issuedAt)
+  ) {
+    throw new Error("Files capability issuedAt is invalid");
+  }
+  const signature = createHmac("sha256", signingSecret)
+    .update(buildQuoteFilesCapabilityPayload(input), "utf8")
+    .digest("hex");
+  return {
+    issuedAt: input.issuedAt,
+    signature,
+  };
+}
+
 export function createFilesCapability(
   input: FilesCapabilityInput,
   secret: string

@@ -439,6 +439,250 @@ export async function uploadOrderFile(
   return { fileId: init.file_id };
 }
 
+async function listParentFiles(
+  path: string,
+  init?: RequestInit,
+): Promise<ListOrderFilesResult> {
+  const response = await fetch(path, {
+    ...init,
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await readApiError(response, "No se han podido cargar los archivos."),
+    );
+  }
+
+  const body = (await response.json()) as ListOrderFilesResponse;
+  const maxFileBytes =
+    typeof body.max_file_bytes === "number" &&
+    Number.isInteger(body.max_file_bytes) &&
+    body.max_file_bytes > 0
+      ? Math.min(body.max_file_bytes, MAX_ORDER_FILE_BYTES)
+      : MAX_ORDER_FILE_BYTES;
+
+  return {
+    files: Array.isArray(body.files) ? body.files : [],
+    max_file_bytes: maxFileBytes,
+  };
+}
+
+export function listQuoteFiles(quoteId: string, init?: RequestInit) {
+  return listParentFiles(`/api/quotes/${quoteId}/files`, init);
+}
+
+export function initQuoteFileUpload(
+  quoteId: string,
+  input: { filename: string; content_type: string; size_bytes: number },
+) {
+  return initParentFileUpload(`/api/quotes/${quoteId}/files`, input);
+}
+
+async function initParentFileUpload(
+  path: string,
+  input: { filename: string; content_type: string; size_bytes: number },
+): Promise<InitUploadResponse> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    let body: ApiErrorBody | null = null;
+    try {
+      body = (await response.json()) as ApiErrorBody;
+    } catch {
+      body = null;
+    }
+    if (body?.code === "STORAGE_QUOTA_EXCEEDED") {
+      throw new Error(
+        "No queda suficiente espacio de almacenamiento para subir este archivo.",
+      );
+    }
+    if (body?.code === "FILE_TOO_LARGE" || body?.error === "File too large") {
+      throw new Error("File too large");
+    }
+    if (typeof body?.error === "string" && body.error.trim()) {
+      throw new Error(body.error.trim());
+    }
+    throw new Error("No se ha podido preparar la subida.");
+  }
+
+  return (await response.json()) as InitUploadResponse;
+}
+
+export function completeQuoteFileUpload(quoteId: string, fileId: string) {
+  return completeParentFileUpload(
+    `/api/quotes/${quoteId}/files/${fileId}/complete`,
+  );
+}
+
+async function completeParentFileUpload(path: string): Promise<void> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readApiError(
+        response,
+        "El archivo se ha enviado pero no ha podido confirmarse.",
+      ),
+    );
+  }
+}
+
+export function requestQuoteFileDownload(quoteId: string, fileId: string) {
+  return requestParentFileDownload(
+    `/api/quotes/${quoteId}/files/${fileId}/download`,
+  );
+}
+
+async function requestParentFileDownload(
+  path: string,
+): Promise<DownloadUrlResponse> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readApiError(
+        response,
+        "No se ha podido descargar el archivo. Inténtalo de nuevo.",
+      ),
+    );
+  }
+  return (await response.json()) as DownloadUrlResponse;
+}
+
+export function deleteQuoteFile(quoteId: string, fileId: string) {
+  return deleteParentFile(`/api/quotes/${quoteId}/files/${fileId}`);
+}
+
+async function deleteParentFile(path: string): Promise<void> {
+  const response = await fetch(path, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(
+      await readApiError(response, "No se ha podido eliminar el archivo."),
+    );
+  }
+}
+
+export async function uploadQuoteFile(
+  quoteId: string,
+  file: File,
+  callbacks?: UploadSingleCallbacks,
+  maxFileBytes: number = MAX_ORDER_FILE_BYTES,
+): Promise<{ fileId: string }> {
+  return uploadParentFile(
+    {
+      init: (input) => initQuoteFileUpload(quoteId, input),
+      complete: (fileId) => completeQuoteFileUpload(quoteId, fileId),
+    },
+    file,
+    callbacks,
+    maxFileBytes,
+  );
+}
+
+async function uploadParentFile(
+  api: {
+    init: (input: {
+      filename: string;
+      content_type: string;
+      size_bytes: number;
+    }) => Promise<InitUploadResponse>;
+    complete: (fileId: string) => Promise<void>;
+  },
+  file: File,
+  callbacks?: UploadSingleCallbacks,
+  maxFileBytes: number = MAX_ORDER_FILE_BYTES,
+): Promise<{ fileId: string }> {
+  const clientError = prevalidateClientFile(file, maxFileBytes);
+  if (clientError) {
+    callbacks?.onPhase?.("error");
+    throw Object.assign(new Error(clientError), { kind: "client" as const });
+  }
+
+  callbacks?.onPhase?.("initializing");
+  callbacks?.onProgress?.(0);
+
+  let init: InitUploadResponse;
+  try {
+    init = await api.init({
+      filename: file.name,
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size,
+    });
+  } catch (err) {
+    callbacks?.onPhase?.("error");
+    const raw =
+      err instanceof Error ? err.message : "No se ha podido preparar la subida.";
+    const mapped = [
+      "Unsupported file type",
+      "Unsupported content type",
+      "Invalid file size",
+      "Invalid content type",
+      "File too large",
+    ].includes(raw)
+      ? mapInitValidationMessage(raw, file.size, maxFileBytes)
+      : raw === "Could not create file" ||
+          raw === "Could not create upload URL" ||
+          raw === "Unauthorized or tenant access denied"
+        ? "No se ha podido preparar la subida."
+        : raw;
+    throw Object.assign(new Error(mapped), { kind: "init" as const });
+  }
+
+  callbacks?.onPhase?.("uploading");
+
+  try {
+    await putFileToPresignedUrl(
+      init.upload_url,
+      file,
+      init.required_headers ?? {},
+      callbacks?.onProgress,
+    );
+  } catch (err) {
+    callbacks?.onPhase?.("error");
+    throw Object.assign(
+      err instanceof Error ? err : new Error("No se ha podido subir el archivo."),
+      { kind: "put" as const },
+    );
+  }
+
+  callbacks?.onPhase?.("completing");
+
+  try {
+    await api.complete(init.file_id);
+  } catch (err) {
+    callbacks?.onPhase?.("error");
+    throw Object.assign(
+      err instanceof Error
+        ? err
+        : new Error("El archivo se ha enviado pero no ha podido confirmarse."),
+      { kind: "complete" as const, fileId: init.file_id },
+    );
+  }
+
+  callbacks?.onPhase?.("success");
+  callbacks?.onProgress?.(100);
+  return { fileId: init.file_id };
+}
+
 /** Trigger a browser download from a short-lived URL without persisting it. */
 export function triggerBrowserDownload(url: string, filename: string): void {
   const anchor = document.createElement("a");
