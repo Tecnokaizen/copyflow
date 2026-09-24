@@ -6,6 +6,8 @@ DB_URL="${1:?usage: phase33_quotes_concurrency.sh <database-url>}"
 TENANT="e3310000-0000-4000-8000-000000000011"
 OWNER="e3310000-0000-4000-8000-000000000001"
 QUOTE=""
+QUOTE_TEST_ROLE="${QUOTE_TEST_ROLE:-owner}"
+case "$QUOTE_TEST_ROLE" in owner|staff) ;; *) exit 2 ;; esac
 
 psql_at() {
   psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "$1"
@@ -35,7 +37,7 @@ insert into public.profiles (id, full_name) values ('${OWNER}', 'Concurrent');
 insert into public.tenants (id, name, slug, active)
 values ('${TENANT}', 'Phase33 Concurrent', 'phase33conc', true);
 insert into public.memberships (tenant_id, user_id, role, active)
-values ('${TENANT}', '${OWNER}', 'owner', true);
+values ('${TENANT}', '${OWNER}', '${QUOTE_TEST_ROLE}', true);
 select public.seed_quote_statuses('${TENANT}'::uuid);
 insert into public.order_statuses (
   tenant_id, name, code, is_initial, is_ready, is_closed, is_cancelled, active, sort_order

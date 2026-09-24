@@ -269,36 +269,7 @@ begin
     raise exception 'phase33: foreign status expected 23503, got %', v_sqlstate;
   end if;
 
-  perform set_config('request.jwt.claim.sub', v_manager_a::text, true);
-  v_sqlstate := null;
-  begin
-    insert into public.quotes (tenant_id, description, status_id)
-    values (v_tenant_a, 'Manager', v_draft_a);
-  exception when others then
-    v_sqlstate := sqlstate;
-  end;
-  if v_sqlstate is distinct from '42501' then
-    raise exception 'phase33: manager insert expected 42501, got %', v_sqlstate;
-  end if;
-
-  perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
-  v_sqlstate := null;
-  begin
-    update public.quotes set description = 'Staff' where id = v_quote;
-  exception when others then
-    v_sqlstate := sqlstate;
-  end;
-  if v_sqlstate is not null then
-    raise exception 'phase33: staff update should be filtered, got %', v_sqlstate;
-  end if;
-  execute 'reset role';
-  if exists (
-    select 1 from public.quotes where id = v_quote and description = 'Staff'
-  ) then
-    raise exception 'phase33: staff updated a quote';
-  end if;
-
-  execute 'set local role authenticated';
+  -- Operational role coverage lives in phase34_quotes_operational_access.sql.
   perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
   select count(*)::int into v_count from public.quotes where tenant_id = v_tenant_a;
   if v_count <> 0 then

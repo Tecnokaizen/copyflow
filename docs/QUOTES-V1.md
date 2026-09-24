@@ -24,7 +24,15 @@ Módulo independiente de presupuestos. No sustituye `orders.quote_status_id`.
 
 El fallback de plan no mira `subscriptions.livemode`. No debe usarse para una feature sensible a Stripe hasta que esa condición forme parte de la regla. `quotes` no está en Gestcopy Basic ni en el plan `mvp`, así que ese fallback no la enciende. Eso no se cambia en esta versión.
 
-Escritura y lectura de Presupuestos V1: `owner` y `admin`. No hay archivado en V1: `authenticated` no puede actualizar `archived_at`.
+Lectura, creación, edición, cambio de estado y conversión de Presupuestos V1: `owner`, `admin`, `manager` y `staff` (Personal), siempre con la feature `quotes` activa y membership operativa del tenant. `viewer` queda fuera. El gate común se comparte entre navegación, páginas, acciones, panel y APIs; RLS y las RPC vuelven a comprobar rol y feature en PostgreSQL.
+
+La actividad de una ficha se lee mediante `list_quote_activity(p_quote_id)`, `SECURITY DEFINER` con `search_path` vacío. Devuelve como máximo los 50 eventos más recientes del presupuesto, filtrando `tenant_id`, `entity_type = quote` y `entity_id`. Un UUID inexistente o sin acceso devuelve una lista vacía. El endpoint comprueba además que el presupuesto pertenece al tenant del contexto. Esto no amplía la lectura directa de `activity_log` ni `list_activity_log`: Activity global sigue reservado a `owner`, `admin` y `manager`.
+
+No hay archivado ni borrado en V1: se mantienen los permisos por columna y no se concede DELETE. `tenant_id`, referencia y enlace de conversión siguen protegidos.
+
+El ajuste se instala con la migración aditiva `20260924160000_quotes_operational_access.sql`, después de las migraciones V1 existentes. No editar ni reaplicar `20260923190000_quotes_v1.sql` como sustituto. Aplicar la nueva migración antes de servir la versión del endpoint que llama a `list_quote_activity`; esta PR no ejecuta migraciones en Production ni modifica overrides.
+
+Validación: `lib/quotes/access.test.ts` cubre la matriz de roles/feature y el uso del gate común; `phase34_quotes_operational_access.sql` comprueba RLS, operaciones, actividad acotada, aislamiento y revocación. `phase33_quotes_v1.sql` conserva los invariantes anteriores y `phase33_quotes_concurrency.sh` se ejecuta como owner y con `QUOTE_TEST_ROLE=staff`. Estas suites están incluidas en CI.
 
 ## Habilitar en local
 

@@ -43,16 +43,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.notFound }, { status: 404 });
   }
 
-  const { data, error } = await access.supabase
-    .from("activity_log")
-    .select(
-      "id, created_at, action, entity_type, entity_id, user_id, team_member_id, previous_values, new_values, metadata"
-    )
-    .eq("tenant_id", access.context.tenant.id)
-    .eq("entity_type", "quote")
-    .eq("entity_id", id)
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const { data, error } = await access.supabase.rpc("list_quote_activity", {
+    p_quote_id: id,
+  });
 
   if (error) {
     return operationalJson(

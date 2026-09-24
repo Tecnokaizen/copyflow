@@ -82,7 +82,7 @@ describe("quote search", () => {
 });
 
 describe("operational create actions", () => {
-  it("shows a new order for writers and a new quote only for owner or admin with the feature", () => {
+  it("shows a new order for writers and a new quote for operational roles with the feature", () => {
     assert.deepEqual(operationalCreateVisibility("owner", true), {
       order: true,
       quote: true,
@@ -93,11 +93,11 @@ describe("operational create actions", () => {
     });
     assert.deepEqual(operationalCreateVisibility("manager", true), {
       order: true,
-      quote: false,
+      quote: true,
     });
     assert.deepEqual(operationalCreateVisibility("staff", true), {
       order: true,
-      quote: false,
+      quote: true,
     });
     assert.deepEqual(operationalCreateVisibility("viewer", true), {
       order: false,

@@ -284,7 +284,7 @@ describe("nav structure groups", () => {
     );
   });
 
-  it("shows Presupuestos only for owner or admin when the feature is enabled", () => {
+  it("shows Presupuestos for operational roles when the feature is enabled", () => {
     const owner = navStructureForRole("owner", { quotes: true }).map((entry) =>
       entry.type === "link" ? entry.item.label : entry.group.label
     );
@@ -302,12 +302,12 @@ describe("nav structure groups", () => {
       ),
       true
     );
-    for (const role of ["manager", "staff", "viewer"] as const) {
+    for (const role of ["owner", "admin", "manager", "staff", "viewer"] as const) {
       assert.equal(
         navStructureForRole(role, { quotes: true }).some(
           (entry) => entry.type === "link" && entry.item.label === "Presupuestos"
         ),
-        false
+        role !== "viewer"
       );
     }
     assert.equal(
