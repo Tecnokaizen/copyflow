@@ -37,6 +37,7 @@ import {
   resolveOrderStatusId,
   type DraftSaveStep,
 } from "@/lib/orders/draft";
+import { MISSING_LOCAL_HOUR_MESSAGE } from "@/lib/orders/format";
 import {
   applyReturnedVersion,
   staleSaveMessage,
@@ -135,6 +136,17 @@ export function OrderWorkspace() {
   const [quickSaving, setQuickSaving] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [clientSavedDuringEdit, setClientSavedDuringEdit] = useState(false);
+  const [dueAtInvalid, setDueAtInvalid] = useState(false);
+  const [editSession, setEditSession] = useState(0);
+  const handleDueAtInvalid = useCallback((invalid: boolean) => {
+    setDueAtInvalid(invalid);
+    setError((current) => {
+      if (invalid) {
+        return MISSING_LOCAL_HOUR_MESSAGE;
+      }
+      return current === MISSING_LOCAL_HOUR_MESSAGE ? null : current;
+    });
+  }, []);
 
   const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
   const [savingClient, setSavingClient] = useState(false);
@@ -412,12 +424,15 @@ export function OrderWorkspace() {
     setError(null);
     setClientSavedDuringEdit(false);
     setDraft(createOrderDraft(order, statuses));
+    setDueAtInvalid(false);
+    setEditSession((session) => session + 1);
     setEditing(true);
   }
 
   function cancelEditing() {
     if (saving) return;
     setDraft(null);
+    setDueAtInvalid(false);
     setEditing(false);
     setClientSavedDuringEdit(false);
     setSaveMessage(null);
@@ -683,6 +698,10 @@ export function OrderWorkspace() {
 
   async function saveEditing() {
     if (!order || !draft || saving) return;
+    if (dueAtInvalid) {
+      setError(MISSING_LOCAL_HOUR_MESSAGE);
+      return;
+    }
 
     // Revalidate before mutating: the ficha may have been archived since the
     // draft was opened (live refresh is suppressed while editing).
@@ -1295,6 +1314,7 @@ export function OrderWorkspace() {
           onEdit={startEditing}
           onCancel={cancelEditing}
           onSave={() => void saveEditing()}
+          saveBlocked={dueAtInvalid}
           onQuickStatus={saveQuickStatus}
           onQuickAssignee={saveQuickAssignee}
           onQuickNote={saveQuickNote}
@@ -1312,6 +1332,7 @@ export function OrderWorkspace() {
             clientActions={clientActions}
           />
           <OrderProduction
+            key={editSession}
             order={order}
             draft={draft}
             editing={editing}
@@ -1321,6 +1342,7 @@ export function OrderWorkspace() {
             managementOptions={managementOptions}
             managementOptionsLoading={managementOptionsLoading}
             onDraftChange={patchDraft}
+            onDueAtInvalid={handleDueAtInvalid}
           />
           <OrderFulfillment
             order={order}

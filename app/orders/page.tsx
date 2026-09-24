@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
 import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
 import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
@@ -503,6 +504,10 @@ function OrdersPageContent() {
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
+  const [quoteAccess, setQuoteAccess] = useState<{
+    role: string | null;
+    quotesEnabled: boolean;
+  } | null>(null);
   const [prevPathname, setPrevPathname] = useState(pathname);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -558,14 +563,41 @@ function OrdersPageContent() {
   const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}|${debouncedQuery}`;
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
+  const createRequested = searchParams.get("create") === "1";
+  const showCreateFromQuery = createRequested && canWrite;
+
+  function closeCreateForm() {
+    setShowCreateForm(false);
+    if (searchParams.get("create") !== "1") {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }
 
   useEffect(() => {
     async function loadContext() {
       const response = await fetch("/api/context");
-      if (response.ok) {
-        const context = await response.json();
-        setCanWrite(canWriteOrders(context?.membership?.role));
+      if (!response.ok) {
+        return;
       }
+
+      const context = (await response.json()) as {
+        membership?: { role?: unknown };
+        features?: { quotes?: unknown };
+      };
+      const role =
+        typeof context.membership?.role === "string"
+          ? context.membership.role
+          : null;
+      setCanWrite(canWriteOrders(role));
+      setQuoteAccess({
+        role,
+        quotesEnabled: context.features?.quotes === true,
+      });
     }
     void loadContext();
   }, []);
@@ -1210,15 +1242,13 @@ function OrdersPageContent() {
               : `${serviceOrdersForAssignee.length} pedidos activos · ${serviceGroups.length} servicios con carga`
         }
         actions={
-          canWrite ? (
-            <button
-              type="button"
-              onClick={() => setShowCreateForm(true)}
-              disabled={showCreateForm}
-              className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
-            >
-              Nuevo pedido
-            </button>
+          quoteAccess ? (
+            <OperationalCreateActions
+              role={quoteAccess.role}
+              quotesEnabled={quoteAccess.quotesEnabled}
+              onNewOrder={() => setShowCreateForm(true)}
+              newOrderDisabled={showCreateForm || showCreateFromQuery}
+            />
           ) : null
         }
       />
@@ -1346,8 +1376,8 @@ function OrdersPageContent() {
           </div>
         ) : null}
 
-        {canWrite && showCreateForm && (
-          <CreateOrderForm onCancel={() => setShowCreateForm(false)} />
+        {canWrite && (showCreateForm || showCreateFromQuery) && (
+          <CreateOrderForm onCancel={closeCreateForm} />
         )}
 
         {view === "list" && (

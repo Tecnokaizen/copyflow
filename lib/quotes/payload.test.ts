@@ -53,6 +53,23 @@ describe("quote payloads", () => {
     assert.equal(parsed.ok, false);
   });
 
+  it("keeps valid_until as a date and rejects a datetime", () => {
+    const parsed = parseCreateQuotePayload({
+      description: "Trabajo",
+      valid_until: "2026-09-23T10:30:00.000Z",
+    });
+    assert.equal(parsed.ok, false);
+
+    const dateOnly = parseCreateQuotePayload({
+      description: "Trabajo",
+      valid_until: "2026-09-23",
+    });
+    assert.equal(dateOnly.ok, true);
+    if (dateOnly.ok) {
+      assert.equal(dateOnly.data.valid_until, "2026-09-23");
+    }
+  });
+
   it("requires the current row version on update", () => {
     const parsed = parseUpdateQuotePayload({
       description: "Trabajo",

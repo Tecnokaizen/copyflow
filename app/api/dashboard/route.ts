@@ -1,4 +1,7 @@
+import { OPEN_QUOTE_STATUS_CODES } from "@/lib/dashboard/quotes";
+import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
 import { operationalJson } from "@/lib/http/operational-cache";
+import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -234,6 +237,53 @@ export async function GET() {
       return a.name.localeCompare(b.name, "es");
     });
 
+  const quotesEnabled = canAccessQuotesModule(
+    context.membership.role,
+    await tenantHasFeature(supabase, tenantId, QUOTES_FEATURE_CODE)
+  );
+
+  let quotes: {
+    open: number;
+    in_review: number;
+    sent: number;
+    accepted_pending: number;
+  } | null = null;
+
+  if (quotesEnabled) {
+    const quoteCount = (codes: readonly string[]) =>
+      supabase
+        .from("quotes")
+        .select("id, status:quote_statuses!inner(code)", {
+          count: "exact",
+          head: true,
+        })
+        .eq("tenant_id", tenantId)
+        .is("converted_order_id", null)
+        .in("status.code", [...codes]);
+
+    const [openResult, reviewResult, sentResult, acceptedResult] =
+      await Promise.all([
+        quoteCount(OPEN_QUOTE_STATUS_CODES),
+        quoteCount(["pending"]),
+        quoteCount(["sent"]),
+        quoteCount(["accepted"]),
+      ]);
+
+    if (
+      !openResult.error &&
+      !reviewResult.error &&
+      !sentResult.error &&
+      !acceptedResult.error
+    ) {
+      quotes = {
+        open: openResult.count ?? 0,
+        in_review: reviewResult.count ?? 0,
+        sent: sentResult.count ?? 0,
+        accepted_pending: acceptedResult.count ?? 0,
+      };
+    }
+  }
+
   const upcomingOrders = (upcomingListResult.data ?? [])
     .map((row) => asPreviewOrder(row))
     .filter((row): row is DashboardUpcomingOrder => row !== null);
@@ -266,5 +316,6 @@ export async function GET() {
       active_orders_count: Number(teamRecord.active_orders_count ?? 0) || 0,
       members,
     },
+    quotes,
   });
 }

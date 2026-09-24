@@ -1,5 +1,5 @@
 import {
-  ACCESS_ADMIN_ROLES,
+  OPERATIVE_ROLES,
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 
@@ -9,5 +9,5 @@ export function canAccessQuotesModule(
   role: string | null | undefined,
   featureEnabled: boolean
 ) {
-  return featureEnabled && hasMembershipRole(role, ACCESS_ADMIN_ROLES);
+  return featureEnabled && hasMembershipRole(role, OPERATIVE_ROLES);
 }

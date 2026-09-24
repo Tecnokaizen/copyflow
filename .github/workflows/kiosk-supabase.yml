@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "supabase/migrations/**"
+      - "supabase/tests/phase3*_quotes*"
+      - "lib/quotes/**"
+      - "app/api/quotes/**"
       - "supabase/tests/phase12_kiosk_public_orders.sql"
       - "supabase/tests/phase12_kiosk_concurrency.sh"
       - "supabase/tests/phase19_order_status_settings.sql"
@@ -126,7 +129,10 @@ jobs:
             -f supabase/tests/phase32_stripe_live_hardening.sql
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
             -f supabase/tests/phase33_quotes_v1.sql
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/phase34_quotes_operational_access.sql
           bash supabase/tests/phase33_quotes_concurrency.sh "${LOCAL_DB_URL}"
+          QUOTE_TEST_ROLE=staff bash supabase/tests/phase33_quotes_concurrency.sh "${LOCAL_DB_URL}"
 
       - name: Apply and verify exact rollback
         run: |

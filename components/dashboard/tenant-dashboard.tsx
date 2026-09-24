@@ -330,6 +330,31 @@ export function TenantDashboard() {
         />
       </div>
 
+      {data?.quotes ? (
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <KpiLink
+            label="Presupuestos abiertos"
+            value={data.quotes.open}
+            href="/quotes"
+          />
+          <KpiLink
+            label="En revisión"
+            value={data.quotes.in_review}
+            href="/quotes?status=pending"
+          />
+          <KpiLink
+            label="Enviados"
+            value={data.quotes.sent}
+            href="/quotes?status=sent"
+          />
+          <KpiLink
+            label="Aceptados pendientes de convertir"
+            value={data.quotes.accepted_pending}
+            href="/quotes?status=accepted"
+          />
+        </div>
+      ) : null}
+
       <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-3 lg:gap-5">
         <SectionCard
           title="Próximas entregas"

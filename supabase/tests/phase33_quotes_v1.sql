@@ -119,6 +119,22 @@ begin
     raise exception 'phase33: expected four quote statuses, got %', v_count;
   end if;
 
+  select count(*)::int into v_count
+  from public.quote_statuses
+  where tenant_id = v_tenant_a
+    and code = 'sent';
+  if v_count <> 1 then
+    raise exception 'phase33: expected sent status, got %', v_count;
+  end if;
+
+  select name into v_label
+  from public.quote_statuses
+  where tenant_id = v_tenant_a
+    and code = 'pending';
+  if v_label is distinct from 'En revisión' then
+    raise exception 'phase33: pending default name was %', v_label;
+  end if;
+
   insert into public.memberships (tenant_id, user_id, role, active) values
     (v_tenant_a, v_owner_a, 'owner', true),
     (v_tenant_a, v_admin_a, 'admin', true),
@@ -253,36 +269,7 @@ begin
     raise exception 'phase33: foreign status expected 23503, got %', v_sqlstate;
   end if;
 
-  perform set_config('request.jwt.claim.sub', v_manager_a::text, true);
-  v_sqlstate := null;
-  begin
-    insert into public.quotes (tenant_id, description, status_id)
-    values (v_tenant_a, 'Manager', v_draft_a);
-  exception when others then
-    v_sqlstate := sqlstate;
-  end;
-  if v_sqlstate is distinct from '42501' then
-    raise exception 'phase33: manager insert expected 42501, got %', v_sqlstate;
-  end if;
-
-  perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
-  v_sqlstate := null;
-  begin
-    update public.quotes set description = 'Staff' where id = v_quote;
-  exception when others then
-    v_sqlstate := sqlstate;
-  end;
-  if v_sqlstate is not null then
-    raise exception 'phase33: staff update should be filtered, got %', v_sqlstate;
-  end if;
-  execute 'reset role';
-  if exists (
-    select 1 from public.quotes where id = v_quote and description = 'Staff'
-  ) then
-    raise exception 'phase33: staff updated a quote';
-  end if;
-
-  execute 'set local role authenticated';
+  -- Operational role coverage lives in phase34_quotes_operational_access.sql.
   perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
   select count(*)::int into v_count from public.quotes where tenant_id = v_tenant_a;
   if v_count <> 0 then
@@ -533,6 +520,14 @@ begin
     raise exception 'phase33: commercial tenant missing quote statuses, got %', v_count;
   end if;
 
+  select name into v_label
+  from public.quote_statuses
+  where tenant_id = v_new_tenant
+    and code = 'sent';
+  if v_label is distinct from 'Enviado' then
+    raise exception 'phase33: commercial seed missing sent, got %', v_label;
+  end if;
+
   execute 'set local role authenticated';
   v_sqlstate := null;
   begin
@@ -564,6 +559,52 @@ begin
     and code in ('draft', 'pending', 'accepted', 'rejected');
   if v_count <> 4 then
     raise exception 'phase33: internal tenant missing quote statuses, got %', v_count;
+  end if;
+
+  select name into v_label
+  from public.quote_statuses
+  where tenant_id = v_new_tenant
+    and code = 'sent';
+  if v_label is distinct from 'Enviado' then
+    raise exception 'phase33: internal seed missing sent, got %', v_label;
+  end if;
+
+  -- Custom pending names stay. Only the untouched default "Pendiente" is renamed.
+  insert into public.tenants (id, name, slug, active) values
+    ('e3300000-0000-4000-8000-000000000041', 'Phase33 Custom', 'phase33custom', true),
+    ('e3300000-0000-4000-8000-000000000042', 'Phase33 Default Name', 'phase33defaultname', true);
+  insert into public.quote_statuses (tenant_id, name, code, active, sort_order) values
+    ('e3300000-0000-4000-8000-000000000041', 'En curso del cliente', 'pending', true, 20),
+    ('e3300000-0000-4000-8000-000000000041', 'Borrador', 'draft', true, 10),
+    ('e3300000-0000-4000-8000-000000000042', 'Pendiente', 'pending', true, 20);
+
+  update public.quote_statuses
+  set name = 'En revisión'
+  where code = 'pending'
+    and name = 'Pendiente';
+
+  select name into v_label
+  from public.quote_statuses
+  where tenant_id = 'e3300000-0000-4000-8000-000000000041'
+    and code = 'pending';
+  if v_label is distinct from 'En curso del cliente' then
+    raise exception 'phase33: customized pending name was overwritten, got %', v_label;
+  end if;
+
+  select name into v_label
+  from public.quote_statuses
+  where tenant_id = 'e3300000-0000-4000-8000-000000000042'
+    and code = 'pending';
+  if v_label is distinct from 'En revisión' then
+    raise exception 'phase33: default pending name was not renamed, got %', v_label;
+  end if;
+
+  select count(*)::int into v_count
+  from public.quote_statuses
+  where tenant_id = 'e3300000-0000-4000-8000-000000000041'
+    and code = 'draft';
+  if v_count <> 1 then
+    raise exception 'phase33: rename removed a referenced status';
   end if;
 
   execute 'reset role';

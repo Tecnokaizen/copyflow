@@ -5,6 +5,7 @@ import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { parseCreateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
 import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
+import { quoteSearchFilter } from "@/lib/quotes/workflow";
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -81,9 +82,17 @@ export async function GET(request: NextRequest) {
   }
 
   if (pattern) {
-    query = query.or(
-      `reference.ilike.${pattern},title.ilike.${pattern},description.ilike.${pattern},notes.ilike.${pattern}`
-    );
+    const { data: clients } = await access.supabase
+      .from("clients")
+      .select("id")
+      .eq("tenant_id", access.context.tenant.id)
+      .ilike("name", pattern)
+      .limit(100);
+    const clientIds = (clients ?? [])
+      .map((client) => client.id)
+      .filter((id): id is string => typeof id === "string");
+
+    query = query.or(quoteSearchFilter(pattern, clientIds));
   }
 
   const { data, error, count } = await query;

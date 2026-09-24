@@ -167,6 +167,8 @@ export function quoteStatusTone(code: string | null | undefined) {
       return "neutral" as const;
     case "pending":
       return "warning" as const;
+    case "sent":
+      return "info" as const;
     case "accepted":
       return "success" as const;
     case "rejected":

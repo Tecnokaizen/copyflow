@@ -1,17 +1,28 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
-import { SectionCard } from "@/components/gestcopy/section-card";
+import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
-import { Button } from "@/components/ui/button";
+import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
+import {
+  parseQuoteListQuery,
+  quoteCountLabel,
+  quoteListQuery,
+  quotePageRange,
+  quoteStatusFilters,
+} from "@/lib/quotes/workflow";
+import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 25;
 
 function formatWhen(value: string) {
   return new Intl.DateTimeFormat("es-ES", {
@@ -26,35 +37,43 @@ function formatValidity(value: string | null) {
     return "—";
   }
 
-  const [year, month, day] = value.split("-");
-  if (!year || !month || !day) {
-    return value;
-  }
-
-  return `${day}/${month}/${year}`;
+  return formatCivilDate(value) || value;
 }
 
 export function QuotesList() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const listQuery = parseQuoteListQuery(searchParams);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [searchTick, setSearchTick] = useState(0);
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [statuses, setStatuses] = useState<QuoteStatusRef[]>([]);
-  const [query, setQuery] = useState("");
-  const [appliedQuery, setAppliedQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    const input = searchRef.current;
+    if (!input || input.value.trim() === listQuery.q) {
+      return;
+    }
+    input.value = listQuery.q;
+  }, [listQuery.q]);
+
+  useEffect(() => {
     let cancelled = false;
     void reloadKey;
-    const params = new URLSearchParams({ page: String(page), page_size: "25" });
-    if (appliedQuery) {
-      params.set("q", appliedQuery);
+    const params = new URLSearchParams({
+      page: String(listQuery.page),
+      page_size: String(PAGE_SIZE),
+    });
+    if (listQuery.q) {
+      params.set("q", listQuery.q);
     }
-    if (status) {
-      params.set("status", status);
+    if (listQuery.status) {
+      params.set("status", listQuery.status);
     }
 
     Promise.all([
@@ -70,6 +89,7 @@ export function QuotesList() {
 
         return {
           quotes: (Array.isArray(listBody.quotes) ? listBody.quotes : []) as QuoteRecord[],
+          total: Number(listBody.total) || 0,
           totalPages: Number(listBody.total_pages) || 0,
           statuses: (statusResponse.ok && Array.isArray(statusBody.statuses)
             ? statusBody.statuses
@@ -82,6 +102,7 @@ export function QuotesList() {
         }
 
         setQuotes(result.quotes);
+        setTotal(result.total);
         setTotalPages(result.totalPages);
         setStatuses(result.statuses);
         setError(null);
@@ -104,73 +125,107 @@ export function QuotesList() {
     return () => {
       cancelled = true;
     };
-  }, [appliedQuery, page, reloadKey, status]);
+  }, [listQuery.page, listQuery.q, listQuery.status, reloadKey]);
 
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = searchRef.current?.value ?? "";
+      if (next.trim() === listQuery.q) {
+        return;
+      }
+
+      setLoading(true);
+      router.replace(
+        quoteListQuery({
+          status: listQuery.status,
+          q: next,
+          page: 1,
+        }),
+        { scroll: false }
+      );
+    }, 250);
+
+    return () => window.clearTimeout(handle);
+  }, [listQuery.q, listQuery.status, router, searchTick]);
+
+  function selectStatus(code: string) {
     setLoading(true);
-    setPage(1);
-    setAppliedQuery(query.trim());
+    router.replace(
+      quoteListQuery({
+        status: code,
+        q: listQuery.q,
+        page: 1,
+      }),
+      { scroll: false }
+    );
   }
 
-  const filteredEmpty = Boolean(appliedQuery || status);
+  const filteredEmpty = Boolean(listQuery.q || listQuery.status);
+  const filters = quoteStatusFilters(statuses);
+  const range = quotePageRange(listQuery.page, PAGE_SIZE, quotes.length, total);
 
   return (
     <AppShell>
       <AppNav />
       <PageHeader
         title="Presupuestos"
-        description="Solicitudes y presupuestos de esta organización."
-        actions={
-          <Button asChild>
-            <Link href="/quotes/new">Nuevo presupuesto</Link>
-          </Button>
-        }
+        description={loading && total === 0 ? undefined : quoteCountLabel(total)}
+        actions={<OperationalCreateActions primary="quote" />}
       />
-      <SectionCard>
-        <form onSubmit={search} className="mb-5 grid gap-3 sm:grid-cols-[1fr_14rem_auto]">
+
+      <form
+        className="gc-filter-bar"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => selectStatus("")}
+            className={cn("gc-chip", listQuery.status === "" && "gc-chip-active")}
+          >
+            Todos
+          </button>
+          {filters.map((item) => (
+            <button
+              key={item.code}
+              type="button"
+              onClick={() => selectStatus(item.code)}
+              className={cn(
+                "gc-chip",
+                listQuery.status === item.code && "gc-chip-active"
+              )}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+        <label className="gc-field">
+          <span className="gc-field-label">Buscar</span>
           <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar por referencia, título o descripción"
-            className="min-h-11 rounded-md border bg-background px-3 py-2 text-base"
+            ref={searchRef}
+            defaultValue={listQuery.q}
+            onChange={() => setSearchTick((tick) => tick + 1)}
+            placeholder="Referencia, título, descripción o cliente"
+            className="gc-field-control"
             aria-label="Buscar presupuestos"
           />
-          <select
-            value={status}
-            onChange={(event) => {
-              setLoading(true);
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-            className="min-h-11 rounded-md border bg-background px-3 py-2 text-base"
-            aria-label="Filtrar por estado"
-          >
-            <option value="">Todos los estados</option>
-            {statuses.map((item) => (
-              <option key={item.id} value={item.code}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" variant="outline">
-            Buscar
-          </Button>
-        </form>
+        </label>
+      </form>
 
-        {loading ? <LoadingState label="Cargando presupuestos" /> : null}
-        {!loading && error ? (
-          <ErrorState
-            title="No se pudieron cargar los presupuestos"
-            description={error}
-            onRetry={() => {
-              setLoading(true);
-              setError(null);
-              setReloadKey((current) => current + 1);
-            }}
-          />
-        ) : null}
-        {!loading && !error && quotes.length === 0 ? (
+      {loading ? <LoadingState label="Cargando presupuestos" /> : null}
+      {!loading && error ? (
+        <ErrorState
+          title="No se pudieron cargar los presupuestos"
+          description={error}
+          onRetry={() => {
+            setLoading(true);
+            setError(null);
+            setReloadKey((current) => current + 1);
+          }}
+        />
+      ) : null}
+      {!loading && !error && quotes.length === 0 ? (
+        <div className="gc-card">
           <EmptyState
             title={filteredEmpty ? "Ningún presupuesto coincide" : "Todavía no hay presupuestos"}
             description={
@@ -178,112 +233,169 @@ export function QuotesList() {
                 ? "Prueba con otra búsqueda o con otro estado."
                 : "Crea el primero para registrar una solicitud."
             }
-            action={
-              filteredEmpty ? null : (
-                <Button asChild>
-                  <Link href="/quotes/new">Nuevo presupuesto</Link>
-                </Button>
-              )
-            }
           />
-        ) : null}
+        </div>
+      ) : null}
 
-        {!loading && !error && quotes.length > 0 ? (
-          <>
-            <div className="grid gap-3 md:hidden">
-              {quotes.map((quote) => (
-                <Link
-                  key={quote.id}
-                  href={`/quotes/${quote.id}`}
-                  className="rounded-md border border-border/70 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-semibold">{quote.reference}</p>
-                    {quote.status ? (
-                      <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
-                    ) : null}
-                  </div>
-                  <p className="mt-2 text-sm">{quote.client?.name ?? "Sin cliente"}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {quote.service?.name ?? "Sin servicio"} · {quote.assignee?.name ?? "Sin responsable"}
-                  </p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {formatWhen(quote.created_at)}
-                    {quote.valid_until ? ` · Válido hasta ${formatValidity(quote.valid_until)}` : ""}
-                  </p>
-                </Link>
-              ))}
-            </div>
+      {!loading && !error && quotes.length > 0 ? (
+        <>
+          <div className="grid gap-3 md:hidden">
+            {quotes.map((quote) => (
+              <article key={quote.id} className="gc-list-row">
+                <div className="flex items-start justify-between gap-3">
+                  <Link
+                    href={`/quotes/${quote.id}`}
+                    className="font-semibold text-foreground hover:underline"
+                  >
+                    {quote.reference}
+                  </Link>
+                  {quote.status ? (
+                    <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
+                  ) : null}
+                </div>
+                <p className="mt-2 text-sm">{quote.title || quote.description}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {quote.client?.name ?? "Sin cliente"}
+                  {quote.service?.name ? ` · ${quote.service.name}` : ""}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {quote.assignee?.name ?? "Sin responsable"} · {formatWhen(quote.created_at)}
+                </p>
+                <p className="mt-2 text-sm">
+                  {quote.converted_order ? (
+                    <Link
+                      href={`/orders/${quote.converted_order.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {quote.converted_order.reference}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Válido hasta {formatValidity(quote.valid_until)}
+                    </span>
+                  )}
+                </p>
+              </article>
+            ))}
+          </div>
 
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[52rem] text-left text-sm">
-                <thead className="text-muted-foreground">
-                  <tr className="border-b border-border/70">
-                    <th className="px-2 py-3 font-medium">Referencia</th>
-                    <th className="px-2 py-3 font-medium">Cliente</th>
-                    <th className="px-2 py-3 font-medium">Servicio</th>
-                    <th className="px-2 py-3 font-medium">Estado</th>
-                    <th className="px-2 py-3 font-medium">Responsable</th>
-                    <th className="px-2 py-3 font-medium">Creado</th>
-                    <th className="px-2 py-3 font-medium">Validez</th>
+          <div className="gc-card hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="gc-table">
+                <thead>
+                  <tr>
+                    <th>Referencia</th>
+                    <th>Cliente</th>
+                    <th>Trabajo / Servicio</th>
+                    <th>Estado</th>
+                    <th>Responsable</th>
+                    <th>Creado</th>
+                    <th>Validez</th>
+                    <th>Pedido</th>
                   </tr>
                 </thead>
                 <tbody>
                   {quotes.map((quote) => (
-                    <tr key={quote.id} className="border-b border-border/50">
-                      <td className="px-2 py-3 font-medium">
-                        <Link href={`/quotes/${quote.id}`} className="text-primary">
+                    <tr
+                      key={quote.id}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/quotes/${quote.id}`)}
+                    >
+                      <td className="font-semibold">
+                        <Link
+                          href={`/quotes/${quote.id}`}
+                          className="text-foreground hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
                           {quote.reference}
                         </Link>
                       </td>
-                      <td className="px-2 py-3">{quote.client?.name ?? "—"}</td>
-                      <td className="px-2 py-3">{quote.service?.name ?? "—"}</td>
-                      <td className="px-2 py-3">
+                      <td>{quote.client?.name ?? "—"}</td>
+                      <td>
+                        <div>{quote.title || quote.description}</div>
+                        {quote.service?.name ? (
+                          <div className="mt-1 text-[0.8125rem] text-muted-foreground">
+                            {quote.service.name}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
                         {quote.status ? (
                           <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
                         ) : (
                           "—"
                         )}
                       </td>
-                      <td className="px-2 py-3">{quote.assignee?.name ?? "—"}</td>
-                      <td className="px-2 py-3">{formatWhen(quote.created_at)}</td>
-                      <td className="px-2 py-3">{formatValidity(quote.valid_until)}</td>
+                      <td>{quote.assignee?.name ?? "—"}</td>
+                      <td>{formatWhen(quote.created_at)}</td>
+                      <td>{formatValidity(quote.valid_until)}</td>
+                      <td>
+                        {quote.converted_order ? (
+                          <Link
+                            href={`/orders/${quote.converted_order.id}`}
+                            className="font-semibold text-foreground hover:underline"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {quote.converted_order.reference}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
 
-            <div className="mt-5 flex items-center justify-between gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => {
-                  setLoading(true);
-                  setPage((current) => Math.max(1, current - 1));
-                }}
-              >
-                Anterior
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                Página {page} de {Math.max(totalPages, 1)}
+          {range ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <p className="text-muted-foreground">
+                Mostrando {range.from}–{range.to} de {range.total}
               </p>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={totalPages === 0 || page >= totalPages}
-                onClick={() => {
-                  setLoading(true);
-                  setPage((current) => current + 1);
-                }}
-              >
-                Siguiente
-              </Button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="gc-action"
+                  disabled={listQuery.page <= 1}
+                  onClick={() => {
+                    setLoading(true);
+                    router.replace(
+                      quoteListQuery({
+                        status: listQuery.status,
+                        q: listQuery.q,
+                        page: listQuery.page - 1,
+                      }),
+                      { scroll: false }
+                    );
+                  }}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="gc-action"
+                  disabled={totalPages === 0 || listQuery.page >= totalPages}
+                  onClick={() => {
+                    setLoading(true);
+                    router.replace(
+                      quoteListQuery({
+                        status: listQuery.status,
+                        q: listQuery.q,
+                        page: listQuery.page + 1,
+                      }),
+                      { scroll: false }
+                    );
+                  }}
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
-          </>
-        ) : null}
-      </SectionCard>
+          ) : null}
+        </>
+      ) : null}
     </AppShell>
   );
 }
