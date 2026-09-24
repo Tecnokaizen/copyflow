@@ -2,7 +2,10 @@ import "server-only";
 
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { assertStorageKeyMatchesIds } from "@/lib/files/object-key";
+import {
+  assertQuoteStorageKeyMatchesIds,
+  assertStorageKeyMatchesIds,
+} from "@/lib/files/object-key";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteObject } from "@/lib/storage/r2";
 
@@ -60,9 +63,18 @@ export async function GET(request: NextRequest) {
     .order("upload_expires_at", { ascending: true })
     .limit(CLEANUP_LIMIT);
 
-  if (listError) {
+  const { data: quoteRows, error: quoteListError } = await supabase
+    .from("quote_files")
+    .select("id, tenant_id, quote_id, storage_key, upload_expires_at")
+    .eq("status", "pending")
+    .is("deleted_at", null)
+    .lt("upload_expires_at", now)
+    .order("upload_expires_at", { ascending: true })
+    .limit(CLEANUP_LIMIT);
+
+  if (listError || quoteListError) {
     console.error("[GET /api/internal/files/cleanup] list failed", {
-      message: listError.message,
+      message: listError?.message ?? quoteListError?.message,
     });
     return NextResponse.json(
       { error: "Could not list expired uploads" },
@@ -126,9 +138,61 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const quoteBudget = Math.max(0, CLEANUP_LIMIT - (rows?.length ?? 0));
+  for (const row of (quoteRows ?? []).slice(0, quoteBudget)) {
+    const fileId = String(row.id ?? "");
+    const tenantId = String(row.tenant_id ?? "");
+    const quoteId = String(row.quote_id ?? "");
+    const storageKey = String(row.storage_key ?? "");
+
+    try {
+      if (
+        !assertQuoteStorageKeyMatchesIds(storageKey, {
+          tenantId,
+          quoteId,
+          fileId,
+        })
+      ) {
+        skipped += 1;
+        console.error("[GET /api/internal/files/cleanup] quote storage key mismatch", {
+          file_id: fileId,
+        });
+        continue;
+      }
+
+      await deleteObject({ key: storageKey });
+
+      const { data: removed, error: purgeError } = await supabase.rpc(
+        "purge_expired_quote_file",
+        { p_file_id: fileId }
+      );
+
+      if (purgeError) {
+        failed += 1;
+        console.error("[GET /api/internal/files/cleanup] quote metadata purge failed", {
+          message: purgeError.message,
+          file_id: fileId,
+        });
+        continue;
+      }
+
+      if (removed === true) {
+        purged += 1;
+      } else {
+        skipped += 1;
+      }
+    } catch (error) {
+      failed += 1;
+      console.error("[GET /api/internal/files/cleanup] quote item failed", {
+        message: error instanceof Error ? error.message : "unknown",
+        file_id: fileId,
+      });
+    }
+  }
+
   return NextResponse.json({
     ok: failed === 0,
-    scanned: rows?.length ?? 0,
+    scanned: (rows?.length ?? 0) + Math.min(quoteRows?.length ?? 0, quoteBudget),
     purged,
     skipped,
     failed,

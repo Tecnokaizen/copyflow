@@ -576,8 +576,10 @@ function headlineFor(event: ActivityEvent, entity: string) {
     case "order.notification_changed":
       return `Cambió el aviso al cliente de ${entity}`;
     case "order.file_uploaded":
+    case "quote.file_uploaded":
       return `Subió un archivo a ${entity}`;
     case "order.file_deleted":
+    case "quote.file_deleted":
       return `Eliminó un archivo de ${entity}`;
     case "client.created":
       return `Creó el cliente ${entity}`;
@@ -651,6 +653,8 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "quote.updated",
     "quote.status_changed",
     "quote.converted",
+    "quote.file_uploaded",
+    "quote.file_deleted",
   ].includes(event.action);
 
   const changes = extractChanges(event);

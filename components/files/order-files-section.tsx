@@ -34,11 +34,30 @@ import {
   resolveActionErrorOnListResult,
 } from "@/lib/files/upload-queue";
 
+export type OrderFilesApi = {
+  list: typeof listOrderFiles;
+  upload: typeof uploadOrderFile;
+  remove: typeof deleteOrderFile;
+  download: typeof requestOrderFileDownload;
+};
+
+const defaultFilesApi: OrderFilesApi = {
+  list: listOrderFiles,
+  upload: uploadOrderFile,
+  remove: deleteOrderFile,
+  download: requestOrderFileDownload,
+};
+
 type OrderFilesSectionProps = {
   orderId: string;
   canMutate: boolean;
   archived: boolean;
   onChanged?: () => void;
+  filesApi?: OrderFilesApi;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  archivedMessage?: string;
+  idleDescription?: string;
 };
 
 function newLocalId() {
@@ -53,6 +72,11 @@ export function OrderFilesSection({
   canMutate,
   archived,
   onChanged,
+  filesApi = defaultFilesApi,
+  emptyTitle = "Este pedido no tiene archivos adjuntos.",
+  emptyDescription = "Adjunta documentos, artes finales, fotografías o materiales relacionados con este pedido.",
+  archivedMessage = "Este pedido está archivado. Los archivos pueden consultarse y descargarse, pero ya no pueden modificarse.",
+  idleDescription = "Documentos asociados al pedido",
 }: OrderFilesSectionProps) {
   const [files, setFiles] = useState<OrderFileDto[]>([]);
   const [maxFileBytes, setMaxFileBytes] = useState(MAX_ORDER_FILE_BYTES);
@@ -100,7 +124,7 @@ export function OrderFilesSection({
       }
 
       try {
-        const next = await listOrderFiles(requestOrderId, {
+        const next = await filesApi.list(requestOrderId, {
           signal: controller.signal,
         });
         if (controller.signal.aborted || !alive(requestOrderId)) return;
@@ -137,7 +161,7 @@ export function OrderFilesSection({
         }
       }
     },
-    [alive, orderId],
+    [alive, filesApi, orderId],
   );
 
   useEffect(() => {
@@ -146,7 +170,7 @@ export function OrderFilesSection({
     const controller = new AbortController();
     listAbortRef.current = controller;
 
-    void listOrderFiles(requestOrderId, { signal: controller.signal })
+    void filesApi.list(requestOrderId, { signal: controller.signal })
       .then((next) => {
         if (controller.signal.aborted || !alive(requestOrderId)) return;
         setFiles(next.files.filter((file) => file.status === "ready"));
@@ -171,7 +195,7 @@ export function OrderFilesSection({
         listAbortRef.current = null;
       }
     };
-  }, [alive, orderId]);
+  }, [alive, filesApi, orderId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -188,10 +212,10 @@ export function OrderFilesSection({
   }, [files]);
 
   const description = archived
-    ? "Este pedido está archivado. Los archivos pueden consultarse y descargarse, pero ya no pueden modificarse."
+    ? archivedMessage
     : totals.count > 0
       ? `${totals.count} archivo${totals.count === 1 ? "" : "s"} · ${formatFileSize(totals.bytes)}`
-      : "Documentos asociados al pedido";
+      : idleDescription;
 
   function patchUpload(localId: string, patch: Partial<ClientUploadItem>) {
     if (!alive(orderId)) return;
@@ -218,7 +242,7 @@ export function OrderFilesSection({
       try {
         if (!alive(capturedOrderId)) return;
 
-        const result = await uploadOrderFile(capturedOrderId, item.file, {
+        const result = await filesApi.upload(capturedOrderId, item.file, {
           onPhase: (phase) => {
             if (!alive(capturedOrderId)) return;
             patchUpload(item.localId, {
@@ -356,7 +380,7 @@ export function OrderFilesSection({
     setDownloadingId(file.id);
     const requestOrderId = orderId;
     try {
-      const result = await requestOrderFileDownload(requestOrderId, file.id);
+      const result = await filesApi.download(requestOrderId, file.id);
       if (!alive(requestOrderId)) return;
       triggerBrowserDownload(result.download_url, result.filename);
     } catch (err) {
@@ -380,7 +404,7 @@ export function OrderFilesSection({
     const requestOrderId = orderId;
     const targetId = pendingDelete.id;
     try {
-      await deleteOrderFile(requestOrderId, targetId);
+      await filesApi.remove(requestOrderId, targetId);
       if (!alive(requestOrderId)) return;
       setFiles((prev) => prev.filter((file) => file.id !== targetId));
       setPendingDelete(null);
@@ -490,16 +514,8 @@ export function OrderFilesSection({
           />
         ) : files.length === 0 ? (
           <EmptyState
-            title={
-              archived
-                ? "Este pedido no tiene archivos adjuntos."
-                : "Todavía no hay archivos"
-            }
-            description={
-              archived
-                ? undefined
-                : "Adjunta documentos, artes finales, fotografías o materiales relacionados con este pedido."
-            }
+            title={archived ? emptyTitle : "Todavía no hay archivos"}
+            description={archived ? undefined : emptyDescription}
             className="py-10"
             action={
               canMutate ? (

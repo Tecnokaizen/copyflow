@@ -97,6 +97,17 @@ describe("quote activity", () => {
       converted.headline,
       "Convirtió SUR4-P0001 en el pedido SUR4-0020"
     );
+
+    const uploaded = formatActivityEvent(
+      event({
+        action: "quote.file_uploaded",
+        entity_type: "quote",
+        entity_id: quoteId,
+        entity_label: "SUR4-P0001",
+        metadata: { reference: "SUR4-P0001", original_name: "presupuesto.pdf" },
+      })
+    );
+    assert.equal(uploaded.headline, "Subió un archivo a SUR4-P0001");
     assert.equal(converted.href, `/quotes/${quoteId}`);
   });
 });

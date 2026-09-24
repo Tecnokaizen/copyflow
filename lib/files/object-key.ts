@@ -13,6 +13,25 @@ export function buildOrderFileStorageKey(input: {
   return `orders/${tenantId}/${orderId}/${fileId}`;
 }
 
+export function buildQuoteFileStorageKey(input: {
+  tenantId: string;
+  quoteId: string;
+  fileId: string;
+}): string {
+  const { tenantId, quoteId, fileId } = input;
+  if (!UUID_RE.test(tenantId) || !UUID_RE.test(quoteId) || !UUID_RE.test(fileId)) {
+    throw new Error("Invalid id for storage key");
+  }
+  return `quotes/${tenantId}/${quoteId}/${fileId}`;
+}
+
+export function assertQuoteStorageKeyMatchesIds(
+  storageKey: string,
+  input: { tenantId: string; quoteId: string; fileId: string }
+): boolean {
+  return storageKey === buildQuoteFileStorageKey(input);
+}
+
 export function assertStorageKeyMatchesIds(
   storageKey: string,
   input: { tenantId: string; orderId: string; fileId: string }
