@@ -44,7 +44,10 @@ import {
   suggestedAssigneeId,
 } from "@/lib/orders/create-form-layout";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
-import { fromDateTimeLocalValue } from "@/lib/orders/format";
+import {
+  fromDateTimeLocalValue,
+  MISSING_LOCAL_HOUR_MESSAGE,
+} from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
 import { fetchLive } from "@/lib/refresh/fetch-live";
 import {
@@ -343,7 +346,7 @@ export function CreateOrderForm({
 
     const dueAtIso = dueAt.trim() ? fromDateTimeLocalValue(dueAt) : null;
     if (dueAt.trim() && !dueAtIso) {
-      setError("La fecha prevista no es válida");
+      setError(MISSING_LOCAL_HOUR_MESSAGE);
       return;
     }
 

@@ -9,6 +9,10 @@ import {
   quarterHourOptions,
   splitDateTimeLocal,
 } from "@/lib/gestcopy/date-value";
+import {
+  fromDateTimeLocalValue,
+  MISSING_LOCAL_HOUR_MESSAGE,
+} from "@/lib/orders/format";
 import { cn } from "@/lib/utils";
 
 const HOURS = quarterHourOptions();
@@ -28,45 +32,35 @@ export function DateTimePicker({
 }: DateTimePickerProps) {
   const listId = useId();
   const parsed = splitDateTimeLocal(value);
-  const [date, setDate] = useState(parsed.date);
-  const [time, setTime] = useState(parsed.time);
-  const [tracked, setTracked] = useState(value);
-
-  if (value !== tracked && value !== "") {
-    setTracked(value);
-    setDate(parsed.date);
-    setTime(parsed.time);
-  } else if (
-    value !== tracked &&
-    value === "" &&
-    combineDateTimeLocal(date, time) !== ""
-  ) {
-    setTracked("");
-    setDate("");
-    setTime("");
-  } else if (value !== tracked) {
-    setTracked(value);
-  }
-
+  const [draft, setDraft] = useState<{ date: string; time: string } | null>(
+    null
+  );
+  const draftValue = draft ? combineDateTimeLocal(draft.date, draft.time) : null;
+  const showDraft =
+    draft !== null &&
+    (draftValue === value || (value === "" && draftValue === ""));
+  const date = showDraft && draft ? draft.date : parsed.date;
+  const time = showDraft && draft ? draft.time : parsed.time;
   const timeInvalid = time !== "" && !isClockTime(time);
+  const combined = combineDateTimeLocal(date, time);
+  const missingHour =
+    combined !== "" && fromDateTimeLocalValue(combined) === null;
 
   function publish(nextDate: string, nextTime: string) {
+    setDraft({ date: nextDate, time: nextTime });
     onChange(combineDateTimeLocal(nextDate, nextTime));
   }
 
   function updateDate(nextDate: string) {
-    setDate(nextDate);
     publish(nextDate, time);
   }
 
   function updateTime(nextTime: string) {
-    setTime(nextTime);
     publish(date, nextTime);
   }
 
   function clear() {
-    setDate("");
-    setTime("");
+    setDraft(null);
     onChange("");
   }
 
@@ -91,7 +85,7 @@ export function DateTimePicker({
             list={listId}
             placeholder="HH:MM"
             aria-label="Hora"
-            aria-invalid={timeInvalid}
+            aria-invalid={timeInvalid || missingHour}
             disabled={disabled}
             value={time}
             onChange={(event) => updateTime(event.target.value)}
@@ -128,6 +122,11 @@ export function DateTimePicker({
           Quitar fecha
         </button>
       </div>
+      {missingHour ? (
+        <p className="text-sm text-destructive" role="alert">
+          {MISSING_LOCAL_HOUR_MESSAGE}
+        </p>
+      ) : null}
     </div>
   );
 }

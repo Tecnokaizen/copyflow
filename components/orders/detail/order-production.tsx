@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import {
@@ -30,6 +31,7 @@ export function OrderProduction({
   managementOptions,
   managementOptionsLoading,
   onDraftChange,
+  onDueAtInvalid,
 }: {
   order: Order;
   draft: OrderDraft | null;
@@ -40,7 +42,10 @@ export function OrderProduction({
   managementOptions: ManagementOptionsResponse | null;
   managementOptionsLoading: boolean;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
+  onDueAtInvalid?: (invalid: boolean) => void;
 }) {
+  const [rejectedLocal, setRejectedLocal] = useState<string | null>(null);
+
   if (editing && draft) {
     return (
       <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
@@ -135,11 +140,27 @@ export function OrderProduction({
         </FactRow>
         <FactRow label="Entrega prevista" emphasis>
           <DateTimePicker
-            value={toDateTimeLocalValue(draft.due_at)}
+            value={rejectedLocal ?? toDateTimeLocalValue(draft.due_at)}
             disabled={orderOptionsLoading}
-            onChange={(value) =>
-              onDraftChange({ due_at: fromDateTimeLocalValue(value) })
-            }
+            onChange={(value) => {
+              if (!value) {
+                setRejectedLocal(null);
+                onDueAtInvalid?.(false);
+                onDraftChange({ due_at: null });
+                return;
+              }
+
+              const iso = fromDateTimeLocalValue(value);
+              if (!iso) {
+                setRejectedLocal(value);
+                onDueAtInvalid?.(true);
+                return;
+              }
+
+              setRejectedLocal(null);
+              onDueAtInvalid?.(false);
+              onDraftChange({ due_at: iso });
+            }}
           />
         </FactRow>
       </SectionCard>

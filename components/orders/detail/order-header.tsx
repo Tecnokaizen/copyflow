@@ -64,6 +64,7 @@ export function OrderHeader({
   onEdit,
   onCancel,
   onSave,
+  saveBlocked = false,
   onQuickStatus,
   onQuickAssignee,
   onQuickNote,
@@ -82,6 +83,7 @@ export function OrderHeader({
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
+  saveBlocked?: boolean;
   onQuickStatus: (statusId: string) => Promise<void>;
   onQuickAssignee: (memberId: string | null) => Promise<void>;
   onQuickNote: (note: string) => Promise<void>;
@@ -149,7 +151,7 @@ export function OrderHeader({
                 </button>
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || saveBlocked}
                   onClick={onSave}
                   className="gc-cta min-h-11 w-full sm:w-auto disabled:opacity-50"
                 >

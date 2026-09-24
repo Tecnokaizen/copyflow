@@ -37,11 +37,16 @@ export function toDateTimeLocalValue(value: string | null) {
   return local.toISOString().slice(0, 16);
 }
 
+export const MISSING_LOCAL_HOUR_MESSAGE =
+  "Esta hora no existe por el cambio horario. Elige otra hora.";
+
 export function fromDateTimeLocalValue(value: string) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
+  const iso = date.toISOString();
+  if (toDateTimeLocalValue(iso) !== value) return null;
+  return iso;
 }
 
 function formatContentField(value: string | undefined) {

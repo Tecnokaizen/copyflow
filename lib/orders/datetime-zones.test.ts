@@ -50,8 +50,8 @@ describe("order due_at local conversion", () => {
     assert.equal(springAfter.back, "2026-03-29T03:30");
 
     const missing = convertInZone("Europe/Madrid", "2026-03-29T02:30");
-    assert.equal(missing.iso, "2026-03-29T01:30:00.000Z");
-    assert.equal(missing.back, "2026-03-29T03:30");
+    assert.equal(missing.iso, null);
+    assert.equal(missing.back, null);
 
     const autumnBefore = convertInZone("Europe/Madrid", "2026-10-25T01:30");
     assert.equal(autumnBefore.iso, "2026-10-24T23:30:00.000Z");

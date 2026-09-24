@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
@@ -44,20 +44,23 @@ export function QuotesList() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const listQuery = parseQuoteListQuery(searchParams);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [searchTick, setSearchTick] = useState(0);
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [statuses, setStatuses] = useState<QuoteStatusRef[]>([]);
-  const [query, setQuery] = useState(listQuery.q);
-  const [trackedQuery, setTrackedQuery] = useState(listQuery.q);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  if (listQuery.q !== trackedQuery) {
-    setTrackedQuery(listQuery.q);
-    setQuery(listQuery.q);
-  }
+  useEffect(() => {
+    const input = searchRef.current;
+    if (!input || input.value.trim() === listQuery.q) {
+      return;
+    }
+    input.value = listQuery.q;
+  }, [listQuery.q]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +129,8 @@ export function QuotesList() {
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      if (query.trim() === listQuery.q) {
+      const next = searchRef.current?.value ?? "";
+      if (next.trim() === listQuery.q) {
         return;
       }
 
@@ -134,7 +138,7 @@ export function QuotesList() {
       router.replace(
         quoteListQuery({
           status: listQuery.status,
-          q: query,
+          q: next,
           page: 1,
         }),
         { scroll: false }
@@ -142,7 +146,7 @@ export function QuotesList() {
     }, 250);
 
     return () => window.clearTimeout(handle);
-  }, [listQuery.q, listQuery.status, query, router]);
+  }, [listQuery.q, listQuery.status, router, searchTick]);
 
   function selectStatus(code: string) {
     setLoading(true);
@@ -198,8 +202,9 @@ export function QuotesList() {
         <label className="gc-field">
           <span className="gc-field-label">Buscar</span>
           <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            ref={searchRef}
+            defaultValue={listQuery.q}
+            onChange={() => setSearchTick((tick) => tick + 1)}
             placeholder="Referencia, título, descripción o cliente"
             className="gc-field-control"
             aria-label="Buscar presupuestos"
