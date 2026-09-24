@@ -2,14 +2,13 @@ import "server-only";
 
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { CLEANUP_LIMIT, selectCleanupCandidates } from "@/lib/files/cleanup";
 import {
   assertQuoteStorageKeyMatchesIds,
   assertStorageKeyMatchesIds,
 } from "@/lib/files/object-key";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteObject } from "@/lib/storage/r2";
-
-const CLEANUP_LIMIT = 100;
 
 function requireCronSecret(): string {
   const value = process.env.CRON_SECRET?.trim() ?? "";
@@ -61,6 +60,7 @@ export async function GET(request: NextRequest) {
     .is("deleted_at", null)
     .lt("upload_expires_at", now)
     .order("upload_expires_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(CLEANUP_LIMIT);
 
   const { data: quoteRows, error: quoteListError } = await supabase
@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
     .is("deleted_at", null)
     .lt("upload_expires_at", now)
     .order("upload_expires_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(CLEANUP_LIMIT);
 
   if (listError || quoteListError) {
@@ -86,22 +87,51 @@ export async function GET(request: NextRequest) {
   let failed = 0;
   let skipped = 0;
 
-  for (const row of rows ?? []) {
-    const fileId = String(row.id ?? "");
-    const tenantId = String(row.tenant_id ?? "");
-    const orderId = String(row.order_id ?? "");
-    const storageKey = String(row.storage_key ?? "");
+  const candidates = selectCleanupCandidates([
+    ...(rows ?? []).map((row) => ({
+      kind: "order" as const,
+      id: String(row.id ?? ""),
+      tenant_id: String(row.tenant_id ?? ""),
+      parent_id: String(row.order_id ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      upload_expires_at: String(row.upload_expires_at),
+    })),
+    ...(quoteRows ?? []).map((row) => ({
+      kind: "quote" as const,
+      id: String(row.id ?? ""),
+      tenant_id: String(row.tenant_id ?? ""),
+      parent_id: String(row.quote_id ?? ""),
+      storage_key: String(row.storage_key ?? ""),
+      upload_expires_at: String(row.upload_expires_at),
+    })),
+  ]);
+
+  for (const candidate of candidates) {
+    const {
+      kind,
+      id: fileId,
+      tenant_id: tenantId,
+      parent_id: parentId,
+      storage_key: storageKey,
+    } = candidate;
 
     try {
-      if (
-        !assertStorageKeyMatchesIds(storageKey, {
-          tenantId,
-          orderId,
-          fileId,
-        })
-      ) {
+      const keyMatches =
+        kind === "order"
+          ? assertStorageKeyMatchesIds(storageKey, {
+              tenantId,
+              orderId: parentId,
+              fileId,
+            })
+          : assertQuoteStorageKeyMatchesIds(storageKey, {
+              tenantId,
+              quoteId: parentId,
+              fileId,
+            });
+      if (!keyMatches) {
         skipped += 1;
         console.error("[GET /api/internal/files/cleanup] storage key mismatch", {
+          kind,
           file_id: fileId,
         });
         continue;
@@ -110,15 +140,16 @@ export async function GET(request: NextRequest) {
       // R2 first: if object deletion fails, keep metadata so a later run can retry.
       await deleteObject({ key: storageKey });
 
-      const { data: removed, error: purgeError } = await supabase.rpc(
-        "purge_expired_order_file",
-        { p_file_id: fileId }
-      );
+      const { data: removed, error: purgeError } =
+        kind === "order"
+          ? await supabase.rpc("purge_expired_order_file", { p_file_id: fileId })
+          : await supabase.rpc("purge_expired_quote_file", { p_file_id: fileId });
 
       if (purgeError) {
         failed += 1;
         console.error("[GET /api/internal/files/cleanup] metadata purge failed", {
           message: purgeError.message,
+          kind,
           file_id: fileId,
         });
         continue;
@@ -133,58 +164,7 @@ export async function GET(request: NextRequest) {
       failed += 1;
       console.error("[GET /api/internal/files/cleanup] item failed", {
         message: error instanceof Error ? error.message : "unknown",
-        file_id: fileId,
-      });
-    }
-  }
-
-  const quoteBudget = Math.max(0, CLEANUP_LIMIT - (rows?.length ?? 0));
-  for (const row of (quoteRows ?? []).slice(0, quoteBudget)) {
-    const fileId = String(row.id ?? "");
-    const tenantId = String(row.tenant_id ?? "");
-    const quoteId = String(row.quote_id ?? "");
-    const storageKey = String(row.storage_key ?? "");
-
-    try {
-      if (
-        !assertQuoteStorageKeyMatchesIds(storageKey, {
-          tenantId,
-          quoteId,
-          fileId,
-        })
-      ) {
-        skipped += 1;
-        console.error("[GET /api/internal/files/cleanup] quote storage key mismatch", {
-          file_id: fileId,
-        });
-        continue;
-      }
-
-      await deleteObject({ key: storageKey });
-
-      const { data: removed, error: purgeError } = await supabase.rpc(
-        "purge_expired_quote_file",
-        { p_file_id: fileId }
-      );
-
-      if (purgeError) {
-        failed += 1;
-        console.error("[GET /api/internal/files/cleanup] quote metadata purge failed", {
-          message: purgeError.message,
-          file_id: fileId,
-        });
-        continue;
-      }
-
-      if (removed === true) {
-        purged += 1;
-      } else {
-        skipped += 1;
-      }
-    } catch (error) {
-      failed += 1;
-      console.error("[GET /api/internal/files/cleanup] quote item failed", {
-        message: error instanceof Error ? error.message : "unknown",
+        kind,
         file_id: fileId,
       });
     }
@@ -192,7 +172,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: failed === 0,
-    scanned: (rows?.length ?? 0) + Math.min(quoteRows?.length ?? 0, quoteBudget),
+    scanned: candidates.length,
     purged,
     skipped,
     failed,
