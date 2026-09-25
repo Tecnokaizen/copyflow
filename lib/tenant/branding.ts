@@ -199,6 +199,34 @@ function luminance(hex: string) {
   return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2];
 }
 
+export function brandColorAlpha(color: string, alpha: number): string | null {
+  if (!HEX_COLOR.test(color)) return null;
+  if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+  const value = color.slice(1);
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+/** Active header item. Text stays on the foreground token; the brand color is only fill and a solid edge. */
+export function activeNavAccent(brandColor: string | null): {
+  className: string;
+  style?: { backgroundColor: string; boxShadow: string };
+} {
+  const background = brandColor ? brandColorAlpha(brandColor, 0.1) : null;
+  if (!brandColor || !background) {
+    return { className: "bg-primary/10 text-primary" };
+  }
+  return {
+    className: "text-foreground",
+    style: {
+      backgroundColor: background,
+      boxShadow: `inset 0 -2px 0 ${brandColor}`,
+    },
+  };
+}
+
 /** Filled mark only when white text stays readable. Otherwise the color is a ring. */
 export function brandMarkUsesFill(color: string | null): boolean {
   if (!color || !HEX_COLOR.test(color)) return false;

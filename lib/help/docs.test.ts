@@ -7,6 +7,7 @@ import {
   HELP_CONTEXT_HREFS,
   HELP_DOCS_URL,
   allHelpArticles,
+  helpDocsUrl,
   helpNeighbors,
 } from "@/lib/help/catalog";
 import {
@@ -90,6 +91,9 @@ describe("public help center", () => {
     assert.match(nav, /rel="noopener noreferrer"/);
     assert.equal(HELP_DOCS_URL, "https://app.gestcopy.com/ayuda");
     assert.equal(nav.includes("sur4.app.gestcopy.com/ayuda"), false);
+    assert.equal(nav.includes('href="https://app.gestcopy.com/ayuda"'), false);
+    assert.equal(nav.includes("href={HELP_DOCS_URL}"), false);
+    assert.match(nav, /helpDocsUrl\(\)/);
     assert.match(nav, /HelpLink className="hidden md:inline-flex"/);
     assert.match(nav, /HelpLink className="w-full justify-start md:hidden"/);
     const articlePage = source("app/ayuda/[...slug]/page.tsx");
@@ -100,7 +104,16 @@ describe("public help center", () => {
     const catalogCheck = loadFunction.indexOf("helpArticleBySlug");
     const fileRead = loadFunction.indexOf("readFileSync");
     assert.ok(catalogCheck >= 0 && fileRead > catalogCheck);
-    assert.match(nav, /HELP_DOCS_URL/);
+    assert.match(nav, /helpDocsUrl/);
+  });
+
+  it("opens production help on the canonical host and stays on the current deployment otherwise", () => {
+    assert.equal(helpDocsUrl("production"), "https://app.gestcopy.com/ayuda");
+    assert.equal(helpDocsUrl("preview"), "/ayuda");
+    assert.equal(helpDocsUrl("development"), "/ayuda");
+    assert.equal(source("app/ayuda/page.tsx").includes("canonical: HELP_DOCS_URL"), true);
+    assert.equal(HELP_DOCS_URL, "https://app.gestcopy.com/ayuda");
+    assert.equal(source("app/ayuda/page.tsx").includes("helpDocsUrl"), false);
   });
 
   it("does not serve the public help center from /docs", () => {

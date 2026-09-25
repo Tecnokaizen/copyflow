@@ -28,7 +28,8 @@ import {
   type AppNavItem,
   type NavLocation,
 } from "@/lib/nav/items";
-import { HELP_DOCS_URL } from "@/lib/help/catalog";
+import { activeNavAccent } from "@/lib/tenant/branding";
+import { helpDocsUrl } from "@/lib/help/catalog";
 import { cn } from "@/lib/utils";
 
 type TenantLabel = {
@@ -40,7 +41,7 @@ type TenantLabel = {
 function HelpLink({ className }: { className?: string }) {
   return (
     <a
-      href={HELP_DOCS_URL}
+      href={helpDocsUrl()}
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
@@ -54,33 +55,41 @@ function HelpLink({ className }: { className?: string }) {
   );
 }
 
-function linkClass(active: boolean) {
-  return cn(
-    "inline-flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    active
-      ? "bg-primary/10 text-primary"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-  );
+function linkClass(active: boolean, brandColor: string | null) {
+  const accent = active ? activeNavAccent(brandColor) : null;
+  return {
+    className: cn(
+      "inline-flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+      accent
+        ? accent.className
+        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+    ),
+    style: accent?.style,
+  };
 }
 
 function NavLinkItem({
   item,
   location,
+  brandColor,
   onNavigate,
   className,
 }: {
   item: AppNavItem;
   location: NavLocation;
+  brandColor: string | null;
   onNavigate?: () => void;
   className?: string;
 }) {
   const active = navItemIsActive(item, location);
+  const link = linkClass(active, brandColor);
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
-      className={cn(linkClass(active), className)}
+      className={cn(link.className, className)}
+      style={link.style}
     >
       {item.label}
     </Link>
@@ -90,18 +99,22 @@ function NavLinkItem({
 function DesktopNavGroup({
   group,
   location,
+  brandColor,
 }: {
   group: AppNavGroup;
   location: NavLocation;
+  brandColor: string | null;
 }) {
   const groupActive = navGroupIsActive(group, location);
+  const link = linkClass(groupActive, brandColor);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(linkClass(groupActive), "gap-1")}
+          className={cn(link.className, "gap-1")}
+          style={link.style}
           aria-current={groupActive ? "true" : undefined}
         >
           {group.label}
@@ -134,9 +147,11 @@ function DesktopNavGroup({
 function DesktopNav({
   entries,
   location,
+  brandColor,
 }: {
   entries: AppNavEntry[];
   location: NavLocation;
+  brandColor: string | null;
 }) {
   return (
     <nav
@@ -149,12 +164,14 @@ function DesktopNav({
             key={entry.item.id}
             item={entry.item}
             location={location}
+            brandColor={brandColor}
           />
         ) : (
           <DesktopNavGroup
             key={entry.group.id}
             group={entry.group}
             location={location}
+            brandColor={brandColor}
           />
         )
       )}
@@ -165,11 +182,13 @@ function DesktopNav({
 function MobileNav({
   entries,
   location,
+  brandColor,
   open,
   onOpenChange,
 }: {
   entries: AppNavEntry[];
   location: NavLocation;
+  brandColor: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -202,6 +221,7 @@ function MobileNav({
                   key={entry.item.id}
                   item={entry.item}
                   location={location}
+                  brandColor={brandColor}
                   onNavigate={() => onOpenChange(false)}
                   className="w-full justify-start"
                 />
@@ -219,6 +239,7 @@ function MobileNav({
                       key={item.id}
                       item={item}
                       location={location}
+                      brandColor={brandColor}
                       onNavigate={() => onOpenChange(false)}
                       className="w-full justify-start pl-4"
                     />
@@ -272,10 +293,15 @@ function AppNavFrame({
       </div>
 
       <div className="border-b border-border/80 py-2">
-        <DesktopNav entries={entries} location={location} />
+        <DesktopNav
+          entries={entries}
+          location={location}
+          brandColor={tenant?.brandColor ?? null}
+        />
         <MobileNav
           entries={entries}
           location={location}
+          brandColor={tenant?.brandColor ?? null}
           open={mobileOpen}
           onOpenChange={setMobileOpen}
         />

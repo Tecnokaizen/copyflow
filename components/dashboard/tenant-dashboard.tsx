@@ -350,6 +350,45 @@ export function TenantDashboard() {
         />
       </div>
 
+      {data?.quotes ? (
+        <SectionCard
+          title="Presupuestos"
+          className="mt-4"
+          actions={
+            <Link
+              href="/quotes"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Ver presupuestos
+            </Link>
+          }
+          bodyClassName="p-4 sm:p-5"
+        >
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <QuoteStat
+              label="Abiertos"
+              value={data.quotes.open}
+              href="/quotes"
+            />
+            <QuoteStat
+              label="En revisión"
+              value={data.quotes.in_review}
+              href="/quotes?status=pending"
+            />
+            <QuoteStat
+              label="Enviados"
+              value={data.quotes.sent}
+              href="/quotes?status=sent"
+            />
+            <QuoteStat
+              label="Aceptados pendientes de convertir"
+              value={data.quotes.accepted_pending}
+              href="/quotes?status=accepted"
+            />
+          </div>
+        </SectionCard>
+      ) : null}
+
       <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-3 lg:gap-5">
         <SectionCard
           title="Próximas entregas"
@@ -416,45 +455,6 @@ export function TenantDashboard() {
           )}
         </SectionCard>
       </div>
-
-      {data?.quotes ? (
-        <SectionCard
-          title="Presupuestos"
-          className="mt-4"
-          actions={
-            <Link
-              href="/quotes"
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Ver presupuestos
-            </Link>
-          }
-          bodyClassName="p-4 sm:p-5"
-        >
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <QuoteStat
-              label="Abiertos"
-              value={data.quotes.open}
-              href="/quotes"
-            />
-            <QuoteStat
-              label="En revisión"
-              value={data.quotes.in_review}
-              href="/quotes?status=pending"
-            />
-            <QuoteStat
-              label="Enviados"
-              value={data.quotes.sent}
-              href="/quotes?status=sent"
-            />
-            <QuoteStat
-              label="Aceptados pendientes de convertir"
-              value={data.quotes.accepted_pending}
-              href="/quotes?status=accepted"
-            />
-          </div>
-        </SectionCard>
-      ) : null}
     </DashboardShell>
   );
 }

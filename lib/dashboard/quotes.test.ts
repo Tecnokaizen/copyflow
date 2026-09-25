@@ -49,8 +49,16 @@ describe("quote dashboard counts", () => {
     assert.match(ui, /href="\/quotes\?status=pending"/);
     assert.match(ui, /grid-cols-2 gap-3 lg:grid-cols-4/);
     assert.doesNotMatch(ui, /Presupuestos abiertos/);
-    const quotesBlock = ui.slice(ui.indexOf('title="Presupuestos"'));
+    const kpi = ui.indexOf('label="Entregas hoy"');
+    const quotes = ui.indexOf('title="Presupuestos"');
+    const upcoming = ui.indexOf('title="Próximas entregas"');
+    assert.ok(kpi >= 0 && kpi < quotes && quotes < upcoming);
+    const quotesBlock = ui.slice(quotes, upcoming);
     assert.equal(quotesBlock.includes("gc-kpi"), false);
+    assert.equal(ui.includes("brandColor"), false);
+    assert.match(ui, /gc-kpi-value-urgent/);
+    assert.match(ui, /gc-kpi-value-warning/);
+    assert.match(ui, /gc-kpi-value-info/);
     assert.equal(ui.includes("data?.quotes") && !ui.includes("quotesEnabled"), true);
   });
 });

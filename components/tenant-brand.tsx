@@ -48,7 +48,10 @@ export function TenantBrand({
           {monogramFromName(name || "Gestcopy")}
         </span>
       )}
-      <div className="min-w-0">
+      <div
+        className={cn("min-w-0", brandColor && "border-l-2 pl-2.5")}
+        style={brandColor ? { borderLeftColor: brandColor } : undefined}
+      >
         {name ? (
           <p className="truncate text-sm font-semibold tracking-tight text-foreground">
             {name}

@@ -4,6 +4,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { canManageOrganizationIdentity } from "@/lib/auth/membership-roles";
 import {
+  activeNavAccent,
+  brandColorAlpha,
   brandMarkUsesFill,
   buildLogoStorageKey,
   displayBusinessName,
@@ -118,6 +120,22 @@ describe("organization identity", () => {
     assert.equal(identity.branding.brand_color, "#112233");
     assert.equal(identityPayloadExposesSecrets(identity), false);
     assert.equal(JSON.stringify(identity).includes("storage_key"), false);
+    assert.equal(brandColorAlpha("#facc15", 0.1), "rgba(250, 204, 21, 0.1)");
+    assert.equal(brandColorAlpha("yellow", 0.1), null);
+    const plain = activeNavAccent(null);
+    assert.equal(plain.className, "bg-primary/10 text-primary");
+    assert.equal(plain.style, undefined);
+    const branded = activeNavAccent("#facc15");
+    assert.equal(branded.className, "text-foreground");
+    assert.equal(branded.style?.backgroundColor, "rgba(250, 204, 21, 0.1)");
+    assert.match(branded.style?.boxShadow ?? "", /#facc15/);
+    assert.equal("color" in (branded.style ?? {}), false);
+    const brand = readSource("components/tenant-brand.tsx");
+    assert.match(brand, /border-l-2/);
+    assert.match(brand, /borderLeftColor: brandColor/);
+    assert.doesNotMatch(brand, /color: brandColor/);
+    const nav = readSource("components/app-nav.tsx");
+    assert.match(nav, /activeNavAccent/);
     assert.equal(brandMarkUsesFill("#112233"), true);
     assert.equal(brandMarkUsesFill("#F8FAFC"), false);
     const context = readSource("app/api/context/route.ts");

@@ -1,5 +1,17 @@
 export const HELP_DOCS_URL = "https://app.gestcopy.com/ayuda";
 
+/**
+ * Header target for Ayuda. Production opens the canonical host.
+ * Preview and development stay on the current deployment (`/ayuda`).
+ * Client components read NEXT_PUBLIC_VERCEL_ENV, which Vercel sets to the
+ * same value as VERCEL_ENV and inlines into the browser bundle.
+ */
+export function helpDocsUrl(
+  vercelEnv: string | undefined = process.env.NEXT_PUBLIC_VERCEL_ENV
+) {
+  return vercelEnv === "production" ? HELP_DOCS_URL : "/ayuda";
+}
+
 /** Future contextual help. V1 only links the global center from the header. */
 export const HELP_CONTEXT_HREFS = {
   dashboard: "/ayuda/panel-diario",
