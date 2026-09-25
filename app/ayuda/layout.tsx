@@ -34,7 +34,7 @@ function navigation() {
 }
 
 export const metadata: Metadata = {
-  title: "Centro de ayuda Gestcopy",
+  title: "Centro de ayuda",
   description:
     "Cómo usar Gestcopy: pedidos, clientes, presupuestos y configuración.",
 };
