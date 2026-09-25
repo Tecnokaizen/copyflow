@@ -350,11 +350,6 @@ export function CatalogSettings() {
                   <th className="px-5 py-3 text-left font-medium sm:px-6">
                     Nombre
                   </th>
-                  {definition.hasCode ? (
-                    <th className="px-5 py-3 text-left font-medium sm:px-6">
-                      Código
-                    </th>
-                  ) : null}
                   <th className="px-5 py-3 text-left font-medium sm:px-6">
                     Activo
                   </th>
@@ -375,11 +370,6 @@ export function CatalogSettings() {
                     <td className="px-5 py-4 font-medium sm:px-6">
                       {item.name}
                     </td>
-                    {definition.hasCode ? (
-                      <td className="px-5 py-4 text-muted-foreground sm:px-6">
-                        {item.code ?? "—"}
-                      </td>
-                    ) : null}
                     <td className="px-5 py-4 sm:px-6">
                       {item.active ? "Sí" : "No"}
                     </td>

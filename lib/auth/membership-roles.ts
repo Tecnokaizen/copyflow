@@ -186,6 +186,13 @@ export function canManageSettingsCatalogs(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
 
+/** Organization identity is owner/admin only. Managers keep catalog access. */
+export function canManageOrganizationIdentity(
+  role: string | null | undefined
+) {
+  return hasMembershipRole(role, ACCESS_ADMIN_ROLES);
+}
+
 export function canViewActivity(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }

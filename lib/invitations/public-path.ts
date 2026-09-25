@@ -11,6 +11,10 @@ export function allowsUnauthenticatedPath(pathname: string) {
     return true;
   }
 
+  if (pathname === "/ayuda" || pathname.startsWith("/ayuda/")) {
+    return true;
+  }
+
   return (
     pathname === "/invitations/accept" ||
     pathname.startsWith("/invitations/accept/")

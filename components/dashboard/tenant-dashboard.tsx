@@ -76,6 +76,26 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function QuoteStat({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: number;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-md border border-border/70 px-3 py-2 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold tabular-nums text-foreground">{value}</p>
+    </Link>
+  );
+}
+
 function KpiLink({
   label,
   value,
@@ -331,28 +351,42 @@ export function TenantDashboard() {
       </div>
 
       {data?.quotes ? (
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          <KpiLink
-            label="Presupuestos abiertos"
-            value={data.quotes.open}
-            href="/quotes"
-          />
-          <KpiLink
-            label="En revisión"
-            value={data.quotes.in_review}
-            href="/quotes?status=pending"
-          />
-          <KpiLink
-            label="Enviados"
-            value={data.quotes.sent}
-            href="/quotes?status=sent"
-          />
-          <KpiLink
-            label="Aceptados pendientes de convertir"
-            value={data.quotes.accepted_pending}
-            href="/quotes?status=accepted"
-          />
-        </div>
+        <SectionCard
+          title="Presupuestos"
+          className="mt-4"
+          actions={
+            <Link
+              href="/quotes"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Ver presupuestos
+            </Link>
+          }
+          bodyClassName="p-4 sm:p-5"
+        >
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <QuoteStat
+              label="Abiertos"
+              value={data.quotes.open}
+              href="/quotes"
+            />
+            <QuoteStat
+              label="En revisión"
+              value={data.quotes.in_review}
+              href="/quotes?status=pending"
+            />
+            <QuoteStat
+              label="Enviados"
+              value={data.quotes.sent}
+              href="/quotes?status=sent"
+            />
+            <QuoteStat
+              label="Aceptados pendientes de convertir"
+              value={data.quotes.accepted_pending}
+              href="/quotes?status=accepted"
+            />
+          </div>
+        </SectionCard>
       ) : null}
 
       <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-3 lg:gap-5">

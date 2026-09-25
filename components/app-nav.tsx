@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, CircleHelp, Menu, X } from "lucide-react";
 
 import { SessionIdentity } from "@/components/session-identity";
+import { TenantBrand } from "@/components/tenant-brand";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,70 +28,68 @@ import {
   type AppNavItem,
   type NavLocation,
 } from "@/lib/nav/items";
+import { activeNavAccent } from "@/lib/tenant/branding";
+import { helpDocsUrl } from "@/lib/help/catalog";
 import { cn } from "@/lib/utils";
 
 type TenantLabel = {
-  name: string;
-  slug: string;
+  displayName: string;
+  logoUrl: string | null;
+  brandColor: string | null;
 };
 
-function linkClass(active: boolean) {
-  return cn(
-    "inline-flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    active
-      ? "bg-primary/10 text-primary"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+function HelpLink({ className }: { className?: string }) {
+  return (
+    <a
+      href={helpDocsUrl()}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "inline-flex min-h-10 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className
+      )}
+    >
+      <CircleHelp className="size-4" aria-hidden="true" />
+      Ayuda
+    </a>
   );
 }
 
-function TenantBrand({ tenant }: { tenant: TenantLabel | null }) {
-  if (!tenant) {
-    return (
-      <div className="min-w-0">
-        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Gestcopy
-        </p>
-      </div>
-    );
-  }
-
-  const showSlug =
-    Boolean(tenant.slug) &&
-    tenant.slug.toLowerCase() !== tenant.name.toLowerCase();
-
-  return (
-    <div className="min-w-0">
-      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Gestcopy
-      </p>
-      <p className="truncate text-sm font-semibold tracking-tight text-foreground">
-        {tenant.name}
-      </p>
-      {showSlug ? (
-        <p className="truncate text-xs text-muted-foreground">{tenant.slug}</p>
-      ) : null}
-    </div>
-  );
+function linkClass(active: boolean, brandColor: string | null) {
+  const accent = active ? activeNavAccent(brandColor) : null;
+  return {
+    className: cn(
+      "inline-flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+      accent
+        ? accent.className
+        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+    ),
+    style: accent?.style,
+  };
 }
 
 function NavLinkItem({
   item,
   location,
+  brandColor,
   onNavigate,
   className,
 }: {
   item: AppNavItem;
   location: NavLocation;
+  brandColor: string | null;
   onNavigate?: () => void;
   className?: string;
 }) {
   const active = navItemIsActive(item, location);
+  const link = linkClass(active, brandColor);
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       onClick={onNavigate}
-      className={cn(linkClass(active), className)}
+      className={cn(link.className, className)}
+      style={link.style}
     >
       {item.label}
     </Link>
@@ -100,18 +99,22 @@ function NavLinkItem({
 function DesktopNavGroup({
   group,
   location,
+  brandColor,
 }: {
   group: AppNavGroup;
   location: NavLocation;
+  brandColor: string | null;
 }) {
   const groupActive = navGroupIsActive(group, location);
+  const link = linkClass(groupActive, brandColor);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(linkClass(groupActive), "gap-1")}
+          className={cn(link.className, "gap-1")}
+          style={link.style}
           aria-current={groupActive ? "true" : undefined}
         >
           {group.label}
@@ -144,9 +147,11 @@ function DesktopNavGroup({
 function DesktopNav({
   entries,
   location,
+  brandColor,
 }: {
   entries: AppNavEntry[];
   location: NavLocation;
+  brandColor: string | null;
 }) {
   return (
     <nav
@@ -159,12 +164,14 @@ function DesktopNav({
             key={entry.item.id}
             item={entry.item}
             location={location}
+            brandColor={brandColor}
           />
         ) : (
           <DesktopNavGroup
             key={entry.group.id}
             group={entry.group}
             location={location}
+            brandColor={brandColor}
           />
         )
       )}
@@ -175,11 +182,13 @@ function DesktopNav({
 function MobileNav({
   entries,
   location,
+  brandColor,
   open,
   onOpenChange,
 }: {
   entries: AppNavEntry[];
   location: NavLocation;
+  brandColor: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -204,6 +213,7 @@ function MobileNav({
           className="mt-3 space-y-3 rounded-md border border-border bg-card p-3"
           aria-label="Navegación principal"
         >
+          <HelpLink className="w-full justify-start md:hidden" />
           {entries.map((entry) => {
             if (entry.type === "link") {
               return (
@@ -211,6 +221,7 @@ function MobileNav({
                   key={entry.item.id}
                   item={entry.item}
                   location={location}
+                  brandColor={brandColor}
                   onNavigate={() => onOpenChange(false)}
                   className="w-full justify-start"
                 />
@@ -228,6 +239,7 @@ function MobileNav({
                       key={item.id}
                       item={item}
                       location={location}
+                      brandColor={brandColor}
                       onNavigate={() => onOpenChange(false)}
                       className="w-full justify-start pl-4"
                     />
@@ -268,18 +280,28 @@ function AppNavFrame({
   return (
     <header className="mb-6">
       <div className="flex items-center justify-between gap-3 border-b border-border/80 py-3">
-        <TenantBrand tenant={tenant} />
+        <TenantBrand
+          displayName={tenant?.displayName ?? ""}
+          logoUrl={tenant?.logoUrl}
+          brandColor={tenant?.brandColor}
+        />
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <HelpLink className="hidden md:inline-flex" />
           <ThemeSwitcher />
           <SessionIdentity identity={ready ? identity : null} />
         </div>
       </div>
 
       <div className="border-b border-border/80 py-2">
-        <DesktopNav entries={entries} location={location} />
+        <DesktopNav
+          entries={entries}
+          location={location}
+          brandColor={tenant?.brandColor ?? null}
+        />
         <MobileNav
           entries={entries}
           location={location}
+          brandColor={tenant?.brandColor ?? null}
           open={mobileOpen}
           onOpenChange={setMobileOpen}
         />
@@ -306,18 +328,28 @@ function AppNavContent() {
           setRole(context?.membership?.role ?? null);
           setQuotesEnabled(context?.features?.quotes === true);
           setIdentity(headerIdentityFromContext(context));
-          const name =
-            typeof context?.tenant?.name === "string"
-              ? context.tenant.name
+          const tenantRecord = context?.tenant;
+          const displayName =
+            typeof tenantRecord?.display_name === "string"
+              ? tenantRecord.display_name
+              : typeof tenantRecord?.business_name === "string" &&
+                  tenantRecord.business_name.trim()
+                ? tenantRecord.business_name
+                : typeof tenantRecord?.name === "string"
+                  ? tenantRecord.name
+                  : "";
+          const brandColor =
+            typeof tenantRecord?.branding?.brand_color === "string"
+              ? tenantRecord.branding.brand_color
               : null;
-          const slug =
-            typeof context?.tenant?.slug === "string"
-              ? context.tenant.slug
-              : null;
-          if (name || slug) {
+          if (displayName || tenantRecord?.logo_url) {
             setTenant({
-              name: name || slug || "",
-              slug: slug || "",
+              displayName,
+              logoUrl:
+                typeof tenantRecord?.logo_url === "string"
+                  ? tenantRecord.logo_url
+                  : null,
+              brandColor,
             });
           }
         }

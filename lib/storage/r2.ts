@@ -120,6 +120,51 @@ export async function headObject(input: { key: string }): Promise<R2HeadResult> 
   }
 }
 
+export async function putObject(input: {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+}): Promise<void> {
+  const client = createR2Client();
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucketName(),
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+    })
+  );
+}
+
+export async function getObjectBytes(input: {
+  key: string;
+}): Promise<{ body: Uint8Array; contentType: string | null } | null> {
+  const client = createR2Client();
+  try {
+    const result = await client.send(
+      new GetObjectCommand({
+        Bucket: bucketName(),
+        Key: input.key,
+      })
+    );
+    if (!result.Body) return null;
+    const body = await result.Body.transformToByteArray();
+    return { body, contentType: result.ContentType ?? null };
+  } catch (error) {
+    const status =
+      typeof error === "object" &&
+      error &&
+      "$metadata" in error &&
+      typeof (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+        ?.httpStatusCode === "number"
+        ? (error as { $metadata: { httpStatusCode: number } }).$metadata
+            .httpStatusCode
+        : null;
+    if (status === 404) return null;
+    throw error;
+  }
+}
+
 export async function deleteObject(input: { key: string }): Promise<void> {
   const client = createR2Client();
   try {

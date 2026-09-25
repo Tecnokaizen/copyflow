@@ -381,6 +381,18 @@ describe("stripe live hardening · billing subscription display", () => {
     assert.match(route, /\.eq\("livemode", expectedLivemode\)/);
     assert.match(route, /\.neq\("provider", "stripe"\)/);
     assert.match(route, /has_stripe_customer: isStripe/);
+    assert.match(route, /if \(expectedLivemode !== null\)/);
+    const internalQuery = route.indexOf('.neq("provider", "stripe")');
+    const unconfigured = route.indexOf("Billing is not configured");
+    assert.ok(internalQuery > 0 && unconfigured > internalQuery);
+
+    const ui = readSource("components/settings/billing-settings.tsx");
+    assert.match(ui, /isInternalCurrent/);
+    assert.match(ui, /Contratar Gestcopy Basic/);
+    assert.match(ui, /Gestionar suscripción/);
+    assert.match(ui, /aún no está gestionando esta/);
+    assert.match(ui, /Sin periodo de facturación/);
+    assert.match(ui, /canManageBilling|isStripeManaged/);
   });
 });
 
