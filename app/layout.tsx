@@ -9,8 +9,13 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Next.js and Supabase Starter Kit",
-  description: "The fastest way to build apps with Next.js and Supabase",
+  title: {
+    default: "Gestcopy",
+    template: "%s · Gestcopy",
+  },
+  applicationName: "Gestcopy",
+  description:
+    "Gestiona los pedidos, presupuestos, clientes y equipo de tu copistería en un solo lugar con Gestcopy.",
 };
 
 const geistSans = Geist({
@@ -25,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       <body className={`${geistSans.className} antialiased`}>
         <ThemeProvider
           attribute="class"
