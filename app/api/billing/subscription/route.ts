@@ -69,33 +69,36 @@ export async function GET() {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
   }
 
-  let expectedLivemode: boolean;
+  let expectedLivemode: boolean | null = null;
   try {
     expectedLivemode = stripeModeToLivemode(getStripeMode());
   } catch {
-    return json({ error: "Billing is not configured" }, 503);
+    expectedLivemode = null;
   }
 
   const admin = createAdminClient();
+  let row: SubscriptionRow | null = null;
 
-  const { data: stripeRows, error: stripeError } = await admin
-    .from("subscriptions")
-    .select(SUBSCRIPTION_SELECT)
-    .eq("tenant_id", context.tenant.id)
-    .eq("provider", "stripe")
-    .eq("livemode", expectedLivemode)
-    .in("status", [...CURRENT])
-    .order("created_at", { ascending: false })
-    .limit(1);
+  if (expectedLivemode !== null) {
+    const { data: stripeRows, error: stripeError } = await admin
+      .from("subscriptions")
+      .select(SUBSCRIPTION_SELECT)
+      .eq("tenant_id", context.tenant.id)
+      .eq("provider", "stripe")
+      .eq("livemode", expectedLivemode)
+      .in("status", [...CURRENT])
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-  if (stripeError) {
-    console.error("[GET /api/billing/subscription] stripe query failed", {
-      message: stripeError.message,
-    });
-    return json({ error: "Could not load subscription" }, 500);
+    if (stripeError) {
+      console.error("[GET /api/billing/subscription] stripe query failed", {
+        message: stripeError.message,
+      });
+      return json({ error: "Could not load subscription" }, 500);
+    }
+
+    row = (stripeRows?.[0] as SubscriptionRow | undefined) ?? null;
   }
-
-  let row = (stripeRows?.[0] as SubscriptionRow | undefined) ?? null;
 
   if (!row) {
     const { data: internalRows, error: internalError } = await admin
@@ -115,6 +118,10 @@ export async function GET() {
     }
 
     row = (internalRows?.[0] as SubscriptionRow | undefined) ?? null;
+  }
+
+  if (!row && expectedLivemode === null) {
+    return json({ error: "Billing is not configured" }, 503);
   }
 
   const display = row;

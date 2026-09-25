@@ -208,6 +208,15 @@ describe("settings catalog authorization and routes", () => {
     assert.equal(migrationV2.includes("current_setting"), false);
   });
 
+  it("catalog settings hide internal codes from the visible table", () => {
+    const ui = readSource("components/settings/catalog-settings.tsx");
+    assert.equal(ui.includes("Código"), false);
+    assert.match(ui, /item\.name/);
+    assert.match(ui, /item\.active/);
+    assert.match(ui, /item\.sort_order/);
+    assert.match(ui, /editor\.item\.code === "kiosk"/);
+  });
+
   it("Services only reads active service_categories; Settings owns writes", () => {
     assert.match(servicesCategories, /service_categories/);
     assert.match(servicesCategories, /eq\("active", true\)/);

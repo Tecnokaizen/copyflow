@@ -172,13 +172,24 @@ export function BillingSettings() {
 
   const subscription = data.subscription;
   const plan = subscription?.plan ?? null;
+  const isCurrentSubscription = Boolean(
+    subscription &&
+      ["trialing", "active", "past_due"].includes(subscription.status)
+  );
+  const isInternalCurrent =
+    isCurrentSubscription && subscription?.provider !== "stripe";
   const isStripeManaged =
     subscription?.provider === "stripe" &&
     Boolean(subscription.has_stripe_customer);
   const canCheckout =
-    !subscription ||
-    subscription.provider !== "stripe" ||
-    subscription.status === "canceled";
+    !isInternalCurrent &&
+    (!subscription ||
+      subscription.provider !== "stripe" ||
+      subscription.status === "canceled");
+  const periodLabel =
+    !subscription?.current_period_start && !subscription?.current_period_end
+      ? "Sin periodo de facturación"
+      : `${formatBillingDate(subscription?.current_period_start ?? null)} → ${formatBillingDate(subscription?.current_period_end ?? null)}`;
 
   return (
     <div className="grid gap-4">
@@ -204,11 +215,7 @@ export function BillingSettings() {
           </div>
           <div>
             <dt className="text-muted-foreground">Periodo actual</dt>
-            <dd className="font-medium">
-              {formatBillingDate(subscription?.current_period_start ?? null)}
-              {" → "}
-              {formatBillingDate(subscription?.current_period_end ?? null)}
-            </dd>
+            <dd className="font-medium">{periodLabel}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Cancelación</dt>
@@ -260,10 +267,17 @@ export function BillingSettings() {
         {actionError ? (
           <p className="mt-3 text-sm text-destructive">{actionError}</p>
         ) : null}
-        <p className="mt-3 text-sm text-muted-foreground">
-          El estado comercial se actualiza cuando Stripe confirma el evento. La
-          página de retorno no activa la suscripción por sí sola.
-        </p>
+        {isInternalCurrent ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            La facturación online mediante Stripe aún no está gestionando esta
+            suscripción.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            El estado comercial se actualiza cuando Stripe confirma el evento. La
+            página de retorno no activa la suscripción por sí sola.
+          </p>
+        )}
       </SectionCard>
     </div>
   );
