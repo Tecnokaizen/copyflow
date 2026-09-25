@@ -61,11 +61,14 @@ export async function saveOrganizationSettings(
   if (patch.logo !== undefined) {
     update.logo_url = null;
   }
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("tenant_settings")
     .update(update)
-    .eq("tenant_id", tenantId);
+    .eq("tenant_id", tenantId)
+    .select("tenant_id")
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!data) throw new Error("Organization settings row was not updated");
   return {
     branding: nextBranding,
     businessName:

@@ -57,7 +57,7 @@ export default async function SettingsPage() {
         {showBilling ? (
           <SectionCard
             title="Facturación"
-            description="Consulta el plan comercial y gestiona la suscripción Gestcopy Basic a través de Stripe."
+            description="Consulta el plan comercial, el almacenamiento y el estado de la suscripción."
             bodyClassName="p-5 sm:p-6"
           >
             <Button asChild>

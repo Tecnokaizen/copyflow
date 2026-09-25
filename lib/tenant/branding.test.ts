@@ -8,7 +8,9 @@ import {
   buildLogoStorageKey,
   displayBusinessName,
   identityPayloadExposesSecrets,
+  logoDeclaredSizeIsAllowed,
   monogramFromName,
+  parseBusinessName,
   publicOrganizationIdentity,
   validateLogoBytes,
 } from "./branding";
@@ -65,6 +67,21 @@ describe("organization identity", () => {
     assert.equal(validateLogoBytes(png).ok, true);
     assert.equal(validateLogoBytes(new Uint8Array(2 * 1024 * 1024 + 1)).ok, false);
     assert.equal(validateLogoBytes(new Uint8Array([1, 2, 3, 4])).ok, false);
+    assert.equal(logoDeclaredSizeIsAllowed(0), false);
+    assert.equal(logoDeclaredSizeIsAllowed(2 * 1024 * 1024), true);
+    assert.equal(logoDeclaredSizeIsAllowed(2 * 1024 * 1024 + 1), false);
+    const name = parseBusinessName(` ${"a".repeat(120)} `);
+    assert.equal(name.ok, true);
+    if (name.ok) assert.equal(name.value?.length, 120);
+    const empty = parseBusinessName("   ");
+    assert.equal(empty.ok, true);
+    if (empty.ok) assert.equal(empty.value, null);
+    assert.equal(parseBusinessName("a".repeat(121)).ok, false);
+    const save = readSource("lib/tenant/organization.ts");
+    assert.match(save, /\.select\("tenant_id"\)/);
+    assert.match(save, /\.maybeSingle\(\)/);
+    assert.match(save, /Organization settings row was not updated/);
+    assert.doesNotMatch(save, /\.upsert\(|\.insert\(/);
   });
 
   it("does not count branding logos in commercial file usage", () => {

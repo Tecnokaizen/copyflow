@@ -90,6 +90,16 @@ describe("public help center", () => {
     assert.match(nav, /rel="noopener noreferrer"/);
     assert.equal(HELP_DOCS_URL, "https://app.gestcopy.com/ayuda");
     assert.equal(nav.includes("sur4.app.gestcopy.com/ayuda"), false);
+    assert.match(nav, /HelpLink className="hidden md:inline-flex"/);
+    assert.match(nav, /HelpLink className="w-full justify-start md:hidden"/);
+    const articlePage = source("app/ayuda/[...slug]/page.tsx");
+    assert.match(articlePage, /generateStaticParams/);
+    assert.match(articlePage, /notFound\(\)/);
+    const loader = source("lib/help/content.ts");
+    const loadFunction = loader.slice(loader.indexOf("function loadHelpDocument"));
+    const catalogCheck = loadFunction.indexOf("helpArticleBySlug");
+    const fileRead = loadFunction.indexOf("readFileSync");
+    assert.ok(catalogCheck >= 0 && fileRead > catalogCheck);
     assert.match(nav, /HELP_DOCS_URL/);
   });
 

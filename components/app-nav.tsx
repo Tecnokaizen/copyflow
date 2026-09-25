@@ -265,7 +265,7 @@ function AppNavFrame({
           brandColor={tenant?.brandColor}
         />
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <HelpLink />
+          <HelpLink className="hidden md:inline-flex" />
           <ThemeSwitcher />
           <SessionIdentity identity={ready ? identity : null} />
         </div>

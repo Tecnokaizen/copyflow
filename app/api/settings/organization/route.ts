@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseBrandColor } from "@/lib/tenant/branding";
+import { parseBrandColor, parseBusinessName } from "@/lib/tenant/branding";
 import {
   loadOrganizationSettings,
   organizationResponse,
@@ -58,11 +58,11 @@ export async function PATCH(request: NextRequest) {
 
   const patch: { businessName?: string | null; brandColor?: string | null } = {};
   if ("business_name" in record) {
-    if (record.business_name != null && typeof record.business_name !== "string") {
+    const businessName = parseBusinessName(record.business_name);
+    if (!businessName.ok) {
       return NextResponse.json({ error: "Invalid business name" }, { status: 400 });
     }
-    patch.businessName =
-      typeof record.business_name === "string" ? record.business_name : null;
+    patch.businessName = businessName.value;
   }
   if ("brand_color" in record) {
     const color = parseBrandColor(record.brand_color);

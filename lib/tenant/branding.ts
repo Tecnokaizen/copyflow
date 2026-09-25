@@ -1,4 +1,5 @@
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+export const BUSINESS_NAME_MAX_LENGTH = 120;
 export const TENANT_LOGO_PATH = "/api/tenant/logo";
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -9,6 +10,20 @@ export type StoredLogo = {
   storageKey: string;
   contentType: "image/png" | "image/jpeg" | "image/webp";
 };
+
+export function logoDeclaredSizeIsAllowed(size: number) {
+  return Number.isFinite(size) && size > 0 && size <= LOGO_MAX_BYTES;
+}
+
+export function parseBusinessName(
+  value: unknown
+): { ok: true; value: string | null } | { ok: false } {
+  if (value == null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false };
+  const trimmed = value.trim();
+  if (trimmed.length > BUSINESS_NAME_MAX_LENGTH) return { ok: false };
+  return { ok: true, value: trimmed || null };
+}
 
 export function displayBusinessName(input: {
   businessName?: string | null;
