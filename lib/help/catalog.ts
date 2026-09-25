@@ -1,12 +1,12 @@
-export const HELP_DOCS_URL = "https://app.gestcopy.com/docs";
+export const HELP_DOCS_URL = "https://app.gestcopy.com/ayuda";
 
 /** Future contextual help. V1 only links the global center from the header. */
 export const HELP_CONTEXT_HREFS = {
-  dashboard: "/docs/panel-diario",
-  orders: "/docs/pedidos",
-  clients: "/docs/clientes",
-  quotes: "/docs/presupuestos",
-  settings: "/docs/configuracion",
+  dashboard: "/ayuda/panel-diario",
+  orders: "/ayuda/pedidos",
+  clients: "/ayuda/clientes",
+  quotes: "/ayuda/presupuestos",
+  settings: "/ayuda/configuracion",
 } as const;
 
 export type HelpArticleRef = {

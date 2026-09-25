@@ -1,5 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { HELP_SECTIONS } from "@/lib/help/catalog";
+import { HELP_DOCS_URL, HELP_SECTIONS } from "@/lib/help/catalog";
+
+export const metadata: Metadata = {
+  alternates: { canonical: HELP_DOCS_URL },
+  openGraph: { url: HELP_DOCS_URL },
+};
 
 export default function DocsHomePage() {
   return (
@@ -18,7 +24,7 @@ export default function DocsHomePage() {
               {section.articles.slice(0, 4).map((article) => (
                 <li key={article.slug}>
                   <Link
-                    href={`/docs/${article.slug}`}
+                    href={`/ayuda/${article.slug}`}
                     className="text-sm text-primary hover:underline"
                   >
                     {article.title}

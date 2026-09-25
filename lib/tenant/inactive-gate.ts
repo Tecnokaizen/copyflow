@@ -48,7 +48,7 @@ export function isTenantAppExemptPath(pathname: string) {
     pathname === "/kiosk" ||
     pathname.startsWith("/kiosk/") ||
     pathname.startsWith("/invitations/") ||
-    pathname === "/docs" ||
-    pathname.startsWith("/docs/")
+    pathname === "/ayuda" ||
+    pathname.startsWith("/ayuda/")
   );
 }

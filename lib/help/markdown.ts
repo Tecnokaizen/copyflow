@@ -3,6 +3,11 @@ export type HelpBlock =
   | { type: "p"; text: string }
   | { type: "ul"; items: string[] };
 
+/**
+ * Plain-text subset. Headings, paragraphs and lists are stored as strings.
+ * The help UI renders those strings as React text, so raw HTML and script
+ * in content/help stay escaped and are not executed.
+ */
 export function parseHelpMarkdown(source: string): HelpBlock[] {
   const blocks: HelpBlock[] = [];
   const lines = source.replace(/\r\n/g, "\n").split("\n");

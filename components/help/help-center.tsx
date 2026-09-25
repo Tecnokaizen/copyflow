@@ -47,7 +47,7 @@ export function HelpSearch({ articles }: { articles: HelpNavArticle[] }) {
           {results.map((article) => (
             <li key={article.slug}>
               <Link
-                href={`/docs/${article.slug}`}
+                href={`/ayuda/${article.slug}`}
                 className="block rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
                 onClick={() => setQuery("")}
               >
@@ -81,7 +81,7 @@ export function HelpSidebar({
               return (
                 <li key={article.slug}>
                   <Link
-                    href={`/docs/${article.slug}`}
+                    href={`/ayuda/${article.slug}`}
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "block rounded-md px-2 py-1.5 text-sm",
@@ -110,8 +110,8 @@ export function HelpNavigation({
   articles: HelpNavArticle[];
 }) {
   const pathname = usePathname();
-  const currentSlug = pathname.startsWith("/docs/")
-    ? pathname.slice("/docs/".length)
+  const currentSlug = pathname.startsWith("/ayuda/")
+    ? pathname.slice("/ayuda/".length)
     : undefined;
 
   return (

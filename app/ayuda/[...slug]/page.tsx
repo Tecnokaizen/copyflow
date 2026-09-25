@@ -27,7 +27,7 @@ export default async function HelpArticlePage({
   return (
     <div>
       <nav aria-label="Migas" className="text-sm text-muted-foreground">
-        <Link href="/docs" className="hover:text-foreground">
+        <Link href="/ayuda" className="hover:text-foreground">
           Centro de ayuda
         </Link>
         <span aria-hidden="true"> / </span>
@@ -40,14 +40,14 @@ export default async function HelpArticlePage({
       </div>
       <nav className="mt-10 flex flex-col gap-3 border-t border-border/80 pt-4 sm:flex-row sm:justify-between">
         {previous ? (
-          <Link href={`/docs/${previous.slug}`} className="text-sm hover:underline">
+          <Link href={`/ayuda/${previous.slug}`} className="text-sm hover:underline">
             Anterior: {previous.title}
           </Link>
         ) : (
           <span />
         )}
         {next ? (
-          <Link href={`/docs/${next.slug}`} className="text-sm hover:underline sm:text-right">
+          <Link href={`/ayuda/${next.slug}`} className="text-sm hover:underline sm:text-right">
             Siguiente: {next.title}
           </Link>
         ) : null}
