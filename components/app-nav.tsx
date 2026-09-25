@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, CircleHelp, Menu, X } from "lucide-react";
 
 import { SessionIdentity } from "@/components/session-identity";
 import { TenantBrand } from "@/components/tenant-brand";
@@ -28,6 +28,7 @@ import {
   type AppNavItem,
   type NavLocation,
 } from "@/lib/nav/items";
+import { HELP_DOCS_URL } from "@/lib/help/catalog";
 import { cn } from "@/lib/utils";
 
 type TenantLabel = {
@@ -35,6 +36,23 @@ type TenantLabel = {
   logoUrl: string | null;
   brandColor: string | null;
 };
+
+function HelpLink({ className }: { className?: string }) {
+  return (
+    <a
+      href={HELP_DOCS_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "inline-flex min-h-10 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className
+      )}
+    >
+      <CircleHelp className="size-4" aria-hidden="true" />
+      Ayuda
+    </a>
+  );
+}
 
 function linkClass(active: boolean) {
   return cn(
@@ -176,6 +194,7 @@ function MobileNav({
           className="mt-3 space-y-3 rounded-md border border-border bg-card p-3"
           aria-label="Navegación principal"
         >
+          <HelpLink className="w-full justify-start md:hidden" />
           {entries.map((entry) => {
             if (entry.type === "link") {
               return (
@@ -246,6 +265,7 @@ function AppNavFrame({
           brandColor={tenant?.brandColor}
         />
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <HelpLink />
           <ThemeSwitcher />
           <SessionIdentity identity={ready ? identity : null} />
         </div>
