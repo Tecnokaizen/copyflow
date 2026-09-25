@@ -18,7 +18,7 @@ async function KioskContent() {
   await connection();
   const context = trustedKioskRequestContext(
     new Headers(await headers()),
-    process.env
+    process.env,
   );
   let bootstrap = null;
 
@@ -34,27 +34,19 @@ async function KioskContent() {
   }
 
   return (
-    <main className="min-h-svh bg-muted/25 px-4 py-6 sm:py-10">
-      <div className="mx-auto w-full max-w-2xl">
-        <header className="mb-6 text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">
+    <main lang="es" className="min-h-svh bg-muted">
+      <header className="border-b border-border/70 bg-card px-5 py-5 shadow-sm sm:px-8 sm:py-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <p className="min-w-0 break-words text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {bootstrap.tenant.name}
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+          <p className="shrink-0 text-sm font-medium text-muted-foreground">
             Solicita tu pedido
-          </h1>
-          <p className="mx-auto mt-3 max-w-lg text-sm text-muted-foreground sm:text-base">
-            Déjanos los detalles del trabajo y nos pondremos en contacto
-            contigo.
           </p>
-        </header>
-        <KioskOrderForm
-          bootstrap={bootstrap}
-          submissionId={randomUUID()}
-        />
-        <p className="mt-5 text-center text-xs text-muted-foreground">
-          Esta solicitud no crea una cuenta ni da acceso al sistema interno.
-        </p>
+        </div>
+      </header>
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
+        <KioskOrderForm bootstrap={bootstrap} submissionId={randomUUID()} />
       </div>
     </main>
   );
@@ -66,7 +58,7 @@ export default function KioskPage() {
       fallback={
         <main className="grid min-h-svh place-items-center bg-muted/25 px-4 py-10">
           <p className="text-sm font-medium text-muted-foreground">
-            Preparando el Kiosk…
+            Preparando tu solicitud…
           </p>
         </main>
       }
