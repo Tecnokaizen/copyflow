@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 
 import { SessionIdentity } from "@/components/session-identity";
+import { TenantBrand } from "@/components/tenant-brand";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,8 +31,9 @@ import {
 import { cn } from "@/lib/utils";
 
 type TenantLabel = {
-  name: string;
-  slug: string;
+  displayName: string;
+  logoUrl: string | null;
+  brandColor: string | null;
 };
 
 function linkClass(active: boolean) {
@@ -40,36 +42,6 @@ function linkClass(active: boolean) {
     active
       ? "bg-primary/10 text-primary"
       : "text-muted-foreground hover:bg-muted hover:text-foreground"
-  );
-}
-
-function TenantBrand({ tenant }: { tenant: TenantLabel | null }) {
-  if (!tenant) {
-    return (
-      <div className="min-w-0">
-        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Gestcopy
-        </p>
-      </div>
-    );
-  }
-
-  const showSlug =
-    Boolean(tenant.slug) &&
-    tenant.slug.toLowerCase() !== tenant.name.toLowerCase();
-
-  return (
-    <div className="min-w-0">
-      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Gestcopy
-      </p>
-      <p className="truncate text-sm font-semibold tracking-tight text-foreground">
-        {tenant.name}
-      </p>
-      {showSlug ? (
-        <p className="truncate text-xs text-muted-foreground">{tenant.slug}</p>
-      ) : null}
-    </div>
   );
 }
 
@@ -268,7 +240,11 @@ function AppNavFrame({
   return (
     <header className="mb-6">
       <div className="flex items-center justify-between gap-3 border-b border-border/80 py-3">
-        <TenantBrand tenant={tenant} />
+        <TenantBrand
+          displayName={tenant?.displayName ?? ""}
+          logoUrl={tenant?.logoUrl}
+          brandColor={tenant?.brandColor}
+        />
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <ThemeSwitcher />
           <SessionIdentity identity={ready ? identity : null} />
@@ -306,18 +282,28 @@ function AppNavContent() {
           setRole(context?.membership?.role ?? null);
           setQuotesEnabled(context?.features?.quotes === true);
           setIdentity(headerIdentityFromContext(context));
-          const name =
-            typeof context?.tenant?.name === "string"
-              ? context.tenant.name
+          const tenantRecord = context?.tenant;
+          const displayName =
+            typeof tenantRecord?.display_name === "string"
+              ? tenantRecord.display_name
+              : typeof tenantRecord?.business_name === "string" &&
+                  tenantRecord.business_name.trim()
+                ? tenantRecord.business_name
+                : typeof tenantRecord?.name === "string"
+                  ? tenantRecord.name
+                  : "";
+          const brandColor =
+            typeof tenantRecord?.branding?.brand_color === "string"
+              ? tenantRecord.branding.brand_color
               : null;
-          const slug =
-            typeof context?.tenant?.slug === "string"
-              ? context.tenant.slug
-              : null;
-          if (name || slug) {
+          if (displayName || tenantRecord?.logo_url) {
             setTenant({
-              name: name || slug || "",
-              slug: slug || "",
+              displayName,
+              logoUrl:
+                typeof tenantRecord?.logo_url === "string"
+                  ? tenantRecord.logo_url
+                  : null,
+              brandColor,
             });
           }
         }
