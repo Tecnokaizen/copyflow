@@ -392,7 +392,7 @@ describe("stripe live hardening · billing subscription display", () => {
     assert.match(ui, /Gestionar suscripción/);
     assert.match(ui, /aún no está gestionando esta/);
     assert.match(ui, /Sin periodo de facturación/);
-    assert.match(ui, /canManageBilling|isStripeManaged/);
+    assert.match(ui, /can_portal/);
   });
 });
 

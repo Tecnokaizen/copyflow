@@ -4,6 +4,7 @@ import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access"
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { createClient } from "@/lib/supabase/server";
 import {
+  entitlementUnavailableResponse,
   getCurrentOperationalContext,
   subscriptionRequiredResponse,
 } from "@/lib/tenant/operational-context";
@@ -25,6 +26,13 @@ export async function requireQuotesAccess() {
     return {
       ok: false as const,
       response: subscriptionRequiredResponse(),
+    };
+  }
+
+  if (operational.kind === "entitlement_unavailable") {
+    return {
+      ok: false as const,
+      response: entitlementUnavailableResponse(),
     };
   }
 

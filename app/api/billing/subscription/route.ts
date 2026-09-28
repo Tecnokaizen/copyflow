@@ -170,8 +170,10 @@ export async function GET() {
   }
 
   const isStripe = display?.provider === "stripe";
-  const canCheckout =
-    canManageBilling(context.membership.role) && !isStripe;
+  const owner = canManageBilling(context.membership.role);
+  const canCheckout = owner && !isStripe;
+  const canPortal =
+    owner && isStripe && Boolean(display?.provider_customer_id);
 
   return json({
     tenant: {
@@ -206,6 +208,7 @@ export async function GET() {
     },
     actions: {
       can_checkout: canCheckout,
+      can_portal: canPortal,
     },
   });
 }

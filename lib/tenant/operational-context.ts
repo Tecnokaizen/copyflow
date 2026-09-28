@@ -3,19 +3,28 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { loadTenantEntitlement } from "@/lib/billing/entitlement-access";
 import type { Entitlement } from "@/lib/billing/entitlement";
-import { SUBSCRIPTION_REQUIRED_BODY } from "@/lib/billing/entitlement-paths";
+import {
+  ENTITLEMENT_UNAVAILABLE_BODY,
+  SUBSCRIPTION_REQUIRED_BODY,
+} from "@/lib/billing/entitlement-paths";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
+const NO_STORE = {
+  "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+} as const;
+
 export function subscriptionRequiredResponse() {
-  return NextResponse.json(
-    SUBSCRIPTION_REQUIRED_BODY,
-    {
-      status: 402,
-      headers: {
-        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-      },
-    }
-  );
+  return NextResponse.json(SUBSCRIPTION_REQUIRED_BODY, {
+    status: 402,
+    headers: NO_STORE,
+  });
+}
+
+export function entitlementUnavailableResponse() {
+  return NextResponse.json(ENTITLEMENT_UNAVAILABLE_BODY, {
+    status: 503,
+    headers: NO_STORE,
+  });
 }
 
 export type OperationalContext =
@@ -26,6 +35,10 @@ export type OperationalContext =
       kind: "subscription_required";
       context: NonNullable<Awaited<ReturnType<typeof getCurrentContext>>>;
       entitlement: Entitlement;
+    }
+  | {
+      kind: "entitlement_unavailable";
+      context: NonNullable<Awaited<ReturnType<typeof getCurrentContext>>>;
     }
   | {
       kind: "entitled";
@@ -50,17 +63,7 @@ export async function getCurrentOperationalContext(): Promise<OperationalContext
     console.error("[entitlement] could not resolve subscription", {
       message: error instanceof Error ? error.message : "unknown",
     });
-    return {
-      kind: "subscription_required",
-      context,
-      entitlement: {
-        allowed: false,
-        source: "none",
-        status: null,
-        planCode: null,
-        reason: "no_current_subscription",
-      },
-    };
+    return { kind: "entitlement_unavailable", context };
   }
 
   if (!entitlement.allowed) {

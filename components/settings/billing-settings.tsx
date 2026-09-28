@@ -36,6 +36,7 @@ type BillingSubscriptionResponse = {
   };
   actions?: {
     can_checkout?: boolean;
+    can_portal?: boolean;
   };
 };
 
@@ -181,10 +182,8 @@ export function BillingSettings() {
   );
   const isInternalCurrent =
     isCurrentSubscription && subscription?.provider !== "stripe";
-  const isStripeManaged =
-    subscription?.provider === "stripe" &&
-    Boolean(subscription.has_stripe_customer);
   const canCheckout = data.actions?.can_checkout === true;
+  const canPortal = data.actions?.can_portal === true;
   const checkoutLabel = isInternalCurrent
     ? "Activar facturación con Stripe"
     : "Contratar Gestcopy Basic";
@@ -255,7 +254,7 @@ export function BillingSettings() {
               {checkoutLabel}
             </Button>
           ) : null}
-          {isStripeManaged ? (
+          {canPortal ? (
             <Button
               type="button"
               variant="outline"

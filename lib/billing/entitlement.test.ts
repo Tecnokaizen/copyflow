@@ -11,8 +11,11 @@ import {
 } from "./entitlement";
 import {
   commercialEntitlementDecision,
+  ENTITLEMENT_EXEMPT_RULES,
+  ENTITLEMENT_UNAVAILABLE_BODY,
   isEntitlementExemptPath,
   SUBSCRIPTION_REQUIRED_BODY,
+  type EntitlementGateObservation,
 } from "./entitlement-paths";
 
 const root = path.join(import.meta.dirname, "../..");
@@ -198,82 +201,217 @@ describe("billing entitlement resolver", () => {
   });
 });
 
+function observation(
+  overrides: Partial<EntitlementGateObservation> &
+    Pick<EntitlementGateObservation, "pathname">
+): EntitlementGateObservation {
+  return {
+    slug: "acme",
+    authentication: "authenticated",
+    tenant: "active",
+    membership: "member",
+    entitlement: "denied",
+    ...overrides,
+  };
+}
+
 describe("billing entitlement gate", () => {
   it("keeps billing recovery paths available without entitlement", () => {
     for (const pathname of [
       "/settings/billing",
+      "/settings/billing/success",
       "/api/billing/subscription",
       "/api/billing/checkout-session",
       "/api/billing/portal-session",
       "/auth/login",
       "/onboarding",
+      "/onboarding/status",
       "/ayuda",
+      "/ayuda/primeros-pasos",
       "/subscription-required",
+      "/entitlement-unavailable",
       "/api/tenant/logo",
+      "/api/context",
+      "/api/onboarding",
+      "/api/onboarding/status",
+      "/api/webhooks/stripe",
+      "/api/invitations/accept",
+      "/api/invitations/preview",
+      "/api/invitations/signup",
+      "/api/internal/files/cleanup",
+      "/invitations/accept",
     ]) {
       assert.equal(isEntitlementExemptPath(pathname), true, pathname);
       assert.equal(
-        commercialEntitlementDecision({
-          pathname,
-          slug: "acme",
-          userId: "user-1",
-          tenantId: "tenant-1",
-          isMember: true,
-          entitlementAllowed: false,
-        }),
+        commercialEntitlementDecision(
+          observation({ pathname, entitlement: "denied" })
+        ),
         "skip",
+        pathname
+      );
+    }
+    for (const rule of ENTITLEMENT_EXEMPT_RULES) {
+      assert.ok(rule.reason.length > 20, rule.path);
+    }
+  });
+
+  it("does not exempt future internal, invitation, context or webhook paths", () => {
+    for (const pathname of [
+      "/api/internal/operational-example",
+      "/api/invitations/admin-example",
+      "/api/context/export",
+      "/api/webhooks/other",
+      "/api/onboarding/operational-example",
+      "/api/billing/refund",
+      "/settings/billing-export",
+    ]) {
+      assert.equal(isEntitlementExemptPath(pathname), false, pathname);
+      assert.equal(
+        commercialEntitlementDecision(observation({ pathname })),
+        "subscription_required",
         pathname
       );
     }
   });
 
   it("returns subscription_required for an operational member endpoint", () => {
-    const decision = commercialEntitlementDecision({
-      pathname: "/api/orders",
-      slug: "acme",
-      userId: "user-1",
-      tenantId: "tenant-1",
-      isMember: true,
-      entitlementAllowed: false,
-    });
+    const decision = commercialEntitlementDecision(
+      observation({ pathname: "/api/orders" })
+    );
     assert.equal(decision, "subscription_required");
     assert.equal(SUBSCRIPTION_REQUIRED_BODY.code, "subscription_required");
     assert.equal(SUBSCRIPTION_REQUIRED_BODY.error, "Subscription required");
     const response = readSource("lib/tenant/operational-context.ts");
     assert.match(response, /status: 402/);
     assert.match(response, /SUBSCRIPTION_REQUIRED_BODY/);
+    assert.match(response, /status: 503/);
+    assert.match(response, /ENTITLEMENT_UNAVAILABLE_BODY/);
     const proxy = readSource("proxy.ts");
     assert.match(proxy, /commercialEntitlementDecision/);
     assert.match(proxy, /subscriptionRequiredResponse/);
     assert.match(proxy, /\/subscription-required/);
+    assert.match(proxy, /membershipError/);
+    assert.match(proxy, /denyUnverifiedCommercialAccess/);
+    const gateCatch = proxy.slice(
+      proxy.indexOf("[proxy] entitlement gate failed"),
+      proxy.indexOf("return sessionResponse")
+    );
+    assert.match(gateCatch, /return kioskUnavailableResponse\(\)/);
+    assert.match(gateCatch, /return denyUnverifiedCommercialAccess/);
+    assert.doesNotMatch(gateCatch, /return sessionResponse/);
     assert.match(readSource("lib/quotes/guard.ts"), /subscription_required/);
+    assert.match(readSource("lib/quotes/guard.ts"), /entitlement_unavailable/);
   });
 
-  it("does not expose subscription_required to a non-member", () => {
+  it("fails closed on technical errors without calling the subscription canceled", () => {
     assert.equal(
-      commercialEntitlementDecision({
-        pathname: "/api/orders",
-        slug: "acme",
-        userId: "user-2",
-        tenantId: "tenant-1",
-        isMember: false,
-        entitlementAllowed: false,
-      }),
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", entitlement: "error" })
+      ),
+      "entitlement_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", membership: "error" })
+      ),
+      "entitlement_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", tenant: "error" })
+      ),
+      "entitlement_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/orders", authentication: "error" })
+      ),
+      "entitlement_unavailable"
+    );
+    assert.equal(ENTITLEMENT_UNAVAILABLE_BODY.code, "entitlement_unavailable");
+    assert.equal(
+      ENTITLEMENT_UNAVAILABLE_BODY.error,
+      "Commercial access could not be verified"
+    );
+    const unavailable = readSource("app/entitlement-unavailable/page.tsx");
+    assert.match(unavailable, /no significa que la suscripción esté cancelada/);
+    assert.doesNotMatch(unavailable, /subscription_required/);
+  });
+
+  it("keeps anonymous users, missing tenants and non-members out of the billing response", () => {
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", authentication: "anonymous" })
+      ),
+      "skip"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/api/orders",
+          authentication: "anonymous",
+          tenant: "error",
+        })
+      ),
+      "skip"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", tenant: "absent" })
+      ),
+      "skip"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({ pathname: "/api/orders", membership: "absent" })
+      ),
       "skip"
     );
   });
 
   it("blocks kiosk work creation without the member subscription screen", () => {
     assert.equal(
-      commercialEntitlementDecision({
-        pathname: "/api/kiosk/orders",
-        slug: "acme",
-        userId: null,
-        tenantId: "tenant-1",
-        isMember: false,
-        entitlementAllowed: false,
-      }),
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/api/kiosk/orders",
+          authentication: "anonymous",
+          membership: "unchecked",
+          entitlement: "denied",
+        })
+      ),
       "kiosk_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/api/kiosk/orders",
+          authentication: "anonymous",
+          entitlement: "error",
+        })
+      ),
+      "kiosk_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/kiosk",
+          authentication: "anonymous",
+          tenant: "error",
+          entitlement: "unchecked",
+        })
+      ),
+      "kiosk_unavailable"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/api/kiosk/orders",
+          authentication: "anonymous",
+          tenant: "absent",
+          entitlement: "unchecked",
+        })
+      ),
+      "skip"
     );
   });
 
@@ -293,10 +431,24 @@ describe("billing entitlement gate", () => {
     assert.match(page, /canAccessBillingScreen/);
     assert.match(subscriptionRoute, /canAccessBillingScreen/);
     assert.match(checkout, /canManageBilling/);
-    assert.match(readSource("app/subscription-required/page.tsx"), /canAccessBillingScreen/);
+    const blocked = readSource("app/subscription-required/page.tsx");
+    assert.match(blocked, /canManageBilling/);
+    assert.match(blocked, /canAccessBillingScreen/);
+    assert.match(blocked, /Gestionar facturación/);
+    assert.match(blocked, /Ver facturación/);
+    assert.match(blocked, /corresponde al propietario de la organización/);
+    assert.match(blocked, /Contacta con el propietario de la organización/);
     assert.match(
-      readSource("app/subscription-required/page.tsx"),
-      /Contacta con un administrador de la organización/
+      readSource("app/api/billing/subscription/route.ts"),
+      /can_portal: canPortal/
+    );
+    assert.match(
+      readSource("components/settings/billing-settings.tsx"),
+      /data\.actions\?\.can_portal === true/
+    );
+    assert.doesNotMatch(
+      readSource("components/settings/billing-settings.tsx"),
+      /isStripeManaged/
     );
   });
 
@@ -360,5 +512,27 @@ describe("billing entitlement gate", () => {
       readSource("lib/billing/entitlement-access.ts"),
       /\.eq\("active", true\)/
     );
+  });
+
+  it("does not query operational tables from the browser Supabase client", () => {
+    const clientFiles = [
+      "components/login-form.tsx",
+      "components/sign-up-form.tsx",
+      "components/forgot-password-form.tsx",
+      "components/update-password-form.tsx",
+      "components/logout-button.tsx",
+      "components/invitations/accept-invitation-client.tsx",
+    ];
+    for (const file of clientFiles) {
+      const source = readSource(file);
+      assert.match(source, /@\/lib\/supabase\/client/);
+      assert.match(source, /supabase\.auth\./);
+      assert.doesNotMatch(source, /\.from\(/);
+      assert.doesNotMatch(source, /\.rpc\(/);
+      assert.doesNotMatch(source, /\.storage\b/);
+    }
+    const tutorial = readSource("components/tutorial/fetch-data-steps.tsx");
+    const rendered = tutorial.slice(tutorial.indexOf("export function FetchDataSteps"));
+    assert.doesNotMatch(rendered, /createClient|\.from\(|\.rpc\(|\.storage/);
   });
 });

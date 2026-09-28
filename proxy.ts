@@ -13,16 +13,44 @@ import {
   commercialEntitlementDecision,
   isEntitlementExemptPath,
   isKioskEntitlementPath,
+  type EntitlementGateObservation,
 } from "@/lib/billing/entitlement-paths";
 import {
   isTenantAppExemptPath,
   resolveInactiveTenantState,
 } from "@/lib/tenant/inactive-gate";
-import { subscriptionRequiredResponse } from "@/lib/tenant/operational-context";
+import {
+  entitlementUnavailableResponse,
+  subscriptionRequiredResponse,
+} from "@/lib/tenant/operational-context";
 import { type NextRequest, NextResponse } from "next/server";
 
 function isKioskPagePath(pathname: string) {
   return pathname === "/kiosk" || pathname === "/kiosk/";
+}
+
+function copySessionCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => {
+    target.cookies.set(cookie.name, cookie.value);
+  });
+}
+
+function denyUnverifiedCommercialAccess(
+  request: NextRequest,
+  sessionResponse: NextResponse,
+  pathname: string
+) {
+  if (pathname.startsWith("/api/")) {
+    const denied = entitlementUnavailableResponse();
+    copySessionCookies(sessionResponse, denied);
+    return denied;
+  }
+  const url = request.nextUrl.clone();
+  url.pathname = "/entitlement-unavailable";
+  url.search = "";
+  const redirect = NextResponse.redirect(url);
+  copySessionCookies(sessionResponse, redirect);
+  return redirect;
 }
 
 export async function proxy(request: NextRequest) {
@@ -93,6 +121,16 @@ export async function proxy(request: NextRequest) {
     if (slug && !isEntitlementExemptPath(request.nextUrl.pathname)) {
       const pathname = request.nextUrl.pathname;
       const kiosk = isKioskEntitlementPath(pathname);
+      const observation: EntitlementGateObservation = {
+        pathname,
+        slug,
+        authentication: "error",
+        tenant: "error",
+        membership: "unchecked",
+        entitlement: "unchecked",
+      };
+      let tenantId: string | null = null;
+
       try {
         const supabase = createServerClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -106,65 +144,86 @@ export async function proxy(request: NextRequest) {
             },
           }
         );
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const tenantId = await loadActiveTenantIdBySlug(slug);
-        let isMember = false;
-        if (user && tenantId && !kiosk) {
-          const { data: membership } = await supabase
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) {
+          observation.authentication = "error";
+        } else if (!userData.user) {
+          observation.authentication = "anonymous";
+        } else {
+          observation.authentication = "authenticated";
+        }
+
+        if (observation.authentication !== "anonymous" || kiosk) {
+          try {
+            tenantId = await loadActiveTenantIdBySlug(slug);
+            observation.tenant = tenantId ? "active" : "absent";
+          } catch (error) {
+            console.error("[proxy] entitlement tenant lookup failed", {
+              message: error instanceof Error ? error.message : "unknown",
+            });
+            observation.tenant = "error";
+          }
+        }
+
+        if (
+          observation.authentication === "authenticated" &&
+          observation.tenant === "active" &&
+          tenantId &&
+          !kiosk
+        ) {
+          const { data: membership, error: membershipError } = await supabase
             .from("memberships")
             .select("role")
-            .eq("user_id", user.id)
+            .eq("user_id", userData.user!.id)
             .eq("tenant_id", tenantId)
             .eq("active", true)
             .maybeSingle();
-          isMember = Boolean(membership);
+          if (membershipError) {
+            console.error("[proxy] entitlement membership lookup failed", {
+              message: membershipError.message,
+            });
+            observation.membership = "error";
+          } else {
+            observation.membership = membership ? "member" : "absent";
+          }
         }
 
-        let entitlementAllowed: boolean | null = null;
-        const shouldResolve = kiosk
-          ? Boolean(tenantId)
-          : Boolean(user && tenantId && isMember);
-        if (shouldResolve && tenantId) {
+        const shouldResolveEntitlement = kiosk
+          ? observation.tenant === "active"
+          : observation.authentication === "authenticated" &&
+            observation.tenant === "active" &&
+            observation.membership === "member";
+
+        if (shouldResolveEntitlement && tenantId) {
           try {
             const entitlement = await loadTenantEntitlement(tenantId);
-            entitlementAllowed = entitlement.allowed;
+            observation.entitlement = entitlement.allowed ? "allowed" : "denied";
           } catch (error) {
             console.error("[proxy] entitlement lookup failed", {
               message: error instanceof Error ? error.message : "unknown",
             });
-            entitlementAllowed = null;
+            observation.entitlement = "error";
           }
         }
 
-        const decision = commercialEntitlementDecision({
-          pathname,
-          slug,
-          userId: user?.id ?? null,
-          tenantId,
-          isMember,
-          entitlementAllowed,
-        });
-
+        const decision = commercialEntitlementDecision(observation);
         if (decision === "kiosk_unavailable") {
           return kioskUnavailableResponse();
+        }
+        if (decision === "entitlement_unavailable") {
+          return denyUnverifiedCommercialAccess(request, sessionResponse, pathname);
         }
         if (decision === "subscription_required") {
           if (pathname.startsWith("/api/")) {
             const denied = subscriptionRequiredResponse();
-            sessionResponse.cookies.getAll().forEach((cookie) => {
-              denied.cookies.set(cookie.name, cookie.value);
-            });
+            copySessionCookies(sessionResponse, denied);
             return denied;
           }
           const url = request.nextUrl.clone();
           url.pathname = "/subscription-required";
           url.search = "";
           const redirect = NextResponse.redirect(url);
-          sessionResponse.cookies.getAll().forEach((cookie) => {
-            redirect.cookies.set(cookie.name, cookie.value);
-          });
+          copySessionCookies(sessionResponse, redirect);
           return redirect;
         }
       } catch (error) {
@@ -174,6 +233,7 @@ export async function proxy(request: NextRequest) {
         if (kiosk) {
           return kioskUnavailableResponse();
         }
+        return denyUnverifiedCommercialAccess(request, sessionResponse, pathname);
       }
     }
   }
