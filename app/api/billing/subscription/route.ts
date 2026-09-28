@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { canManageBilling } from "@/lib/billing/access";
+import { canAccessBillingScreen, canManageBilling } from "@/lib/billing/access";
+import { internalPeriodIsCurrent } from "@/lib/billing/entitlement";
 import {
   getStripeMode,
   stripeModeToLivemode,
@@ -65,7 +66,7 @@ const SUBSCRIPTION_SELECT = `
 
 export async function GET() {
   const context = await getCurrentContext();
-  if (!context || !canManageBilling(context.membership.role)) {
+  if (!context || !canAccessBillingScreen(context.membership.role)) {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
   }
 
@@ -106,9 +107,8 @@ export async function GET() {
       .select(SUBSCRIPTION_SELECT)
       .eq("tenant_id", context.tenant.id)
       .neq("provider", "stripe")
-      .in("status", [...CURRENT])
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .in("status", ["trialing", "active"])
+      .order("created_at", { ascending: false });
 
     if (internalError) {
       console.error("[GET /api/billing/subscription] internal query failed", {
@@ -117,7 +117,11 @@ export async function GET() {
       return json({ error: "Could not load subscription" }, 500);
     }
 
-    row = (internalRows?.[0] as SubscriptionRow | undefined) ?? null;
+    const now = new Date();
+    row =
+      ((internalRows ?? []) as SubscriptionRow[]).find((candidate) =>
+        internalPeriodIsCurrent(candidate.current_period_end, now)
+      ) ?? null;
   }
 
   if (!row && expectedLivemode === null) {
@@ -166,6 +170,8 @@ export async function GET() {
   }
 
   const isStripe = display?.provider === "stripe";
+  const canCheckout =
+    canManageBilling(context.membership.role) && !isStripe;
 
   return json({
     tenant: {
@@ -197,6 +203,9 @@ export async function GET() {
     storage: {
       limit_bytes: storageLimitBytes,
       used_bytes: storageUsedBytes,
+    },
+    actions: {
+      can_checkout: canCheckout,
     },
   });
 }

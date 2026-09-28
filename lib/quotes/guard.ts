@@ -3,12 +3,15 @@ import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
 import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import {
+  getCurrentOperationalContext,
+  subscriptionRequiredResponse,
+} from "@/lib/tenant/operational-context";
 
 export async function requireQuotesAccess() {
-  const context = await getCurrentContext();
+  const operational = await getCurrentOperationalContext();
 
-  if (!context) {
+  if (operational.kind === "unauthorized") {
     return {
       ok: false as const,
       response: operationalJson(
@@ -18,6 +21,14 @@ export async function requireQuotesAccess() {
     };
   }
 
+  if (operational.kind === "subscription_required") {
+    return {
+      ok: false as const,
+      response: subscriptionRequiredResponse(),
+    };
+  }
+
+  const context = operational.context;
   const supabase = await createClient();
   const enabled = await tenantHasFeature(
     supabase,

@@ -34,6 +34,9 @@ type BillingSubscriptionResponse = {
     limit_bytes: number | null;
     used_bytes: number | null;
   };
+  actions?: {
+    can_checkout?: boolean;
+  };
 };
 
 function formatPrice(monthly: number | string | null, currency: string) {
@@ -181,11 +184,10 @@ export function BillingSettings() {
   const isStripeManaged =
     subscription?.provider === "stripe" &&
     Boolean(subscription.has_stripe_customer);
-  const canCheckout =
-    !isInternalCurrent &&
-    (!subscription ||
-      subscription.provider !== "stripe" ||
-      subscription.status === "canceled");
+  const canCheckout = data.actions?.can_checkout === true;
+  const checkoutLabel = isInternalCurrent
+    ? "Activar facturación con Stripe"
+    : "Contratar Gestcopy Basic";
   const periodLabel =
     !subscription?.current_period_start && !subscription?.current_period_end
       ? "Sin periodo de facturación"
@@ -250,7 +252,7 @@ export function BillingSettings() {
         <div className="flex flex-wrap gap-3">
           {canCheckout ? (
             <Button type="button" disabled={busy} onClick={() => void startCheckout()}>
-              Contratar Gestcopy Basic
+              {checkoutLabel}
             </Button>
           ) : null}
           {isStripeManaged ? (

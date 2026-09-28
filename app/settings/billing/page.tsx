@@ -4,7 +4,7 @@ import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { BillingSettings } from "@/components/settings/billing-settings";
-import { canManageBilling } from "@/lib/billing/access";
+import { canAccessBillingScreen } from "@/lib/billing/access";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
 export const instant = false;
@@ -12,7 +12,7 @@ export const instant = false;
 export default async function BillingSettingsPage() {
   const context = await getCurrentContext();
 
-  if (!context || !canManageBilling(context.membership.role)) {
+  if (!context || !canAccessBillingScreen(context.membership.role)) {
     notFound();
   }
 

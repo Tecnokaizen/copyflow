@@ -6,7 +6,7 @@ import { AppShell } from "@/components/gestcopy/app-shell";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
-import { canManageBilling } from "@/lib/billing/access";
+import { canAccessBillingScreen } from "@/lib/billing/access";
 import {
   canManageOrganizationIdentity,
   canManageSettingsCatalogs,
@@ -26,7 +26,7 @@ export default async function SettingsPage() {
   const canManageQuickOrder = canManageQuickOrderLayout(
     context.membership.role
   );
-  const showBilling = canManageBilling(context.membership.role);
+  const showBilling = canAccessBillingScreen(context.membership.role);
   const showOrganization = canManageOrganizationIdentity(
     context.membership.role
   );

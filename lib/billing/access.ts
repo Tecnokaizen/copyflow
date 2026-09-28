@@ -5,6 +5,11 @@ export function canManageBilling(role: string | null | undefined): boolean {
   return role === "owner";
 }
 
+/** Owner and admin can open the billing screen while operations are blocked. */
+export function canAccessBillingScreen(role: string | null | undefined): boolean {
+  return role === "owner" || role === "admin";
+}
+
 export function assertOwnerRole(
   role: string | null | undefined
 ): role is MembershipRole {
