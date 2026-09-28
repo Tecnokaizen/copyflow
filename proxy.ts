@@ -10,6 +10,7 @@ import {
   loadTenantEntitlement,
 } from "@/lib/billing/entitlement-access";
 import {
+  classifyGateAuthentication,
   commercialEntitlementDecision,
   isEntitlementExemptPath,
   isKioskEntitlementPath,
@@ -145,13 +146,10 @@ export async function proxy(request: NextRequest) {
           }
         );
         const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) {
-          observation.authentication = "error";
-        } else if (!userData.user) {
-          observation.authentication = "anonymous";
-        } else {
-          observation.authentication = "authenticated";
-        }
+        observation.authentication = classifyGateAuthentication({
+          errorName: userError?.name ?? null,
+          hasUser: Boolean(userData.user),
+        });
 
         if (observation.authentication !== "anonymous" || kiosk) {
           try {

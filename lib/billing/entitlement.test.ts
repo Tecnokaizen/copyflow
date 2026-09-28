@@ -10,6 +10,7 @@ import {
   type EntitlementSubscription,
 } from "./entitlement";
 import {
+  classifyGateAuthentication,
   commercialEntitlementDecision,
   ENTITLEMENT_EXEMPT_RULES,
   ENTITLEMENT_UNAVAILABLE_BODY,
@@ -336,6 +337,40 @@ describe("billing entitlement gate", () => {
     const unavailable = readSource("app/entitlement-unavailable/page.tsx");
     assert.match(unavailable, /no significa que la suscripción esté cancelada/);
     assert.doesNotMatch(unavailable, /subscription_required/);
+  });
+
+  it("treats a missing Supabase session as anonymous and still fails closed on other auth errors", () => {
+    assert.equal(
+      classifyGateAuthentication({
+        errorName: "AuthSessionMissingError",
+        hasUser: false,
+      }),
+      "anonymous"
+    );
+    assert.equal(
+      classifyGateAuthentication({ errorName: null, hasUser: false }),
+      "anonymous"
+    );
+    assert.equal(
+      classifyGateAuthentication({
+        errorName: "AuthRetryableFetchError",
+        hasUser: false,
+      }),
+      "error"
+    );
+    assert.equal(
+      commercialEntitlementDecision(
+        observation({
+          pathname: "/api/orders",
+          authentication: classifyGateAuthentication({
+            errorName: "AuthSessionMissingError",
+            hasUser: false,
+          }),
+        })
+      ),
+      "skip"
+    );
+    assert.match(readSource("proxy.ts"), /classifyGateAuthentication/);
   });
 
   it("keeps anonymous users, missing tenants and non-members out of the billing response", () => {

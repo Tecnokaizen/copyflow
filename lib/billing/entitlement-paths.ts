@@ -166,6 +166,24 @@ export type EntitlementGateObservation = {
 };
 
 /**
+ * `getUser()` without a session returns AuthSessionMissingError, not a null user.
+ * That is an anonymous request. Any other auth error means a presented session
+ * could not be verified and the gate must fail closed.
+ */
+export function classifyGateAuthentication(input: {
+  errorName: string | null;
+  hasUser: boolean;
+}): EntitlementGateObservation["authentication"] {
+  if (input.hasUser) {
+    return "authenticated";
+  }
+  if (!input.errorName || input.errorName === "AuthSessionMissingError") {
+    return "anonymous";
+  }
+  return "error";
+}
+
+/**
  * Commercial gate decision.
  * Anonymous users, missing/inactive tenants and confirmed non-members are skipped.
  * A technical error for an authenticated request on a tenant host fails closed.
