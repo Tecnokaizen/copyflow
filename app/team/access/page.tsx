@@ -6,6 +6,9 @@ import { canManageTenantAccess } from "@/lib/auth/membership-roles";
 
 export default function TeamAccessPage() {
   const [actorRole, setActorRole] = useState<string | null>(null);
+  const [actorUserId, setActorUserId] = useState<string | null>(null);
+  const [actorName, setActorName] = useState("Tú");
+  const [organizationName, setOrganizationName] = useState("esta organización");
   const [allowed, setAllowed] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -17,7 +20,20 @@ export default function TeamAccessPage() {
       }
       const context = await response.json();
       const role = context?.membership?.role ?? null;
+      const name =
+        (typeof context?.user?.full_name === "string" &&
+          context.user.full_name.trim()) ||
+        (typeof context?.user?.email === "string" && context.user.email.trim()) ||
+        "Tú";
+      const organization =
+        (typeof context?.tenant?.display_name === "string" &&
+          context.tenant.display_name.trim()) ||
+        (typeof context?.tenant?.name === "string" && context.tenant.name.trim()) ||
+        "esta organización";
       setActorRole(role);
+      setActorUserId(typeof context?.user?.id === "string" ? context.user.id : null);
+      setActorName(name);
+      setOrganizationName(organization);
       setAllowed(canManageTenantAccess(role));
     }
     void load();
@@ -32,7 +48,7 @@ export default function TeamAccessPage() {
     );
   }
 
-  if (!allowed || !actorRole) {
+  if (!allowed || !actorRole || !actorUserId) {
     return (
       <div className="gc-card px-5 py-10 text-center">
         <h1 className="text-xl font-semibold">Acceso restringido</h1>
@@ -44,5 +60,13 @@ export default function TeamAccessPage() {
     );
   }
 
-  return <AccessPermissionsPanel actorRole={actorRole} />;
+  return (
+    <AccessPermissionsPanel
+      actorRole={actorRole}
+      actorUserId={actorUserId}
+      actorName={actorName}
+      organizationName={organizationName}
+      onActorRoleChange={setActorRole}
+    />
+  );
 }
