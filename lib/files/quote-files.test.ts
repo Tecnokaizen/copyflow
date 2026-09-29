@@ -131,6 +131,7 @@ describe("quote files client and section", () => {
     assert.match(section, /OrderFilesSection/);
     assert.match(section, /uploadQuoteFile/);
     assert.match(section, /requestQuoteFileDownload/);
+    assert.match(section, /requestQuoteFilePreview/);
     assert.match(section, /deleteQuoteFile/);
     const page = readFileSync(
       join(import.meta.dirname, "../../app/quotes/[id]/page.tsx"),
