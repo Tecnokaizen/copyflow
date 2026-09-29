@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Two transfers that promote the same user in different tenants.
-# The user lock shared with create_organization must leave exactly one owner membership.
+# Two owners transfer the same active member in two different tenants.
+# Both commits are valid: owner is tenant-scoped. Neither waits on a user lock.
 set -euo pipefail
 
 DB_URL="${1:?usage: phase38_ownership_transfer_concurrency.sh <database-url>}"
@@ -10,9 +10,10 @@ OWNER_B='a3810000-0000-4000-8000-000000000002'
 TARGET='a3810000-0000-4000-8000-000000000003'
 TENANT_A='a3810000-0000-4000-8000-000000000011'
 TENANT_B='a3810000-0000-4000-8000-000000000012'
+LOCK_A="gestcopy.membership.tenant:${TENANT_A}"
 
 cleanup() {
-  rm -f "$READY"
+  rm -f "$READY" /tmp/phase38-session1.out /tmp/phase38-session2.out
   psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
     delete from public.activity_log where tenant_id in ('$TENANT_A', '$TENANT_B');
     delete from public.memberships where tenant_id in ('$TENANT_A', '$TENANT_B');
@@ -58,9 +59,11 @@ insert into public.memberships (tenant_id, user_id, role, active) values
   ('$TENANT_B', '$TARGET', 'admin', true);
 SQL
 
-psql "$DB_URL" -v ON_ERROR_STOP=1 -q >/tmp/phase38-session1.out <<SQL &
+psql "$DB_URL" -v ON_ERROR_STOP=1 -q >/tmp/phase38-session1.out 2>&1 <<SQL &
 begin;
-select pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('${TARGET}', 0));
+select pg_catalog.pg_advisory_xact_lock(
+  pg_catalog.hashtextextended('${LOCK_A}', 0)
+);
 \\! touch ${READY}
 select pg_sleep(5);
 select set_config('request.jwt.claim.sub', '${OWNER_A}', true);
@@ -79,13 +82,15 @@ for _ in $(seq 1 50); do
 done
 
 if [[ ! -f "$READY" ]]; then
-  echo "phase38 concurrency: session 1 did not take the user lock" >&2
+  echo "phase38 concurrency: session 1 did not take the tenant lock" >&2
   wait "$session1" || true
+  cat /tmp/phase38-session1.out >&2
   exit 1
 fi
 
+started=$(date +%s)
 set +e
-session2_out="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -q <<SQL 2>&1
+psql "$DB_URL" -v ON_ERROR_STOP=1 -q >/tmp/phase38-session2.out 2>&1 <<SQL
 begin;
 select set_config('request.jwt.claim.sub', '${OWNER_B}', true);
 set local role authenticated;
@@ -93,21 +98,36 @@ select public.transfer_tenant_ownership('${TENANT_B}'::uuid, '${TARGET}'::uuid);
 reset role;
 commit;
 SQL
-)"
 session2_code=$?
 set -e
+elapsed=$(( $(date +%s) - started ))
 
-wait "$session1"
-
-if [[ "$session2_code" -eq 0 ]]; then
-  echo "phase38 concurrency: second transfer succeeded" >&2
-  echo "$session2_out" >&2
+if [[ "$session2_code" -ne 0 ]]; then
+  echo "phase38 concurrency: tenant B transfer failed" >&2
+  cat /tmp/phase38-session2.out >&2
+  wait "$session1" || true
   exit 1
 fi
 
-if ! grep -q "organization limit reached" <<<"$session2_out"; then
-  echo "phase38 concurrency: expected organization limit, got:" >&2
-  echo "$session2_out" >&2
+if [[ "$elapsed" -ge 4 ]]; then
+  echo "phase38 concurrency: tenant B waited on a global lock (${elapsed}s)" >&2
+  exit 1
+fi
+
+set +e
+wait "$session1"
+session1_code=$?
+set -e
+
+if grep -E -q '40P01|deadlock detected' /tmp/phase38-session1.out /tmp/phase38-session2.out; then
+  echo "phase38 concurrency: deadlock" >&2
+  cat /tmp/phase38-session1.out /tmp/phase38-session2.out >&2
+  exit 1
+fi
+
+if [[ "$session1_code" -ne 0 ]]; then
+  echo "phase38 concurrency: tenant A transfer failed" >&2
+  cat /tmp/phase38-session1.out >&2
   exit 1
 fi
 
@@ -117,7 +137,7 @@ owners="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
   where user_id = '$TARGET' and role = 'owner' and active = true;
 ")"
 
-if [[ "$owners" != "1" ]]; then
+if [[ "$owners" != "2" ]]; then
   echo "phase38 concurrency: target owner memberships=$owners" >&2
   exit 1
 fi
@@ -130,9 +150,17 @@ role_b="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
   select role from public.memberships
   where tenant_id = '$TENANT_B' and user_id = '$OWNER_B';
 ")"
+target_a="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
+  select role from public.memberships
+  where tenant_id = '$TENANT_A' and user_id = '$TARGET';
+")"
+target_b="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
+  select role from public.memberships
+  where tenant_id = '$TENANT_B' and user_id = '$TARGET';
+")"
 
-if [[ "$role_a" != "admin" || "$role_b" != "owner" ]]; then
-  echo "phase38 concurrency: actor roles A=$role_a B=$role_b" >&2
+if [[ "$role_a" != "admin" || "$role_b" != "admin" || "$target_a" != "owner" || "$target_b" != "owner" ]]; then
+  echo "phase38 concurrency: roles A=$role_a B=$role_b targetA=$target_a targetB=$target_b" >&2
   exit 1
 fi
 

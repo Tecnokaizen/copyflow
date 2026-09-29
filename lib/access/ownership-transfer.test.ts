@@ -140,8 +140,15 @@ describe("ownership transfer offer", () => {
     );
     assert.doesNotMatch(migration, /gestcopy\.ownership\.tenant:/);
     assert.doesNotMatch(migration, /memberships_one_active_owner_per_user_idx/);
-    assert.match(migration, /hashtextextended\(p_target_user_id::text, 0\)/);
+    assert.doesNotMatch(migration, /hashtextextended\(p_target_user_id::text, 0\)/);
+    assert.doesNotMatch(migration, /54000/);
     assert.match(migration, /previous_owner_role', 'owner'/);
+    const first = readSource(
+      "supabase/migrations/20260929104358_ownership_transfer_v1.sql"
+    );
+    assert.match(first, /gestcopy\.membership\.tenant:/);
+    assert.doesNotMatch(first, /hashtextextended\(p_target_user_id::text, 0\)/);
+    assert.doesNotMatch(first, /54000/);
     assert.doesNotMatch(
       readSource(
         "supabase/migrations/20260914190000_team_roles_operative_coherence.sql"

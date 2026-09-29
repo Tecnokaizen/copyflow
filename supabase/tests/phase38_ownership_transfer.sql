@@ -123,8 +123,10 @@ begin
 
   select pg_get_functiondef('public.transfer_tenant_ownership(uuid,uuid)'::regprocedure)
   into v_def;
-  if v_def not like '%hashtextextended(p_target_user_id::text, 0)%' then
-    raise exception 'phase38: transfer lost the target-user advisory lock';
+  if position('hashtextextended(p_target_user_id::text, 0)' in v_def) > 0
+     or position('54000' in v_def) > 0
+     or position('organization limit reached' in v_def) > 0 then
+    raise exception 'phase38: transfer still enforces a global owner limit';
   end if;
 
   if has_function_privilege('anon', 'public.transfer_tenant_ownership(uuid,uuid)', 'EXECUTE') then
@@ -213,16 +215,6 @@ begin
   end;
   if v_sqlstate is distinct from '42501' then
     raise exception 'phase38: existing same-tenant owner expected 42501 got %', v_sqlstate;
-  end if;
-
-  v_sqlstate := null;
-  begin
-    perform public.transfer_tenant_ownership(v_tenant, v_other_owner);
-  exception when others then
-    v_sqlstate := sqlstate;
-  end;
-  if v_sqlstate is distinct from '54000' then
-    raise exception 'phase38: owner elsewhere expected 54000 got %', v_sqlstate;
   end if;
 
   v_sqlstate := null;
@@ -410,6 +402,40 @@ begin
   execute 'reset role';
   if v_sqlstate is distinct from '42501' then
     raise exception 'phase38: replay expected 42501 got %', v_sqlstate;
+  end if;
+
+  -- Active member who is already owner of another tenant can become owner here.
+  perform set_config('request.jwt.claim.sub', v_admin::text, true);
+  execute 'set local role authenticated';
+  v_result := public.transfer_tenant_ownership(v_tenant, v_other_owner);
+  execute 'reset role';
+
+  if (v_result -> 'new_owner' ->> 'user_id')::uuid is distinct from v_other_owner
+     or (v_result -> 'new_owner' ->> 'role') is distinct from 'owner' then
+    raise exception 'phase38: owner elsewhere result %', v_result;
+  end if;
+
+  select m.role, m.active into v_role, v_active
+  from public.memberships m
+  where m.tenant_id = v_tenant and m.user_id = v_other_owner;
+  if v_role is distinct from 'owner' or v_active is distinct from true then
+    raise exception 'phase38: owner elsewhere local role=% active=%', v_role, v_active;
+  end if;
+
+  select m.role, m.active into v_role, v_active
+  from public.memberships m
+  where m.tenant_id = v_tenant_b and m.user_id = v_other_owner;
+  if v_role is distinct from 'owner' or v_active is distinct from true then
+    raise exception 'phase38: other tenant ownership changed role=% active=%', v_role, v_active;
+  end if;
+
+  select count(*) into v_count
+  from public.memberships m
+  where m.user_id = v_other_owner
+    and m.role = 'owner'
+    and m.active = true;
+  if v_count <> 2 then
+    raise exception 'phase38: expected owner of both tenants, count=%', v_count;
   end if;
 
   select coalesce(jsonb_agg(jsonb_build_object(

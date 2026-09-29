@@ -74,19 +74,6 @@ describe("ownership transfer route behavior", () => {
     );
   });
 
-  it("maps the organization owner limit to 409", async () => {
-    const result = await runOwnershipTransfer({
-      context: owner,
-      rawBody: JSON.stringify({ target_user_id: target }),
-      transfer: async () => ({
-        data: null,
-        error: { code: "54000", message: "organization limit reached" },
-      }),
-    });
-    assert.equal(result.status, 409);
-    assert.equal(result.body.error, "Conflict");
-  });
-
   it("maps a denied RPC to 403 without SQL text", async () => {
     const result = await runOwnershipTransfer({
       context: owner,

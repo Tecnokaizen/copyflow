@@ -3,9 +3,8 @@
 -- y set_tenant_membership_active usan exactamente esta clave:
 --   hashtextextended('gestcopy.membership.tenant:' || tenant_id::text, 0)
 -- Así no se invierte el orden de locks de fila entre esas RPC.
--- El índice parcial de un owner activo por usuario no se crea aquí:
--- el preflight encontró un usuario que ya es owner activo en varias
--- organizaciones y no se limpian datos reales.
+-- Owner es tenant-scoped. No hay lock global por usuario ni índice
+-- de un owner activo por usuario.
 
 CREATE OR REPLACE FUNCTION public.transfer_tenant_ownership(
   p_tenant_id uuid,
@@ -47,11 +46,6 @@ begin
     )
   );
 
-  -- Misma clave que create_organization(v_user_id).
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended(p_target_user_id::text, 0)
-  );
-
   select m.*
   into v_actor
   from public.memberships m
@@ -78,18 +72,6 @@ begin
      or v_target.role = 'owner' then
     raise exception 'tenant access denied'
       using errcode = '42501';
-  end if;
-
-  if exists (
-    select 1
-    from public.memberships m
-    where m.user_id = p_target_user_id
-      and m.role = 'owner'
-      and m.active = true
-      and m.tenant_id is distinct from p_tenant_id
-  ) then
-    raise exception 'organization limit reached'
-      using errcode = '54000';
   end if;
 
   update public.memberships

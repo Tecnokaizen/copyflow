@@ -1,6 +1,7 @@
 -- Transferencia atómica de la propiedad de un tenant.
--- No modifica update_tenant_membership_role ni permite invitar como owner.
--- No impone un índice de "exactamente un owner": solo intercambia actor y target.
+-- Owner es tenant-scoped: el mismo usuario puede ser owner activo de varios tenants.
+-- No modifica update_tenant_membership_role ni create_organization.
+-- No impone un índice global de un owner activo por usuario.
 
 CREATE OR REPLACE FUNCTION public.transfer_tenant_ownership(
   p_tenant_id uuid,
@@ -33,21 +34,13 @@ begin
       using errcode = '42501';
   end if;
 
-  -- Dos transferencias del mismo tenant no pueden intercalarse.
-  -- La clave lleva prefijo para no chocar con el lock de usuario de
-  -- create_organization.
+  -- Misma clave que update_tenant_membership_role y
+  -- set_tenant_membership_active. Se toma antes de cualquier FOR UPDATE.
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended(
-      'gestcopy.ownership.tenant:' || p_tenant_id::text,
+      'gestcopy.membership.tenant:' || p_tenant_id::text,
       0
     )
-  );
-
-  -- Misma clave que create_organization(v_user_id): un usuario no puede
-  -- quedar como owner activo de dos organizaciones aunque dos transferencias
-  -- (o una transferencia y un alta) corran a la vez.
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended(p_target_user_id::text, 0)
   );
 
   select m.*
@@ -78,18 +71,6 @@ begin
      or v_target.role = 'owner' then
     raise exception 'tenant access denied'
       using errcode = '42501';
-  end if;
-
-  if exists (
-    select 1
-    from public.memberships m
-    where m.user_id = p_target_user_id
-      and m.role = 'owner'
-      and m.active = true
-      and m.tenant_id is distinct from p_tenant_id
-  ) then
-    raise exception 'organization limit reached'
-      using errcode = '54000';
   end if;
 
   update public.memberships
@@ -150,7 +131,8 @@ begin
     jsonb_build_object(
       'previous_owner_user_id', v_actor_id,
       'new_owner_user_id', p_target_user_id,
-      'previous_owner_role', 'admin',
+      'previous_owner_role', 'owner',
+      'previous_owner_role_after', 'admin',
       'target_previous_role', v_target.role
     )
   );
