@@ -7,13 +7,17 @@ import { publicOrganizationIdentity } from "@/lib/tenant/branding";
 import { loadOrganizationSettings } from "@/lib/tenant/organization";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
+const NO_STORE = {
+  "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+} as const;
+
 export async function GET() {
   const context = await getCurrentContext();
 
   if (!context) {
     return NextResponse.json(
       { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
+      { status: 403, headers: NO_STORE }
     );
   }
 
@@ -40,20 +44,23 @@ export async function GET() {
     branding: settings?.branding,
   });
 
-  return NextResponse.json({
-    ...context,
-    tenant: {
-      id: context.tenant.id,
-      name: context.tenant.name,
-      slug: context.tenant.slug,
-      business_name: identity.business_name,
-      display_name: identity.display_name,
-      logo_url: identity.logo_url,
-      branding: identity.branding,
+  return NextResponse.json(
+    {
+      ...context,
+      tenant: {
+        id: context.tenant.id,
+        name: context.tenant.name,
+        slug: context.tenant.slug,
+        business_name: identity.business_name,
+        display_name: identity.display_name,
+        logo_url: identity.logo_url,
+        branding: identity.branding,
+      },
+      team_member: teamMember,
+      features: {
+        quotes,
+      },
     },
-    team_member: teamMember,
-    features: {
-      quotes,
-    },
-  });
+    { headers: NO_STORE }
+  );
 }

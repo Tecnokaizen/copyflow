@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,7 +98,6 @@ export function AccessPermissionsPanel({
   const [changeRole, setChangeRole] = useState<InvitableRole | "">("");
   const [transferPhrase, setTransferPhrase] = useState("");
   const [linkTeamMemberId, setLinkTeamMemberId] = useState("");
-  const router = useRouter();
 
   const assignableRoles = useMemo(
     () => invitableRolesForActor(actorRole),
@@ -252,13 +250,7 @@ export function AccessPermissionsPanel({
       if (typeof nextRole === "string") {
         onActorRoleChange(nextRole);
       }
-      setFlash(
-        `${member.full_name || member.email || "El usuario"} es ahora el propietario. Tu rol de acceso es Administrador.`
-      );
-      setTransferPhrase("");
-      setModal({ kind: "closed" });
-      router.refresh();
-      await load();
+      window.location.reload();
     } finally {
       setBusy(false);
     }

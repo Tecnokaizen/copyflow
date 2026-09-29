@@ -13,7 +13,7 @@ export default function TeamAccessPage() {
 
   useEffect(() => {
     async function load() {
-      const response = await fetch("/api/context");
+      const response = await fetch("/api/context", { cache: "no-store" });
       if (!response.ok) {
         setAllowed(false);
         return;

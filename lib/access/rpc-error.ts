@@ -7,6 +7,7 @@ type AccessErrorKind =
   | "email_mismatch"
   | "not_found"
   | "conflict"
+  | "retry"
   | "gone"
   | "invalid"
   | "last_owner"
@@ -83,6 +84,10 @@ export function classifyAccessRpcError(
     return "rate_limited_max";
   }
 
+  if (code === "40P01" || code === "40001") {
+    return "retry";
+  }
+
   if (code === "23505" || code === "54000") {
     return "conflict";
   }
@@ -118,6 +123,7 @@ export function statusForAccessRpcError(
     case "not_found":
       return 404;
     case "conflict":
+    case "retry":
       return 409;
     case "gone":
       return 410;
@@ -149,6 +155,8 @@ export function publicMessageForAccessRpcError(
       return "Not found";
     case "conflict":
       return "Conflict";
+    case "retry":
+      return "Conflict. Please retry.";
     case "gone":
       return "Invitation no longer available";
     case "invalid":

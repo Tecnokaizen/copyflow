@@ -24,6 +24,7 @@ on:
       - "supabase/tests/phase37_security_definer_trigger_hardening.sql"
       - "supabase/tests/phase38_ownership_transfer.sql"
       - "supabase/tests/phase38_ownership_transfer_concurrency.sh"
+      - "supabase/tests/phase38_membership_deadlock.sh"
       - "app/api/team/access/**"
       - "components/access/**"
       - "lib/access/**"
@@ -147,6 +148,7 @@ jobs:
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 \
             -f supabase/tests/phase38_ownership_transfer.sql
           bash supabase/tests/phase38_ownership_transfer_concurrency.sh "${LOCAL_DB_URL}"
+          bash supabase/tests/phase38_membership_deadlock.sh "${LOCAL_DB_URL}"
 
       - name: Apply and verify exact rollback
         run: |

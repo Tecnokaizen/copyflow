@@ -92,7 +92,8 @@ describe("ownership transfer offer", () => {
     assert.match(panel, /Transferir propiedad/);
     assert.match(panel, /OWNERSHIP_TRANSFER_CONFIRMATION/);
     assert.match(panel, /onActorRoleChange/);
-    assert.match(panel, /router\.refresh\(\)/);
+    assert.match(panel, /window\.location\.reload\(\)/);
+    assert.doesNotMatch(panel, /router\.refresh\(\)/);
   });
 
   it("requires the confirmation phrase and names the billing consequence", () => {
@@ -122,18 +123,25 @@ describe("ownership transfer offer", () => {
 
   it("calls the dedicated RPC and still rejects owner on the role route", () => {
     const route = readSource("app/api/team/access/transfer-ownership/route.ts");
+    const handler = readSource("lib/access/ownership-transfer-handler.ts");
     assert.match(route, /transfer_tenant_ownership/);
-    assert.match(route, /membership\.role !== "owner"/);
+    assert.match(handler, /role !== "owner"/);
     assert.doesNotMatch(route, /\.from\("memberships"\)/);
     assert.doesNotMatch(route, /update_tenant_membership_role/);
     const roleRoute = readSource("app/api/team/access/[userId]/route.ts");
     assert.match(roleRoute, /update_tenant_membership_role/);
     assert.doesNotMatch(roleRoute, /transfer_tenant_ownership/);
     const migration = readSource(
-      "supabase/migrations/20260929104358_ownership_transfer_v1.sql"
+      "supabase/migrations/20260929121704_membership_mutation_lock_v1.sql"
     );
-    assert.match(migration, /gestcopy\.ownership\.tenant:/);
+    assert.equal(
+      migration.match(/gestcopy\.membership\.tenant:/g)?.length,
+      4
+    );
+    assert.doesNotMatch(migration, /gestcopy\.ownership\.tenant:/);
+    assert.doesNotMatch(migration, /memberships_one_active_owner_per_user_idx/);
     assert.match(migration, /hashtextextended\(p_target_user_id::text, 0\)/);
+    assert.match(migration, /previous_owner_role', 'owner'/);
     assert.doesNotMatch(
       readSource(
         "supabase/migrations/20260914190000_team_roles_operative_coherence.sql"

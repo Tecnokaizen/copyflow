@@ -35,6 +35,43 @@ describe("membership.role_changed activity", () => {
   });
 });
 
+describe("membership.ownership_transferred activity", () => {
+  it("describes the atomic transfer instead of a generic update", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "membership.ownership_transferred",
+        changed_field: null,
+        previous_values: {
+          user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          role: "owner",
+        },
+        new_values: {
+          user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          role: "owner",
+        },
+        metadata: {
+          previous_owner_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          new_owner_user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          previous_owner_role: "owner",
+          previous_owner_role_after: "admin",
+          target_previous_role: "staff",
+        },
+      })
+    );
+    assert.equal(formatted.headline, "Transfirió la propiedad de la organización");
+    assert.equal(formatted.headline.includes("Realizó una actualización"), false);
+    assert.equal(
+      formatted.summary,
+      "El propietario pasó a Administrador. El nuevo propietario era Personal."
+    );
+    assert.equal(formatted.href, "/team/access");
+    assert.deepEqual(
+      formatted.changes.map((change) => change.label),
+      ["Propietario anterior", "Nuevo propietario"]
+    );
+  });
+});
+
 describe("quote activity", () => {
   it("formats creation, status and conversion with the quote reference", () => {
     const quoteId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";

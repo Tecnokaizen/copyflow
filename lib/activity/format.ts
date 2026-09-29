@@ -1,3 +1,4 @@
+import { membershipRoleLabel } from "@/lib/auth/membership-roles";
 import { formatLeadTimeMinutes } from "@/lib/services/types";
 import {
   ACTION_OPTIONS,
@@ -485,6 +486,17 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
       );
     }
 
+    case "membership.ownership_transferred": {
+      const metadata = asRecord(event.metadata);
+      const previousTargetRole = membershipRoleLabel(
+        asString(metadata.target_previous_role)
+      );
+      return [
+        ...singleChange("Propietario anterior", "Propietario", "Administrador"),
+        ...singleChange("Nuevo propietario", previousTargetRole, "Propietario"),
+      ];
+    }
+
     case "client.created":
     case "client.updated":
     case "service.created":
@@ -595,6 +607,8 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Actualizó a ${entity}`;
     case "membership.role_changed":
       return `Cambió el rol de acceso de ${entity}`;
+    case "membership.ownership_transferred":
+      return "Transfirió la propiedad de la organización";
     default:
       return `Realizó una actualización en ${entity}`;
   }
@@ -603,6 +617,13 @@ function headlineFor(event: ActivityEvent, entity: string) {
 function cardSummary(event: ActivityEvent, changes: FormattedChange[]) {
   if (event.action === "order.archived") {
     return "Pedido archivado";
+  }
+
+  if (event.action === "membership.ownership_transferred") {
+    const previousTargetRole = membershipRoleLabel(
+      asString(asRecord(event.metadata).target_previous_role)
+    );
+    return `El propietario pasó a Administrador. El nuevo propietario era ${previousTargetRole}.`;
   }
 
   if (
@@ -649,6 +670,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "team_member.created",
     "team_member.updated",
     "membership.role_changed",
+    "membership.ownership_transferred",
     "quote.created",
     "quote.updated",
     "quote.status_changed",

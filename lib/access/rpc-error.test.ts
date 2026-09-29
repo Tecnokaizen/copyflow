@@ -41,6 +41,18 @@ describe("last owner protection errors", () => {
     );
   });
 
+  it("maps deadlock and serialization failure to a retry conflict", () => {
+    for (const code of ["40P01", "40001"]) {
+      assert.equal(classifyAccessRpcError(code), "retry");
+      assert.equal(statusForAccessRpcError(code, "deadlock detected"), 409);
+      assert.equal(
+        publicMessageForAccessRpcError(code, "deadlock detected DETAIL: Process 1"),
+        "Conflict. Please retry."
+      );
+    }
+    assert.equal(publicMessageForAccessRpcError("54000"), "Conflict");
+  });
+
   it("maps the SQL message even without the custom code", () => {
     assert.equal(
       classifyAccessRpcError("42501", "last owner required"),

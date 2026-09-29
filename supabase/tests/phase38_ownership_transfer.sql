@@ -20,6 +20,8 @@ declare
   v_active boolean;
   v_count integer;
   v_def text;
+  v_signature text;
+  v_meta jsonb;
   v_before jsonb;
   v_after jsonb;
   v_result jsonb;
@@ -103,13 +105,26 @@ begin
     raise exception 'phase38: owner became invitable';
   end if;
 
+  foreach v_signature in array array[
+    'public.transfer_tenant_ownership(uuid,uuid)',
+    'public.update_tenant_membership_role(uuid,uuid,text)',
+    'public.set_tenant_membership_active(uuid,uuid,boolean)'
+  ]
+  loop
+    select pg_get_functiondef(v_signature::regprocedure) into v_def;
+    if v_def is null
+       or position('gestcopy.membership.tenant:' in v_def) = 0
+       or position('gestcopy.ownership.tenant:' in v_def) > 0
+       or position('gestcopy.membership.tenant:' in v_def)
+          > position('for update' in v_def) then
+      raise exception 'phase38: % missing shared membership lock before row locks', v_signature;
+    end if;
+  end loop;
+
   select pg_get_functiondef('public.transfer_tenant_ownership(uuid,uuid)'::regprocedure)
   into v_def;
-  if v_def is null
-     or v_def not like '%gestcopy.ownership.tenant:%'
-     or v_def not like '%hashtextextended(p_target_user_id::text, 0)%'
-     or v_def not like '%pg_advisory_xact_lock%' then
-    raise exception 'phase38: expected tenant and target-user advisory locks';
+  if v_def not like '%hashtextextended(p_target_user_id::text, 0)%' then
+    raise exception 'phase38: transfer lost the target-user advisory lock';
   end if;
 
   if has_function_privilege('anon', 'public.transfer_tenant_ownership(uuid,uuid)', 'EXECUTE') then
@@ -286,6 +301,49 @@ begin
     raise exception 'phase38: partial failure changed target role=% active=%', v_role, v_active;
   end if;
 
+  -- Failure between promotion and demotion rolls back both updates.
+  -- The trigger exists only inside this subtransaction.
+  begin
+    create function public.phase38_fail_owner_demotion()
+    returns trigger
+    language plpgsql
+    as $fail$
+    begin
+      if old.role = 'owner' and new.role = 'admin' then
+        raise exception 'phase38 injected demotion failure';
+      end if;
+      return new;
+    end;
+    $fail$;
+
+    create trigger phase38_fail_owner_demotion
+    before update on public.memberships
+    for each row
+    execute function public.phase38_fail_owner_demotion();
+
+    perform set_config('request.jwt.claim.sub', v_owner::text, true);
+    execute 'set local role authenticated';
+    perform public.transfer_tenant_ownership(v_tenant, v_staff);
+  exception when others then
+    execute 'reset role';
+    if sqlerrm not like '%phase38 injected demotion failure%' then
+      raise;
+    end if;
+  end;
+
+  select m.role into v_role
+  from public.memberships m
+  where m.tenant_id = v_tenant and m.user_id = v_owner;
+  if v_role is distinct from 'owner' then
+    raise exception 'phase38: injected demotion committed actor as %', v_role;
+  end if;
+  select m.role into v_role
+  from public.memberships m
+  where m.tenant_id = v_tenant and m.user_id = v_staff;
+  if v_role is distinct from 'staff' then
+    raise exception 'phase38: injected demotion committed target as %', v_role;
+  end if;
+
   perform set_config('request.jwt.claim.sub', v_owner::text, true);
   execute 'set local role authenticated';
   v_result := public.transfer_tenant_ownership(v_tenant, v_admin);
@@ -326,6 +384,32 @@ begin
     and entity_id = v_admin;
   if v_count <> 1 then
     raise exception 'phase38: activity rows=%', v_count;
+  end if;
+
+  select metadata into v_meta
+  from public.activity_log
+  where tenant_id = v_tenant
+    and action = 'membership.ownership_transferred'
+    and entity_id = v_admin;
+  if v_meta ->> 'previous_owner_role' is distinct from 'owner'
+     or v_meta ->> 'previous_owner_role_after' is distinct from 'admin'
+     or v_meta ->> 'target_previous_role' is distinct from 'admin'
+     or (v_meta ->> 'previous_owner_user_id')::uuid is distinct from v_owner
+     or (v_meta ->> 'new_owner_user_id')::uuid is distinct from v_admin then
+    raise exception 'phase38: activity metadata %', v_meta;
+  end if;
+
+  v_sqlstate := null;
+  begin
+    perform set_config('request.jwt.claim.sub', v_owner::text, true);
+    execute 'set local role authenticated';
+    perform public.transfer_tenant_ownership(v_tenant, v_viewer);
+  exception when others then
+    v_sqlstate := sqlstate;
+  end;
+  execute 'reset role';
+  if v_sqlstate is distinct from '42501' then
+    raise exception 'phase38: replay expected 42501 got %', v_sqlstate;
   end if;
 
   select coalesce(jsonb_agg(jsonb_build_object(
