@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Presentation,
   Download,
+  Eye,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,13 +26,16 @@ import {
   type FileVisualKind,
 } from "@/lib/files/file-kind";
 import { formatFileSize, formatFileTimestamp } from "@/lib/files/format";
+import { isPreviewableFilename } from "@/lib/files/preview";
 import { cn } from "@/lib/utils";
 
 type OrderFileRowProps = {
   file: OrderFileDto;
   canMutate: boolean;
   downloading?: boolean;
+  previewing?: boolean;
   onDownload: () => void;
+  onPreview?: () => void;
   onDelete?: () => void;
 };
 
@@ -61,10 +65,16 @@ export function OrderFileRow({
   file,
   canMutate,
   downloading = false,
+  previewing = false,
   onDownload,
+  onPreview,
   onDelete,
 }: OrderFileRowProps) {
   const kind = fileKindFromFilename(file.original_name);
+  const canPreview =
+    file.status === "ready" &&
+    Boolean(onPreview) &&
+    isPreviewableFilename(file.original_name);
   const meta = [
     fileKindLabel(kind),
     formatFileSize(file.size_bytes),
@@ -82,9 +92,19 @@ export function OrderFileRow({
     >
       <KindIcon kind={kind} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">
-          {file.original_name}
-        </p>
+        {canPreview ? (
+          <button
+            type="button"
+            className="block max-w-full truncate text-left text-sm font-medium text-foreground hover:underline"
+            onClick={onPreview}
+          >
+            {file.original_name}
+          </button>
+        ) : (
+          <p className="truncate text-sm font-medium text-foreground">
+            {file.original_name}
+          </p>
+        )}
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
         {downloading ? (
           <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -94,6 +114,19 @@ export function OrderFileRow({
       </div>
 
       <div className="hidden shrink-0 items-center gap-1 sm:flex">
+        {canPreview ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onPreview}
+            disabled={previewing}
+            aria-label={`Ver ${file.original_name}`}
+          >
+            <Eye className="size-4" />
+            Ver
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -133,6 +166,14 @@ export function OrderFileRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {canPreview ? (
+              <DropdownMenuItem
+                disabled={previewing}
+                onSelect={() => onPreview?.()}
+              >
+                Ver
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               disabled={downloading}
               onSelect={() => onDownload()}

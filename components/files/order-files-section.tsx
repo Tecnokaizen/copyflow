@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { DeleteFileDialog } from "@/components/files/delete-file-dialog";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { FileDropzone } from "@/components/files/file-dropzone";
 import { FileUploadItem } from "@/components/files/file-upload-item";
 import { OrderFileRow } from "@/components/files/order-file-row";
@@ -20,6 +21,7 @@ import {
   listOrderFiles,
   prevalidateClientFile,
   requestOrderFileDownload,
+  requestOrderFilePreview,
   triggerBrowserDownload,
   uploadOrderFile,
 } from "@/lib/files/client";
@@ -39,6 +41,7 @@ export type OrderFilesApi = {
   upload: typeof uploadOrderFile;
   remove: typeof deleteOrderFile;
   download: typeof requestOrderFileDownload;
+  preview: typeof requestOrderFilePreview;
 };
 
 const defaultFilesApi: OrderFilesApi = {
@@ -46,6 +49,7 @@ const defaultFilesApi: OrderFilesApi = {
   upload: uploadOrderFile,
   remove: deleteOrderFile,
   download: requestOrderFileDownload,
+  preview: requestOrderFilePreview,
 };
 
 type OrderFilesSectionProps = {
@@ -85,6 +89,7 @@ export function OrderFilesSection({
   const [showDropzone, setShowDropzone] = useState(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<OrderFileDto | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<OrderFileDto | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -375,6 +380,12 @@ export function OrderFilesSection({
     );
   }
 
+  const loadPreview = useCallback(
+    (fileId: string, signal: AbortSignal) =>
+      filesApi.preview(orderId, fileId, signal),
+    [filesApi, orderId],
+  );
+
   async function handleDownload(file: OrderFileDto) {
     setActionError(null);
     setDownloadingId(file.id);
@@ -539,6 +550,11 @@ export function OrderFilesSection({
                 file={file}
                 canMutate={canMutate}
                 downloading={downloadingId === file.id}
+                previewing={previewFile?.id === file.id}
+                onPreview={() => {
+                  setActionError(null);
+                  setPreviewFile(file);
+                }}
                 onDownload={() => void handleDownload(file)}
                 onDelete={
                   canMutate ? () => setPendingDelete(file) : undefined
@@ -560,6 +576,16 @@ export function OrderFilesSection({
           onConfirm={() => void confirmDelete()}
         />
       ) : null}
+
+      <FilePreviewDialog
+        file={previewFile}
+        downloading={previewFile ? downloadingId === previewFile.id : false}
+        onClose={() => setPreviewFile(null)}
+        onDownload={() => {
+          if (previewFile) void handleDownload(previewFile);
+        }}
+        loadPreview={loadPreview}
+      />
     </>
   );
 }

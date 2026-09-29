@@ -32,8 +32,23 @@ export function assertCanMutateOrderFiles(input: {
   return { ok: true };
 }
 
+function dispositionFilename(filename: string) {
+  const safe = filename.replace(/[\r\n"]/g, "");
+  return {
+    safe,
+    encoded: encodeURIComponent(safe),
+  };
+}
+
+function contentDisposition(kind: "attachment" | "inline", filename: string) {
+  const { safe, encoded } = dispositionFilename(filename);
+  return `${kind}; filename="${safe}"; filename*=UTF-8''${encoded}`;
+}
+
 export function contentDispositionAttachment(filename: string): string {
-  const safe = filename.replace(/"/g, "");
-  const encoded = encodeURIComponent(safe);
-  return `attachment; filename="${safe}"; filename*=UTF-8''${encoded}`;
+  return contentDisposition("attachment", filename);
+}
+
+export function contentDispositionInline(filename: string): string {
+  return contentDisposition("inline", filename);
 }

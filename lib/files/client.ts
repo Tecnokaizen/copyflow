@@ -37,6 +37,14 @@ export type DownloadUrlResponse = {
   content_type: string;
 };
 
+export type PreviewUrlResponse = {
+  preview_url: string;
+  expires_at: string;
+  filename: string;
+  content_type: string;
+  kind: "pdf" | "image";
+};
+
 export type UploadPhase =
   | "queued"
   | "initializing"
@@ -258,6 +266,17 @@ export async function completeOrderFileUpload(
       ),
     );
   }
+}
+
+export function requestOrderFilePreview(
+  orderId: string,
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<PreviewUrlResponse> {
+  return requestParentFilePreview(
+    `/api/orders/${orderId}/files/${fileId}/preview`,
+    signal,
+  );
 }
 
 export async function requestOrderFileDownload(
@@ -541,10 +560,43 @@ async function completeParentFileUpload(path: string): Promise<void> {
   }
 }
 
+export function requestQuoteFilePreview(
+  quoteId: string,
+  fileId: string,
+  signal?: AbortSignal,
+) {
+  return requestParentFilePreview(
+    `/api/quotes/${quoteId}/files/${fileId}/preview`,
+    signal,
+  );
+}
+
 export function requestQuoteFileDownload(quoteId: string, fileId: string) {
   return requestParentFileDownload(
     `/api/quotes/${quoteId}/files/${fileId}/download`,
   );
+}
+
+async function requestParentFilePreview(
+  path: string,
+  signal?: AbortSignal,
+): Promise<PreviewUrlResponse> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 415
+        ? "Este archivo no se puede previsualizar."
+        : await readApiError(
+            response,
+            "No se ha podido abrir la vista previa.",
+          ),
+    );
+  }
+  return (await response.json()) as PreviewUrlResponse;
 }
 
 async function requestParentFileDownload(

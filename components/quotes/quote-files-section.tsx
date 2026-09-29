@@ -6,6 +6,7 @@ import {
   deleteQuoteFile,
   listQuoteFiles,
   requestQuoteFileDownload,
+  requestQuoteFilePreview,
   uploadQuoteFile,
 } from "@/lib/files/client";
 
@@ -22,6 +23,7 @@ export function QuoteFilesSection({
       upload: uploadQuoteFile,
       remove: deleteQuoteFile,
       download: requestQuoteFileDownload,
+      preview: requestQuoteFilePreview,
     }),
     []
   );
