@@ -171,3 +171,27 @@ export function parseAccessPatchPayload(
 
   return { ok: false };
 }
+
+export function parseOwnershipTransferPayload(
+  payload: unknown
+): { ok: true; newOwnerUserId: string } | { ok: false } {
+  if (!isPlainObject(payload)) {
+    return { ok: false };
+  }
+
+  if (!hasOnlyAllowedKeys(payload, ["new_owner_user_id"])) {
+    return { ok: false };
+  }
+
+  if (
+    typeof payload.new_owner_user_id !== "string" ||
+    !isUuid(payload.new_owner_user_id)
+  ) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    newOwnerUserId: payload.new_owner_user_id,
+  };
+}
