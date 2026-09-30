@@ -6,7 +6,7 @@ title: Personal
 
 Das de alta a las personas que trabajan los pedidos. Puedes indicar si están activas y si pueden recibir trabajos nuevos. Desactivar conserva el histórico.
 
-Desde la ficha puedes ver si la persona tiene acceso a Gestcopy (vinculada a un usuario) o no. Dar acceso no es automático al crear la ficha.
+Desde la ficha puedes ver si la persona tiene acceso a Gestcopy (vinculada a un usuario) o no. Crear la ficha no abre sesión.
 
 ## Cómo hacerlo
 
@@ -14,7 +14,7 @@ Desde la ficha puedes ver si la persona tiene acceso a Gestcopy (vinculada a un 
 2. Crea una persona con al menos el nombre.
 3. Completa cargo, contacto y si puede recibir pedidos.
 4. Guarda.
-5. Si debe entrar en Gestcopy, usa Dar acceso / Usuarios y permisos.
+5. Si debe entrar en Gestcopy: propietario/administrador invita desde Usuarios y permisos. Si ya tiene usuario, usa **Dar acceso** en la ficha para vincularlo (también puede hacerlo un responsable).
 
 ## Qué ocurre después
 
@@ -22,4 +22,4 @@ La persona puede asignarse a pedidos si está activa y puede recibir pedidos. Si
 
 ## Quién puede hacerlo
 
-Propietario, administrador y responsable.
+Propietario, administrador y responsable (alta y vínculo). Invitaciones: solo propietario y administrador.

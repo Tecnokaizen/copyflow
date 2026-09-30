@@ -4,7 +4,7 @@ title: Catálogos
 
 ## Qué puedes hacer aquí
 
-Los catálogos reúnen tipos de cliente, canales de entrada, contextos y opciones de archivo, presupuesto, pago y entrega. En la tabla ves el nombre, si está activo y el orden.
+Los catálogos reúnen tipos de cliente, canales de entrada, contextos y opciones de archivo, presupuesto, pago y entrega. En la tabla ves el nombre, si está activo y el orden. El catálogo de estados de presupuesto solo afecta al módulo de presupuestos si tu organización lo tiene activo.
 
 ## Cómo hacerlo
 
@@ -15,7 +15,7 @@ Los catálogos reúnen tipos de cliente, canales de entrada, contextos y opcione
 
 ## Qué ocurre después
 
-Los formularios de pedido, cliente o presupuesto muestran las opciones activas.
+Los formularios de pedido y cliente muestran las opciones activas. Si el módulo de presupuestos está activo, también los de presupuesto.
 
 ## Quién puede hacerlo
 

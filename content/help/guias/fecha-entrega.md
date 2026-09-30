@@ -5,9 +5,10 @@ title: Cómo poner o cambiar la fecha de entrega
 ## Cómo hacerlo
 
 1. Abre el pedido.
-2. Edita la entrega prevista (fecha y hora).
-3. Guarda.
-4. Comprueba en el panel si queda en hoy, próximas o retrasadas.
+2. Pulsa **Editar pedido**.
+3. En **Producción**, edita **Entrega prevista** (fecha y hora).
+4. Pulsa **Guardar cambios**.
+5. Comprueba en el panel si queda en hoy, próximas o retrasadas (según la zona horaria de la organización).
 
 ## Qué ocurre después
 

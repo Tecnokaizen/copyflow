@@ -11,8 +11,7 @@ Un presupuesto aceptado y aún no convertido sigue contando como pendiente de pa
 ## Cómo hacerlo
 
 1. Abre el presupuesto.
-2. Cambia el estado según el avance comercial.
-3. Guarda.
+2. En **Gestión**, cambia el estado en el desplegable: el cambio se guarda al seleccionarlo (no hace falta un botón Guardar aparte).
 
 ## Qué ocurre después
 

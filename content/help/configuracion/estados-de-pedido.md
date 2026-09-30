@@ -4,13 +4,13 @@ title: Estados de pedido
 
 ## Qué puedes hacer aquí
 
-Defines el flujo: cuál es el estado inicial y cuáles marcan listo, cerrado o cancelado. Tiene que haber un único estado inicial activo para poder convertir un presupuesto en pedido.
+Defines el flujo: cuál es el estado inicial y cuáles marcan listo, entregado o cancelado. Tiene que haber un único estado inicial activo para poder convertir un presupuesto en pedido.
 
 ## Cómo hacerlo
 
 1. Abre Configuración → Estados de pedido.
 2. Revisa o crea los estados del flujo de tu empresa.
-3. Marca cuál es el inicial y cuáles son terminales (cerrado/cancelado) según las opciones de la pantalla.
+3. Marca cuál es el inicial y cuáles son terminales (tipo **Entregado** o **Cancelado**) según las opciones de la pantalla.
 4. Guarda.
 
 ## Qué ocurre después

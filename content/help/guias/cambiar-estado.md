@@ -5,9 +5,9 @@ title: Cómo cambiar el estado
 ## Cómo hacerlo
 
 1. Abre el pedido (no archivado).
-2. Elige el nuevo estado en acciones rápidas o en el campo de estado.
-3. Si es entregado o cancelado, confirma el diálogo.
-4. Guarda.
+2. Pulsa **Cambiar estado** en las acciones rápidas, o bien **Editar pedido** → **Producción** → **Estado**.
+3. Si es entregado o cancelado, confirma el diálogo (**Confirmar entrega**, **Confirmar cancelación** o **Cerrar pedido**).
+4. Con acciones rápidas, confirma con **Guardar estado**. Si editas en Producción, pulsa **Guardar cambios**.
 
 ## Qué ocurre después
 

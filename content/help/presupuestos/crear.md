@@ -4,13 +4,13 @@ title: Crear un presupuesto
 
 ## Qué puedes hacer aquí
 
-Describes el trabajo potencial, eliges cliente y servicio si ya los conoces, y una fecha de validez si aplica. La referencia la asigna Gestcopy.
+Describes el trabajo potencial, eliges cliente y servicio si ya los conoces, y una fecha de validez si aplica. La referencia la asigna Gestcopy. La descripción es obligatoria; el título es opcional.
 
 ## Cómo hacerlo
 
-1. Entra en Presupuestos.
+1. Entra en Presupuestos (solo visible si tu organización tiene el módulo activo y tu rol es operativo).
 2. Crea un presupuesto nuevo.
-3. Completa título o descripción, cliente y resto de datos disponibles.
+3. Completa la descripción (obligatoria), el título si quieres, cliente y resto de datos disponibles.
 4. Guarda.
 
 ## Qué ocurre después

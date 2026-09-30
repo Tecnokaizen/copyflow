@@ -5,9 +5,9 @@ title: Cómo reasignar un pedido
 ## Cómo hacerlo
 
 1. Abre el pedido que quieres reasignar.
-2. Abre Responsable (acciones rápidas o producción).
+2. Pulsa **Cambiar responsable** en las acciones rápidas (o, en edición: **Editar pedido** → **Producción** → **Responsable**).
 3. Elige a otra persona del personal, o deja sin asignar.
-4. Guarda.
+4. Confirma con **Guardar responsable** (acciones rápidas) o **Guardar cambios** (si editas en Producción).
 
 ## Qué ocurre después
 

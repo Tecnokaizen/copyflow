@@ -24,4 +24,4 @@ Necesita invitación o usuario en Usuarios y permisos. La ficha de Personal no a
 
 ## ¿Cómo reasigno un pedido?
 
-Abre el pedido, cambia el responsable y guarda. Busca «reasignar» en la ayuda para el paso a paso.
+Abre el pedido, pulsa **Cambiar responsable**, elige a la persona y confirma con **Guardar responsable**. Busca «reasignar» en la ayuda para el paso a paso.

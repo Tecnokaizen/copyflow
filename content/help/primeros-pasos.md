@@ -25,7 +25,7 @@ Cualquier usuario con acceso a Gestcopy puede empezar. Algunas pantallas (Config
 
 ## Ejemplo práctico
 
-Llegas el lunes, abres el panel, ves dos entregas de hoy y un pedido urgente sin responsable. Asignas la persona, cambias el estado y sigues con el mostrador.
+Llegas el lunes con un rol operativo, abres el panel, ves dos entregas de hoy y un pedido urgente sin responsable. Asignas la persona, cambias el estado y sigues con el mostrador.
 
 ## Problemas frecuentes
 

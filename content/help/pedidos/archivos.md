@@ -11,7 +11,7 @@ El espacio usado suma archivos activos de pedidos y presupuestos. El tamaño má
 ## Cómo hacerlo
 
 1. Abre la ficha del pedido.
-2. En archivos, elige el documento a subir.
+2. En **Archivos**, pulsa **Añadir archivos** y elige el documento.
 3. Espera a que quede listo (no cierres a medias).
 4. Descarga o borra cuando haga falta.
 
@@ -21,7 +21,7 @@ El archivo queda ligado al pedido. Si lo borras, deja de ocupar espacio. Un pedi
 
 ## Quién puede hacerlo
 
-Roles operativos en pedidos editables. La cuota y el tamaño máximo se gestionan en Configuración (roles de gestión / plan).
+Subir, reintentar y borrar: roles operativos en pedidos editables. Descargar: también solo lectura. La cuota y el tamaño máximo se gestionan en Configuración (roles de gestión / plan).
 
 ## Problemas frecuentes
 

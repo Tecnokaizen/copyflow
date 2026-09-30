@@ -9,9 +9,9 @@ En el pedido eliges la persona responsable. Así el panel y la ficha muestran qu
 ## Cómo hacerlo
 
 1. Abre el pedido.
-2. En acciones rápidas o en producción, elige Responsable.
+2. Pulsa **Cambiar responsable** en las acciones rápidas (o **Editar pedido** → **Producción** → **Responsable**).
 3. Selecciona a alguien del personal disponible, o déjalo sin asignar.
-4. Guarda.
+4. Confirma con **Guardar responsable** o **Guardar cambios**, según el camino.
 
 ## Qué ocurre después
 

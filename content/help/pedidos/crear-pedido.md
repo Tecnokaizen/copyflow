@@ -10,10 +10,10 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 
 ## Cómo hacerlo
 
-1. Abre Pedido rápido o la creación completa de pedido, según el momento.
+1. Abre **Pedido rápido** o **Nuevo pedido**, según el momento.
 2. Elige un cliente existente o crea uno nuevo con al menos el nombre.
 3. Selecciona uno de los servicios configurados por tu empresa (si aplica).
-4. Indica entrega prevista y prioridad.
+4. Indica entrega prevista y prioridad (Normal, Alta o Urgente).
 5. Si hay varias tiendas, elige la sede.
 6. Opcional: responsable, notas, archivos u otros campos visibles.
 7. Guarda el pedido.
@@ -28,7 +28,7 @@ Propietario, administrador, responsable y personal. Solo lectura no crea pedidos
 
 ## Ejemplo práctico
 
-En mostrador llega un trabajo ya aceptado: creas el pedido, eliges el servicio configurado, pones entrega para mañana y dejas la prioridad normal.
+En mostrador llega un trabajo ya aceptado: creas el pedido, eliges el servicio configurado, pones entrega para mañana y dejas la prioridad Normal.
 
 ## Problemas frecuentes
 

@@ -310,7 +310,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       article(
         "configuracion/estados-de-pedido",
         "Estados de pedido",
-        "Flujo operativo: inicial, intermedios, listo, cerrado y cancelado.",
+        "Flujo operativo: inicial, intermedios, listo, entregado y cancelado.",
         "configuracion/estados-de-pedido.md",
         ["flujo", "estado inicial", "configurar estados"],
         ["guias/configurar-estados", "pedidos/estados-y-prioridades"]

@@ -15,7 +15,7 @@ Cada cliente tiene nombre y datos de contacto. Desde la ficha ves sus pedidos y 
 
 ## Qué ocurre después
 
-Los pedidos y presupuestos vinculados siguen apuntando al cliente. Cambiar el contacto no borra el historial.
+Los pedidos vinculados siguen apuntando al cliente. Cambiar el contacto no borra el historial. Si usas presupuestos, el cliente puede asociarse allí, pero la ficha de cliente lista pedidos (no un listado de presupuestos).
 
 ## Quién puede hacerlo
 
