@@ -12,7 +12,7 @@ Recorrido completo de un trabajo confirmado: entrada, producción, entrega y cie
 2. Asigna un responsable del personal si alguien debe llevarlo.
 3. Adjunta archivos si el cliente los aporta.
 4. Ve avanzando el estado según el flujo de tu empresa.
-5. Cuando esté listo y se entregue, pasa al estado de cerrado/entregado (confirmando si Gestcopy lo pide).
+5. Cuando esté listo y se entregue, pásalo al estado tipo Entregado (confirmando si Gestcopy lo pide).
 6. Si ya no debe aparecer en colas, archívalo para dejarlo en solo consulta.
 
 ## Qué ocurre después
