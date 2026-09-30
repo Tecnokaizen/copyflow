@@ -74,8 +74,30 @@ describe("legacy and empty rich text", () => {
 
   it("keeps a legacy plain value readable", () => {
     assert.equal(richTextToPlainText("Línea uno\nLínea dos"), "Línea uno\nLínea dos");
-    assert.equal(richTextToPlainText("Carteles <VIP>"), "Carteles <VIP>");
     assert.equal(normalizeRichText("  500 tarjetas "), "<p>500 tarjetas</p>");
+  });
+
+  it("escapes unknown angle brackets and normalizes known aliases", () => {
+    assert.equal(
+      normalizeRichText("Carteles <VIP>"),
+      "<p>Carteles &lt;VIP&gt;</p>"
+    );
+    assert.equal(richTextToPlainText("Carteles <VIP>"), "Carteles <VIP>");
+    assert.equal(normalizeRichText("2 < 5"), "<p>2 &lt; 5</p>");
+    assert.equal(richTextToPlainText("2 < 5"), "2 < 5");
+
+    const script = normalizeRichText("<script>alert(1)</script>");
+    assert.equal(/<script\b/i.test(script), false);
+    assert.match(script, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+
+    assert.equal(
+      normalizeRichText("<p>Hola <strong>mundo</strong></p>"),
+      "<p>Hola <strong>mundo</strong></p>"
+    );
+    assert.equal(normalizeRichText("<b>Hola</b>"), "<strong>Hola</strong>");
+    assert.equal(normalizeRichText("<i>Hola</i>"), "<em>Hola</em>");
+    assert.equal(normalizeRichText("<strike>Hola</strike>"), "<s>Hola</s>");
+    assert.equal(normalizeRichText("<del>Hola</del>"), "<s>Hola</s>");
   });
 
   it("treats visually empty markup as empty", () => {

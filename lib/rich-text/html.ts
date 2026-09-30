@@ -13,7 +13,8 @@ const ALLOWED_TAGS = [
   "a",
 ];
 
-const HTML_TAG = /<\/?(?:p|br|strong|em|u|s|ul|ol|li|a)\b/i;
+const RICH_TEXT_TAG =
+  /<\/?(?:strike|strong|br|em|ul|ol|li|del|p|u|s|b|i|a)\b/i;
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -42,7 +43,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 };
 
 export function looksLikeHtml(value: string) {
-  return HTML_TAG.test(value);
+  return RICH_TEXT_TAG.test(value);
 }
 
 export function isSafeLinkHref(value: string | null | undefined) {

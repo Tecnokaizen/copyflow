@@ -223,13 +223,14 @@ export function KioskOrderForm({
               ))}
             </select>
           </Field>
-          <Field label="Descripción *">
+          <div className="grid gap-2 text-sm font-semibold text-foreground">
+            <div>Descripción *</div>
             <RichTextEditor
               value={state.description}
               onChange={(value) => update("description", value)}
               ariaLabel="Descripción del pedido"
             />
-          </Field>
+          </div>
           <Field label="Fecha deseada">
             <input
               type="datetime-local"
