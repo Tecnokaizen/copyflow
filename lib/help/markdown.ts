@@ -1,7 +1,8 @@
 export type HelpBlock =
   | { type: "h2" | "h3"; text: string; id: string }
   | { type: "p"; text: string }
-  | { type: "ul"; items: string[] };
+  | { type: "ul"; items: string[] }
+  | { type: "ol"; items: string[] };
 
 /**
  * Plain-text subset. Headings, paragraphs and lists are stored as strings.
@@ -11,40 +12,59 @@ export type HelpBlock =
 export function parseHelpMarkdown(source: string): HelpBlock[] {
   const blocks: HelpBlock[] = [];
   const lines = source.replace(/\r\n/g, "\n").split("\n");
-  let list: string[] = [];
+  let unordered: string[] = [];
+  let ordered: string[] = [];
 
-  function flushList() {
-    if (list.length === 0) return;
-    blocks.push({ type: "ul", items: list });
-    list = [];
+  function flushLists() {
+    if (unordered.length > 0) {
+      blocks.push({ type: "ul", items: unordered });
+      unordered = [];
+    }
+    if (ordered.length > 0) {
+      blocks.push({ type: "ol", items: ordered });
+      ordered = [];
+    }
   }
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) {
-      flushList();
+      flushLists();
       continue;
     }
     if (trimmed.startsWith("### ")) {
-      flushList();
+      flushLists();
       const text = trimmed.slice(4).trim();
       blocks.push({ type: "h3", text, id: headingId(text) });
       continue;
     }
     if (trimmed.startsWith("## ")) {
-      flushList();
+      flushLists();
       const text = trimmed.slice(3).trim();
       blocks.push({ type: "h2", text, id: headingId(text) });
       continue;
     }
     if (trimmed.startsWith("- ")) {
-      list.push(trimmed.slice(2).trim());
+      if (ordered.length > 0) {
+        blocks.push({ type: "ol", items: ordered });
+        ordered = [];
+      }
+      unordered.push(trimmed.slice(2).trim());
       continue;
     }
-    flushList();
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+    if (orderedMatch) {
+      if (unordered.length > 0) {
+        blocks.push({ type: "ul", items: unordered });
+        unordered = [];
+      }
+      ordered.push(orderedMatch[1].trim());
+      continue;
+    }
+    flushLists();
     blocks.push({ type: "p", text: trimmed });
   }
-  flushList();
+  flushLists();
   return blocks;
 }
 

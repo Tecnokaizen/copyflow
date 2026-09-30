@@ -8,7 +8,7 @@ import {
   type HelpNavSection,
 } from "@/components/help/help-center";
 import { HELP_SECTIONS, allHelpArticles } from "@/lib/help/catalog";
-import { loadHelpDocument } from "@/lib/help/content";
+import { helpSearchIndex } from "@/lib/help/content";
 
 function navigation() {
   const sections: HelpNavSection[] = HELP_SECTIONS.map((section) => ({
@@ -19,15 +19,18 @@ function navigation() {
       title: article.title,
     })),
   }));
+  const index = helpSearchIndex();
+  const bySlug = new Map(index.map((item) => [item.slug, item]));
   const articles: HelpNavArticle[] = allHelpArticles().map((article) => {
-    const document = loadHelpDocument(article.slug);
+    const entry = bySlug.get(article.slug);
     return {
       slug: article.slug,
       title: article.title,
       description: article.description,
+      keywords: article.keywords,
       sectionId: article.section.id,
       sectionTitle: article.section.title,
-      text: `${article.title}\n${article.description}\n${document?.body ?? ""}`.toLowerCase(),
+      text: entry?.text ?? `${article.title}\n${article.description}`.toLowerCase(),
     };
   });
   return { sections, articles };
@@ -36,7 +39,7 @@ function navigation() {
 export const metadata: Metadata = {
   title: "Centro de ayuda",
   description:
-    "Cómo usar Gestcopy: pedidos, clientes, presupuestos y configuración.",
+    "Cómo usar Gestcopy en el día a día: pedidos, clientes, presupuestos, equipo y configuración.",
 };
 
 export default function DocsLayout({ children }: { children: ReactNode }) {

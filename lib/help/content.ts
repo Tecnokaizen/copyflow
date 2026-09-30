@@ -26,23 +26,18 @@ export function loadHelpDocument(slug: string): HelpDocument | null {
 }
 
 export function helpSearchIndex() {
-  return walkHelpFiles().map((file) => {
-    const raw = readFileSync(file.absolute, "utf8");
-    const body = stripFrontmatter(raw);
+  return allHelpArticles().map((article) => {
+    const document = loadHelpDocument(article.slug);
+    const body = document?.body ?? "";
+    const keywords = article.keywords.join("\n");
     return {
-      slug: file.slug,
-      title: file.title,
-      description: file.description,
-      text: `${file.title}\n${file.description}\n${body}`.toLowerCase(),
+      slug: article.slug,
+      title: article.title,
+      description: article.description,
+      keywords: article.keywords,
+      text: `${article.title}\n${article.description}\n${keywords}\n${body}`.toLowerCase(),
     };
   });
-}
-
-function walkHelpFiles() {
-  return allHelpArticles().map((article) => ({
-    ...article,
-    absolute: path.join(HELP_ROOT, article.file),
-  }));
 }
 
 function stripFrontmatter(raw: string) {

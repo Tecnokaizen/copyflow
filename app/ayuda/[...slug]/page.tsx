@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { HelpArticleBody } from "@/components/help/help-center";
+import { HelpArticleBody, HelpRelated } from "@/components/help/help-center";
 import {
   allHelpArticles,
+  helpArticleBySlug,
   helpNeighbors,
 } from "@/lib/help/catalog";
 import { loadHelpDocument } from "@/lib/help/content";
@@ -23,6 +24,10 @@ export default async function HelpArticlePage({
   const document = loadHelpDocument(key);
   if (!document) notFound();
   const { previous, next } = helpNeighbors(key);
+  const related = document.related
+    .map((relatedSlug) => helpArticleBySlug(relatedSlug))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .map((item) => ({ slug: item.slug, title: item.title }));
 
   return (
     <div>
@@ -38,7 +43,11 @@ export default async function HelpArticlePage({
       <div className="mt-6">
         <HelpArticleBody source={document.body} />
       </div>
-      <nav className="mt-10 flex flex-col gap-3 border-t border-border/80 pt-4 sm:flex-row sm:justify-between">
+      <HelpRelated links={related} />
+      <nav
+        className="mt-10 flex flex-col gap-3 border-t border-border/80 pt-4 sm:flex-row sm:justify-between"
+        aria-label="Artículos vecinos"
+      >
         {previous ? (
           <Link href={`/ayuda/${previous.slug}`} className="text-sm hover:underline">
             Anterior: {previous.title}
