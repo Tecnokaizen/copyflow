@@ -1,6 +1,32 @@
 ---
 title: Archivos del pedido
 ---
-Puedes adjuntar documentos al pedido: PDF, imágenes y archivos de oficina admitidos.
 
-La subida muestra el progreso. Puedes reintentar, descargar o borrar. El espacio usado suma los archivos de pedidos y de presupuestos que siguen activos. El tamaño máximo lo marca la organización, con un tope de la plataforma.
+## Qué puedes hacer aquí
+
+Adjuntas documentos al pedido (PDF, imágenes y archivos de oficina admitidos). Puedes ver el progreso de subida, reintentar, descargar o borrar.
+
+El espacio usado suma archivos activos de pedidos y presupuestos. El tamaño máximo lo marca la organización, con un tope de la plataforma.
+
+## Cómo hacerlo
+
+1. Abre la ficha del pedido.
+2. En **Archivos**, pulsa **Añadir archivos** y elige el documento.
+3. Espera a que quede listo (no cierres a medias).
+4. Descarga o borra cuando haga falta.
+
+## Qué ocurre después
+
+El archivo queda ligado al pedido. Si lo borras, deja de ocupar espacio. Un pedido archivado permite consulta y descarga, no nuevas mutaciones.
+
+## Quién puede hacerlo
+
+Subir, reintentar y borrar: roles operativos en pedidos editables. Descargar: también solo lectura. La cuota y el tamaño máximo se gestionan en Configuración (roles de gestión / plan).
+
+## Problemas frecuentes
+
+### Subí un archivo y no aparece
+La subida termina cuando el archivo queda listo. Si falla, usa reintentar.
+
+### No me deja subir
+Revisa el tamaño máximo en Archivos y almacenamiento y el espacio del plan.

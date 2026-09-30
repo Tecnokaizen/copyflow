@@ -6,16 +6,20 @@ import { describe, it } from "node:test";
 import {
   HELP_CONTEXT_HREFS,
   HELP_DOCS_URL,
+  HELP_SECTIONS,
   allHelpArticles,
+  helpArticleBySlug,
   helpDocsUrl,
   helpNeighbors,
 } from "@/lib/help/catalog";
 import {
   helpContentRoot,
+  helpSearchIndex,
   loadHelpDocument,
   technicalDocsAreSeparate,
 } from "@/lib/help/content";
 import { parseHelpMarkdown } from "@/lib/help/markdown";
+import { searchHelpArticles } from "@/lib/help/search";
 import { allowsUnauthenticatedPath } from "@/lib/invitations/public-path";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
 
@@ -160,6 +164,21 @@ describe("public help center", () => {
     assert.equal(source("lib/help/markdown.ts").includes("dangerouslySetInnerHTML"), false);
   });
 
+  it("parses ordered lists for operational steps", () => {
+    const blocks = parseHelpMarkdown(
+      "## Cómo hacerlo\n\n1. Abrir el pedido\n2. Cambiar el responsable\n3. Guardar\n"
+    );
+    assert.equal(blocks[0]?.type, "h2");
+    assert.equal(blocks[1]?.type, "ol");
+    if (blocks[1]?.type === "ol") {
+      assert.deepEqual(blocks[1].items, [
+        "Abrir el pedido",
+        "Cambiar el responsable",
+        "Guardar",
+      ]);
+    }
+  });
+
   it("does not publish internal or unreleased product details", () => {
     const forbidden = /kiosk|sur4|service_role|stripe_secret|storage_key|cron_secret/i;
     const files = walk(helpContentRoot());
@@ -167,5 +186,73 @@ describe("public help center", () => {
     for (const file of files) {
       assert.equal(forbidden.test(readFileSync(file, "utf8")), false, file);
     }
+  });
+
+  it("keeps unique article ids and valid related links", () => {
+    const articles = allHelpArticles();
+    const slugs = articles.map((article) => article.slug);
+    assert.equal(new Set(slugs).size, slugs.length);
+    assert.ok(HELP_SECTIONS.some((section) => section.id === "guias"));
+    for (const article of articles) {
+      assert.ok(Array.isArray(article.keywords));
+      assert.ok(Array.isArray(article.related));
+      for (const related of article.related) {
+        assert.ok(helpArticleBySlug(related), `${article.slug} -> ${related}`);
+      }
+      const document = loadHelpDocument(article.slug);
+      assert.ok(document?.body && document.body.length > 40, article.slug);
+    }
+  });
+
+  it("keeps previous and next neighbors without gaps", () => {
+    const articles = allHelpArticles();
+    for (let index = 0; index < articles.length; index += 1) {
+      const neighbors = helpNeighbors(articles[index].slug);
+      assert.equal(neighbors.previous?.slug ?? null, articles[index - 1]?.slug ?? null);
+      assert.equal(neighbors.next?.slug ?? null, articles[index + 1]?.slug ?? null);
+    }
+  });
+
+  it("finds articles by title and by intention keywords", () => {
+    const index = helpSearchIndex();
+    const byTitle = searchHelpArticles(index, "pedido rápido");
+    assert.ok(byTitle.some((hit) => hit.slug.includes("pedido-rapido")));
+
+    const cases: Array<{ query: string; slugIncludes: string }> = [
+      { query: "reasignar pedido", slugIncludes: "reasignar" },
+      { query: "cambiar responsable", slugIncludes: "responsable" },
+      { query: "añadir trabajador", slugIncludes: "persona" },
+      { query: "invitar usuario", slugIncludes: "acceso" },
+      { query: "entregar pedido", slugIncludes: "entrega" },
+      { query: "subir archivo", slugIncludes: "archivo" },
+      { query: "crear presupuesto", slugIncludes: "presupuesto" },
+      { query: "convertir presupuesto", slugIncludes: "convertir" },
+      { query: "cambiar prioridad", slugIncludes: "prioridad" },
+      { query: "crear cliente", slugIncludes: "cliente" },
+      { query: "almacenamiento", slugIncludes: "almacenamiento" },
+    ];
+
+    for (const item of cases) {
+      const hits = searchHelpArticles(index, item.query);
+      assert.ok(
+        hits.some((hit) => hit.slug.includes(item.slugIncludes)),
+        `query "${item.query}" should match slug containing "${item.slugIncludes}", got ${hits
+          .map((hit) => hit.slug)
+          .join(", ")}`
+      );
+    }
+  });
+
+  it("documents archive as consult-only without reopen", () => {
+    const faq = loadHelpDocument("preguntas-frecuentes");
+    const pedidos = loadHelpDocument("pedidos");
+    assert.match(faq?.body ?? "", /no ofrece reabrir/i);
+    assert.match(pedidos?.body ?? "", /no hay acción de «reabrir»/i);
+  });
+
+  it("explains team membership without app access", () => {
+    const guide = loadHelpDocument("guias/equipo-vs-usuarios");
+    assert.match(guide?.body ?? "", /no abre la aplicación/i);
+    assert.match(guide?.body ?? "", /Usuarios y permisos/i);
   });
 });

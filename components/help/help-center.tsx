@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import { parseHelpMarkdown } from "@/lib/help/markdown";
+import { searchHelpArticles } from "@/lib/help/search";
 import { cn } from "@/lib/utils";
 
 export type HelpNavArticle = {
   slug: string;
   title: string;
   description: string;
+  keywords: string[];
   sectionId: string;
   sectionTitle: string;
   text: string;
@@ -21,41 +23,58 @@ export type HelpNavSection = {
   articles: { slug: string; title: string }[];
 };
 
+export type HelpRelatedLink = {
+  slug: string;
+  title: string;
+};
+
 export function HelpSearch({ articles }: { articles: HelpNavArticle[] }) {
   const [query, setQuery] = useState("");
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle.length < 2) return [];
-    return articles
-      .filter((article) => article.text.includes(needle))
-      .slice(0, 8);
-  }, [articles, query]);
+  const results = useMemo(
+    () => searchHelpArticles(articles, query, 8),
+    [articles, query]
+  );
+  const showEmpty =
+    query.trim().length >= 2 && results.length === 0;
 
   return (
     <div className="relative">
-      <label className="grid gap-1.5 text-sm">
+      <label className="grid gap-1.5 text-sm" htmlFor="help-search">
         Buscar
         <input
+          id="help-search"
           className="gc-field-control"
           value={query}
-          placeholder="Pedidos, clientes, facturación…"
+          placeholder="Ej. reasignar pedido, subir archivo…"
           onChange={(event) => setQuery(event.target.value)}
+          autoComplete="off"
         />
       </label>
       {results.length > 0 ? (
-        <ul className="absolute z-30 mt-1 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+        <ul
+          className="absolute z-30 mt-1 w-full rounded-md border border-border bg-popover p-1 shadow-md"
+          aria-label="Resultados de búsqueda"
+        >
           {results.map((article) => (
             <li key={article.slug}>
               <Link
                 href={`/ayuda/${article.slug}`}
-                className="block rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+                className="block rounded-sm px-2 py-2 text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                 onClick={() => setQuery("")}
               >
-                {article.title}
+                <span className="font-medium">{article.title}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {article.description}
+                </span>
               </Link>
             </li>
           ))}
         </ul>
+      ) : null}
+      {showEmpty ? (
+        <p className="absolute z-30 mt-1 w-full rounded-md border border-border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-md">
+          No hay resultados para «{query.trim()}». Prueba con otras palabras, por ejemplo «reasignar» o «invitar».
+        </p>
       ) : null}
     </div>
   );
@@ -136,29 +155,46 @@ export function HelpArticleBody({ source }: { source: string }) {
   const toc = blocks.filter((block) => block.type === "h2");
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_12rem]">
-      <article className="max-w-3xl space-y-3 text-sm leading-relaxed text-foreground sm:text-base">
+      <article className="max-w-3xl space-y-4 text-sm leading-relaxed text-foreground sm:text-base">
         {blocks.map((block, index) => {
           if (block.type === "h2") {
             return (
-              <h2 id={block.id} key={block.id} className="pt-4 text-xl font-semibold">
+              <h2
+                id={block.id}
+                key={block.id}
+                className="scroll-mt-20 pt-4 text-xl font-semibold tracking-tight"
+              >
                 {block.text}
               </h2>
             );
           }
           if (block.type === "h3") {
             return (
-              <h3 id={block.id} key={block.id} className="pt-2 text-lg font-semibold">
+              <h3
+                id={block.id}
+                key={block.id}
+                className="scroll-mt-20 pt-2 text-lg font-semibold tracking-tight"
+              >
                 {block.text}
               </h3>
             );
           }
           if (block.type === "ul") {
             return (
-              <ul key={index} className="list-disc space-y-1 pl-5">
+              <ul key={index} className="list-disc space-y-1.5 pl-5">
                 {block.items.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
+            );
+          }
+          if (block.type === "ol") {
+            return (
+              <ol key={index} className="list-decimal space-y-1.5 pl-5">
+                {block.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ol>
             );
           }
           return <p key={index}>{block.text}</p>;
@@ -173,7 +209,10 @@ export function HelpArticleBody({ source }: { source: string }) {
             {toc.map((item) =>
               item.type === "h2" ? (
                 <li key={item.id}>
-                  <a href={`#${item.id}`} className="text-sm text-muted-foreground hover:text-foreground">
+                  <a
+                    href={`#${item.id}`}
+                    className="text-sm text-muted-foreground hover:text-foreground"
+                  >
                     {item.text}
                   </a>
                 </li>
@@ -183,5 +222,28 @@ export function HelpArticleBody({ source }: { source: string }) {
         </aside>
       ) : null}
     </div>
+  );
+}
+
+export function HelpRelated({ links }: { links: HelpRelatedLink[] }) {
+  if (links.length === 0) return null;
+  return (
+    <section className="mt-10 rounded-lg border border-border/80 p-4" aria-labelledby="help-related">
+      <h2 id="help-related" className="text-base font-semibold">
+        Relacionado
+      </h2>
+      <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+        {links.map((link) => (
+          <li key={link.slug}>
+            <Link
+              href={`/ayuda/${link.slug}`}
+              className="text-sm text-primary hover:underline"
+            >
+              {link.title}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
