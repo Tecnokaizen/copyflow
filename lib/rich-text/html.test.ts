@@ -74,6 +74,7 @@ describe("legacy and empty rich text", () => {
 
   it("keeps a legacy plain value readable", () => {
     assert.equal(richTextToPlainText("Línea uno\nLínea dos"), "Línea uno\nLínea dos");
+    assert.equal(richTextToPlainText("Carteles <VIP>"), "Carteles <VIP>");
     assert.equal(normalizeRichText("  500 tarjetas "), "<p>500 tarjetas</p>");
   });
 

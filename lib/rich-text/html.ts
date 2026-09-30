@@ -13,7 +13,7 @@ const ALLOWED_TAGS = [
   "a",
 ];
 
-const HTML_TAG = /<\/?[a-z][a-z0-9]*\b[^>]*>/i;
+const HTML_TAG = /<\/?(?:p|br|strong|em|u|s|ul|ol|li|a)\b/i;
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {

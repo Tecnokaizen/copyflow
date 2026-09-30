@@ -5,8 +5,8 @@
 -- left(btrim(description), 120) would copy tags into the title when
 -- quotes.title is null. This replacement derives that fallback from
 -- tag-stripped text. No backfill and no new columns.
--- Kiosk RPCs are unchanged: submit_kiosk_order still measures
--- char_length(btrim(p_description)) on the raw string.
+-- Kiosk payload binding is a later migration. This function does not
+-- change Kiosk grants or the historical Kiosk migration.
 
 create or replace function public.convert_quote_to_order (
   p_quote_id uuid

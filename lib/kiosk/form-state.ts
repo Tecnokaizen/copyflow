@@ -1,3 +1,4 @@
+import { isRichTextEmpty } from "@/lib/rich-text/html";
 import { fromDateTimeLocalValue } from "@/lib/orders/format";
 
 export type KioskFormStep = "contact" | "order" | "confirmation";
@@ -40,7 +41,7 @@ export function canAdvanceKioskStep(
     );
   }
   if (step === "order") {
-    return Boolean(state.serviceId && state.description.trim());
+    return Boolean(state.serviceId && !isRichTextEmpty(state.description));
   }
   return true;
 }

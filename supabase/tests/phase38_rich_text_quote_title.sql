@@ -14,6 +14,7 @@ declare
   v_order_title text;
   v_order_description text;
   v_order_notes text;
+  v_constraint text;
 begin
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
@@ -32,6 +33,17 @@ begin
     (v_tenant, 'Phase38', 'phase38', true);
   insert into public.memberships (tenant_id, user_id, role, active) values
     (v_tenant, v_owner, 'owner', true);
+  select pg_get_constraintdef(oid)
+  into v_constraint
+  from pg_constraint
+  where conname = 'quotes_description_not_blank';
+  if v_constraint is null
+     or position('btrim' in v_constraint) = 0
+     or position('~' in v_constraint) > 0
+     or position('regexp' in lower(v_constraint)) > 0 then
+    raise exception 'phase38: description check must stay a plain length check: %', v_constraint;
+  end if;
+
   perform public.seed_quote_statuses(v_tenant);
   perform public.set_tenant_feature('phase38', 'quotes', true, null);
   insert into public.order_statuses (

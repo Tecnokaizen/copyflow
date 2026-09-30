@@ -9,7 +9,8 @@ import {
   buildOrdersListSearchOrClause,
   normalizeOrdersListQuery,
 } from "@/lib/orders/list-search";
-import { persistRichText, richTextToPlainText } from "@/lib/rich-text/html";
+import { normalizePlainTitle } from "@/lib/orders/create";
+import { persistRichText } from "@/lib/rich-text/html";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
   OPERATIVE_ROLES,
@@ -845,10 +846,7 @@ export async function POST(request: NextRequest) {
   }
 
   const payload = body as Record<string, unknown>;
-  const title =
-    typeof payload.title === "string"
-      ? richTextToPlainText(payload.title).replace(/\s+/g, " ").trim()
-      : "";
+  const title = normalizePlainTitle(payload.title);
 
   if (!title) {
     return operationalJson(

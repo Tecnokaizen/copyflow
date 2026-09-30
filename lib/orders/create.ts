@@ -21,12 +21,16 @@ function clipTitle(value: string) {
   return scalars.join("").trimEnd();
 }
 
+export function normalizePlainTitle(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function deriveOrderTitle(input: {
   title?: string | null;
   description?: string | null;
   serviceName?: string | null;
 }): string {
-  const explicit = richTextToPlainText(input.title).trim();
+  const explicit = normalizePlainTitle(input.title);
   if (explicit) {
     return clipTitle(firstLine(explicit));
   }

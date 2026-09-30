@@ -131,6 +131,21 @@ describe("narrative activity", () => {
     assert.equal(change?.to, "Hola mundo");
     assert.equal(/<p>|<strong>|<script/i.test(`${change?.from} ${change?.to}`), false);
   });
+
+  it("keeps angle brackets in a plain title", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "order.content_changed",
+        entity_type: "order",
+        entity_label: "DEMO-0204",
+        changed_field: "title",
+        previous_values: { value: "Antes" },
+        new_values: { value: "Carteles <VIP>" },
+        metadata: { reference: "DEMO-0204", field: "title" },
+      })
+    );
+    assert.equal(formatted.changes[0]?.to, '"Carteles <VIP>"');
+  });
 });
 
 describe("order.archived activity", () => {

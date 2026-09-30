@@ -38,15 +38,16 @@ function canonicalPart(value: string | null) {
 }
 
 export function kioskCanonicalPayload(input: KioskOrderInput) {
-  const title = deriveOrderTitle({ description: input.description });
+  const title = deriveOrderTitle({ description: input.descriptionPlain });
   return [
-    "kiosk-payload-v1",
+    "kiosk-payload-v2",
     canonicalPart(title),
     canonicalPart(input.serviceId),
     canonicalPart(input.contact.name),
     canonicalPart(input.contact.email),
     canonicalPart(input.contact.phone),
-    canonicalPart(input.description),
+    canonicalPart(input.descriptionHtml),
+    canonicalPart(input.descriptionPlain),
     canonicalPart(input.dueAt),
     canonicalPart(input.observations),
   ].join("|");
@@ -161,7 +162,7 @@ export async function submitKioskOrder(
       capability,
       permitId,
       input,
-      deriveOrderTitle({ description: input.description })
+      deriveOrderTitle({ description: input.descriptionPlain })
     )
   );
 }

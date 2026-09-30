@@ -1,6 +1,6 @@
 import { isUuid } from "@/lib/team/payload";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
-import { isRichTextEmpty, persistRichText, richTextToPlainText } from "@/lib/rich-text/html";
+import { isRichTextEmpty, persistRichText } from "@/lib/rich-text/html";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -137,7 +137,7 @@ function readWriteFields(payload: Record<string, unknown>): Ok<QuoteWriteInput> 
   return {
     ok: true,
     data: {
-      title: title.value ? richTextToPlainText(title.value).replace(/\s+/g, " ").trim() || null : null,
+      title: title.value,
       description,
       notes,
       valid_until: validUntil.value,

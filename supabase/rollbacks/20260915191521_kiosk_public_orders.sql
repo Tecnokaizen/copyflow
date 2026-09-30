@@ -4,6 +4,10 @@ begin;
 
 drop function if exists public.submit_kiosk_order(
   text, text, bigint, text, text, text, uuid, uuid, text, uuid,
+  text, text, text, text, text, timestamptz, text
+);
+drop function if exists public.submit_kiosk_order(
+  text, text, bigint, text, text, text, uuid, uuid, text, uuid,
   text, text, text, text, timestamptz, text
 );
 drop function if exists public.admit_kiosk_request(

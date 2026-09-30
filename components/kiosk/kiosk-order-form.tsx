@@ -10,6 +10,8 @@ import {
   type KioskFormStep,
 } from "@/lib/kiosk/form-state";
 import type { KioskBootstrapDto } from "@/lib/kiosk/service";
+import { RichTextContent } from "@/components/rich-text/rich-text-content";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import { cn } from "@/lib/utils";
 
 const STEPS: Array<{ id: KioskFormStep; label: string }> = [
@@ -222,18 +224,10 @@ export function KioskOrderForm({
             </select>
           </Field>
           <Field label="Descripción *">
-            {/*
-              Rich text stays off this field. submit_kiosk_order rejects
-              char_length(btrim(p_description)) > 4000 on the raw string.
-              Storing HTML would shrink the 4000-character plain-text limit.
-            */}
-            <textarea
+            <RichTextEditor
               value={state.description}
-              maxLength={4000}
-              rows={5}
-              onChange={(event) => update("description", event.target.value)}
-              className="min-h-32 rounded-lg border bg-background p-3 text-base"
-              placeholder="Cantidad, tamaño, acabado y cualquier detalle importante"
+              onChange={(value) => update("description", value)}
+              ariaLabel="Descripción del pedido"
             />
           </Field>
           <Field label="Fecha deseada">
@@ -277,7 +271,23 @@ export function KioskOrderForm({
               ["Correo", state.email || "—"],
               ["Teléfono", state.phone || "—"],
               ["Servicio", selectedService?.name ?? "—"],
-              ["Descripción", state.description],
+            ].map(([label, value]) => (
+              <div key={label} className="grid gap-1 p-4 sm:grid-cols-[9rem_1fr]">
+                <dt className="text-sm font-semibold text-muted-foreground">
+                  {label}
+                </dt>
+                <dd className="whitespace-pre-wrap text-sm">{value}</dd>
+              </div>
+            ))}
+            <div className="grid gap-1 p-4 sm:grid-cols-[9rem_1fr]">
+              <dt className="text-sm font-semibold text-muted-foreground">
+                Descripción
+              </dt>
+              <dd className="text-sm">
+                <RichTextContent value={state.description} />
+              </dd>
+            </div>
+            {[
               ["Fecha deseada", state.dueAt || "Sin fecha"],
               ["Observaciones", state.observations || "—"],
             ].map(([label, value]) => (

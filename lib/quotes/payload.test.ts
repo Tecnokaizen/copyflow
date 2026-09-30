@@ -31,6 +31,14 @@ describe("quote payloads", () => {
     }
 
     assert.equal(parsed.data.title, "Tarjetas");
+    const titled = parseCreateQuotePayload({
+      description: "Trabajo",
+      title: "Oferta <Especial>",
+    });
+    assert.equal(titled.ok, true);
+    if (titled.ok) {
+      assert.equal(titled.data.title, "Oferta <Especial>");
+    }
     assert.equal(parsed.data.description, "<p>500 tarjetas</p>");
     assert.equal(parsed.data.notes, null);
     assert.equal(parsed.data.valid_until, "2026-10-01");

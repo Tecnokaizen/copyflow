@@ -236,8 +236,12 @@ function formatScalar(field: string, value: unknown): string {
       return "—";
     }
 
-    const plain = richTextToPlainText(value).trim();
-    return plain || "—";
+    if (field === "description" || field === "notes") {
+      const plain = richTextToPlainText(value).trim();
+      return plain || "—";
+    }
+
+    return value.trim() || "—";
   }
 
   return "—";
@@ -476,8 +480,9 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
 
     case "order.content_changed": {
       const label = fieldLabel(field ?? "title");
-      const from = formatScalar("value", prev.value);
-      const to = formatScalar("value", next.value);
+      const scalarField = field ?? "title";
+      const from = formatScalar(scalarField, prev.value);
+      const to = formatScalar(scalarField, next.value);
       const quoted = field === "title";
 
       return singleChange(

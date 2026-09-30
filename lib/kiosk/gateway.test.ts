@@ -22,7 +22,8 @@ const INPUT: KioskOrderInput = {
     phone: null,
   },
   serviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-  description: "Tarjetas",
+  descriptionHtml: "Tarjetas",
+  descriptionPlain: "Tarjetas",
   dueAt: null,
   observations: "Mate",
 };
@@ -120,17 +121,33 @@ describe("kioskInputFingerprint", () => {
   it("binds normalized request content", () => {
     assert.equal(
       kioskCanonicalPayload(INPUT),
-      "kiosk-payload-v1|8:Tarjetas|36:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb|3:Ana|15:ana@example.com|0:|8:Tarjetas|0:|4:Mate"
+      "kiosk-payload-v2|8:Tarjetas|36:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb|3:Ana|15:ana@example.com|0:|8:Tarjetas|8:Tarjetas|0:|4:Mate"
     );
     const fingerprint = kioskInputFingerprint(INPUT);
     assert.equal(
       fingerprint,
-      "f5822604bd71e597cb043d7bc8fa41548e0cd9f9e1c4faf66feaa74f4b75f58f"
+      "b85926d43f8922931fb5393dc1c96a8b4d40312e023319ec92b570c051aecd3f"
     );
     assert.notEqual(
       fingerprint,
-      kioskInputFingerprint({ ...INPUT, description: "Otro pedido" })
+      kioskInputFingerprint({
+        ...INPUT,
+        descriptionHtml: "<p>Otro pedido</p>",
+        descriptionPlain: "Otro pedido",
+      })
     );
+    assert.notEqual(
+      fingerprint,
+      kioskInputFingerprint({
+        ...INPUT,
+        descriptionHtml: "<p>Tarjetas</p><p>extra</p>",
+      })
+    );
+    assert.notEqual(
+      fingerprint,
+      kioskInputFingerprint({ ...INPUT, descriptionPlain: "Otro" })
+    );
+    assert.equal(fingerprint, kioskInputFingerprint({ ...INPUT }));
     for (const altered of [
       { ...INPUT, serviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" },
       { ...INPUT, contact: { ...INPUT.contact, name: "Luis" } },

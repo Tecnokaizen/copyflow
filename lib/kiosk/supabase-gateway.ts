@@ -61,7 +61,8 @@ export function createSupabaseKioskGateway(
           p_contact_name: input.contact.name,
           p_contact_email: input.contact.email,
           p_contact_phone: input.contact.phone,
-          p_description: input.description,
+          p_description: input.descriptionHtml,
+          p_description_plain: input.descriptionPlain,
           p_due_at: input.dueAt,
           p_observations: input.observations,
         })
