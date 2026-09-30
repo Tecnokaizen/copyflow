@@ -1,3 +1,4 @@
+import { richTextToPlainText } from "@/lib/rich-text/html";
 import type { ActivityItem } from "@/lib/orders/types";
 
 export function formatDate(value: string | null) {
@@ -64,10 +65,17 @@ function formatContentField(value: string | undefined) {
   }
 }
 
-function summarizeActivityValue(value: string | null | undefined) {
+function summarizeActivityValue(
+  field: string | undefined,
+  value: string | null | undefined
+) {
   if (!value) return "Sin definir";
 
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const source =
+    field === "description" || field === "notes"
+      ? richTextToPlainText(value)
+      : value;
+  const normalized = source.replace(/\s+/g, " ").trim();
 
   if (normalized.length <= 80) {
     return normalized;
@@ -205,8 +213,8 @@ export function formatActivityText(item: ActivityItem) {
   if (item.action === "order.content_changed") {
     const field = item.metadata.field;
 
-    const from = summarizeActivityValue(item.previous_values?.value);
-    const to = summarizeActivityValue(item.new_values?.value);
+    const from = summarizeActivityValue(field, item.previous_values?.value);
+    const to = summarizeActivityValue(field, item.new_values?.value);
 
     return `${formatContentField(field)}: ${from} → ${to}`;
   }
