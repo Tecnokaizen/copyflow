@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   deriveOrderTitle,
+  normalizePlainTitle,
   userFacingCreateOrderError,
 } from "./create";
 
@@ -52,6 +53,38 @@ describe("deriveOrderTitle", () => {
       "Encuadernación"
     );
     assert.equal(deriveOrderTitle({ title: "", description: "" }), "Pedido");
+  });
+
+  it("keeps an explicit title as plain text", () => {
+    assert.equal(
+      deriveOrderTitle({
+        title: "Carteles <VIP>",
+        description: "<p>Otra cosa</p>",
+      }),
+      "Carteles <VIP>"
+    );
+    assert.equal(normalizePlainTitle("Carteles <VIP>"), "Carteles <VIP>");
+  });
+
+  it("derives a title from rich text without keeping tags", () => {
+    assert.equal(
+      deriveOrderTitle({
+        description: "<p>50 tarjetas a color</p><p>con barniz</p>",
+      }),
+      "50 tarjetas a color"
+    );
+    assert.equal(
+      deriveOrderTitle({
+        description: "<p><strong>Negrita</strong></p><script>alert(1)</script>",
+      }),
+      "Negrita"
+    );
+    assert.equal(
+      deriveOrderTitle({
+        description: "<p>Carteles <strong>VIP</strong></p>",
+      }),
+      "Carteles VIP"
+    );
   });
 
   it("clips at 80 Unicode scalars without leaving broken surrogates", () => {

@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
-import {
-  DraftSelect,
-  DraftTextarea,
-} from "@/components/orders/detail/order-field";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { isRichTextEmpty } from "@/lib/rich-text/html";
+import { DraftSelect } from "@/components/orders/detail/order-field";
 import {
   ARCHIVE_CONFIRM_COPY,
   canShowArchiveAction,
@@ -250,20 +249,19 @@ export function OrderQuickActions({
           description="Se añade a las notas internas y queda registrada en la actividad."
           confirmLabel="Guardar nota"
           busy={busy}
-          confirmDisabled={!note.trim()}
+          confirmDisabled={isRichTextEmpty(note)}
           onCancel={closePanel}
           onConfirm={() => void confirmNote()}
         >
-          <label className="block text-sm font-medium text-foreground">
+          <div className="grid gap-2 text-sm font-medium text-foreground">
             Nota
-            <DraftTextarea
+            <RichTextEditor
+              ariaLabel="Nota"
               value={note}
               disabled={busy}
-              rows={4}
-              className="mt-2 min-h-24 text-base"
               onChange={setNote}
             />
-          </label>
+          </div>
         </ConfirmDialog>
       ) : null}
 

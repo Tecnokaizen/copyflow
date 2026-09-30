@@ -27,14 +27,14 @@ describe("CreateOrderForm payload is shared across modes", () => {
       title: "Tarjetas",
       client_id: "client-1",
       service_id: "service-1",
-      description: "50 color",
+      description: "<p>50 color</p>",
       due_at: "2026-09-15T10:00:00.000Z",
       entry_channel_id: "channel-1",
       order_context_id: null,
       priority: "urgent",
       assigned_team_member_id: "member-1",
       store_id: "store-1",
-      notes: "interno",
+      notes: "<p>interno</p>",
     });
   });
 
@@ -96,14 +96,14 @@ describe("CreateOrderForm payload is shared across modes", () => {
         title: "Tarjetas",
         client_id: "client-1",
         service_id: "service-1",
-        description: "50 color",
+        description: "<p>50 color</p>",
         due_at: "2026-09-15T10:00:00.000Z",
         entry_channel_id: "channel-1",
         order_context_id: null,
         priority: "urgent",
         assigned_team_member_id: "member-1",
         store_id: "store-1",
-        notes: "interno",
+        notes: "<p>interno</p>",
       }
     );
   });

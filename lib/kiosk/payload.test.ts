@@ -37,7 +37,8 @@ describe("parseKioskOrderPayload", () => {
         phone: "600 123 123",
       },
       serviceId: SERVICE_ID,
-      description: "200 tarjetas a color",
+      descriptionHtml: "<p>200 tarjetas a color</p>",
+      descriptionPlain: "200 tarjetas a color",
       dueAt: "2026-09-20T10:30:00.000Z",
       observations: "Papel mate",
     });
@@ -109,6 +110,59 @@ describe("parseKioskOrderPayload", () => {
         .ok,
       false
     );
+  });
+
+  it("stores canonical HTML and measures 4000 visible characters", () => {
+    const plain = "x".repeat(4000);
+    const wrapped = parseKioskOrderPayload(
+      validPayload({ description: `<p><strong>${plain}</strong></p>` })
+    );
+    assert.equal(wrapped.ok, true);
+    if (!wrapped.ok) return;
+    assert.equal(wrapped.data.descriptionPlain, plain);
+    assert.equal(wrapped.data.descriptionPlain.length, 4000);
+    assert.equal(
+      wrapped.data.descriptionHtml,
+      `<p><strong>${plain}</strong></p>`
+    );
+    assert.equal(
+      parseKioskOrderPayload(validPayload({ description: "x".repeat(4001) })).ok,
+      false
+    );
+    assert.equal(
+      parseKioskOrderPayload(
+        validPayload({ description: `<p>${"y".repeat(4001)}</p>` })
+      ).ok,
+      false
+    );
+  });
+
+  it("rejects absurd canonical HTML without shrinking normal formatting", () => {
+    const href = `https://example.com/${"a".repeat(800)}`;
+    const huge = Array.from(
+      { length: 300 },
+      () => `<p><a href="${href}">ok</a></p>`
+    ).join("");
+    assert.equal(huge.length > 200_000, true);
+    assert.equal(
+      parseKioskOrderPayload(validPayload({ description: huge })).ok,
+      false
+    );
+  });
+
+  it("keeps observations as plain text and strips dangerous description markup", () => {
+    const attack = parseKioskOrderPayload(
+      validPayload({
+        description:
+          '<p>Hola</p><script>alert(1)</script><img src=x onerror="alert(1)"><a href="javascript:alert(1)">x</a>',
+        observations: "ver <detalle>",
+      })
+    );
+    assert.equal(attack.ok, true);
+    if (!attack.ok) return;
+    assert.equal(attack.data.descriptionPlain, "Hola\nx");
+    assert.equal(/<script\b|onerror\s*=|javascript:/i.test(attack.data.descriptionHtml), false);
+    assert.equal(attack.data.observations, "ver <detalle>");
   });
 });
 

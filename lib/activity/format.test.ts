@@ -112,6 +112,42 @@ describe("quote activity", () => {
   });
 });
 
+describe("narrative activity", () => {
+  it("shows plain text when the stored value is HTML", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "order.content_changed",
+        entity_type: "order",
+        entity_label: "DEMO-0204",
+        changed_field: "description",
+        previous_values: { value: "Texto plano" },
+        new_values: {
+          value: '<p>Hola <strong>mundo</strong></p><script>alert(1)</script>',
+        },
+        metadata: { reference: "DEMO-0204", field: "description" },
+      })
+    );
+    const change = formatted.changes[0];
+    assert.equal(change?.to, "Hola mundo");
+    assert.equal(/<p>|<strong>|<script/i.test(`${change?.from} ${change?.to}`), false);
+  });
+
+  it("keeps angle brackets in a plain title", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "order.content_changed",
+        entity_type: "order",
+        entity_label: "DEMO-0204",
+        changed_field: "title",
+        previous_values: { value: "Antes" },
+        new_values: { value: "Carteles <VIP>" },
+        metadata: { reference: "DEMO-0204", field: "title" },
+      })
+    );
+    assert.equal(formatted.changes[0]?.to, '"Carteles <VIP>"');
+  });
+});
+
 describe("order.archived activity", () => {
   it("M. formats archive events without exposing raw IDs", () => {
     const formatted = formatActivityEvent(

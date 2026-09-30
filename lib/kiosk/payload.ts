@@ -1,3 +1,11 @@
+import {
+  normalizeRichText,
+  richTextToPlainText,
+} from "@/lib/rich-text/html";
+
+export const KIOSK_DESCRIPTION_PLAIN_MAX = 4000;
+export const KIOSK_DESCRIPTION_HTML_MAX = 200_000;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -12,7 +20,8 @@ export type KioskOrderInput = {
   submissionId: string;
   contact: KioskContactInput;
   serviceId: string;
-  description: string;
+  descriptionHtml: string;
+  descriptionPlain: string;
   dueAt: string | null;
   observations: string | null;
 };
@@ -77,10 +86,11 @@ export function parseKioskOrderPayload(input: unknown): ParseResult {
     typeof contact.name === "string" ? contact.name.trim() : "";
   const email = optionalText(contact.email, 254);
   const phone = optionalText(contact.phone, 40);
-  const description =
+  const descriptionHtml =
     typeof payload.description === "string"
-      ? payload.description.trim()
+      ? normalizeRichText(payload.description)
       : "";
+  const descriptionPlain = richTextToPlainText(descriptionHtml).trim();
   const observations = optionalText(payload.observations, 2000);
 
   if (
@@ -92,8 +102,9 @@ export function parseKioskOrderPayload(input: unknown): ParseResult {
     !phone.ok ||
     (!email.value && !phone.value) ||
     (email.value && !EMAIL_PATTERN.test(email.value)) ||
-    !description ||
-    description.length > 4000 ||
+    !descriptionPlain ||
+    descriptionPlain.length > KIOSK_DESCRIPTION_PLAIN_MAX ||
+    descriptionHtml.length > KIOSK_DESCRIPTION_HTML_MAX ||
     !observations.ok
   ) {
     return { ok: false, error: "Solicitud no válida" };
@@ -121,7 +132,8 @@ export function parseKioskOrderPayload(input: unknown): ParseResult {
         phone: phone.value,
       },
       serviceId: String(payload.service_id).toLowerCase(),
-      description,
+      descriptionHtml,
+      descriptionPlain,
       dueAt,
       observations: observations.value,
     },

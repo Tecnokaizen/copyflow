@@ -1,3 +1,5 @@
+import { persistRichText } from "@/lib/rich-text/html";
+
 export type CreateOrderPayloadInput = {
   title: string;
   clientId: string | null;
@@ -19,14 +21,14 @@ export function buildCreateOrderPayload(input: CreateOrderPayloadInput) {
     title: input.title,
     client_id: input.clientId,
     service_id: input.serviceId || null,
-    description: input.description.trim() || null,
+    description: persistRichText(input.description),
     due_at: input.dueAtIso,
     entry_channel_id: input.entryChannelId || null,
     order_context_id: input.orderContextId || null,
     priority: input.priority,
     assigned_team_member_id: input.assignedTeamMemberId || null,
     store_id: input.storeId || null,
-    notes: input.notes.trim() || null,
+    notes: persistRichText(input.notes),
     ...(input.fileStatusId !== undefined ? { file_status_id: input.fileStatusId || null } : {}),
   };
 }

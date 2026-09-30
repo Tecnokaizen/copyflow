@@ -1,4 +1,5 @@
 import { canWriteServices } from "@/lib/auth/membership-roles";
+import { persistRichText } from "@/lib/rich-text/html";
 
 export type ServiceItem = {
   id: string;
@@ -286,7 +287,7 @@ export function formToServicePayload(
     data: {
       category_id: form.category_id.trim() || null,
       name,
-      description: form.description.trim() || null,
+      description: persistRichText(form.description),
       standard_lead_time_minutes: leadTime.value,
       requires_file: form.requires_file,
       requires_design: form.requires_design,

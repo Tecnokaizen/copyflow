@@ -61,6 +61,11 @@ declare
   v_bootstrap_signature text;
   v_result jsonb;
   v_count integer;
+  v_rich_key text := repeat('c', 64);
+  v_rich_order uuid := 'ac000000-0000-4000-8000-000000000043';
+  v_rich_html text := '<p>Tarjetas <strong>mate</strong></p>';
+  v_rich_plain text := 'Tarjetas mate';
+  v_stored text;
 begin
   insert into public.tenants (id, name, slug, active) values
     (v_tenant_demo, 'DEMO Phase12', 'demo-phase12', true),
@@ -146,9 +151,10 @@ begin
     'ana@example.com',
     null,
     'Tarjetas',
+    'Tarjetas',
     null,
     'Mate'
-  ) <> 'f5822604bd71e597cb043d7bc8fa41548e0cd9f9e1c4faf66feaa74f4b75f58f' then
+  ) <> 'b85926d43f8922931fb5393dc1c96a8b4d40312e023319ec92b570c051aecd3f' then
     raise exception 'FAIL Node/Postgres canonical fingerprint vector';
   end if;
 
@@ -159,6 +165,7 @@ begin
     'ana@example.com',
     null,
     '200 tarjetas',
+    '200 tarjetas',
     null,
     'Papel mate'
   );
@@ -168,6 +175,7 @@ begin
     'Ana Ruiz',
     'ana@example.com',
     null,
+    'Cross tenant',
     'Cross tenant',
     null,
     null
@@ -197,21 +205,21 @@ begin
   end if;
   if has_function_privilege(
     'anon',
-    'kiosk_private.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
+    'kiosk_private.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL anon can execute private submit directly';
   end if;
   if not has_function_privilege(
     'anon',
-    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL anon lacks minimal public submit wrapper';
   end if;
   if has_function_privilege(
     'service_role',
-    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)',
+    'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,text,timestamptz,text)',
     'EXECUTE'
   ) then
     raise exception 'FAIL service_role can execute Kiosk submit';
@@ -298,7 +306,7 @@ begin
     'bootstrap', 'bootstrap', v_bootstrap_signature,
     v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    '200 tarjetas', null, 'Papel mate'
+    '200 tarjetas', '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL bootstrap signature crossed into submit: %', v_result;
@@ -314,7 +322,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    '200 tarjetas', null, 'Papel mate'
+    '200 tarjetas', '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'created' then
     raise exception 'FAIL submit: %', v_result;
@@ -326,7 +334,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    '200 tarjetas', null, 'Papel mate'
+    '200 tarjetas', '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'invalid_request' then
     raise exception 'FAIL permit replay was accepted: %', v_result;
@@ -352,7 +360,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit_2, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    '200 tarjetas', null, 'Papel mate'
+    '200 tarjetas', '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'replay' then
     raise exception 'FAIL fresh-permit replay: %', v_result;
@@ -378,7 +386,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000099',
     'Otro', v_service_demo, 'Ana Ruiz',
-    'ana@example.com', null, 'Otro', null, null
+    'ana@example.com', null, 'Otro', 'Otro', null, null
   );
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered submission reused signature: %', v_result;
@@ -391,7 +399,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit_3, v_order, 'Alterado',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    'Alterado', null, null
+    'Alterado', 'Alterado', null, null
   );
   if v_result ->> 'status' <> 'not_found' then
     raise exception 'FAIL altered payload kept original fingerprint: %', v_result;
@@ -402,7 +410,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit_3, v_order, '200 tarjetas',
     v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
-    '200 tarjetas', null, 'Papel mate'
+    '200 tarjetas', '200 tarjetas', null, 'Papel mate'
   );
   if v_result ->> 'status' <> 'replay' then
     raise exception 'FAIL tampering consumed the valid one-shot permit: %', v_result;
@@ -431,7 +439,7 @@ begin
     'submit', v_binding, v_signature,
     v_permit_3, 'ac000000-0000-4000-8000-000000000098',
     'Cross tenant', v_service_sur4, 'Ana Ruiz',
-    'ana@example.com', null, 'Cross tenant', null, null
+    'ana@example.com', null, 'Cross tenant', 'Cross tenant', null, null
   );
   if v_result ->> 'status' <> 'invalid_service' then
     raise exception 'FAIL cross-tenant service: %', v_result;
@@ -510,6 +518,143 @@ begin
     and a.metadata ->> 'source' = 'internal';
   if v_count <> 1 then
     raise exception 'FAIL internal audit regression';
+  end if;
+
+  -- Rich description uses a fresh client key so it does not consume
+  -- the five-admit rate bucket asserted above.
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_rich_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  if v_result ->> 'status' <> 'admitted' then
+    raise exception 'FAIL rich admission: %', v_result;
+  end if;
+  v_permit := (v_result ->> 'permit')::uuid;
+  v_fingerprint := kiosk_private.kiosk_payload_fingerprint(
+    v_rich_plain,
+    v_service_demo,
+    'Ana Ruiz',
+    'ana@example.com',
+    null,
+    v_rich_html,
+    v_rich_plain,
+    null,
+    'ver <detalle>'
+  );
+  v_binding := v_permit::text || '|' || v_rich_order::text || '|' || v_fingerprint;
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_rich_key,
+    v_issued_at, v_binding
+  );
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_rich_order, v_rich_plain,
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '<p>Alterado</p>', v_rich_plain, null, 'ver <detalle>'
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL tampered description html: %', v_result;
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_rich_order, v_rich_plain,
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    v_rich_html, 'Alterado', null, 'ver <detalle>'
+  );
+  if v_result ->> 'status' <> 'not_found' then
+    raise exception 'FAIL tampered description plain: %', v_result;
+  end if;
+
+  if exists (
+    select 1
+    from kiosk_private.kiosk_request_permits
+    where id = v_permit
+      and consumed_at is not null
+  ) then
+    raise exception 'FAIL tamper consumed the rich-text permit';
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_rich_order, v_rich_plain,
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    v_rich_html, repeat('x', 4001), null, 'ver <detalle>'
+  );
+  if v_result ->> 'status' <> 'invalid_request' then
+    raise exception 'FAIL 4001 plain chars: %', v_result;
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_rich_order, v_rich_plain,
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    repeat('a', 200001), 'a', null, null
+  );
+  if v_result ->> 'status' <> 'invalid_request' then
+    raise exception 'FAIL oversized canonical html: %', v_result;
+  end if;
+
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit, v_rich_order, v_rich_plain,
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    v_rich_html, v_rich_plain, null, 'ver <detalle>'
+  );
+  if v_result ->> 'status' <> 'created' then
+    raise exception 'FAIL rich submit: %', v_result;
+  end if;
+
+  select o.description, o.title, o.notes
+  into v_stored, v_rich_plain, v_rich_html
+  from public.orders o
+  where o.id = v_rich_order;
+  if v_stored <> '<p>Tarjetas <strong>mate</strong></p>' then
+    raise exception 'FAIL stored description lost HTML: %', v_stored;
+  end if;
+  if v_rich_plain <> 'Tarjetas mate' then
+    raise exception 'FAIL stored title was not plain: %', v_rich_plain;
+  end if;
+  if position('ver <detalle>' in v_rich_html) = 0 then
+    raise exception 'FAIL observations were not stored as plain text: %', v_rich_html;
+  end if;
+
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'admit', 'demo-phase12', v_rich_key,
+    v_issued_at, 'request'
+  );
+  v_result := public.admit_kiosk_request(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'admit', 'request', v_signature
+  );
+  if v_result ->> 'status' <> 'admitted' then
+    raise exception 'FAIL rich replay admission: %', v_result;
+  end if;
+  v_permit_2 := (v_result ->> 'permit')::uuid;
+  v_binding := v_permit_2::text || '|' || v_rich_order::text || '|' || v_fingerprint;
+  v_signature := pg_temp.kiosk_signature(
+    v_secret, 'submit', 'demo-phase12', v_rich_key,
+    v_issued_at, v_binding
+  );
+  v_result := public.submit_kiosk_order(
+    'demo-phase12', v_rich_key, v_issued_at,
+    'submit', v_binding, v_signature,
+    v_permit_2, v_rich_order, 'Tarjetas mate',
+    v_service_demo, 'Ana Ruiz', 'ana@example.com', null,
+    '<p>Tarjetas <strong>mate</strong></p>', 'Tarjetas mate', null, 'ver <detalle>'
+  );
+  if v_result ->> 'status' <> 'replay' then
+    raise exception 'FAIL rich replay: %', v_result;
   end if;
 end;
 $phase12$;

@@ -16,6 +16,9 @@ begin
        'public.admit_kiosk_request(text,text,bigint,text,text,text)'
      ) is not null
      or to_regprocedure(
+       'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,text,timestamptz,text)'
+     ) is not null
+     or to_regprocedure(
        'public.submit_kiosk_order(text,text,bigint,text,text,text,uuid,uuid,text,uuid,text,text,text,text,timestamptz,text)'
      ) is not null then
     raise exception 'ROLLBACK FAIL: public Kiosk wrapper still exists';

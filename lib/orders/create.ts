@@ -1,3 +1,5 @@
+import { richTextToPlainText } from "@/lib/rich-text/html";
+
 const TITLE_MAX_LENGTH = 80;
 
 function firstLine(value: string) {
@@ -19,17 +21,21 @@ function clipTitle(value: string) {
   return scalars.join("").trimEnd();
 }
 
+export function normalizePlainTitle(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function deriveOrderTitle(input: {
   title?: string | null;
   description?: string | null;
   serviceName?: string | null;
 }): string {
-  const explicit = input.title?.trim();
+  const explicit = normalizePlainTitle(input.title);
   if (explicit) {
-    return clipTitle(explicit);
+    return clipTitle(firstLine(explicit));
   }
 
-  const fromDescription = firstLine(input.description ?? "");
+  const fromDescription = firstLine(richTextToPlainText(input.description));
   if (fromDescription) {
     return clipTitle(fromDescription);
   }

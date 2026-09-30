@@ -133,8 +133,8 @@ permit_one="$(psql_value "select public.admit_kiosk_request('$SLUG','$CLIENT_KEY
 permit_two="$(psql_value "select public.admit_kiosk_request('$SLUG','$CLIENT_KEY',$ISSUED_AT,'admit','request','$ADMIT_SIGNATURE')->>'permit';")"
 order_one="ac000000-0000-4000-8000-000000000071"
 order_two="ac000000-0000-4000-8000-000000000072"
-fingerprint_one="$(psql_value "select kiosk_private.kiosk_payload_fingerprint('Concurrente','$SERVICE_ID','Ana','ana@example.com',null,'Concurrente',null,null);")"
-fingerprint_two="$(psql_value "select kiosk_private.kiosk_payload_fingerprint('Después','$SERVICE_ID','Ana','ana@example.com',null,'Después',null,null);")"
+fingerprint_one="$(psql_value "select kiosk_private.kiosk_payload_fingerprint('Concurrente','$SERVICE_ID','Ana','ana@example.com',null,'Concurrente','Concurrente',null,null);")"
+fingerprint_two="$(psql_value "select kiosk_private.kiosk_payload_fingerprint('Después','$SERVICE_ID','Ana','ana@example.com',null,'Después','Después',null,null);")"
 binding_one="$permit_one|$order_one|$fingerprint_one"
 binding_two="$permit_two|$order_two|$fingerprint_two"
 signature_one="$(sign submit "$binding_one")"
@@ -142,10 +142,10 @@ signature_two="$(sign submit "$binding_two")"
 
 run_lock_race \
   "submit" \
-  "select public.submit_kiosk_order('$SLUG','$CLIENT_KEY',$ISSUED_AT,'submit','$binding_one','$signature_one','$permit_one','$order_one','Concurrente','$SERVICE_ID','Ana','ana@example.com',null,'Concurrente',null,null)->>'status';" \
+  "select public.submit_kiosk_order('$SLUG','$CLIENT_KEY',$ISSUED_AT,'submit','$binding_one','$signature_one','$permit_one','$order_one','Concurrente','$SERVICE_ID','Ana','ana@example.com',null,'Concurrente','Concurrente',null,null)->>'status';" \
   "created"
 before="$(artifacts)"
-status="$(psql_value "select public.submit_kiosk_order('$SLUG','$CLIENT_KEY',$ISSUED_AT,'submit','$binding_two','$signature_two','$permit_two','$order_two','Después','$SERVICE_ID','Ana','ana@example.com',null,'Después',null,null)->>'status';")"
+status="$(psql_value "select public.submit_kiosk_order('$SLUG','$CLIENT_KEY',$ISSUED_AT,'submit','$binding_two','$signature_two','$permit_two','$order_two','Después','$SERVICE_ID','Ana','ana@example.com',null,'Después','Después',null,null)->>'status';")"
 after="$(artifacts)"
 consumed_two="$(psql_value "select consumed_at is not null from kiosk_private.kiosk_request_permits where id='$permit_two';")"
 test "$status" = "not_found"

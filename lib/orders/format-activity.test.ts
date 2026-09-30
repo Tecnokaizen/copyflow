@@ -51,6 +51,83 @@ describe("formatActivityText order.archived", () => {
   });
 });
 
+describe("formatActivityText order.content_changed rich text", () => {
+  it("A. flattens description HTML to human text", () => {
+    const text = formatActivityText(
+      item({
+        action: "order.content_changed",
+        metadata: { field: "description" },
+        previous_values: { value: "<p>Anterior</p>" },
+        new_values: { value: "<p>Texto <strong>negrita</strong></p>" },
+      })
+    );
+
+    assert.equal(text.includes("<p>"), false);
+    assert.equal(text.includes("<strong>"), false);
+    assert.equal(text, "Descripción: Anterior → Texto negrita");
+  });
+
+  it("B. flattens notes HTML to human text", () => {
+    const text = formatActivityText(
+      item({
+        action: "order.content_changed",
+        metadata: { field: "notes" },
+        previous_values: { value: "<p>Nota <em>interna</em></p>" },
+        new_values: { value: "<p>Nota <em>interna</em></p>" },
+      })
+    );
+
+    assert.equal(text.includes("<p>"), false);
+    assert.equal(text.includes("<em>"), false);
+    assert.equal(text, "Notas: Nota interna → Nota interna");
+  });
+
+  it("C. keeps angle brackets in a plain title", () => {
+    const text = formatActivityText(
+      item({
+        action: "order.content_changed",
+        metadata: { field: "title" },
+        previous_values: { value: "Cartelería — pedido 200" },
+        new_values: { value: "Carteles <VIP>" },
+      })
+    );
+
+    assert.equal(text, "Título: Cartelería — pedido 200 → Carteles <VIP>");
+  });
+
+  it("D. truncates description after converting HTML to plain text", () => {
+    const visible = "A".repeat(100);
+    const text = formatActivityText(
+      item({
+        action: "order.content_changed",
+        metadata: { field: "description" },
+        previous_values: { value: "<p>Corta</p>" },
+        new_values: { value: `<p><strong>${visible}</strong></p>` },
+      })
+    );
+    const truncated = `${"A".repeat(77)}...`;
+
+    assert.equal(text.includes("<p>"), false);
+    assert.equal(text.includes("<strong>"), false);
+    assert.equal(text, `Descripción: Corta → ${truncated}`);
+    assert.equal(text.includes(visible), false);
+  });
+
+  it("E. keeps a legacy plain description", () => {
+    const legacy = "Pedido antiguo sin HTML";
+    const text = formatActivityText(
+      item({
+        action: "order.content_changed",
+        metadata: { field: "description" },
+        previous_values: { value: legacy },
+        new_values: { value: legacy },
+      })
+    );
+
+    assert.equal(text, `Descripción: ${legacy} → ${legacy}`);
+  });
+});
+
 describe("formatActivityText order file events", () => {
   it("renders Archivo subido with optional original_name", () => {
     assert.equal(

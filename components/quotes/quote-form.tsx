@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { isRichTextEmpty } from "@/lib/rich-text/html";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
@@ -151,15 +153,15 @@ export function QuoteForm({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || values.description.trim() === "") {
+    if (submitting || isRichTextEmpty(values.description)) {
       return;
     }
 
     onSubmit({
       ...values,
       title: values.title.trim(),
-      description: values.description.trim(),
-      notes: values.notes.trim(),
+      description: values.description,
+      notes: values.notes,
     });
   }
 
@@ -232,21 +234,18 @@ export function QuoteForm({
               }
             />
           </label>
-          <label className="gc-field">
+          <div className="gc-field">
             <span className="gc-field-label">Descripción</span>
-            <textarea
-              className="gc-field-control min-h-32"
-              required
+            <RichTextEditor
+              ariaLabel="Descripción"
               value={values.description}
               disabled={submitting}
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  description: event.target.value,
-                }))
+              invalid={isRichTextEmpty(values.description) && Boolean(error)}
+              onChange={(description) =>
+                setValues((current) => ({ ...current, description }))
               }
             />
-          </label>
+          </div>
         </section>
 
         <section className="grid gap-4">
@@ -261,17 +260,15 @@ export function QuoteForm({
               }
             />
           </div>
-          <label className="gc-field">
+          <div className="gc-field">
             <span className="gc-field-label">Notas</span>
-            <textarea
-              className="gc-field-control min-h-24"
+            <RichTextEditor
+              ariaLabel="Notas"
               value={values.notes}
               disabled={submitting}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, notes: event.target.value }))
-              }
+              onChange={(notes) => setValues((current) => ({ ...current, notes }))}
             />
-          </label>
+          </div>
         </section>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -290,7 +287,7 @@ export function QuoteForm({
           <button
             type="submit"
             className="gc-cta min-h-11"
-            disabled={submitting || !values.description.trim()}
+            disabled={submitting || isRichTextEmpty(values.description)}
           >
             {submitting ? "Guardando…" : submitLabel}
           </button>

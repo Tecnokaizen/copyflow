@@ -1,3 +1,5 @@
+import { persistRichText } from "@/lib/rich-text/html";
+
 export type ClientSummary = {
   id: string;
   customer_type_id: string | null;
@@ -234,7 +236,7 @@ export function toClientPayload(form: ClientFormData) {
     tax_id: form.tax_id.trim() || null,
     email: form.email.trim() || null,
     phone: form.phone.trim() || null,
-    notes: form.notes.trim() || null,
+    notes: persistRichText(form.notes),
   };
 }
 
@@ -252,7 +254,7 @@ export function summaryFromForm(
     tax_id: form.tax_id.trim() || null,
     email: form.email.trim() || null,
     phone: form.phone.trim() || null,
-    notes: form.notes.trim() || null,
+    notes: persistRichText(form.notes),
   };
 }
 

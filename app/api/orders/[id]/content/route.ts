@@ -9,6 +9,8 @@ import { normalizeExternalFolderUrl } from "@/lib/orders/external-folder-url";
 import { mapLifecycleRpcError } from "@/lib/orders/lifecycle-rpc-error";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import { normalizePlainTitle } from "@/lib/orders/create";
+import { persistRichText } from "@/lib/rich-text/html";
 
 const CONTENT_FIELDS = [
   "title",
@@ -32,12 +34,22 @@ function normalizeContentValue(
       return { ok: false };
     }
 
-    const trimmed = rawValue.trim();
+    const trimmed = normalizePlainTitle(rawValue);
     if (!trimmed) {
       return { ok: false };
     }
 
     return { ok: true, value: trimmed };
+  }
+
+  if (field === "description" || field === "notes") {
+    if (rawValue == null) {
+      return { ok: true, value: null };
+    }
+    if (typeof rawValue !== "string") {
+      return { ok: false };
+    }
+    return { ok: true, value: persistRichText(rawValue) };
   }
 
   if (rawValue == null) {

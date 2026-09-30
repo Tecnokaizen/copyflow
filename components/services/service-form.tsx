@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import {
   EMPTY_SERVICE_FORM,
   type ServiceCategory,
@@ -121,16 +122,15 @@ export function ServiceForm({
         </select>
       </label>
 
-      <label className="grid gap-1 text-sm">
+      <div className="grid gap-1 text-sm">
         Descripción
-        <textarea
-          rows={3}
+        <RichTextEditor
+          ariaLabel="Descripción"
           value={form.description}
           disabled={submitting}
-          onChange={(event) => updateField("description", event.target.value)}
-          className={`w-full ${fieldClassName}`}
+          onChange={(description) => updateField("description", description)}
         />
-      </label>
+      </div>
 
       <div className="grid gap-1 text-sm">
         Plazo estándar

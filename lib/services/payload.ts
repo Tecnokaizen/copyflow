@@ -1,4 +1,5 @@
 import { leadTimeToMinutes, type ServicePayload } from "@/lib/services/types";
+import { persistRichText } from "@/lib/rich-text/html";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -168,7 +169,7 @@ export function parseServicePayload(
     data: {
       category_id: categoryId.value,
       name,
-      description: description.value,
+      description: persistRichText(description.value),
       standard_lead_time_minutes: leadTime.value,
       requires_file: requiresFile.value,
       requires_design: requiresDesign.value,

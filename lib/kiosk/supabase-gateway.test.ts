@@ -16,7 +16,8 @@ const input: KioskOrderInput = {
   submissionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   contact: { name: "Ana", email: "ana@example.com", phone: null },
   serviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-  description: "Tarjetas",
+  descriptionHtml: "Tarjetas",
+  descriptionPlain: "Tarjetas",
   dueAt: null,
   observations: "Mate",
 };
@@ -111,6 +112,7 @@ describe("createSupabaseKioskGateway", () => {
       p_contact_email: "ana@example.com",
       p_contact_phone: null,
       p_description: "Tarjetas",
+      p_description_plain: "Tarjetas",
       p_due_at: null,
       p_observations: "Mate",
     });

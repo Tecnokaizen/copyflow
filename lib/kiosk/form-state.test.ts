@@ -26,6 +26,14 @@ describe("Kiosk mobile form state", () => {
       description: "Tarjetas",
     };
     assert.equal(canAdvanceKioskStep("order", order), true);
+    assert.equal(
+      canAdvanceKioskStep("order", { ...order, description: "<p></p>" }),
+      false
+    );
+    assert.equal(
+      canAdvanceKioskStep("order", { ...order, description: "<p><br></p>" }),
+      false
+    );
   });
 
   it("keeps fields and submission id after a retryable error", () => {

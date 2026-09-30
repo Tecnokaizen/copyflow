@@ -1,4 +1,5 @@
 import { formatLeadTimeMinutes } from "@/lib/services/types";
+import { richTextToPlainText } from "@/lib/rich-text/html";
 import {
   ACTION_OPTIONS,
   type ActivityEvent,
@@ -233,6 +234,11 @@ function formatScalar(field: string, value: unknown): string {
   if (typeof value === "string") {
     if (isUuid(value)) {
       return "—";
+    }
+
+    if (field === "description" || field === "notes") {
+      const plain = richTextToPlainText(value).trim();
+      return plain || "—";
     }
 
     return value.trim() || "—";
@@ -474,8 +480,9 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
 
     case "order.content_changed": {
       const label = fieldLabel(field ?? "title");
-      const from = formatScalar("value", prev.value);
-      const to = formatScalar("value", next.value);
+      const scalarField = field ?? "title";
+      const from = formatScalar(scalarField, prev.value);
+      const to = formatScalar(scalarField, next.value);
       const quoted = field === "title";
 
       return singleChange(

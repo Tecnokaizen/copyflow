@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
+import { plainTextSnippet } from "@/lib/rich-text/html";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
 import {
   parseQuoteListQuery,
@@ -253,7 +254,7 @@ export function QuotesList() {
                     <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
                   ) : null}
                 </div>
-                <p className="mt-2 text-sm">{quote.title || quote.description}</p>
+                <p className="mt-2 text-sm">{quote.title || plainTextSnippet(quote.description)}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {quote.client?.name ?? "Sin cliente"}
                   {quote.service?.name ? ` · ${quote.service.name}` : ""}
@@ -312,7 +313,7 @@ export function QuotesList() {
                       </td>
                       <td>{quote.client?.name ?? "—"}</td>
                       <td>
-                        <div>{quote.title || quote.description}</div>
+                        <div>{quote.title || plainTextSnippet(quote.description)}</div>
                         {quote.service?.name ? (
                           <div className="mt-1 text-[0.8125rem] text-muted-foreground">
                             {quote.service.name}

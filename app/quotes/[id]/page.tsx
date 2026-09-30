@@ -13,6 +13,8 @@ import { QuoteActivity } from "@/components/quotes/quote-activity";
 import { QuoteFilesSection } from "@/components/quotes/quote-files-section";
 import { QuoteForm, type QuoteFormValues } from "@/components/quotes/quote-form";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
+import { RichTextContent } from "@/components/rich-text/rich-text-content";
+import { isRichTextEmpty } from "@/lib/rich-text/html";
 import type { ClientSummary } from "@/lib/clients/types";
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteRecord, QuoteStatusRef } from "@/lib/quotes/types";
@@ -361,14 +363,18 @@ export default function QuoteDetailPage() {
                     <Fact label="Título" value={quote.title || "Sin título"} />
                     <div>
                       <dt className="gc-fact-label">Descripción</dt>
-                      <dd className="gc-fact-value mt-1 whitespace-pre-wrap">
-                        {quote.description}
+                      <dd className="gc-fact-value mt-1">
+                        <RichTextContent value={quote.description} />
                       </dd>
                     </div>
                     <div>
                       <dt className="gc-fact-label">Notas</dt>
-                      <dd className="gc-fact-value mt-1 whitespace-pre-wrap">
-                        {quote.notes || "Sin notas"}
+                      <dd className="gc-fact-value mt-1">
+                        {isRichTextEmpty(quote.notes) ? (
+                          "Sin notas"
+                        ) : (
+                          <RichTextContent value={quote.notes} />
+                        )}
                       </dd>
                     </div>
                   </dl>

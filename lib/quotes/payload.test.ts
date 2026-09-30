@@ -31,7 +31,15 @@ describe("quote payloads", () => {
     }
 
     assert.equal(parsed.data.title, "Tarjetas");
-    assert.equal(parsed.data.description, "500 tarjetas");
+    const titled = parseCreateQuotePayload({
+      description: "Trabajo",
+      title: "Oferta <Especial>",
+    });
+    assert.equal(titled.ok, true);
+    if (titled.ok) {
+      assert.equal(titled.data.title, "Oferta <Especial>");
+    }
+    assert.equal(parsed.data.description, "<p>500 tarjetas</p>");
     assert.equal(parsed.data.notes, null);
     assert.equal(parsed.data.valid_until, "2026-10-01");
     assert.equal(parsed.data.client_id, CLIENT);
@@ -101,6 +109,23 @@ describe("quote payloads", () => {
       }).ok,
       false
     );
+  });
+
+  it("rejects visually empty description and strips an API XSS payload", () => {
+    assert.equal(parseCreateQuotePayload({ description: "<p></p>" }).ok, false);
+    assert.equal(parseCreateQuotePayload({ description: "<p><br></p>" }).ok, false);
+    assert.equal(parseCreateQuotePayload({ description: "<p>&nbsp;</p>" }).ok, false);
+
+    const parsed = parseCreateQuotePayload({
+      description:
+        '<p onclick="alert(1)">Hola</p><script>alert(1)</script><img src=x onerror=alert(1)>',
+      notes: '<a href="javascript:alert(1)">nota</a>',
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.equal(parsed.data.description, "<p>Hola</p>");
+    assert.equal(parsed.data.notes?.includes("javascript:"), false);
+    assert.equal(/<script|<img|onclick/i.test(parsed.data.description), false);
   });
 });
 
