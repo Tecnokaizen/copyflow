@@ -222,6 +222,11 @@ export function KioskOrderForm({
             </select>
           </Field>
           <Field label="Descripción *">
+            {/*
+              Rich text stays off this field. submit_kiosk_order rejects
+              char_length(btrim(p_description)) > 4000 on the raw string.
+              Storing HTML would shrink the 4000-character plain-text limit.
+            */}
             <textarea
               value={state.description}
               maxLength={4000}

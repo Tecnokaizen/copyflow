@@ -10,6 +10,8 @@ import { AppShell } from "@/components/gestcopy/app-shell";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
+import { RichTextContent } from "@/components/rich-text/rich-text-content";
+import { isRichTextEmpty } from "@/lib/rich-text/html";
 import {
   clientToForm,
   duplicateMatchLabels,
@@ -239,7 +241,16 @@ function ClientDetailContent() {
           label="Tipo"
           value={client.customer_type_name ?? "Sin definir"}
         />
-        <DetailRow label="Notas" value={client.notes} />
+        <div className="grid gap-1 border-b py-4 last:border-b-0 md:grid-cols-[220px_1fr]">
+          <div className="text-sm font-medium text-muted-foreground">Notas</div>
+          <div className="text-sm">
+            {isRichTextEmpty(client.notes) ? (
+              "—"
+            ) : (
+              <RichTextContent value={client.notes} />
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="mt-6 rounded-lg border bg-card p-6">

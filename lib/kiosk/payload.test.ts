@@ -110,6 +110,30 @@ describe("parseKioskOrderPayload", () => {
       false
     );
   });
+
+  it("measures the 4000 limit on plain text and stores no HTML", () => {
+    const plain = "x".repeat(4000);
+    const wrapped = parseKioskOrderPayload(
+      validPayload({ description: `<p>${plain}</p>` })
+    );
+    assert.equal(wrapped.ok, true);
+    if (wrapped.ok) {
+      assert.equal(wrapped.data.description, plain);
+      assert.equal(wrapped.data.description.includes("<"), false);
+    }
+
+    const attack = parseKioskOrderPayload(
+      validPayload({
+        description: "<script>alert(1)</script>Tarjetas",
+        observations: '<img src=x onerror=alert(1)>Papel',
+      })
+    );
+    assert.equal(attack.ok, true);
+    if (!attack.ok) return;
+    assert.equal(attack.data.description, "Tarjetas");
+    assert.equal(attack.data.observations, "Papel");
+    assert.equal(/script|img|onerror/i.test(attack.data.description), false);
+  });
 });
 
 describe("buildKioskOrderNotes", () => {

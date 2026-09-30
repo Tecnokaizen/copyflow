@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
+import { plainTextSnippet } from "@/lib/rich-text/html";
 import { formatPriority } from "@/lib/orders/format";
 import {
   counterEmptyState,
@@ -164,7 +165,7 @@ function CounterOrderCard({
   variant: CounterViewMode;
 }) {
   const overdue = isOverdueCounterOrder(order, today, timezone);
-  const description = order.description?.trim();
+  const description = plainTextSnippet(order.description);
   const workLine = description && description !== order.title ? description : null;
 
   return (

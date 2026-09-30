@@ -1,3 +1,5 @@
+import { persistRichText } from "@/lib/rich-text/html";
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -69,6 +71,10 @@ export function parseClientPayload(
   const email = normalizeOptionalText(payload.email);
   const phone = normalizeOptionalText(payload.phone);
   const notes = normalizeOptionalText(payload.notes);
+  if (!notes.ok) {
+    return { ok: false };
+  }
+  const safeNotes = persistRichText(notes.value);
 
   if (
     !customerTypeId.ok ||
@@ -92,7 +98,7 @@ export function parseClientPayload(
       tax_id: taxId.value,
       email: email.value,
       phone: phone.value,
-      notes: notes.value,
+      notes: safeNotes,
     },
   };
 }

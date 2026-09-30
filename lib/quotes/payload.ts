@@ -1,5 +1,6 @@
 import { isUuid } from "@/lib/team/payload";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
+import { isRichTextEmpty, persistRichText, richTextToPlainText } from "@/lib/rich-text/html";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -94,19 +95,24 @@ function readWriteFields(payload: Record<string, unknown>): Ok<QuoteWriteInput> 
     return title;
   }
 
-  const description = optionalText(payload.description);
-  if (!description.ok) {
-    return description;
+  if (typeof payload.description !== "string" && payload.description != null) {
+    return { ok: false, error: QUOTE_MESSAGES.invalid };
   }
 
-  if (!description.value) {
+  const description = persistRichText(
+    typeof payload.description === "string" ? payload.description : ""
+  );
+  if (!description || isRichTextEmpty(description)) {
     return { ok: false, error: QUOTE_MESSAGES.description };
   }
 
-  const notes = optionalText(payload.notes);
-  if (!notes.ok) {
-    return notes;
+  if (typeof payload.notes !== "string" && payload.notes != null) {
+    return { ok: false, error: QUOTE_MESSAGES.invalid };
   }
+
+  const notes = persistRichText(
+    typeof payload.notes === "string" ? payload.notes : ""
+  );
 
   const validUntil = optionalDate(payload.valid_until);
   if (!validUntil.ok) {
@@ -131,9 +137,9 @@ function readWriteFields(payload: Record<string, unknown>): Ok<QuoteWriteInput> 
   return {
     ok: true,
     data: {
-      title: title.value,
-      description: description.value,
-      notes: notes.value,
+      title: title.value ? richTextToPlainText(title.value).replace(/\s+/g, " ").trim() || null : null,
+      description,
+      notes,
       valid_until: validUntil.value,
       client_id: clientId.value,
       service_id: serviceId.value,

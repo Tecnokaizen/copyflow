@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
@@ -8,7 +9,7 @@ import {
   buildOrdersListSearchOrClause,
   normalizeOrdersListQuery,
 } from "@/lib/orders/list-search";
-import { createClient } from "@/lib/supabase/server";
+import { persistRichText, richTextToPlainText } from "@/lib/rich-text/html";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import {
   OPERATIVE_ROLES,
@@ -845,7 +846,9 @@ export async function POST(request: NextRequest) {
 
   const payload = body as Record<string, unknown>;
   const title =
-    typeof payload.title === "string" ? payload.title.trim() : "";
+    typeof payload.title === "string"
+      ? richTextToPlainText(payload.title).replace(/\s+/g, " ").trim()
+      : "";
 
   if (!title) {
     return operationalJson(
@@ -879,8 +882,12 @@ export async function POST(request: NextRequest) {
   const orderContextId = emptyToNull(payload.order_context_id);
   const assignedTeamMemberId = emptyToNull(payload.assigned_team_member_id);
   const storeIdResult = parseOptionalStoreId(payload.store_id);
-  const description = emptyToNull(payload.description);
-  const notes = emptyToNull(payload.notes);
+  const description = persistRichText(
+    typeof payload.description === "string" ? payload.description : null
+  );
+  const notes = persistRichText(
+    typeof payload.notes === "string" ? payload.notes : null
+  );
   if (
     payload.file_status_id != null &&
     (typeof payload.file_status_id !== "string" ||

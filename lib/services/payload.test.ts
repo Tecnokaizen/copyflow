@@ -123,6 +123,35 @@ describe("parseServicePayload", () => {
   });
 });
 
+describe("service description", () => {
+  it("stores sanitized HTML and reads it back as plain text for lists", () => {
+    const parsed = parseServicePayload({
+      name: "Copias",
+      description: '<p>Plotter <strong>color</strong></p><script>alert(1)</script>',
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.equal(parsed.data.description, "<p>Plotter <strong>color</strong></p>");
+
+    const form: ServiceFormData = {
+      category_id: "",
+      name: "Copias",
+      description: "Plotter color",
+      lead_time_value: "1",
+      lead_time_unit: "days",
+      requires_file: false,
+      requires_design: false,
+      requires_quote: false,
+      active: true,
+      sort_order: "",
+    };
+    const written = formToServicePayload(form);
+    assert.equal(written.ok, true);
+    if (!written.ok) return;
+    assert.equal(written.data.description, "<p>Plotter color</p>");
+  });
+});
+
 describe("services write authorization and routes", () => {
   const listRoute = readSource("app/api/services/route.ts");
   const patchRoute = readSource("app/api/services/[id]/route.ts");

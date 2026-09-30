@@ -1,3 +1,5 @@
+import { richTextToPlainText } from "@/lib/rich-text/html";
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -50,6 +52,20 @@ function optionalText(
     : { ok: false };
 }
 
+function plainBounded(value: unknown, maxLength: number) {
+  if (value == null || value === "") {
+    return { ok: true as const, value: null };
+  }
+  if (typeof value !== "string") {
+    return { ok: false as const };
+  }
+  const plain = richTextToPlainText(value).trim();
+  if (plain.length > maxLength) {
+    return { ok: false as const };
+  }
+  return { ok: true as const, value: plain || null };
+}
+
 export function parseKioskOrderPayload(input: unknown): ParseResult {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, error: "Solicitud no válida" };
@@ -79,9 +95,9 @@ export function parseKioskOrderPayload(input: unknown): ParseResult {
   const phone = optionalText(contact.phone, 40);
   const description =
     typeof payload.description === "string"
-      ? payload.description.trim()
+      ? richTextToPlainText(payload.description).trim()
       : "";
-  const observations = optionalText(payload.observations, 2000);
+  const observations = plainBounded(payload.observations, 2000);
 
   if (
     !UUID_PATTERN.test(String(payload.submission_id ?? "")) ||

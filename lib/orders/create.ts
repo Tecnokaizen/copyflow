@@ -1,3 +1,5 @@
+import { richTextToPlainText } from "@/lib/rich-text/html";
+
 const TITLE_MAX_LENGTH = 80;
 
 function firstLine(value: string) {
@@ -24,12 +26,12 @@ export function deriveOrderTitle(input: {
   description?: string | null;
   serviceName?: string | null;
 }): string {
-  const explicit = input.title?.trim();
+  const explicit = richTextToPlainText(input.title).trim();
   if (explicit) {
-    return clipTitle(explicit);
+    return clipTitle(firstLine(explicit));
   }
 
-  const fromDescription = firstLine(input.description ?? "");
+  const fromDescription = firstLine(richTextToPlainText(input.description));
   if (fromDescription) {
     return clipTitle(fromDescription);
   }

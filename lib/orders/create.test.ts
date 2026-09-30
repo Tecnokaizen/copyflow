@@ -54,6 +54,21 @@ describe("deriveOrderTitle", () => {
     assert.equal(deriveOrderTitle({ title: "", description: "" }), "Pedido");
   });
 
+  it("derives a title from rich text without keeping tags", () => {
+    assert.equal(
+      deriveOrderTitle({
+        description: "<p>50 tarjetas a color</p><p>con barniz</p>",
+      }),
+      "50 tarjetas a color"
+    );
+    assert.equal(
+      deriveOrderTitle({
+        description: "<p><strong>Negrita</strong></p><script>alert(1)</script>",
+      }),
+      "Negrita"
+    );
+  });
+
   it("clips at 80 Unicode scalars without leaving broken surrogates", () => {
     const clipped = deriveOrderTitle({
       title: `${"a".repeat(79)}😀fin`,

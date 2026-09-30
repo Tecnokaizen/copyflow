@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import {
   EMPTY_CLIENT_FORM,
   duplicateMatchLabels,
@@ -184,16 +185,15 @@ export function ClientForm({
         />
       </label>
 
-      <label className="grid gap-1 text-sm">
+      <div className="grid gap-1 text-sm">
         Notas
-        <textarea
-          rows={4}
+        <RichTextEditor
+          ariaLabel="Notas"
           value={form.notes}
           disabled={submitting}
-          onChange={(event) => updateField("notes", event.target.value)}
-          className={`w-full ${fieldClassName}`}
+          onChange={(notes) => updateField("notes", notes)}
         />
-      </label>
+      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { RichTextContent } from "@/components/rich-text/rich-text-content";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { isRichTextEmpty } from "@/lib/rich-text/html";
 import {
   DraftInput,
   DraftSelect,
-  DraftTextarea,
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
@@ -50,10 +52,10 @@ export function OrderProduction({
     return (
       <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
         <FactRow label="Instrucciones">
-          <DraftTextarea
+          <RichTextEditor
+            ariaLabel="Instrucciones"
             value={draft.description}
             onChange={(value) => onDraftChange({ description: value })}
-            rows={4}
           />
         </FactRow>
         <FactRow label="Estado">
@@ -167,28 +169,27 @@ export function OrderProduction({
     );
   }
 
-  const description = order.description?.trim();
-  const hasNotes = Boolean(order.notes?.trim());
   const serviceName = order.service?.name;
 
   return (
     <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
       <div className="border-b border-border/60 py-4">
         <div className="gc-fact-label">{formatFactLabel("Instrucciones")}</div>
-        {description ? (
-          <p className="gc-fact-value mt-1.5 whitespace-pre-wrap break-words text-base font-medium leading-relaxed">
-            {description}
-          </p>
-        ) : (
+        {isRichTextEmpty(order.description) ? (
           <p className="mt-1.5 text-base text-muted-foreground">
             Sin instrucciones
           </p>
+        ) : (
+          <RichTextContent
+            value={order.description}
+            className="gc-fact-value mt-1.5 text-base font-medium leading-relaxed"
+          />
         )}
-        {hasNotes ? (
+        {isRichTextEmpty(order.notes) ? null : (
           <p className="mt-2 text-sm text-muted-foreground">
             Hay notas internas más abajo.
           </p>
-        ) : null}
+        )}
       </div>
       <FactRow label="Servicio">
         <FactValue value={serviceName} />

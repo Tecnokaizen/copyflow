@@ -1,4 +1,5 @@
 import { formatLeadTimeMinutes } from "@/lib/services/types";
+import { richTextToPlainText } from "@/lib/rich-text/html";
 import {
   ACTION_OPTIONS,
   type ActivityEvent,
@@ -235,7 +236,8 @@ function formatScalar(field: string, value: unknown): string {
       return "—";
     }
 
-    return value.trim() || "—";
+    const plain = richTextToPlainText(value).trim();
+    return plain || "—";
   }
 
   return "—";

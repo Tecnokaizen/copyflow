@@ -112,6 +112,27 @@ describe("quote activity", () => {
   });
 });
 
+describe("narrative activity", () => {
+  it("shows plain text when the stored value is HTML", () => {
+    const formatted = formatActivityEvent(
+      event({
+        action: "order.content_changed",
+        entity_type: "order",
+        entity_label: "DEMO-0204",
+        changed_field: "description",
+        previous_values: { value: "Texto plano" },
+        new_values: {
+          value: '<p>Hola <strong>mundo</strong></p><script>alert(1)</script>',
+        },
+        metadata: { reference: "DEMO-0204", field: "description" },
+      })
+    );
+    const change = formatted.changes[0];
+    assert.equal(change?.to, "Hola mundo");
+    assert.equal(/<p>|<strong>|<script/i.test(`${change?.from} ${change?.to}`), false);
+  });
+});
+
 describe("order.archived activity", () => {
   it("M. formats archive events without exposing raw IDs", () => {
     const formatted = formatActivityEvent(

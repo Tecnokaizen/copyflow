@@ -102,30 +102,3 @@ export function DraftInput({
     />
   );
 }
-
-export function DraftTextarea({
-  value,
-  onChange,
-  disabled,
-  rows = 4,
-  className,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  rows?: number;
-  className?: string;
-}) {
-  return (
-    <textarea
-      rows={rows}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      className={cn(
-        "min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm",
-        className
-      )}
-    />
-  );
-}

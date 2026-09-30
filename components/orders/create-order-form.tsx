@@ -13,10 +13,10 @@ import { ClientSelector } from "@/components/clients/client-selector";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import {
   DraftInput,
   DraftSelect,
-  DraftTextarea,
 } from "@/components/orders/detail/order-field";
 import {
   EMPTY_CLIENT_FORM,
@@ -553,31 +553,29 @@ export function CreateOrderForm({
 
   function renderQuickDescriptionField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
+      <div className="grid gap-2 text-sm font-medium text-foreground">
         Descripción
-        <DraftTextarea
+        <RichTextEditor
+          ariaLabel="Descripción"
           value={description}
           disabled={submitting}
-          rows={4}
-          className="min-h-28 text-base"
           onChange={setDescription}
         />
-      </label>
+      </div>
     );
   }
 
   function renderFullDescriptionField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
+      <div className="grid gap-2 text-sm font-medium text-foreground">
         Instrucciones
-        <DraftTextarea
+        <RichTextEditor
+          ariaLabel="Instrucciones"
           value={description}
           disabled={submitting}
-          rows={5}
-          className="min-h-32 text-base"
           onChange={setDescription}
         />
-      </label>
+      </div>
     );
   }
 
@@ -677,16 +675,15 @@ export function CreateOrderForm({
 
   function renderNotesField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
+      <div className="grid gap-2 text-sm font-medium text-foreground">
         Notas internas
-        <DraftTextarea
+        <RichTextEditor
+          ariaLabel="Notas internas"
           value={notes}
           disabled={submitting}
-          rows={3}
-          className="text-base"
           onChange={setNotes}
         />
-      </label>
+      </div>
     );
   }
 

@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { ServiceForm } from "@/components/services/service-form";
 import { ServiceModal } from "@/components/services/service-modal";
 import { canWriteServices } from "@/lib/auth/membership-roles";
+import { plainTextSnippet } from "@/lib/rich-text/html";
 import {
   EMPTY_SERVICE_FORM,
   formToServicePayload,
@@ -326,11 +327,11 @@ export default function ServicesPage() {
                       >
                         <td className="px-4 py-4">
                           <div className="font-medium">{service.name}</div>
-                          {service.description && (
+                          {plainTextSnippet(service.description) ? (
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {service.description}
+                              {plainTextSnippet(service.description)}
                             </div>
-                          )}
+                          ) : null}
                         </td>
                         <td className="px-4 py-4">
                           {service.category_name ?? "Sin categoría"}
