@@ -10,6 +10,7 @@ type AccessErrorKind =
   | "gone"
   | "invalid"
   | "last_owner"
+  | "inactive_ownership_target"
   | "rate_limited_cooldown"
   | "rate_limited_max"
   | "generic";
@@ -54,6 +55,13 @@ export function classifyAccessRpcError(
 
   if (code === "GTO01" || normalized.includes("last owner required")) {
     return "last_owner";
+  }
+
+  if (
+    code === "GTO02" ||
+    normalized.includes("new owner must be active tenant member")
+  ) {
+    return "inactive_ownership_target";
   }
 
   if (
@@ -122,6 +130,7 @@ export function statusForAccessRpcError(
     case "gone":
       return 410;
     case "invalid":
+    case "inactive_ownership_target":
       return 400;
     case "rate_limited_cooldown":
     case "rate_limited_max":
@@ -145,6 +154,8 @@ export function publicMessageForAccessRpcError(
       return "Esta invitación es para otra cuenta";
     case "last_owner":
       return LAST_OWNER_REQUIRED_MESSAGE;
+    case "inactive_ownership_target":
+      return "El nuevo propietario debe ser un miembro activo de esta organización";
     case "not_found":
       return "Not found";
     case "conflict":

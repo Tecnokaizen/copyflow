@@ -41,6 +41,11 @@ import {
   personalStatusLabel,
 } from "@/lib/access/invitation-personal";
 import {
+  OWNERSHIP_TRANSFER_CONFIRMATION,
+  canTransferTenantOwnership,
+  ownershipTransferTargetLabel,
+} from "@/lib/access/ownership-transfer";
+import {
   invitableRolesForActor,
   membershipRoleDescription,
   membershipRoleLabel,
@@ -58,11 +63,13 @@ type ModalState =
   | { kind: "change_role"; member: AccessMembership }
   | { kind: "link_team"; member: AccessMembership }
   | { kind: "create_member"; member: AccessMembership }
+  | { kind: "transfer_ownership"; member: AccessMembership }
   | { kind: "revoke"; member: AccessMembership }
   | { kind: "reactivate"; member: AccessMembership }
   | { kind: "cancel_invite"; invitation: AccessInvitation };
 
 export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
+  const [currentActorRole, setCurrentActorRole] = useState(actorRole);
   const [data, setData] = useState<AccessListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,10 +86,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
   );
   const [changeRole, setChangeRole] = useState<InvitableRole | "">("");
   const [linkTeamMemberId, setLinkTeamMemberId] = useState("");
+  const [ownershipConfirmation, setOwnershipConfirmation] = useState("");
 
   const assignableRoles = useMemo(
-    () => invitableRolesForActor(actorRole),
-    [actorRole]
+    () => invitableRolesForActor(currentActorRole),
+    [currentActorRole]
   );
 
   const inviteEmailValid = isInviteEmailValid(inviteEmail);
@@ -226,6 +234,43 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         return;
       }
       setFlash(active ? "Acceso reactivado." : "Acceso revocado.");
+      setModal({ kind: "closed" });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitOwnershipTransfer() {
+    if (
+      modal.kind !== "transfer_ownership" ||
+      busy ||
+      ownershipConfirmation !== OWNERSHIP_TRANSFER_CONFIRMATION
+    ) {
+      return;
+    }
+
+    const member = modal.member;
+    setBusy(true);
+    setFormError(null);
+
+    try {
+      const response = await fetch("/api/team/access/ownership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_owner_user_id: member.user_id }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFormError(publicAccessUiError(response.status, payload));
+        return;
+      }
+
+      setCurrentActorRole("admin");
+      setOwnershipConfirmation("");
+      setFlash(
+        `Propiedad transferida a ${ownershipTransferTargetLabel(member)}. Ahora tu rol es Administrador.`
+      );
       setModal({ kind: "closed" });
       await load();
     } finally {
@@ -433,7 +478,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     <MembershipRowDesktop
                       key={member.user_id}
                       member={member}
-                      actorRole={actorRole}
+                      actorRole={currentActorRole}
                       otherActiveOwners={countOtherActiveOwners(
                         memberships,
                         member.user_id
@@ -441,10 +486,10 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                       busy={busy}
                       onChangeRole={() => {
                         setChangeRole(
-                          (invitableRolesForActor(actorRole).find(
+                          (invitableRolesForActor(currentActorRole).find(
                             (role) => role === member.role
                           ) ??
-                            invitableRolesForActor(actorRole)[0] ??
+                            invitableRolesForActor(currentActorRole)[0] ??
                             "") as InvitableRole | ""
                         );
                         setFormError(null);
@@ -454,6 +499,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                         setLinkTeamMemberId(member.team_member?.id ?? "");
                         setFormError(null);
                         setModal({ kind: "link_team", member });
+                      }}
+                      onTransferOwnership={() => {
+                        setOwnershipConfirmation("");
+                        setFormError(null);
+                        setModal({ kind: "transfer_ownership", member });
                       }}
                       onRevoke={() => {
                         setFormError(null);
@@ -473,7 +523,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                   <MembershipCardMobile
                     key={member.user_id}
                     member={member}
-                    actorRole={actorRole}
+                    actorRole={currentActorRole}
                     otherActiveOwners={countOtherActiveOwners(
                       memberships,
                       member.user_id
@@ -481,7 +531,7 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     busy={busy}
                   onChangeRole={() => {
                     setChangeRole(
-                      (invitableRolesForActor(actorRole)[0] ??
+                      (invitableRolesForActor(currentActorRole)[0] ??
                         "") as InvitableRole | ""
                     );
                     setFormError(null);
@@ -491,6 +541,11 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
                     setLinkTeamMemberId(member.team_member?.id ?? "");
                     setFormError(null);
                     setModal({ kind: "link_team", member });
+                  }}
+                  onTransferOwnership={() => {
+                    setOwnershipConfirmation("");
+                    setFormError(null);
+                    setModal({ kind: "transfer_ownership", member });
                   }}
                   onRevoke={() => {
                     setFormError(null);
@@ -984,6 +1039,49 @@ export function AccessPermissionsPanel({ actorRole }: { actorRole: string }) {
         />
       ) : null}
 
+      {modal.kind === "transfer_ownership" ? (
+        <ConfirmDialog
+          title="Transferir propiedad"
+          description={`${ownershipTransferTargetLabel(modal.member)} pasará a ser Propietario de la organización. Tu rol cambiará a Administrador.`}
+          confirmLabel="Transferir propiedad"
+          destructive
+          busy={busy}
+          confirmDisabled={
+            ownershipConfirmation !== OWNERSHIP_TRANSFER_CONFIRMATION
+          }
+          onCancel={() => {
+            setOwnershipConfirmation("");
+            setFormError(null);
+            setModal({ kind: "closed" });
+          }}
+          onConfirm={() => void submitOwnershipTransfer()}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Esta acción cambia quién controla la organización. Escribe{" "}
+              <span className="font-semibold text-foreground">
+                {OWNERSHIP_TRANSFER_CONFIRMATION}
+              </span>{" "}
+              para confirmar.
+            </p>
+            <Input
+              value={ownershipConfirmation}
+              onChange={(event) =>
+                setOwnershipConfirmation(event.target.value.toUpperCase())
+              }
+              disabled={busy}
+              autoComplete="off"
+              aria-label="Confirmar transferencia de propiedad"
+            />
+            {formError ? (
+              <p className="text-sm text-[hsl(var(--gc-danger))]">
+                {formError}
+              </p>
+            ) : null}
+          </div>
+        </ConfirmDialog>
+      ) : null}
+
       {modal.kind === "reactivate" ? (
         <ConfirmDialog
           title="Reactivar acceso"
@@ -1083,6 +1181,7 @@ function MembershipRowDesktop({
   busy,
   onChangeRole,
   onLinkTeam,
+  onTransferOwnership,
   onRevoke,
   onReactivate,
 }: {
@@ -1092,6 +1191,7 @@ function MembershipRowDesktop({
   busy: boolean;
   onChangeRole: () => void;
   onLinkTeam: () => void;
+  onTransferOwnership: () => void;
   onRevoke: () => void;
   onReactivate: () => void;
 }) {
@@ -1167,6 +1267,16 @@ function MembershipRowDesktop({
               {lastOwnerMessage}
             </p>
           ) : null}
+          {canTransferTenantOwnership(actorRole, member) ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onTransferOwnership}
+              className="gc-action-danger"
+            >
+              Transferir propiedad
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}
@@ -1188,6 +1298,7 @@ function MembershipCardMobile({
   busy,
   onChangeRole,
   onLinkTeam,
+  onTransferOwnership,
   onRevoke,
   onReactivate,
 }: {
@@ -1197,6 +1308,7 @@ function MembershipCardMobile({
   busy: boolean;
   onChangeRole: () => void;
   onLinkTeam: () => void;
+  onTransferOwnership: () => void;
   onRevoke: () => void;
   onReactivate: () => void;
 }) {
@@ -1282,6 +1394,16 @@ function MembershipCardMobile({
           </>
         ) : lastOwnerMessage ? (
           <p className="text-xs text-muted-foreground">{lastOwnerMessage}</p>
+        ) : null}
+        {canTransferTenantOwnership(actorRole, member) ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onTransferOwnership}
+            className="gc-action-danger"
+          >
+            Transferir propiedad
+          </button>
         ) : null}
         <button
           type="button"

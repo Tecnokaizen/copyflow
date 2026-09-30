@@ -101,6 +101,12 @@ export function publicAccessUiError(
   ) {
     return LAST_OWNER_REQUIRED_MESSAGE;
   }
+  if (payload?.code === "GTO02") {
+    return (
+      payload.error ??
+      "El nuevo propietario debe ser un miembro activo de esta organización."
+    );
+  }
   if (payload?.code === "email_delivery_failed") {
     return "La invitación se creó, pero no se pudo enviar el email. Prueba a reenviar.";
   }

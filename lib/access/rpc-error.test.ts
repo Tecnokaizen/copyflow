@@ -26,6 +26,18 @@ describe("last owner protection errors", () => {
     );
   });
 
+  it("maps an inactive ownership target to a safe client error", () => {
+    assert.equal(
+      classifyAccessRpcError("GTO02"),
+      "inactive_ownership_target"
+    );
+    assert.equal(statusForAccessRpcError("GTO02"), 400);
+    assert.match(
+      publicMessageForAccessRpcError("GTO02"),
+      /miembro activo/i
+    );
+  });
+
   it("joins message, details and hint for classification", () => {
     const digest = rpcErrorDigest({
       code: "42501",
