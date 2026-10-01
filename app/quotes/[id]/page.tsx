@@ -273,23 +273,33 @@ export default function QuoteDetailPage() {
             title={quote.reference}
             description={quote.title || "Presupuesto"}
             actions={
-              quote.converted_order ? (
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
                 <Link
-                  href={`/orders/${quote.converted_order.id}`}
-                  className="gc-cta min-h-11 w-full sm:w-auto"
+                  href={`/quotes/${quote.id}/print`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="gc-action min-h-11 w-full sm:w-auto"
                 >
-                  Abrir pedido {quote.converted_order.reference}
+                  Imprimir presupuesto
                 </Link>
-              ) : (
-                <button
-                  type="button"
-                  onClick={convert}
-                  disabled={converting}
-                  className="gc-cta min-h-11 w-full sm:w-auto"
-                >
-                  {converting ? "Convirtiendo…" : "Convertir en pedido"}
-                </button>
-              )
+                {quote.converted_order ? (
+                  <Link
+                    href={`/orders/${quote.converted_order.id}`}
+                    className="gc-cta min-h-11 w-full sm:w-auto"
+                  >
+                    Abrir pedido {quote.converted_order.reference}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={convert}
+                    disabled={converting}
+                    className="gc-cta min-h-11 w-full sm:w-auto"
+                  >
+                    {converting ? "Convirtiendo…" : "Convertir en pedido"}
+                  </button>
+                )}
+              </div>
             }
           />
 
