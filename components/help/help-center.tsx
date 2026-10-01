@@ -1,9 +1,15 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
-import { parseHelpMarkdown } from "@/lib/help/markdown";
+import {
+  helpPlainText,
+  parseHelpInline,
+  parseHelpMarkdown,
+  type HelpInline,
+} from "@/lib/help/markdown";
 import { searchHelpArticles } from "@/lib/help/search";
 import { cn } from "@/lib/utils";
 
@@ -150,6 +156,50 @@ export function HelpNavigation({
   );
 }
 
+function HelpInlineText({ text }: { text: string }) {
+  return <>{renderHelpInline(parseHelpInline(text))}</>;
+}
+
+function renderHelpInline(nodes: HelpInline[], keyPrefix = "h"): ReactNode[] {
+  return nodes.map((node, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (node.type === "text") return node.text;
+    if (node.type === "strong") {
+      return (
+        <strong key={key} className="font-semibold text-foreground">
+          {renderHelpInline(node.children, key)}
+        </strong>
+      );
+    }
+    if (node.type === "em") {
+      return <em key={key}>{renderHelpInline(node.children, key)}</em>;
+    }
+    if (node.type === "code") {
+      return (
+        <code
+          key={key}
+          className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[0.875em]"
+        >
+          {node.text}
+        </code>
+      );
+    }
+    const external = node.href.startsWith("http");
+    return (
+      <a
+        key={key}
+        href={node.href}
+        className="text-primary underline-offset-2 hover:underline"
+        {...(external
+          ? { target: "_blank", rel: "noopener noreferrer" }
+          : {})}
+      >
+        {node.text}
+      </a>
+    );
+  });
+}
+
 export function HelpArticleBody({ source }: { source: string }) {
   const blocks = parseHelpMarkdown(source);
   const toc = blocks.filter((block) => block.type === "h2");
@@ -164,7 +214,7 @@ export function HelpArticleBody({ source }: { source: string }) {
                 key={block.id}
                 className="scroll-mt-20 pt-4 text-xl font-semibold tracking-tight"
               >
-                {block.text}
+                <HelpInlineText text={block.text} />
               </h2>
             );
           }
@@ -175,15 +225,17 @@ export function HelpArticleBody({ source }: { source: string }) {
                 key={block.id}
                 className="scroll-mt-20 pt-2 text-lg font-semibold tracking-tight"
               >
-                {block.text}
+                <HelpInlineText text={block.text} />
               </h3>
             );
           }
           if (block.type === "ul") {
             return (
               <ul key={index} className="list-disc space-y-1.5 pl-5">
-                {block.items.map((item) => (
-                  <li key={item}>{item}</li>
+                {block.items.map((item, itemIndex) => (
+                  <li key={`${itemIndex}-${item}`}>
+                    <HelpInlineText text={item} />
+                  </li>
                 ))}
               </ul>
             );
@@ -191,13 +243,19 @@ export function HelpArticleBody({ source }: { source: string }) {
           if (block.type === "ol") {
             return (
               <ol key={index} className="list-decimal space-y-1.5 pl-5">
-                {block.items.map((item) => (
-                  <li key={item}>{item}</li>
+                {block.items.map((item, itemIndex) => (
+                  <li key={`${itemIndex}-${item}`}>
+                    <HelpInlineText text={item} />
+                  </li>
                 ))}
               </ol>
             );
           }
-          return <p key={index}>{block.text}</p>;
+          return (
+            <p key={index}>
+              <HelpInlineText text={block.text} />
+            </p>
+          );
         })}
       </article>
       {toc.length > 1 ? (
@@ -213,7 +271,7 @@ export function HelpArticleBody({ source }: { source: string }) {
                     href={`#${item.id}`}
                     className="text-sm text-muted-foreground hover:text-foreground"
                   >
-                    {item.text}
+                    {helpPlainText(item.text)}
                   </a>
                 </li>
               ) : null
@@ -228,7 +286,7 @@ export function HelpArticleBody({ source }: { source: string }) {
 export function HelpRelated({ links }: { links: HelpRelatedLink[] }) {
   if (links.length === 0) return null;
   return (
-    <section className="mt-10 rounded-lg border border-border/80 p-4" aria-labelledby="help-related">
+    <section className="mt-10 rounded-lg border border-border/80 p-4 dark:bg-card" aria-labelledby="help-related">
       <h2 id="help-related" className="text-base font-semibold">
         Relacionado
       </h2>

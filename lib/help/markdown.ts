@@ -5,9 +5,9 @@ export type HelpBlock =
   | { type: "ol"; items: string[] };
 
 /**
- * Plain-text subset. Headings, paragraphs and lists are stored as strings.
- * The help UI renders those strings as React text, so raw HTML and script
- * in content/help stay escaped and are not executed.
+ * Plain-text subset. Headings, paragraphs and lists stay strings.
+ * Inline marks are a typed tree (bold, italic, code, safe links). The help
+ * UI turns that tree into React elements. Raw HTML stays text and is not executed.
  */
 export function parseHelpMarkdown(source: string): HelpBlock[] {
   const blocks: HelpBlock[] = [];
@@ -69,10 +69,110 @@ export function parseHelpMarkdown(source: string): HelpBlock[] {
 }
 
 export function headingId(text: string) {
-  return text
+  return helpPlainText(text)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+export type HelpInline =
+  | { type: "text"; text: string }
+  | { type: "strong"; children: HelpInline[] }
+  | { type: "em"; children: HelpInline[] }
+  | { type: "code"; text: string }
+  | { type: "link"; text: string; href: string };
+
+const SAFE_HELP_HREF = /^(https?:\/\/[^\s)]+|\/(?!\/)[^\s)]*|#[^\s)]+)$/;
+
+export function parseHelpInline(source: string): HelpInline[] {
+  const nodes: HelpInline[] = [];
+  let buffer = "";
+  let index = 0;
+
+  function flush() {
+    if (buffer.length === 0) return;
+    nodes.push({ type: "text", text: buffer });
+    buffer = "";
+  }
+
+  while (index < source.length) {
+    if (source.startsWith("**", index)) {
+      const end = source.indexOf("**", index + 2);
+      if (end !== -1) {
+        flush();
+        nodes.push({
+          type: "strong",
+          children: parseHelpInline(source.slice(index + 2, end)),
+        });
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (source[index] === "`") {
+      const end = source.indexOf("`", index + 1);
+      if (end !== -1) {
+        flush();
+        nodes.push({ type: "code", text: source.slice(index + 1, end) });
+        index = end + 1;
+        continue;
+      }
+    }
+
+    if (source[index] === "[") {
+      const labelEnd = source.indexOf("](", index + 1);
+      if (labelEnd !== -1) {
+        const hrefEnd = source.indexOf(")", labelEnd + 2);
+        if (hrefEnd !== -1) {
+          const href = source.slice(labelEnd + 2, hrefEnd).trim();
+          if (SAFE_HELP_HREF.test(href)) {
+            flush();
+            nodes.push({
+              type: "link",
+              text: source.slice(index + 1, labelEnd),
+              href,
+            });
+            index = hrefEnd + 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    if (source[index] === "*" && source[index + 1] !== "*") {
+      const end = source.indexOf("*", index + 1);
+      if (end !== -1 && source[end + 1] !== "*") {
+        flush();
+        nodes.push({
+          type: "em",
+          children: parseHelpInline(source.slice(index + 1, end)),
+        });
+        index = end + 1;
+        continue;
+      }
+    }
+
+    buffer += source[index];
+    index += 1;
+  }
+
+  flush();
+  return nodes;
+}
+
+export function helpPlainText(source: string): string {
+  return inlinePlainText(parseHelpInline(source));
+}
+
+function inlinePlainText(nodes: HelpInline[]): string {
+  return nodes
+    .map((node) => {
+      if (node.type === "strong" || node.type === "em") {
+        return inlinePlainText(node.children);
+      }
+      return node.text;
+    })
+    .join("");
 }

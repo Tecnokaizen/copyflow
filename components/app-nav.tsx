@@ -278,7 +278,7 @@ function AppNavFrame({
   });
 
   return (
-    <header className="mb-6">
+    <header className="mb-6 dark:bg-secondary">
       <div className="flex items-center justify-between gap-3 border-b border-border/80 py-3">
         <TenantBrand
           displayName={tenant?.displayName ?? ""}
