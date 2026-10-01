@@ -47,7 +47,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border/80">
+      <header className="border-b border-border/80 dark:bg-secondary">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <Link href="/ayuda" className="text-sm font-semibold tracking-tight">
             Centro de ayuda Gestcopy
@@ -56,7 +56,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
-        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-auto">
+        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-auto dark:rounded-lg dark:border dark:border-border dark:bg-secondary dark:p-3">
           <HelpNavigation sections={sections} articles={articles} />
         </div>
         <main className="min-w-0">{children}</main>

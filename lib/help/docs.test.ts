@@ -18,7 +18,10 @@ import {
   loadHelpDocument,
   technicalDocsAreSeparate,
 } from "@/lib/help/content";
-import { parseHelpMarkdown } from "@/lib/help/markdown";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { HelpArticleBody } from "@/components/help/help-center";
+import { parseHelpInline, parseHelpMarkdown } from "@/lib/help/markdown";
 import { searchHelpArticles } from "@/lib/help/search";
 import { allowsUnauthenticatedPath } from "@/lib/invitations/public-path";
 import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
@@ -162,6 +165,33 @@ describe("public help center", () => {
     const ui = source("components/help/help-center.tsx");
     assert.equal(ui.includes("dangerouslySetInnerHTML"), false);
     assert.equal(source("lib/help/markdown.ts").includes("dangerouslySetInnerHTML"), false);
+  });
+
+  it("renders bold, italic, code and safe links without executing html", () => {
+    const inline = parseHelpInline(
+      "Pulsa **Cambiar estado**, *editar* y `Estado`. Ver [archivos](/ayuda/pedidos/archivos)."
+    );
+    assert.equal(inline[1]?.type, "strong");
+    assert.equal(inline[3]?.type, "em");
+    assert.equal(inline[5]?.type, "code");
+    assert.equal(inline[7]?.type, "link");
+    if (inline[7]?.type === "link") {
+      assert.equal(inline[7].href, "/ayuda/pedidos/archivos");
+    }
+
+    const unsafe = parseHelpInline("[mal](javascript:alert(1))");
+    assert.equal(unsafe[0]?.type, "text");
+
+    const html = renderToStaticMarkup(
+      createElement(HelpArticleBody, {
+        source:
+          "Pulsa **Cambiar estado**.\n\n- **Editar pedido**\n\n<script>alert(1)</script>\n",
+      })
+    );
+    assert.match(html, /<strong[^>]*>Cambiar estado<\/strong>/);
+    assert.match(html, /<strong[^>]*>Editar pedido<\/strong>/);
+    assert.equal(html.includes("<script"), false);
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 
   it("parses ordered lists for operational steps", () => {

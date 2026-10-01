@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export const richTextFrameClassName =
-  "min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-background";
+  "min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-background dark:bg-accent";
 
 export const richTextToolbarClassName =
   "flex max-w-full gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border p-1";
