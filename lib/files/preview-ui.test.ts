@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -54,6 +55,31 @@ describe("file row preview wiring", () => {
       assert.equal(html.includes(">Ver<"), false, item.original_name);
       assert.match(html, />Descargar</);
     }
+  });
+
+  it("keeps print sheets free of preview controls and signed urls", () => {
+    for (const file of [
+      "components/print/order-print-document.tsx",
+      "components/print/quote-print-document.tsx",
+      "components/print/print-frame.tsx",
+      "app/orders/[id]/print/page.tsx",
+      "app/quotes/[id]/print/page.tsx",
+    ]) {
+      const source = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+      assert.equal(source.includes("preview_url"), false, file);
+      assert.equal(source.includes("onPreview"), false, file);
+      assert.equal(source.includes(">Ver<"), false, file);
+    }
+    const orderHeader = readFileSync(
+      new URL("../../components/orders/detail/order-header.tsx", import.meta.url),
+      "utf8",
+    );
+    const quotePage = readFileSync(
+      new URL("../../app/quotes/[id]/page.tsx", import.meta.url),
+      "utf8",
+    );
+    assert.match(orderHeader, /Imprimir pedido/);
+    assert.match(quotePage, /Imprimir presupuesto/);
   });
 
   it("keeps preview on an archived row and hides delete", () => {
