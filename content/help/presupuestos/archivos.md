@@ -9,7 +9,7 @@ Adjuntas el PDF del presupuesto, documentos enviados al cliente o referencias co
 ## Cómo hacerlo
 
 1. Abre el presupuesto.
-2. Sube o descarga archivos como en un pedido.
+2. Sube, descarga o pulsa **Ver** como en un pedido. PDF e imágenes JPG, PNG, WEBP o GIF se previsualizan; el resto se descarga.
 3. Borra los que ya no deban ocupar espacio.
 
 ## Qué ocurre después

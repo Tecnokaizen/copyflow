@@ -142,9 +142,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       article(
         "pedidos/archivos",
         "Archivos del pedido",
-        "Subir, descargar y borrar documentos del trabajo.",
+        "Subir, previsualizar, descargar y borrar documentos del trabajo.",
         "pedidos/archivos.md",
-        ["subir archivo", "adjunto", "pdf", "descargar", "borrar archivo"],
+        ["subir archivo", "adjunto", "pdf", "ver archivo", "descargar", "borrar archivo"],
         ["guias/archivos-pedido", "configuracion/archivos"]
       ),
     ],
@@ -458,9 +458,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       article(
         "guias/archivos-pedido",
         "Cómo gestionar archivos del pedido",
-        "Subir, descargar, reintentar o borrar adjuntos.",
+        "Subir, previsualizar, descargar, reintentar o borrar adjuntos.",
         "guias/archivos-pedido.md",
-        ["subir archivo", "adjuntar", "borrar archivo", "descargar"],
+        ["subir archivo", "adjuntar", "ver archivo", "borrar archivo", "descargar"],
         ["pedidos/archivos", "configuracion/archivos"]
       ),
       article(
