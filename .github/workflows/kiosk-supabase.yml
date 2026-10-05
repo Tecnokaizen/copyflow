@@ -6,6 +6,7 @@ on:
       - "supabase/migrations/**"
       - "supabase/tests/phase3*_quotes*"
       - "supabase/tests/phase38_rich_text_quote_title.sql"
+      - "supabase/tests/phase40_quote_commercial*"
       - "lib/quotes/**"
       - "app/api/quotes/**"
       - "supabase/tests/phase12_kiosk_public_orders.sql"
@@ -94,6 +95,11 @@ jobs:
 
       - name: Rebuild database from all migrations
         run: npx supabase@${SUPABASE_CLI_VERSION} db reset --local --no-seed
+
+      - name: Run commercial quote SQL tests
+        run: |
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/phase40_quote_commercial.sql
+          bash supabase/tests/phase40_quote_commercial_concurrency.sh "${LOCAL_DB_URL}"
 
       - name: Run Kiosk database security tests
         run: |
