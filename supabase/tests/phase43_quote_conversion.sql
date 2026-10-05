@@ -36,13 +36,18 @@ begin
  perform set_config('request.jwt.claim.sub',a::text,true);
  insert into public.quotes(tenant_id,status_id,description) select ta,id,'A' from public.quote_statuses where tenant_id=ta and code='draft' returning id into q;
  r:=public.ensure_quote_draft_v1(q);v:=(r->'version'->>'id')::uuid;
+ insert into public.clients(id,tenant_id,name) values(expired,ta,'Locked client regression');
  sig:=pg_temp.pdf_sig('create',a,ta,q,file,issued);
  set local role authenticated;
  perform pg_temp.pdf_error(format('select public.reserve_quote_pdf_v1(%L,%L,%L,100,%s,%L)',q,v,file,issued,sig),'55000');
  perform pg_temp.pdf_error(format('select public.reserve_quote_pdf_v1(%L,%L,%L,100,%s,%L)',qb,vb,file,issued,sig),'P0002');
+ update public.quotes set client_id=expired where id=q;
+ perform pg_temp.assert_pdf((select client_id=expired from public.quotes where id=q),'draft client remains editable');
+ update public.quotes set client_id=null where id=q;
  r:=public.save_quote_draft_v1(q,v,0,'{"title":"Commercial"}','[{"concept":"Item","quantity":1,"unit_price":100,"tax_rate":21}]');
  r:=public.prepare_quote_version_v1(q,v,(r->'version'->>'row_version')::bigint);
  perform pg_temp.assert_pdf(r->>'ok'='true','prepared');
+ perform pg_temp.pdf_error(format('update public.quotes set client_id=%L where id=%L',expired,q),'55000');
  select to_jsonb(x) into oldversion from public.quote_versions x where id=v;
  select row_version into oldq from public.quotes where id=q;
  perform pg_temp.assert_pdf(oldversion->'seller_snapshot'->>'tax_id'='TEST-TAX','fiscal snapshot frozen');
@@ -88,6 +93,7 @@ begin
  select row_version into oldq from public.quotes where id=q;
  r:=public.transition_quote_v1(q,v,oldq,'send');
  perform pg_temp.assert_pdf(r->>'ok'='true' and r->>'replayed'='false','send prepared');
+ perform pg_temp.pdf_error(format('update public.quotes set client_id=%L where id=%L',expired,q),'55000');
  r:=public.transition_quote_v1(q,v,oldq,'send');
  perform pg_temp.assert_pdf(r->>'replayed'='true','send replay stale token');
  perform pg_temp.assert_pdf((select count(*)=1 from public.activity_log where entity_id=q and action='quote.status_changed'),'one send activity');
@@ -131,6 +137,8 @@ begin
  perform pg_temp.assert_pdf((select accepted_version_id=draft from public.quotes where id=q),'exact accepted version');
  perform pg_temp.assert_pdf((select state='sent' from public.quote_versions where id=draft),'accepted version remains sent');
 
+ perform pg_temp.pdf_error(format('update public.quotes set client_id=%L where id=%L',expired,q),'55000');
+ perform pg_temp.assert_pdf((select client_id is null from public.quotes where id=q),'accepted client remains frozen');
  reset role;
  insert into public.order_statuses(tenant_id,name,code,is_initial,active) values(ta,'Initial','pending',true,true);
  insert into public.services(id,tenant_id,name,active) values(other,ta,'Selected service',true);

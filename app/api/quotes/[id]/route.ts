@@ -174,6 +174,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     .maybeSingle();
 
   if (error) {
+    if (error.code === "55000" && error.message?.includes("locked_quote_client")) {
+      return operationalJson({ error: "El cliente de una versión bloqueada no se puede cambiar. Crea una nueva versión editable.", code: "locked_quote_client" }, { status: 409 });
+    }
     return operationalJson({ error: QUOTE_MESSAGES.update }, { status: 500 });
   }
 

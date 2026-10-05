@@ -29,7 +29,7 @@ const input = {
   tenant_id: "tenant-b", total: "0",
 };
 
-function harness(route: string, options: { denied?: number; missing?: boolean; rpcBody?: unknown } = {}) {
+function harness(route: string, options: { denied?: number; missing?: boolean; rpcBody?: unknown; updateError?: { code: string; message: string } } = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const filters: Array<[string, unknown]> = [];
   const supabase = {
@@ -39,9 +39,9 @@ function harness(route: string, options: { denied?: number; missing?: boolean; r
         select() { return chain; },
         eq(key: string, value: unknown) { filters.push([key, value]); return chain; },
         order() { return chain; },
-        maybeSingle: async () => ({ data: options.missing ? null : table === "quotes" ? quote : version, error: null }),
+        maybeSingle: async () => ({ data: options.missing ? null : table === "quotes" ? quote : version, error: options.updateError ?? null }),
         then(resolve: (value: unknown) => unknown) {
-          return Promise.resolve({ data: table === "quote_versions" ? [version] : [], error: null }).then(resolve);
+          return Promise.resolve({ data: table === "quote_versions" ? [version] : [], error: options.updateError ?? null }).then(resolve);
         },
       };
       return chain;
@@ -156,6 +156,12 @@ describe("operational partial PATCH compatibility", () => {
     assert.deepEqual(h.calls[0].args, { client_id: null, service_id: null, assigned_team_member_id: null });
     assert.ok(h.filters.some(([key, value]) => key === "row_version" && value === 99));
     assert.ok(h.filters.some(([key, value]) => key === "tenant_id" && value === "tenant-a"));
+  });
+  it("returns a conflict when the database protects a locked client", async () => {
+    const h = harness("", { updateError: { code: "55000", message: "locked_quote_client" } });
+    const response = await h.invoke("PATCH", { operational_only: true, expected_row_version: 99, client_id: null, service_id: null, assigned_team_member_id: null });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "locked_quote_client");
   });
   it("still accepts the old full operational form", async () => {
     const h = harness("");
