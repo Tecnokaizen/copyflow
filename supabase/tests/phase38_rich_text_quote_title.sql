@@ -1,6 +1,7 @@
 -- Rich Text V1: quote conversion keeps HTML on the order and a plain title.
 
 begin;
+\i supabase/tests/helpers/accepted_quote_fixture.sql
 
 do $phase38$
 declare
@@ -67,7 +68,8 @@ begin
   )
   returning id into v_rich;
 
-  v_convert := public.convert_quote_to_order(v_rich);
+  perform pg_temp.accepted_quote_fixture(v_rich);
+  v_convert := public.convert_quote_to_order(v_rich,null,null,null,'normal',null,(select row_version from public.quotes where id=v_rich));
   if (v_convert ->> 'ok')::boolean is not true then
     raise exception 'phase38: rich conversion failed %', v_convert;
   end if;
@@ -83,8 +85,8 @@ begin
   if v_order_description is distinct from '<p>Tarjetas <strong>mate</strong></p><p>Segunda línea</p>' then
     raise exception 'phase38: description was not preserved %', v_order_description;
   end if;
-  if v_order_notes is distinct from '<p>Nota <em>interna</em></p>' then
-    raise exception 'phase38: notes were not preserved %', v_order_notes;
+  if v_order_notes is not null then
+    raise exception 'phase38: internal notes must not be copied %', v_order_notes;
   end if;
   if position('<' in v_order_title) > 0 then
     raise exception 'phase38: title contains HTML %', v_order_title;
@@ -94,7 +96,8 @@ begin
   values (v_tenant, 'Nombre fijo', '<p>Ignorar <strong>esto</strong></p>', v_draft)
   returning id into v_titled;
 
-  v_convert := public.convert_quote_to_order(v_titled);
+  perform pg_temp.accepted_quote_fixture(v_titled);
+  v_convert := public.convert_quote_to_order(v_titled,null,null,null,'normal',null,(select row_version from public.quotes where id=v_titled));
   select title into v_order_title
   from public.orders
   where id = (v_convert ->> 'order_id')::uuid;
@@ -106,7 +109,8 @@ begin
   values (v_tenant, '<p><br></p>', v_draft)
   returning id into v_empty;
 
-  v_convert := public.convert_quote_to_order(v_empty);
+  perform pg_temp.accepted_quote_fixture(v_empty);
+  v_convert := public.convert_quote_to_order(v_empty,null,null,null,'normal',null,(select row_version from public.quotes where id=v_empty));
   if v_convert ->> 'error' is distinct from 'invalid' then
     raise exception 'phase38: empty rich description should be invalid %', v_convert;
   end if;

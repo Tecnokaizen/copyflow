@@ -1,3 +1,4 @@
+import { transitionFailure } from "@/lib/quotes/transition-result";
 import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
@@ -6,16 +7,6 @@ import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { QUOTE_SELECT, mapQuote, mapQuoteVersion } from "@/lib/quotes/types";
 import { isUuid } from "@/lib/team/payload";
 
-export function transitionFailure(body: { error?: string; row_version?: unknown }) {
-  const code = body.error;
-  return {
-    status: code === "not_found" ? 404 : code === "conflict" || code === "invalid_state" ? 409 : 422,
-    body: { error: code === "conflict" ? QUOTE_MESSAGES.version : code === "not_found" ? QUOTE_MESSAGES.notFound :
-      code === "pdf_required" ? "Prepara el PDF oficial antes de continuar." : "El estado actual no permite esta acción.",
-      code: code === "conflict" ? "stale_row_version" : code,
-      ...(code === "conflict" ? { current_row_version: body.row_version } : {}) },
-  };
-}
 export async function transitionQuote(request: NextRequest, context: { params: Promise<{ id: string }> }, action: "send" | "accept" | "reject") {
   const access = await requireQuotesAccess();
   if (!access.ok) return access.response;

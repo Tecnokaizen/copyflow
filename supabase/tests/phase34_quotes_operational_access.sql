@@ -1,6 +1,7 @@
 -- Operational Quotes access through real authenticated RLS and scoped RPCs.
 -- All fixtures and mutations are rolled back; no tenant-specific business rules.
 begin;
+\i supabase/tests/helpers/accepted_quote_fixture.sql
 
 do $phase34$
 declare
@@ -84,8 +85,9 @@ begin
         if not exists(select 1 from public.quotes where id = quote_a and row_version = 2 and status_id = pending_a) then
           raise exception 'phase34: status/version not persisted';
         end if;
-        result := public.convert_quote_to_order(quote_a);
-        replay := public.convert_quote_to_order(quote_a);
+        perform pg_temp.accepted_quote_fixture(quote_a);
+        result := public.convert_quote_to_order(quote_a,null,null,null,'normal',null,(select row_version from public.quotes where id=quote_a));
+        replay := public.convert_quote_to_order(quote_a,null,null,null,'normal',null,(select row_version from public.quotes where id=quote_a));
         if result->>'ok' is distinct from 'true' or result->>'created' is distinct from 'true'
           or replay->>'created' is distinct from 'false'
           or result->>'order_id' is distinct from replay->>'order_id' then
@@ -93,13 +95,13 @@ begin
         end if;
         if not exists(select 1 from public.orders where id = (result->>'order_id')::uuid
           and tenant_id = tenant_a and title = 'Quote title' and description = 'Updated'
-          and notes = 'Updated notes' and created_by = actor and priority = 'normal'
+          and notes is null and created_by = actor and priority = 'normal'
           and due_at is null and metadata->>'quote_id' = quote_a::text) then
           raise exception 'phase34: % conversion changed order payload', role_name;
         end if;
         select count(*) into row_count from public.list_quote_activity(quote_a);
-        if row_count <> 4 then
-          raise exception 'phase34: % expected exactly create/update/status/convert events, got %', role_name, row_count;
+        if row_count <> 5 then
+          raise exception 'phase34: % expected create/update/two status/convert events, got %', role_name, row_count;
         end if;
         if (select count(distinct action) from public.list_quote_activity(quote_a)
             where action in ('quote.created', 'quote.updated', 'quote.status_changed', 'quote.converted')
@@ -122,7 +124,7 @@ begin
         if public.set_editable_quote_status_v1(other_quote,pending_a,1)->>'error' <> 'not_found' then raise exception 'phase34: denied status succeeded'; end if;
         -- Check authorization before idempotent replay as well as fresh conversion.
         foreach relation_id in array array[other_quote, quote_a] loop
-          if public.convert_quote_to_order(relation_id)->>'error' is distinct from 'not_found' then
+          if public.convert_quote_to_order(relation_id,null,null,null,'normal',null,(select row_version from public.quotes where id=relation_id))->>'error' is distinct from 'not_found' then
             raise exception 'phase34: denied conversion leaked';
           end if;
           if exists(select 1 from public.list_quote_activity(relation_id)) then
@@ -156,7 +158,7 @@ begin
   exception when insufficient_privilege then err := sqlstate;
   end;
   if err is distinct from '42501' then raise exception 'phase34: staff cross-tenant INSERT'; end if;
-  if public.convert_quote_to_order(quote_b)->>'error' is distinct from 'not_found'
+  if public.convert_quote_to_order(quote_b,null,null,null,'normal',null,(select row_version from public.quotes where id=quote_b))->>'error' is distinct from 'not_found'
      or exists(select 1 from public.list_quote_activity(quote_b)) then
     raise exception 'phase34: staff cross-tenant RPC';
   end if;
@@ -223,7 +225,7 @@ begin
   execute 'set local role authenticated';
   if exists(select 1 from public.list_quote_activity(other_quote))
      or exists(select 1 from public.quotes where tenant_id = tenant_a)
-     or public.convert_quote_to_order(other_quote)->>'error' is distinct from 'not_found' then
+     or public.convert_quote_to_order(other_quote,null,null,null,'normal',null,(select row_version from public.quotes where id=other_quote))->>'error' is distinct from 'not_found' then
     raise exception 'phase34: inactive membership permitted';
   end if;
   execute 'reset role';

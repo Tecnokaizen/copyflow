@@ -5,7 +5,7 @@ import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { parseQuoteStatusPayload } from "@/lib/quotes/payload";
 import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
 import { commercialQuoteInTenant, commercialFailureBody } from "@/lib/quotes/commercial";
-import { transitionFailure } from "@/lib/quotes/transitions";
+import { transitionFailure } from "@/lib/quotes/transition-result";
 import { isUuid } from "@/lib/team/payload";
 
 type RouteContext = {
