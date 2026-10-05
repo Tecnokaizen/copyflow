@@ -5,6 +5,7 @@ import {
 
 /** Public DTO from GET /api/orders/:id/files (no storage_key / secrets). */
 export type OrderFileDto = {
+  protected_document?: boolean;
   id: string;
   original_name: string;
   content_type: string | null;

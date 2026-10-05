@@ -45,7 +45,7 @@ export async function GET(
   const { data: files, error } = await supabase
     .from("quote_files")
     .select(
-      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by"
+      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by, pdf_version_id"
     )
     .eq("tenant_id", context.tenant.id)
     .eq("quote_id", quoteId)

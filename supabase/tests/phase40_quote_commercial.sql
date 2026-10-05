@@ -154,9 +154,11 @@ begin
   insert into public.quote_files(tenant_id,quote_id,original_name,size_bytes,storage_key,status,upload_expires_at)
     values(tb,qb,'b.pdf',100,'phase40/b','pending',now()+interval '1 hour') returning id into file_b;
   perform set_config('request.jwt.claim.sub',actor::text,true);
-  perform pg_temp.expect_error(format('update public.quote_versions set pdf_file_id=%L where id=%L',file_b,va),'23503');
-  update public.quote_versions set pdf_file_id=file_a where id=va returning row_version into rv;
-  perform pg_temp.expect_error(format('update public.quote_versions set pdf_file_id=%L where id=%L',file_a,role_version),'23503');
+  perform pg_temp.expect_error(format('update public.quote_versions set pdf_file_id=%L where id=%L',file_b,va),'23514');
+  -- PDF V1 strengthens the old FK: drafts/pending attachments cannot be official PDFs.
+  perform pg_temp.expect_error(format('update public.quote_versions set pdf_file_id=%L where id=%L',file_a,va),'23514');
+  select row_version into rv from public.quote_versions where id=va;
+  perform pg_temp.expect_error(format('update public.quote_versions set pdf_file_id=%L where id=%L',file_a,role_version),'23514');
   perform pg_temp.expect_error(format('update public.quotes set current_version_id=%L where id=%L',va,role_quote),'23503');
   -- Constraints reject cross-tenant/same-tenant-other-quote relationships even as database owner.
   perform pg_temp.expect_error(format('insert into public.quote_versions(tenant_id,quote_id,version_number,state,locked_at) values(%L,%L,2,''prepared'',now())',ta,qb),'23503');

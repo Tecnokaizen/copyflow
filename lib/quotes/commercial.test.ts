@@ -56,6 +56,7 @@ describe("commercial quote contracts", () => {
     assert.equal("client_snapshot" in version, false);
 
     assert.deepEqual(summarizeQuoteVersion(version), {
+      pdf_file_id: null,
       id: VERSION,
       version_number: 2,
       state: "draft",

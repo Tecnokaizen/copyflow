@@ -85,6 +85,18 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   }
 
   const mappedVersions = versions.filter((version) => version !== null);
+  const pdfIds = mappedVersions.map((v) => v.pdf_file_id).filter((id): id is string => !!id);
+  if (pdfIds.length) {
+    const { data: files, error } = await access.supabase.from("quote_files")
+      .select("id,size_bytes,completed_at,pdf_version_id").eq("tenant_id", access.context.tenant.id)
+      .eq("quote_id", id).eq("status", "ready").eq("content_type", "application/pdf")
+      .is("deleted_at", null).in("id", pdfIds);
+    if (error) return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+    for (const version of mappedVersions) {
+      const file = files?.find((f) => f.id === version.pdf_file_id && f.pdf_version_id === version.id);
+      version.pdf_file = file ? { id: file.id, size_bytes: Number(file.size_bytes), completed_at: file.completed_at } : null;
+    }
+  }
   const currentVersion =
     mappedVersions.find((version) => version.id === loaded.quote?.current_version_id) ?? null;
 

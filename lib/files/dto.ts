@@ -74,6 +74,7 @@ export function toPublicOrderDto<T extends Record<string, unknown>>(row: T) {
 }
 
 export type PublicOrderFileDto = {
+  protected_document?: boolean;
   id: string;
   original_name: string;
   content_type: string | null;
@@ -110,6 +111,7 @@ export function toPublicOrderFileDto(
     uploaded_by:
       typeof row.uploaded_by === "string" ? row.uploaded_by : null,
     uploader_name: uploaderName,
+    ...(typeof row.pdf_version_id === "string" ? { protected_document: true } : {}),
   };
 }
 

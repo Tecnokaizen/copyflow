@@ -52,7 +52,10 @@ export type QuoteTaxBreakdown = {
   total: string;
 };
 
+export type QuotePdfMetadata = { id: string; size_bytes: number; completed_at: string | null };
+
 export type QuoteVersion = {
+  pdf_file?: QuotePdfMetadata | null;
   id: string;
   quote_id: string;
   version_number: number;
@@ -90,6 +93,8 @@ export type QuoteVersionSummary = Pick<
   | "locked_at"
   | "sent_at"
   | "row_version"
+  | "pdf_file_id"
+  | "pdf_file"
 >;
 
 export type QuoteRecord = QuoteCommercialSummary & {
@@ -559,6 +564,8 @@ export function mapQuoteVersion(value: unknown): QuoteVersion | null {
 export function summarizeQuoteVersion(version: QuoteVersion): QuoteVersionSummary {
   return {
     id: version.id,
+    pdf_file_id: version.pdf_file_id,
+    ...(version.pdf_file === undefined ? {} : { pdf_file: version.pdf_file }),
     version_number: version.version_number,
     state: version.state,
     issue_date: version.issue_date,
