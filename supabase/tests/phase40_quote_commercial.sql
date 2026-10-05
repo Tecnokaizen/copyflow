@@ -209,7 +209,7 @@ begin
   execute 'alter table public.quote_versions disable trigger quote_versions_guard';
   update public.quote_versions set state='sent',sent_at=now() where id=va;
   execute 'alter table public.quote_versions enable trigger quote_versions_guard';
-  update public.quotes set accepted_version_id=va where id=qa;
+  perform pg_temp.expect_error(format('update public.quotes set accepted_version_id=%L where id=%L',va,qa),'23514');
   perform pg_temp.expect_error(format('update public.quotes set accepted_version_id=%L where id=%L',va,qb),'23514');
   perform pg_temp.expect_error(format('update public.quote_versions set title=''mutated'' where id=%L',va),'55000');
   perform pg_temp.expect_error(format('delete from public.quote_versions where id=%L',va),'55000');
@@ -223,6 +223,8 @@ begin
 
   -- Existing statuses backfill to v1 without invented economic data; replay is idempotent.
   perform set_config('request.jwt.claim.role','',true);
+  -- Simulate records created before this migration, only inside rolled-back fixtures.
+  execute 'alter table public.quotes disable trigger quotes_commercial_state';
   foreach v_code in array array['draft','pending','sent','accepted','rejected'] loop
     select id into status from public.quote_statuses where tenant_id=ta and quote_statuses.code=v_code;
     if status is null then
@@ -252,6 +254,7 @@ begin
       perform set_config('request.jwt.claim.role','',true);
     end if;
   end loop;
+  execute 'alter table public.quotes enable trigger quotes_commercial_state';
   perform pg_temp.check_true((select reference=order_ref from public.orders where id=order_id) and
     (select last_number=order_counter from public.order_number_counters where tenant_id=ta),'orders not renumbered');
   raise notice 'phase40 commercial SQL PASS';

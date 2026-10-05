@@ -318,10 +318,9 @@ begin
     raise exception 'phase33: admin update did not bump row_version';
   end if;
 
-  update public.quotes
-  set status_id = v_pending_a
-  where id = v_quote
-    and row_version = 1;
+  if public.set_editable_quote_status_v1(v_quote,v_pending_a,1)->>'ok' <> 'true' then
+    raise exception 'phase33: editable RPC failed';
+  end if;
 
   select count(*)::int into v_count
   from public.activity_log

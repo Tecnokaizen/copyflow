@@ -3,8 +3,9 @@ import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { parseQuoteStatusPayload } from "@/lib/quotes/payload";
-import { relationBelongsToTenant } from "@/lib/quotes/relations";
 import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
+import { commercialQuoteInTenant, commercialFailureBody } from "@/lib/quotes/commercial";
+import { transitionFailure } from "@/lib/quotes/transitions";
 import { isUuid } from "@/lib/team/payload";
 
 type RouteContext = {
@@ -34,40 +35,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return operationalJson({ error: parsed.error }, { status: 400 });
   }
 
-  const statusOk = await relationBelongsToTenant(
-    access.supabase,
-    "quote_statuses",
-    parsed.data.status_id,
-    access.context.tenant.id
-  );
-  if (!statusOk) {
-    return operationalJson({ error: QUOTE_MESSAGES.status }, { status: 400 });
-  }
-
-  const { data: activeStatus, error: activeError } = await access.supabase
-    .from("quote_statuses")
-    .select("id")
-    .eq("id", parsed.data.status_id)
-    .eq("tenant_id", access.context.tenant.id)
-    .eq("active", true)
-    .maybeSingle();
-
-  if (activeError || !activeStatus) {
-    return operationalJson({ error: QUOTE_MESSAGES.status }, { status: 400 });
-  }
-
-  const { data, error } = await access.supabase
-    .from("quotes")
-    .update({ status_id: parsed.data.status_id })
-    .eq("id", id)
-    .eq("tenant_id", access.context.tenant.id)
-    .eq("row_version", parsed.data.expected_row_version)
-    .select(QUOTE_SELECT)
-    .maybeSingle();
-
-  if (error) {
-    return operationalJson({ error: QUOTE_MESSAGES.update }, { status: 500 });
-  }
+  const scope = await commercialQuoteInTenant(access.supabase, id, access.context.tenant.id);
+  if (scope) return operationalJson(commercialFailureBody(scope), { status: scope.status });
+  const { data: result, error: rpcError } = await access.supabase.rpc("set_editable_quote_status_v1", {
+    p_quote_id: id, p_status_id: parsed.data.status_id, p_expected_row_version: parsed.data.expected_row_version,
+  });
+  if (rpcError) return operationalJson({ error: QUOTE_MESSAGES.update }, { status: 500 });
+  if (!result?.ok) { const failure = transitionFailure(result ?? {}); return operationalJson(failure.body, { status: failure.status }); }
+  const { data, error } = await access.supabase.from("quotes").select(QUOTE_SELECT)
+    .eq("id", id).eq("tenant_id", access.context.tenant.id).maybeSingle();
+  if (error) return operationalJson({ error: QUOTE_MESSAGES.update }, { status: 500 });
 
   const quote = mapQuote(data);
   if (!quote) {

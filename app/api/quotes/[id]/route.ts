@@ -127,6 +127,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.invalid }, { status: 400 });
   }
 
+  if (body && typeof body === "object" && ["status_id", "accepted_version_id", "converted_order_id", "current_version_id"].some((key) => key in body)) {
+    return operationalJson({ error: "Utiliza la acción comercial correspondiente.", code: "controlled_transition_required" }, { status: 422 });
+  }
+
   const operational = !!body && typeof body === "object" && "operational_only" in body && body.operational_only === true;
   const parsed = operational ? parseOperationalQuotePayload(body) : parseUpdateQuotePayload(body);
   if (!parsed.ok) {

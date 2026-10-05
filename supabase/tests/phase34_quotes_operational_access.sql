@@ -10,7 +10,7 @@ declare
   outsider uuid := 'e3400000-0000-4000-8000-000000000002';
   draft_a uuid;
   draft_b uuid;
-  accepted_a uuid;
+  pending_a uuid;
   quote_a uuid;
   quote_b uuid;
   other_quote uuid;
@@ -45,7 +45,7 @@ begin
     (tenant_b, 'Received', 'received', true, true);
   select id into draft_a from public.quote_statuses where tenant_id = tenant_a and code = 'draft';
   select id into draft_b from public.quote_statuses where tenant_id = tenant_b and code = 'draft';
-  select id into accepted_a from public.quote_statuses where tenant_id = tenant_a and code = 'accepted';
+  select id into pending_a from public.quote_statuses where tenant_id = tenant_a and code = 'pending';
   perform set_config('request.jwt.claim.sub', outsider::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   insert into public.clients(tenant_id, name) values (tenant_b, 'Other client') returning id into client_b;
@@ -80,10 +80,8 @@ begin
         update public.quotes set notes = 'Stale write' where id = quote_a and row_version = 0;
         get diagnostics row_count = row_count;
         if row_count <> 0 then raise exception 'phase34: stale write succeeded'; end if;
-        update public.quotes set status_id = accepted_a where id = quote_a and row_version = 1;
-        get diagnostics row_count = row_count;
-        if row_count <> 1 then raise exception 'phase34: % cannot change status', role_name; end if;
-        if not exists(select 1 from public.quotes where id = quote_a and row_version = 2 and status_id = accepted_a) then
+        if public.set_editable_quote_status_v1(quote_a,pending_a,1)->>'ok' <> 'true' then raise exception 'phase34: % cannot change editable status', role_name; end if;
+        if not exists(select 1 from public.quotes where id = quote_a and row_version = 2 and status_id = pending_a) then
           raise exception 'phase34: status/version not persisted';
         end if;
         result := public.convert_quote_to_order(quote_a);
@@ -121,9 +119,7 @@ begin
         update public.quotes set notes = 'Denied' where id = other_quote;
         get diagnostics row_count = row_count;
         if row_count <> 0 then raise exception 'phase34: denied update succeeded'; end if;
-        update public.quotes set status_id = accepted_a where id = other_quote;
-        get diagnostics row_count = row_count;
-        if row_count <> 0 then raise exception 'phase34: denied status succeeded'; end if;
+        if public.set_editable_quote_status_v1(other_quote,pending_a,1)->>'error' <> 'not_found' then raise exception 'phase34: denied status succeeded'; end if;
         -- Check authorization before idempotent replay as well as fresh conversion.
         foreach relation_id in array array[other_quote, quote_a] loop
           if public.convert_quote_to_order(relation_id)->>'error' is distinct from 'not_found' then
@@ -153,9 +149,7 @@ begin
   update public.quotes set notes = 'Foreign write' where id = quote_b;
   get diagnostics row_count = row_count;
   if row_count <> 0 then raise exception 'phase34: staff cross-tenant UPDATE'; end if;
-  update public.quotes set status_id = draft_b where id = quote_b;
-  get diagnostics row_count = row_count;
-  if row_count <> 0 then raise exception 'phase34: staff cross-tenant status'; end if;
+  if public.set_editable_quote_status_v1(quote_b,draft_b,0)->>'error' <> 'not_found' then raise exception 'phase34: staff cross-tenant status'; end if;
   err := null;
   begin
     insert into public.quotes(tenant_id, description, status_id) values (tenant_b, 'Foreign insert', draft_b);
@@ -174,7 +168,7 @@ begin
   -- Foreign references and protected columns stay closed for staff.
   for relation_name, relation_id in
     select * from (values ('client_id', client_b), ('service_id', service_b),
-      ('assigned_team_member_id', member_b), ('status_id', draft_b)) as refs(name, id)
+      ('assigned_team_member_id', member_b)) as refs(name, id)
   loop
     err := null;
     begin
@@ -184,7 +178,7 @@ begin
     end;
     if err is distinct from '23503' then raise exception 'phase34: foreign reference % allowed', relation_name; end if;
   end loop;
-  foreach relation_name in array array['tenant_id', 'converted_order_id'] loop
+  foreach relation_name in array array['tenant_id', 'converted_order_id', 'status_id'] loop
     err := null;
     begin
       execute format('update public.quotes set %I = $1 where id = $2', relation_name) using tenant_b, other_quote;
