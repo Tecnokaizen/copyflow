@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { QuoteStatusBadge } from "./quote-status-badge";
 import { QuoteDraftForm } from "./quote-draft-form";
 import { QuoteOperationalForm } from "./quote-operational-form";
+import { QuoteConversionDialog } from "./quote-conversion-dialog";
 import { QuoteDialog } from "./quote-dialog";
 import { QuoteActivity } from "./quote-activity";
 import { QuotePdfDocument } from "./quote-pdf-document";
@@ -43,6 +44,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [transitionConfirm, setTransitionConfirm] = useState<"send" | "accept" | "reject" | null>(null);
+  const [convertConfirm,setConvertConfirm] = useState(false);
   const [prepareConfirm, setPrepareConfirm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [activityKey, setActivityKey] = useState(0);
@@ -180,6 +182,9 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
             <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("accept")}>Marcar aceptado</button>
             <button className="gc-action min-h-11" disabled={busy} onClick={() => setTransitionConfirm("reject")}>Marcar rechazado</button>
           </> : null}
+          {detail.quote.status?.code === "accepted" && detail.quote.accepted_version_id && !detail.quote.converted_order_id ?
+            <button className="gc-cta min-h-11" disabled={busy} onClick={() => setConvertConfirm(true)}>Convertir en pedido</button> : null}
+          {detail.quote.converted_order ? <p className="text-sm">Convertido en pedido {detail.quote.converted_order.reference}</p> : null}
           {detail.quote.accepted_version_id ? <p className="text-sm">Versión aceptada: v{detail.versions.find((v) => v.id === detail.quote.accepted_version_id)?.version_number ?? '—'}</p> : null}
         </SectionCard> : null}
         {detail.versions.length > 0 ? <SectionCard title="Historial de versiones" bodyClassName="p-5 sm:p-6">
@@ -226,6 +231,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
         <QuoteActivity quoteId={quoteId} reloadKey={activityKey} />
       </div>
     </> : null}
+    {convertConfirm && detail && !conflict ? <QuoteConversionDialog quote={detail.quote} busy={busy} error={actionError} onCancel={() => setConvertConfirm(false)} onConfirm={(fields) => {
+      void perform(async () => {
+        const result = await request<{order:{id:string;reference:string}}>(`${base}/convert`,"POST",{...fields,expected_row_version:detail.quote.row_version});
+        setDetail(current=>current?{...current,quote:{...current.quote,converted_order_id:result.order.id,converted_order:result.order}}:current);
+        setConvertConfirm(false);setMessage(`Convertido en pedido ${result.order.reference}`);
+        try {await loadCurrent();} catch {setActionError("Pedido creado. Recarga la ficha para actualizar los datos.");}
+      });
+    }}/> : null}
     {transitionConfirm && !conflict ? <QuoteDialog
       title={transitionConfirm === "send" ? "Marcar como enviado" : transitionConfirm === "accept" ? "Marcar aceptado" : "Marcar rechazado"}
       description={transitionConfirm === "send" ? "Esto no enviará ningún correo. Registra que el presupuesto ya se ha enviado al cliente por un canal externo." : "Se registrará la decisión del cliente sobre la versión enviada actual."}

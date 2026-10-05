@@ -13,6 +13,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { OrderFilesSection } from "@/components/files/order-files-section";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
 import { OrderFulfillment } from "@/components/orders/detail/order-fulfillment";
+import { OrderSourceQuote } from "@/components/orders/detail/order-source-quote";
 import { OrderHeader } from "@/components/orders/detail/order-header";
 import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
@@ -67,6 +68,7 @@ import type {
   OrderDraft,
   OrderOptionsResponse,
   OrderResponse,
+  SourceQuote,
   OrderStatus,
 } from "@/lib/orders/types";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
@@ -114,6 +116,7 @@ export function OrderWorkspace() {
   const [showCreated] = useState(
     () => searchParams.get("created") === "1"
   );
+  const [sourceQuote,setSourceQuote] = useState<SourceQuote|null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -248,6 +251,7 @@ export function OrderWorkspace() {
         }
 
         setOrder(normalizeLoadedOrder(result.order));
+        setSourceQuote(result.source_quote ?? null);
         setError(null);
         setLoading(false);
       } catch (err) {
@@ -1322,6 +1326,7 @@ export function OrderWorkspace() {
         />
 
         <div className="grid gap-6 lg:grid-cols-2">
+          {sourceQuote ? <OrderSourceQuote quote={sourceQuote}/> : null}
           <OrderSummary
             order={order}
             draft={draft}

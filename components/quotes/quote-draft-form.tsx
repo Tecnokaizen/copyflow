@@ -24,7 +24,7 @@ export function QuoteDraftForm({ detail, values, dirty, busy, errors, onChange, 
   }
   const totals = detail.current_version;
   return <form className="grid min-w-0 gap-5" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
-    <SectionCard title="Cabecera comercial" description={readonly ? "Versión bloqueada. Crea una nueva versión para hacer cambios." : "Los datos de contacto y facturación se guardan con esta versión."} bodyClassName="p-5 sm:p-6">
+    <SectionCard title="Cabecera comercial" description={readonly ? (detail.quote.accepted_version_id ? "Versión aceptada y bloqueada. El documento comercial se conserva sin cambios." : "Versión bloqueada. Crea una nueva versión para hacer cambios.") : "Los datos de contacto y facturación se guardan con esta versión."} bodyClassName="p-5 sm:p-6">
       <p className="mb-4 text-sm"><span className="gc-fact-label">Cliente </span>{detail.quote.client?.name ?? "Sin cliente"}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {TEXT_FIELDS.map(([key, label, type, maxLength]) => <label className="gc-field min-w-0" key={key}>
