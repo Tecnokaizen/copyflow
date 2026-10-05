@@ -138,7 +138,7 @@ export function OrderFileRow({
           <Download className="size-4" />
           Descargar
         </Button>
-        {canMutate && onDelete ? (
+        {canMutate && !file.protected_document && onDelete ? (
           <Button
             type="button"
             variant="ghost"
@@ -180,7 +180,7 @@ export function OrderFileRow({
             >
               Descargar
             </DropdownMenuItem>
-            {canMutate && onDelete ? (
+            {canMutate && !file.protected_document && onDelete ? (
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onSelect={() => onDelete()}

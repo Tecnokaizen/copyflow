@@ -33,6 +33,7 @@ export const ACTIVITY_ACTIONS = [
   "quote.updated",
   "quote.status_changed",
   "quote.converted",
+  "quote.pdf_generated",
   "quote.file_uploaded",
   "quote.file_deleted",
 ] as const;
@@ -121,6 +122,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "quote.updated", label: "Presupuesto actualizado" },
   { value: "quote.status_changed", label: "Estado de presupuesto" },
   { value: "quote.converted", label: "Presupuesto convertido" },
+  { value: "quote.pdf_generated", label: "PDF de presupuesto generado" },
   { value: "quote.file_uploaded", label: "Archivo de presupuesto" },
   { value: "quote.file_deleted", label: "Archivo de presupuesto eliminado" },
 ];

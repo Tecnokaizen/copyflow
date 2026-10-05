@@ -12,6 +12,7 @@ import { QuoteDraftForm } from "./quote-draft-form";
 import { QuoteOperationalForm } from "./quote-operational-form";
 import { QuoteDialog } from "./quote-dialog";
 import { QuoteActivity } from "./quote-activity";
+import { QuotePdfDocument } from "./quote-pdf-document";
 import { QuoteFilesSection } from "./quote-files-section";
 import { editorValues, editorValidation, draftPayload, formatQuoteMoney, VERSION_LABELS, type EditorValues } from "@/lib/quotes/editor";
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
@@ -183,6 +184,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
             <div className="mb-4"><RichTextContent value={detail.quote.description} /></div>
             <button className="gc-cta min-h-11" type="button" disabled={busy} onClick={() => createDraft(false)}>Abrir borrador comercial</button>
           </SectionCard>}
+        {(historical || version) ? <QuotePdfDocument key={(historical || version)!.id} quoteId={quoteId} version={(historical || version)!} onGenerated={(file) => {
+          const documentVersion = (historical || version)!;
+          setDetail((current) => current ? { ...current,
+            current_version: current.current_version?.id === documentVersion.id ? { ...current.current_version, pdf_file_id: file.id, pdf_file: file } : current.current_version,
+            versions: current.versions.map((v) => v.id === documentVersion.id ? { ...v, pdf_file_id: file.id, pdf_file: file } : v),
+          } : current);
+          setActivityKey((n) => n + 1); setMessage("Documento PDF preparado");
+        }} /> : null}
         {version && version.state !== "draft" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Nueva versión</button> : null}
         <QuoteOperationalForm key={`${detail.quote.id}-${detail.quote.row_version}`} quote={detail.quote} busy={busy} saveDisabled={dirty} clientLocked={dirty || (!!version && version.state !== "draft")} onSave={(fields) => {
           void perform(async () => {

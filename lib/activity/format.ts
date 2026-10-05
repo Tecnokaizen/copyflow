@@ -582,6 +582,8 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Cambió ${fieldLabel(field).toLowerCase()} de ${entity}`;
     case "order.notification_changed":
       return `Cambió el aviso al cliente de ${entity}`;
+    case "quote.pdf_generated":
+      return `Generó el PDF de ${entity}`;
     case "order.file_uploaded":
     case "quote.file_uploaded":
       return `Subió un archivo a ${entity}`;
@@ -660,6 +662,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "quote.updated",
     "quote.status_changed",
     "quote.converted",
+    "quote.pdf_generated",
     "quote.file_uploaded",
     "quote.file_deleted",
   ].includes(event.action);

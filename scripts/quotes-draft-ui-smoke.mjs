@@ -55,10 +55,10 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const results = []; let assertions = 0; let lastPage; let lastEvents;
 function check(actual, expected, description) { assert.deepEqual(actual, expected, description); assertions++; }
 function fixture(state = "draft", legacy = false) {
-  const v = { id: "version-2", quote_id: "quote-1", version_number: 2, state, title: "Catálogos", description: "<p>Material para evento</p>", terms: "<p>Pago a 30 días</p>", issue_date: "2026-10-05", valid_until: "2026-10-31", currency: "EUR", prices_include_tax: false, subtotal: "100.00", tax_total: "21.00", total: "121.00", row_version: 4, created_at: "2026-10-05T12:00:00Z", locked_at: state === "draft" ? null : "2026-10-05T12:01:00Z", sent_at: state === "sent" ? "2026-10-05T12:02:00Z" : null, tax_breakdown: [] };
+  const v = { pdf_file_id: null, id: "version-2", quote_id: "quote-1", version_number: 2, state, title: "Catálogos", description: "<p>Material para evento</p>", terms: "<p>Pago a 30 días</p>", issue_date: "2026-10-05", valid_until: "2026-10-31", currency: "EUR", prices_include_tax: false, subtotal: "100.00", tax_total: "21.00", total: "121.00", row_version: 4, created_at: "2026-10-05T12:00:00Z", locked_at: state === "draft" ? null : "2026-10-05T12:01:00Z", sent_at: state === "sent" ? "2026-10-05T12:02:00Z" : null, tax_breakdown: [] };
   const q = { ...v, id: "quote-1", reference: "P-0001", row_version: 55, title: "Catálogos", status: { id: "status-1", code: "draft", name: "Borrador" }, client: { id: "client-1", name: "Cliente de prueba" }, current_version_id: legacy ? null : v.id, current_version_number: legacy ? null : 2, current_version_state: legacy ? null : state, contact_name: "Raquel", contact_email: "raquel@example.com", contact_phone: "600123456", billing_name: "Cliente de prueba SL", tax_id: "B12345678", billing_address: "Calle Mayor 1", notes: "<p>Pago a 30 días</p>", converted_order_id: null, service: null, assignee: null, converted_order: null };
   const item = { id: "line-1", position: 1, concept: "Impresión", description: "A4", quantity: "1", unit: "ud", unit_price: "100", discount_percent: "0", tax_rate: "21", subtotal: "100.00", tax_amount: "21.00", total: "121.00" };
-  return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : [item], versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
+  return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : [item], versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", pdf_file_id: "pdf-old", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
 }
 async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0 } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(10000);
@@ -82,6 +82,11 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     else if (pathname === "/api/quotes/quote-1" && method === "GET") {
       if (readFail) { status = 500; result = { error: "Read failed" }; } else result = stored;
     } else if (fail) { status = fail.status; result = { code: fail.code, error: fail.error ?? "Error simulado" }; fail = null; }
+    else if (pathname.endsWith("/pdf") && method === "POST") {
+      const file = { id: "pdf-current", size_bytes: 18000, completed_at: "2026-10-05T14:00:00Z" };
+      stored.current_version = { ...stored.current_version, pdf_file_id: file.id, pdf_file: file };
+      stored.versions[0] = stored.current_version; result = { file, replayed: false };
+    }
     else if (pathname.endsWith("/draft") && method === "PUT") {
       check(body.expected_row_version, stored.current_version.row_version, "Version concurrency token");
       check("total" in body.items[0], false, "No client totals in payload");
@@ -97,7 +102,7 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
       result = { quote: stored.quote, prepared_version: stored.current_version, totals: stored.current_version };
     } else if (pathname.endsWith("/versions")) {
       if (stored.current_version.state !== "draft") {
-        const v = { ...stored.current_version, id: "version-3", version_number: 3, state: "draft", row_version: 0, locked_at: null };
+        const v = { ...stored.current_version, pdf_file_id: null, pdf_file: null, id: "version-3", version_number: 3, state: "draft", row_version: 0, locked_at: null };
         stored = { ...stored, current_version: v, versions: [v, ...stored.versions], quote: { ...stored.quote, current_version_id: v.id, current_version_number: 3, current_version_state: "draft" } };
       }
       result = { version: stored.current_version, replayed: true, created: false };
@@ -116,6 +121,7 @@ try {
     const h = await setup(width, theme); const { page, events } = h;
     await page.getByRole("heading", { name: "Cabecera comercial" }).waitFor();
     check(await page.getByLabel("Título / trabajo").inputValue(), "Catálogos", "Loads commercial header");
+    check(await page.getByRole("button", { name: "Generar PDF", exact: true }).count(), 0, "Draft has no PDF CTA");
     await page.screenshot({ path: path.join(out, `editor-${width}-${theme}.png`), fullPage: true });
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "No page horizontal overflow");
     await page.getByLabel("Título / trabajo").fill("Trabajo editado");
@@ -167,6 +173,19 @@ try {
     check(await page.getByText("Borrador", { exact: true }).count() > 0, true, "UI never marks quote sent on prepare");
     check(await page.getByLabel("Título / trabajo").inputValue(), "Preparar mis cambios", "Prepare saved local edits first");
     await page.screenshot({ path: path.join(out, `prepared-${width}-${theme}.png`), fullPage: true });
+    check(await page.getByRole("button", { name: "Generar PDF", exact: true }).count(), 1, "Prepared without PDF offers generation");
+    h.setFail({ status: 409, code: "STORAGE_QUOTA_EXCEEDED", error: "No queda espacio suficiente" });
+    await page.getByRole("button", { name: "Generar PDF", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "No queda espacio suficiente" }).waitFor();
+    check(await page.getByRole("link", { name: "Vista previa PDF" }).count(), 0, "Quota error leaves no document link");
+    await page.getByRole("button", { name: "Generar PDF", exact: true }).click();
+    await page.getByRole("link", { name: "Vista previa PDF", exact: true }).waitFor();
+    check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Current PDF uses version endpoint");
+    check(await page.getByRole("link", { name: "Descargar PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf?download=1", "Download uses secure entry point");
+    check(await page.getByText("Documento preparado", { exact: true }).count(), 1, "Prepared document indicator");
+    check(events.filter(e => e.pathname.endsWith('/pdf')).every(e => e.body === null), true, "PDF generation sends no client document payload");
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "PDF controls responsive");
+    await page.screenshot({ path: path.join(out, `pdf-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Nueva versión", exact: true }).dblclick();
     await page.getByRole("status").filter({ hasText: "Borrador de versión abierto" }).waitFor();
     check(h.stored().versions.filter(v => v.state === "draft").length, 1, "New version replay opens only one draft");
@@ -174,10 +193,12 @@ try {
     await page.getByRole("button").filter({ hasText: "v1 · Enviada" }).click();
     await page.getByRole("heading", { name: "Resumen histórico v1", exact: true }).waitFor();
     check(await page.getByRole("button", { name: "Guardar borrador", exact: true }).count(), 0, "Historical sent has no editor");
+    check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-1/pdf", "Sent history opens its own PDF");
     await page.getByRole("button", { name: "Volver a versión actual", exact: true }).click();
     await page.getByRole("button").filter({ hasText: "v2 · Preparada" }).click();
     await page.getByRole("heading", { name: "Resumen histórico v2", exact: true }).waitFor();
     check(await page.getByLabel("Título / trabajo").count(), 0, "Historical prepared cannot be edited");
+    check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Volver a versión actual", exact: true }).click();
     await page.getByRole("button", { name: "Editar gestión", exact: true }).click();
