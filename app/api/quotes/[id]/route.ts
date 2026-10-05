@@ -4,7 +4,15 @@ import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { parseUpdateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
-import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
+import {
+  QUOTE_ITEM_SELECT,
+  QUOTE_SELECT,
+  QUOTE_VERSION_SELECT,
+  mapQuote,
+  mapQuoteItem,
+  mapQuoteVersion,
+  summarizeQuoteVersion,
+} from "@/lib/quotes/types";
 import { isUuid } from "@/lib/team/payload";
 
 type RouteContext = {
@@ -49,9 +57,43 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.notFound }, { status: 404 });
   }
 
+  const [versionsResult, itemsResult] = await Promise.all([
+    access.supabase
+      .from("quote_versions")
+      .select(QUOTE_VERSION_SELECT)
+      .eq("tenant_id", access.context.tenant.id)
+      .eq("quote_id", id)
+      .order("version_number", { ascending: false }),
+    loaded.quote.current_version_id
+      ? access.supabase
+          .from("quote_items")
+          .select(QUOTE_ITEM_SELECT)
+          .eq("tenant_id", access.context.tenant.id)
+          .eq("quote_version_id", loaded.quote.current_version_id)
+          .order("position", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (versionsResult.error || itemsResult.error) {
+    return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+  }
+
+  const versions = (versionsResult.data ?? []).map(mapQuoteVersion);
+  const items = (itemsResult.data ?? []).map(mapQuoteItem);
+  if (versions.some((version) => version === null) || items.some((item) => item === null)) {
+    return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+  }
+
+  const mappedVersions = versions.filter((version) => version !== null);
+  const currentVersion =
+    mappedVersions.find((version) => version.id === loaded.quote?.current_version_id) ?? null;
+
   return operationalJson({
     tenant: access.context.tenant.slug,
     quote: loaded.quote,
+    current_version: currentVersion,
+    items: items.filter((item) => item !== null),
+    versions: mappedVersions.map(summarizeQuoteVersion),
   });
 }
 

@@ -6,6 +6,22 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
 export async function requireQuotesAccess() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return {
+      ok: false as const,
+      response: operationalJson(
+        { error: QUOTE_MESSAGES.unauthenticated },
+        { status: 401 }
+      ),
+    };
+  }
+
   const context = await getCurrentContext();
 
   if (!context) {
@@ -18,7 +34,6 @@ export async function requireQuotesAccess() {
     };
   }
 
-  const supabase = await createClient();
   const enabled = await tenantHasFeature(
     supabase,
     context.tenant.id,
