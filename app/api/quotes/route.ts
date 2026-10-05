@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   const to = from + pageSize - 1;
 
   let statusId: string | null = null;
-  if (statusCode) {
+  if (statusCode && statusCode !== "expired") {
     const { data: status, error: statusError } = await access.supabase
       .from("quote_statuses")
       .select("id")
@@ -79,6 +79,17 @@ export async function GET(request: NextRequest) {
 
   if (statusId) {
     query = query.eq("status_id", statusId);
+  }
+
+  if (statusCode === "expired") {
+    // A date filter, not a new commercial state or a mutation of quotes.
+    const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Madrid" }).format(new Date());
+    const { data: terminal, error: terminalError } = await access.supabase
+      .from("quote_statuses").select("id").eq("tenant_id", access.context.tenant.id)
+      .in("code", ["accepted", "rejected"]);
+    if (terminalError) return operationalJson({ error: QUOTE_MESSAGES.invalid }, { status: 500 });
+    query = query.lt("valid_until", today).is("converted_order_id", null);
+    if (terminal?.length) query = query.not("status_id", "in", `(${terminal.map((status) => status.id).join(",")})`);
   }
 
   if (pattern) {

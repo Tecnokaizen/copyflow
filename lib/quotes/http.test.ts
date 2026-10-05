@@ -35,6 +35,7 @@ function harness(route: string, options: { denied?: number; missing?: boolean; r
   const supabase = {
     from(table: string) {
       const chain = {
+        update(args: Record<string, unknown>) { calls.push({ name: "update", args }); return chain; },
         select() { return chain; },
         eq(key: string, value: unknown) { filters.push([key, value]); return chain; },
         order() { return chain; },
@@ -144,5 +145,22 @@ describe("commercial HTTP handlers", () => {
     assert.equal(body.versions[0].version_number, 2);
     assert.equal("description" in body.versions[0], false);
     assert.equal("seller_snapshot" in body.current_version, false);
+  });
+});
+
+describe("operational partial PATCH compatibility", () => {
+  it("updates only operational columns with tenant and quote concurrency scope", async () => {
+    const h = harness("");
+    const response = await h.invoke("PATCH", { operational_only: true, expected_row_version: 99, client_id: null, service_id: null, assigned_team_member_id: null });
+    assert.equal(response.status, 200);
+    assert.deepEqual(h.calls[0].args, { client_id: null, service_id: null, assigned_team_member_id: null });
+    assert.ok(h.filters.some(([key, value]) => key === "row_version" && value === 99));
+    assert.ok(h.filters.some(([key, value]) => key === "tenant_id" && value === "tenant-a"));
+  });
+  it("still accepts the old full operational form", async () => {
+    const h = harness("");
+    const response = await h.invoke("PATCH", { expected_row_version: 99, title: "Old form", description: "Trabajo", notes: "Notas", client_id: null, service_id: null, assigned_team_member_id: null });
+    assert.equal(response.status, 200);
+    assert.equal(h.calls[0].args.title, "Old form");
   });
 });

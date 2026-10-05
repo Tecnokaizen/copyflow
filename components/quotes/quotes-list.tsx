@@ -21,6 +21,7 @@ import {
   quotePageRange,
   quoteStatusFilters,
 } from "@/lib/quotes/workflow";
+import { formatQuoteMoney, VERSION_LABELS } from "@/lib/quotes/editor";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
@@ -240,7 +241,7 @@ export function QuotesList() {
 
       {!loading && !error && quotes.length > 0 ? (
         <>
-          <div className="grid gap-3 md:hidden">
+          <div className="grid gap-3 lg:hidden">
             {quotes.map((quote) => (
               <article key={quote.id} className="gc-list-row">
                 <div className="flex items-start justify-between gap-3">
@@ -254,6 +255,11 @@ export function QuotesList() {
                     <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
                   ) : null}
                 </div>
+                <p className="mt-2 flex flex-wrap justify-between gap-2 text-sm">
+                  <span>{quote.current_version_number ? `v${quote.current_version_number} · ${VERSION_LABELS[quote.current_version_state ?? "draft"]}` : "Sin versión comercial"}</span>
+                  <strong>{quote.current_version_id ? `${formatQuoteMoney(quote.total, quote.currency)} · ${quote.currency}` : "—"}</strong>
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">Emisión: {formatValidity(quote.issue_date)}</p>
                 <p className="mt-2 text-sm">{quote.title || plainTextSnippet(quote.description)}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {quote.client?.name ?? "Sin cliente"}
@@ -280,7 +286,7 @@ export function QuotesList() {
             ))}
           </div>
 
-          <div className="gc-card hidden md:block">
+          <div className="gc-card hidden lg:block">
             <div className="overflow-x-auto">
               <table className="gc-table">
                 <thead>
@@ -288,6 +294,9 @@ export function QuotesList() {
                     <th>Referencia</th>
                     <th>Cliente</th>
                     <th>Trabajo / Servicio</th>
+                    <th>Versión</th>
+                    <th>Total / moneda</th>
+                    <th>Emisión</th>
                     <th>Estado</th>
                     <th>Responsable</th>
                     <th>Creado</th>
@@ -320,6 +329,9 @@ export function QuotesList() {
                           </div>
                         ) : null}
                       </td>
+                      <td>{quote.current_version_number ? <><span>v{quote.current_version_number}</span><span className="mt-1 block text-xs text-muted-foreground">{VERSION_LABELS[quote.current_version_state ?? "draft"]}</span></> : "—"}</td>
+                      <td className="whitespace-nowrap font-semibold">{quote.current_version_id ? <>{formatQuoteMoney(quote.total, quote.currency)}<span className="ml-2 text-xs text-muted-foreground">{quote.currency}</span></> : "—"}</td>
+                      <td>{formatValidity(quote.issue_date)}</td>
                       <td>
                         {quote.status ? (
                           <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />

@@ -161,3 +161,7 @@ Se añaden siete tests que ejecutan los handlers HTTP con dependencias controlad
 - Se preservan las tres migraciones SQL originales. `kiosk-supabase.yml` es el pipeline general histórico: ejecuta Settings, Billing, Onboarding, Quotes y hardening además de Kiosk.
 - Logs de esta revalidación: `/tmp/quotes-resume-*.log`, `/tmp/quotes-resume-sql.json`, `/tmp/quotes-resume-sql/`, `/tmp/quotes-resume-concurrent/`.
 - Siguiente bloque: Draft Editor UI, con conflictos de versión visibles y distinción entre prepared y sent.
+
+## Continuación: editor comercial
+
+HTTP + contratos quedaron consolidados en `0ea956b424d27f27242654d4d5ebeecb72bc232b`. El estado anterior “local sin commit” describe la entrega original. El editor comercial, las dos extensiones de compatibilidad (PATCH operativo sin campos documentales y filtro de caducados), la validación y los límites del historial se documentan en `QUOTES-COMMERCIAL-UI-V1.md`.

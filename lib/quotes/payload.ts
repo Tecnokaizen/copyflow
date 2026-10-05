@@ -452,3 +452,28 @@ export function parseQuotePreparePayload(body: unknown): Ok<QuotePreparePayload>
     },
   };
 }
+
+/** Explicit partial operational PATCH: never rewrites the document projection. */
+export function parseOperationalQuotePayload(body: unknown): Ok<{
+  expected_row_version: number;
+  client_id: string | null;
+  service_id: string | null;
+  assigned_team_member_id: string | null;
+}> | Fail {
+  const input = record(body);
+  if (!input || input.operational_only !== true || Object.keys(input).some((key) =>
+    !["operational_only", "expected_row_version", "client_id", "service_id", "assigned_team_member_id"].includes(key)
+  )) return { ok: false, error: QUOTE_MESSAGES.invalid };
+  const version = requiredVersion(input.expected_row_version);
+  const client = optionalUuid(input.client_id);
+  const service = optionalUuid(input.service_id);
+  const assignee = optionalUuid(input.assigned_team_member_id);
+  if (!version.ok) return version;
+  if (!client.ok) return client;
+  if (!service.ok) return service;
+  if (!assignee.ok) return assignee;
+  return { ok: true, data: {
+    expected_row_version: version.data, client_id: client.value,
+    service_id: service.value, assigned_team_member_id: assignee.value,
+  } };
+}

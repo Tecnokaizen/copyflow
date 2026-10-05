@@ -242,7 +242,7 @@ describe("print routes", () => {
       "utf8"
     );
     const detail = readFileSync(
-      new URL("../../app/quotes/[id]/page.tsx", import.meta.url),
+      new URL("../../components/quotes/quote-commercial-editor.tsx", import.meta.url),
       "utf8"
     );
     const layout = readFileSync(
@@ -261,7 +261,7 @@ describe("print routes", () => {
     assert.match(layout, /canAccessQuotesModule/);
     assert.match(layout, /notFound\(\)/);
     assert.match(detail, /Imprimir presupuesto/);
-    assert.match(detail, /\/quotes\/\$\{quote\.id\}\/print/);
+    assert.match(detail, /\/quotes\/\$\{detail\.quote\.id\}\/print/);
     assert.match(loader, /company_name, contact_name, tax_id, email, phone/);
     assert.equal(loader.includes("quote.notes"), true);
     assert.equal(css.includes("size: A4"), true);

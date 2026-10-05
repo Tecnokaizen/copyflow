@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
-import { parseUpdateQuotePayload } from "@/lib/quotes/payload";
+import { parseOperationalQuotePayload, parseUpdateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
 import {
   QUOTE_ITEM_SELECT,
@@ -115,7 +115,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.invalid }, { status: 400 });
   }
 
-  const parsed = parseUpdateQuotePayload(body);
+  const operational = !!body && typeof body === "object" && "operational_only" in body && body.operational_only === true;
+  const parsed = operational ? parseOperationalQuotePayload(body) : parseUpdateQuotePayload(body);
   if (!parsed.ok) {
     return operationalJson({ error: parsed.error }, { status: 400 });
   }
@@ -147,15 +148,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   const { data, error } = await access.supabase
     .from("quotes")
-    .update({
-      title: parsed.data.title,
-      description: parsed.data.description,
-      notes: parsed.data.notes,
-      valid_until: parsed.data.valid_until,
-      client_id: parsed.data.client_id,
-      service_id: parsed.data.service_id,
-      assigned_team_member_id: parsed.data.assigned_team_member_id,
-    })
+    .update(Object.fromEntries(
+      Object.entries(parsed.data).filter(([key]) => key !== "expected_row_version")
+    ))
     .eq("id", id)
     .eq("tenant_id", access.context.tenant.id)
     .eq("row_version", parsed.data.expected_row_version)

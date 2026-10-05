@@ -7,6 +7,7 @@ export const QUOTE_FLOW_CODES = [
   "sent",
   "accepted",
   "rejected",
+  "expired",
 ] as const;
 
 export type QuoteFlowCode = (typeof QUOTE_FLOW_CODES)[number];
@@ -17,6 +18,8 @@ const UUID_PATTERN =
 const FILTER_LABELS: Partial<
   Record<QuoteFlowCode, { catalogName: string; label: string }>
 > = {
+  draft: { catalogName: "Borrador", label: "Borradores" },
+  expired: { catalogName: "Caducado", label: "Caducados" },
   sent: { catalogName: "Enviado", label: "Enviados" },
   accepted: { catalogName: "Aceptado", label: "Aceptados" },
   rejected: { catalogName: "Rechazado", label: "Rechazados" },
@@ -28,7 +31,7 @@ export function quoteStatusFilters(
   const byCode = new Map(statuses.map((status) => [status.code, status.name]));
 
   return QUOTE_FLOW_CODES.flatMap((code) => {
-    const name = byCode.get(code);
+    const name = byCode.get(code) ?? FILTER_LABELS[code]?.catalogName;
     if (!name) {
       return [];
     }
