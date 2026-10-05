@@ -42,6 +42,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [transitionConfirm, setTransitionConfirm] = useState<"send" | "accept" | "reject" | null>(null);
   const [prepareConfirm, setPrepareConfirm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [activityKey, setActivityKey] = useState(0);
@@ -133,6 +134,17 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       setMessage("Versión preparada y bloqueada");
     });
   }
+  function transition() {
+    void perform(async () => {
+      if (!detail?.current_version || !transitionConfirm) return;
+      await request(`${base}/${transitionConfirm}`, "POST", {
+        version_id: detail.current_version.id, expected_row_version: detail.quote.row_version,
+      });
+      setTransitionConfirm(null);
+      await loadCurrent();
+      setMessage("Estado comercial registrado");
+    });
+  }
   function createDraft(newVersion: boolean) {
     void perform(async () => {
       await request(`${base}/${newVersion ? "versions" : "draft"}`, "POST");
@@ -161,6 +173,15 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       <div aria-live="polite" role="status">{message ? <p className="mb-4 text-sm text-muted-foreground">{message}</p> : null}</div>
       {actionError ? <p role="alert" className="mb-4 text-sm text-destructive">{actionError}</p> : null}
       <div className="grid min-w-0 gap-5">
+        {!historical && version ? <SectionCard title="Estado comercial" bodyClassName="flex flex-wrap items-center gap-3 p-5 sm:p-6">
+          {version.state === "prepared" && version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '') ?
+            <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("send")}>Marcar como enviado</button> : null}
+          {detail.quote.status?.code === "sent" && version.state === "sent" ? <>
+            <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("accept")}>Marcar aceptado</button>
+            <button className="gc-action min-h-11" disabled={busy} onClick={() => setTransitionConfirm("reject")}>Marcar rechazado</button>
+          </> : null}
+          {detail.quote.accepted_version_id ? <p className="text-sm">Versión aceptada: v{detail.versions.find((v) => v.id === detail.quote.accepted_version_id)?.version_number ?? '—'}</p> : null}
+        </SectionCard> : null}
         {detail.versions.length > 0 ? <SectionCard title="Historial de versiones" bodyClassName="p-5 sm:p-6">
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {detail.versions.map((entry) => <li key={entry.id}>
@@ -192,7 +213,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
           } : current);
           setActivityKey((n) => n + 1); setMessage("Documento PDF preparado");
         }} /> : null}
-        {version && version.state !== "draft" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Nueva versión</button> : null}
+        {version && version.state !== "draft" && !detail.quote.accepted_version_id && detail.quote.status?.code !== "accepted" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Nueva versión</button> : null}
         <QuoteOperationalForm key={`${detail.quote.id}-${detail.quote.row_version}`} quote={detail.quote} busy={busy} saveDisabled={dirty} clientLocked={dirty || (!!version && version.state !== "draft")} onSave={(fields) => {
           void perform(async () => {
             const result = await request<{ quote: QuoteRecord }>(base, "PATCH", { operational_only: true, expected_row_version: detail.quote.row_version, ...fields });
@@ -205,6 +226,10 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
         <QuoteActivity quoteId={quoteId} reloadKey={activityKey} />
       </div>
     </> : null}
+    {transitionConfirm && !conflict ? <QuoteDialog
+      title={transitionConfirm === "send" ? "Marcar como enviado" : transitionConfirm === "accept" ? "Marcar aceptado" : "Marcar rechazado"}
+      description={transitionConfirm === "send" ? "Esto no enviará ningún correo. Registra que el presupuesto ya se ha enviado al cliente por un canal externo." : "Se registrará la decisión del cliente sobre la versión enviada actual."}
+      confirmLabel="Confirmar" busy={busy} error={actionError} onConfirm={transition} onCancel={() => setTransitionConfirm(null)} /> : null}
     {conflict ? <QuoteDialog title="Este presupuesto ha cambiado desde que lo abriste." description="Puedes recargar la versión actual o cancelar y mantener lo escrito localmente. Recargar sustituirá tus cambios locales." confirmLabel="Recargar versión actual" error={actionError} busy={busy} onCancel={() => setConflict(false)} onConfirm={() => {
       void perform(async () => { await loadCurrent(); setConflict(false); setPrepareConfirm(false); setMessage("Versión actual recargada"); });
     }} /> : null}
