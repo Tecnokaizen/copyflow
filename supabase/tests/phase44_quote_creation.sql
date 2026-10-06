@@ -53,6 +53,7 @@ begin
   perform pg_temp.check_true(r->>'ok'='true' and r->>'quote_id'=qid::text,'creation acknowledgement');
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=1,'own unacknowledged creation is recoverable');
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(tb,qid)->'receipts')=0,'exact recovery cannot cross tenants');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(tb)->'receipts')=0,'automatic recovery cannot cross tenants');
   perform pg_temp.check_true(public.ack_quote_draft_creation_v1(tb,qid)->>'error'='not_found','ACK cannot cross tenants');
   vid:=(r->'version'->>'id')::uuid; rv:=(r->'version'->>'row_version')::bigint;
   perform pg_temp.check_true((r->'version'->>'total')::numeric=217.80,'server totals in complete draft');
@@ -63,6 +64,7 @@ begin
   perform pg_temp.check_true(public.create_quote_draft_v1(tb,qid,null,null,null,h,items,false)->>'error'='creation_conflict','multi-membership tenant collision');
   perform set_config('request.jwt.claim.sub',other_actor::text,true);
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=0,'recovery cannot cross actors');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=0,'automatic recovery cannot cross actors');
   perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)->>'error'='not_found','ACK cannot cross actors');
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)->>'error'='creation_conflict','different actor rejected');
   perform set_config('request.jwt.claim.sub',actor::text,true);
@@ -81,10 +83,30 @@ begin
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=1,'URL recovers after ACK');
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)=r,'ACK does not alter original replay');
   execute 'reset role';
-  update public.quote_draft_creations set created_at=now()-interval '31 days',acknowledged_at=null where creation_id=qid;
+  update public.quote_draft_creations set created_at=now()-interval '49 hours',acknowledged_at=null where creation_id=qid;
   execute 'set local role authenticated';
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=0,'recent-list window enforced');
   perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=1,'exact URL lookup works beyond window');
+  execute 'reset role';
+  -- Exact URL recovery ignores both age and ACK; automatic recovery is bounded.
+  execute 'set local role authenticated';
+  perform public.ack_quote_draft_creation_v1(ta,qid);
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=1,'old acknowledged URL lookup');
+  for n in 1..12 loop
+    again:=public.create_quote_draft_v1(ta,gen_random_uuid(),null,null,null,h,items,false);
+    execute 'reset role';
+    update public.quote_draft_creations set created_at=now()-n*interval '1 hour' where creation_id=(again->>'quote_id')::uuid;
+    execute 'set local role authenticated';
+  end loop;
+  again:=public.recover_quote_draft_creations_v1(ta);
+  perform pg_temp.check_true(jsonb_array_length(again->'receipts')=10,'automatic list capped at ten');
+  for n in 0..9 loop
+    perform pg_temp.check_true((again->'receipts'->n->>'created_at')::timestamptz=now()-(n+1)*interval '1 hour','newest ten in descending order');
+  end loop;
+  perform public.ack_quote_draft_creation_v1(ta,(again->'receipts'->0->>'operation_id')::uuid);
+  perform pg_temp.check_true(not exists(
+    select 1 from jsonb_array_elements(public.recover_quote_draft_creations_v1(ta)->'receipts') entry
+    where entry->>'operation_id'=again->'receipts'->0->>'operation_id'),'acknowledged recent receipt excluded');
   execute 'reset role';
   -- Matrix: each normal operative role is permitted, all others/disabled feature/inactive membership denied.
   for role_name in select unnest(array['owner','admin','manager','staff','viewer']) loop

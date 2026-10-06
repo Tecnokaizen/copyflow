@@ -98,11 +98,16 @@ begin
     return jsonb_build_object('ok',false,'error','not_found');
   end if;
   select coalesce(jsonb_agg(jsonb_build_object('operation_id',r.creation_id,'quote_id',r.creation_id,
-    'reference',q.reference,'created_at',r.created_at,'acknowledged_at',r.acknowledged_at) order by r.created_at desc),'[]')
-    into receipts from public.quote_draft_creations r join public.quotes q on q.tenant_id=r.tenant_id and q.id=r.creation_id
-    where r.tenant_id=p_tenant_id and r.actor_id=actor
-      and ((p_creation_id is not null and r.creation_id=p_creation_id)
-        or (p_creation_id is null and r.acknowledged_at is null and r.created_at>=now()-interval '30 days'));
+    'reference',r.reference,'created_at',r.created_at,'acknowledged_at',r.acknowledged_at) order by r.created_at desc),'[]')
+    into receipts from (
+      select r.creation_id,q.reference,r.created_at,r.acknowledged_at
+      from public.quote_draft_creations r join public.quotes q on q.tenant_id=r.tenant_id and q.id=r.creation_id
+      where r.tenant_id=p_tenant_id and r.actor_id=actor
+        and ((p_creation_id is not null and r.creation_id=p_creation_id)
+          or (p_creation_id is null and r.acknowledged_at is null and r.created_at>=now()-interval '48 hours'))
+      order by r.created_at desc
+      limit 10
+    ) r;
   return jsonb_build_object('ok',true,'receipts',receipts);
 end $$;
 create function public.ack_quote_draft_creation_v1(p_tenant_id uuid,p_creation_id uuid)

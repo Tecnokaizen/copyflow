@@ -106,15 +106,24 @@ function QuoteOperationEditor() {
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo abrir el presupuesto.'); }
     finally { submitting.current = false; setBusy(false); }
   }
-  function createAnother() {
-    if (!scope.current || busy) return;
-    const operation = crypto.randomUUID(), url = new URL(window.location.href);
-    url.searchParams.set('op', operation); url.searchParams.set('new', '1');
-    window.history.replaceState(null, '', url);
-    creationId.current = operation;
-    setStorageKey(operationStorageKey(scope.current.tenant, scope.current.actor, operation));
-    setValues(newEditorValues()); setClient(null); setService(''); setAssignee(''); edited.current.clear();
-    setPending(null); setRecovery([]); setReady(true); setDirty(false); setError(null);
+  async function createAnother() {
+    const currentScope = scope.current;
+    if (!currentScope || submitting.current || busy) return;
+    submitting.current = true; setBusy(true); setError(null);
+    try {
+      // Keep the entire recovery block until every visible receipt is acknowledged.
+      // A partial failure is safe to retry because ACK is idempotent.
+      for (const receipt of recovery) await acknowledgeCreation(receipt.operation_id);
+      const operation = crypto.randomUUID(), url = new URL(window.location.href);
+      url.searchParams.set('op', operation); url.searchParams.set('new', '1');
+      window.history.replaceState(null, '', url);
+      creationId.current = operation;
+      setStorageKey(operationStorageKey(currentScope.tenant, currentScope.actor, operation));
+      setValues(newEditorValues()); setClient(null); setService(''); setAssignee(''); edited.current.clear();
+      setPending(null); setRecovery([]); setReady(true); setDirty(false);
+    } catch {
+      setError('No se pudieron reconocer todos los presupuestos pendientes. Reintenta antes de crear otro.');
+    } finally { submitting.current = false; setBusy(false); }
   }
   useEffect(() => {
     const beforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
@@ -181,7 +190,7 @@ function QuoteOperationEditor() {
       <p className="mb-3 text-sm">Puedes abrir el presupuesto existente o decidir crear otro. Los presupuestos existentes se conservarán.</p>
       <div className="flex flex-wrap gap-3">{recovery.map(receipt => <button key={receipt.operation_id} className="gc-cta min-h-11" disabled={busy} onClick={() => void openExisting(receipt)}>
         Abrir presupuesto existente{recovery.length > 1 ? ` · ${receipt.reference}` : ''}
-      </button>)}<button className="gc-action min-h-11" disabled={busy} onClick={createAnother}>Crear otro presupuesto</button></div>
+      </button>)}<button className="gc-action min-h-11" disabled={busy} onClick={() => void createAnother()}>{busy ? 'Confirmando…' : 'Crear otro presupuesto'}</button></div>
     </div> : null}
     {pending && !recovery.length ? <div className="mb-5 rounded-lg border p-4">
       <p className="mb-3 text-sm">El contenido se conserva hasta confirmar el guardado. Después podrás seguir editando desde la ficha.</p>

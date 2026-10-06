@@ -66,7 +66,7 @@ const cb = { ...ca, id: 'e4400000-0000-4000-8000-000000000022', name: 'Cliente B
 async function setup(width, theme, mode = 'new', state = 'draft') {
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
   const page = await context.newPage(); page.setDefaultTimeout(10000);
-  lastPage = page; const events = [], errors = []; lastEvents = events; let failNext = false, failCommitted = false, failAck = false, unavailable = false; const ledger = new Map();
+  lastPage = page; const events = [], errors = []; lastEvents = events; let failNext = false, failCommitted = false, failAck = false, unavailable = false, rejectAck = null, delayAck = 0; const ledger = new Map();
   let stored = fixture(state); stored.current_version.version_number = 1; stored.versions = [stored.current_version];
   stored.quote.current_version_number = 1; stored.quote.current_version_state = state;
   stored.quote.client = ca; stored.quote.contact_phone = ca.phone; stored.quote.contact_email = ca.email;
@@ -94,6 +94,8 @@ async function setup(width, theme, mode = 'new', state = 'draft') {
       const op = new URL(req.url()).searchParams.get('op');
       if (unavailable) { await route.abort('failed'); return; }
       if (method === 'POST') {
+        if (delayAck) await new Promise(resolve => setTimeout(resolve, delayAck));
+        if (body.operation_id === rejectAck) { await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'ACK failed'})}); return; }
         const receipt = ledger.get(body.operation_id);
         if (!receipt) { status = 404; result = { error: 'No encontrado' }; }
         else { receipt.acknowledged_at ??= '2026-10-06T12:01:00Z'; result = { ok: true, quote_id: body.operation_id }; }
@@ -120,7 +122,7 @@ async function setup(width, theme, mode = 'new', state = 'draft') {
   await page.goto(`${url}/?mode=${mode}&theme=${theme}`);
   await page.getByRole('heading', { name: 'Datos del presupuesto', exact: true }).waitFor();
   if (mode === 'new') await page.getByLabel('Título / trabajo').waitFor({ state: 'visible' });
-  return { page, context, events, errors, stored: () => stored, ledger, fail: () => { failNext = true; }, loseResponse: () => { failCommitted = true; }, loseAck: () => { failAck = true; }, unavailable: () => { unavailable = true; } };
+  return { page, context, events, errors, stored: () => stored, ledger, rejectAck: id => { rejectAck = id; }, delayAck: ms => { delayAck = ms; }, fail: () => { failNext = true; }, loseResponse: () => { failCommitted = true; }, loseAck: () => { failAck = true; }, unavailable: () => { unavailable = true; } };
 }
 async function fill(page) {
   await page.getByPlaceholder('Buscar cliente', { exact: false }).fill('Clínica');
@@ -256,6 +258,8 @@ try {
       check(lost.ledger.size, 1, 'Explicit open keeps existing quote');
     } else {
       await lost.page.getByRole('button', { name: 'Crear otro presupuesto', exact: true }).click();
+      await lost.page.waitForFunction(() => new URL(location.href).searchParams.get('new') === '1');
+      check([...lost.ledger.values()].every(r => !!r.acknowledged_at), true, 'Discarded receipt acknowledged');
       check(new URL(lost.page.url()).searchParams.get('new'), '1', 'Explicit new decision survives reload');
       await lost.page.reload(); await fill(lost.page);
       await lost.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
@@ -263,6 +267,37 @@ try {
       check(lost.ledger.size, 2, 'Only explicit create-another creates second quote');
     }
     check(lost.errors, [], 'Recovery browser has no runtime errors'); await lost.context.close();
+  }
+  // Discard all visible receipts, preserving the operation and recovery on any failure.
+  for (const count of [1, 3]) {
+    const h = await setup(768, 'dark');
+    const ids = Array.from({length: count}, (_, i) => `e4490000-0000-4000-8000-${String(i+1).padStart(12, '0')}`);
+    for (const id of ids) h.ledger.set(id, {operation_id:id,quote_id:id,reference:`P-${id}`,created_at:'2026-10-06T12:00:00Z',acknowledged_at:null});
+    await h.page.goto(`${url}/?mode=new&theme=dark`);
+    await h.page.getByRole('button', {name:'Crear otro presupuesto',exact:true}).waitFor();
+    const original = h.page.url();
+    h.delayAck(150);
+    if (count === 3) h.rejectAck(ids[1]);
+    await h.page.getByRole('button', {name:'Crear otro presupuesto',exact:true}).click();
+    await h.page.getByRole('button', {name:'Confirmando…',exact:true}).waitFor();
+    check(await h.page.getByRole('region', {name:'Recuperación de presupuesto'}).getByRole('button').evaluateAll(buttons => buttons.every(b => b.disabled)), true, 'All recovery actions blocked during ACK');
+    if (count === 3) {
+      await h.page.getByRole('alert').waitFor();
+      check(h.page.url(), original, 'Failed ACK keeps exact operation URL');
+      check(await h.page.getByRole('button').filter({hasText:'Abrir presupuesto existente'}).count(), 3, 'Partial ACK failure keeps all recovery visible');
+      check(h.events.filter(e => e.pathname === '/api/quotes/create-draft').length, 0, 'Failed discard creates no quote');
+      check(h.ledger.get(ids[1]).acknowledged_at, null, 'Rejected ACK remains pending');
+      h.rejectAck(null);
+      await h.page.getByRole('button', {name:'Crear otro presupuesto',exact:true}).click();
+    }
+    await h.page.waitForFunction(() => new URL(location.href).searchParams.get('new') === '1');
+    check(ids.every(id => !!h.ledger.get(id).acknowledged_at), true, 'Every visible receipt acknowledged before new operation');
+    check(h.ledger.size, count, 'Receipts retained without creating quotes');
+    await h.page.goto(`${url}/?mode=new&theme=dark`);
+    await h.page.getByRole('button', {name:'Guardar borrador',exact:true}).waitFor();
+    check(await h.page.getByRole('region', {name:'Recuperación de presupuesto'}).count(), 0, 'Discarded receipts do not reappear without op');
+    check(await h.page.getByRole('button', {name:'Guardar borrador',exact:true}).isEnabled(), true, 'Return permits a fresh draft');
+    check(h.errors, [], 'Discard recovery has no runtime errors'); await h.context.close();
   }
   const editedDraft = await setup(768, 'light', 'editor');
   await editedDraft.page.getByLabel('Persona de contacto').fill('Manual persistido');

@@ -1,5 +1,7 @@
 # Presupuestos UX — Corrección de recuperación y validación
 
+> Registro de la validación anterior al cierre final de ACK. La ventana de 30 días descrita en ese registro se sustituye por 48 horas y máximo 10 resultados en el hotfix final; véase el anexo al final.
+
 Estado: **READY FOR RE-AUDIT**. No equivale a READY FOR PR. Rama local `fix/quotes-ux-flow-v1`, base `46038590cdfd6f6454ca2398659252bcafcc48ad`. Parte del HEAD auditado `5c8ae249601399ab7ffbeaa6b95cb261445553db`. No se ha publicado, abierto PR, mergeado, desplegado ni tocado Production.
 
 ## Cierre de los findings aprobados
@@ -50,3 +52,34 @@ Las evidencias están en `output/quotes-recovery-20261006/` del workspace padre.
 ## Próximo paso
 
 Reauditar el nuevo SHA completo, con especial atención a la migración ampliada, wrapper compatible, metadatos y recuperación. Antes de cualquier PR, comprobar de nuevo origin/main. Publicación, PR y cualquier paso operativo quedan pendientes.
+
+
+## Cierre final del ACK de receipts descartados — 2026-10-06
+
+Parte del HEAD auditado `323eaeec37eabf5f8f094da8f81130157c6bd78d`, en `fix/quotes-ux-flow-v1`. Base remota comprobada: `46038590cdfd6f6454ca2398659252bcafcc48ad`.
+
+«Crear otro presupuesto» espera el ACK idempotente de todos los receipts mostrados, usando la ruta/RPC existente con autorización por tenant+actor. No borra receipts ni presupuestos. Bloquea los botones mientras espera; un fallo conserva el bloque completo y su URL con un error, sin generar otra operación. Los ACK anteriores a un fallo parcial permanecen trazables y pueden repetirse al reintentar. Solo cuando todos terminan genera `?op=<uuid>&new=1`.
+
+La misma migración no desplegada limita la búsqueda automática a receipts no reconocidos de las últimas 48 horas, máximo 10, ordenados por `created_at desc`. La búsqueda exacta por identidad mantiene acceso al receipt propio fuera de esa ventana y después del ACK. No cambia RLS, grants, INSERT(quotes.id), service_role ni la deuda aceptada vacío → NULL → herencia.
+
+Validación final:
+
+| Comprobación | Resultado |
+|---|---|
+| Node 22.23.2, `TZ=UTC node --import tsx --test` | 898 tests: 892 pass, 6 skipped, 0 fail |
+| `npm run lint` | Exit 0 |
+| `npx tsc --noEmit` | Exit 0; ejecutado después de la build para evitar cambios concurrentes de tipos generados |
+| `npm run build -- --webpack` | Exit 0 |
+| `git diff --check` y scan heurístico de secretos del diff | Exit 0; 0 coincidencias |
+| Reset local completo con la migración revisada | Exit 0 |
+| SQL phase40–44 y SQL cliente/recovery | Las seis suites, exit 0 |
+| Concurrencia phase40–44 | Las cinco suites, exit 0 |
+| Smoke creación/recovery 390/768/1280 light/dark | PASS, 384 comprobaciones |
+| DB-first desde `46038590…` | Reset exacto de 62 migraciones base; suites originales phase40–43 antes y después de aplicar solo la migración revisada, todas exit 0 |
+| SQL y concurrencia después del upgrade DB-first | Las once suites, exit 0 |
+
+El smoke nuevo cubre un receipt y varios receipts descartados, ACK de todos, vuelta sin op sin reaparición, fallo parcial con URL intacta y recovery completo visible, bloqueo de todos los botones durante ACK y reintento idempotente. Mantiene las regresiones de los dos HIGH: dos pestañas independientes o con el mismo op, pérdida de respuesta, URL/storage, ACK perdido y recuperación inaccesible. SQL añade ventana de 49 horas fuera del listado, exact lookup antiguo reconocido, 12 receipts para comprobar los 10 más recientes y aislamiento del listado automático por actor/tenant.
+
+Evidencias locales: `output/quotes-final-ack-20261006/` en el workspace padre. UI con componentes/CSS reales y dobles HTTP; PostgreSQL local con roles y RLS reales. DB-first verifica los contratos usados por el código base; no implica una prueba sobre Production. Los intentos iniciales requirieron adaptar la CLI local y usar Chromium instalado; TypeScript se repitió después de la build. Los resultados de la tabla corresponden a las ejecuciones finales correctas. No se abre PR, mergea ni solicita despliegue.
+
+Veredicto técnico: **READY FOR FINAL AUDIT**.
