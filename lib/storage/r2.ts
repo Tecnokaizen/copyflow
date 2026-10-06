@@ -190,3 +190,28 @@ export async function deleteObject(input: { key: string }): Promise<void> {
     throw error;
   }
 }
+
+// Official documents are write-once, including concurrent retries. No public PUT URL.
+export async function putDocumentOnce(input: { key: string; body: Buffer; sha256: string }): Promise<void> {
+  try {
+    await createR2Client().send(new PutObjectCommand({
+      Bucket: bucketName(), Key: input.key, Body: input.body,
+      ContentType: "application/pdf", IfNoneMatch: "*", Metadata: { sha256: input.sha256 },
+    }));
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    // Another writer won. Caller verifies HEAD before confirming metadata.
+    if (status !== 412 && status !== 409) throw error;
+  }
+}
+
+export async function headDocument(input: { key: string }) {
+  try {
+    const result = await createR2Client().send(new HeadObjectCommand({ Bucket: bucketName(), Key: input.key }));
+    return { exists: true, contentLength: result.ContentLength ?? null, contentType: result.ContentType ?? null,
+      etag: result.ETag ?? null, sha256: result.Metadata?.sha256 ?? null };
+  } catch (error) {
+    if ((error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode !== 404) throw error;
+    return { exists: false, contentLength: null, contentType: null, etag: null, sha256: null };
+  }
+}

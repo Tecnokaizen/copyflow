@@ -241,7 +241,8 @@ export function RichTextEditor({
     if (!editor) {
       return;
     }
-    editor.setEditable(!locked);
+    // Changing availability is not a document edit (Tiptap emits update by default).
+    editor.setEditable(!locked, false);
   }, [editor, locked]);
 
   useEffect(() => {

@@ -24,22 +24,23 @@ describe("quote status filters", () => {
         { code: "custom", name: "Interno" },
       ]),
       [
-        { code: "draft", name: "Borrador" },
+        { code: "draft", name: "Borradores" },
         { code: "pending", name: "En curso del cliente" },
         { code: "sent", name: "Enviados" },
         { code: "accepted", name: "Aceptados" },
         { code: "rejected", name: "Rechazados" },
+        { code: "expired", name: "Caducados" },
       ]
     );
   });
 
-  it("omits sent until the catalog has it", () => {
+  it("shows all commercial filters even before the catalog has matches", () => {
     assert.deepEqual(
       quoteStatusFilters([
         { code: "draft", name: "Borrador" },
         { code: "pending", name: "En revisión" },
       ]).map((status) => status.code),
-      ["draft", "pending"]
+      ["draft", "pending", "sent", "accepted", "rejected", "expired"]
     );
   });
 

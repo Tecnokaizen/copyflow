@@ -15,7 +15,17 @@ psql_at() {
 
 cleanup() {
   psql "$DB_URL" -v ON_ERROR_STOP=1 -q <<SQL || true
+begin;
+alter table public.quote_versions disable trigger quote_versions_guard;
+alter table public.quotes disable trigger quotes_commercial_state;
+alter table public.quotes disable trigger quote_conversion_stable;
+update public.quotes set accepted_version_id=null,current_version_id=null where tenant_id='${TENANT}';
+delete from public.quote_versions where tenant_id='${TENANT}';
 delete from public.tenants where id = '${TENANT}';
+alter table public.quote_versions enable trigger quote_versions_guard;
+alter table public.quotes enable trigger quotes_commercial_state;
+alter table public.quotes enable trigger quote_conversion_stable;
+commit;
 delete from auth.users where id = '${OWNER}';
 SQL
 }
@@ -73,12 +83,20 @@ fi
 
 QUOTE="$(psql_at "select id from public.quotes where tenant_id = '${TENANT}' order by reference limit 1")"
 
+# Build a pre-existing accepted fixture; actual send/PDF path is covered in phase42/43.
+psql "$DB_URL" -v ON_ERROR_STOP=1 <<SQL >/dev/null
+begin;
+\i supabase/tests/helpers/accepted_quote_fixture.sql
+select set_config('request.jwt.claim.sub','${OWNER}',true);
+select pg_temp.accepted_quote_fixture('${QUOTE}');
+commit;
+SQL
 convert_quote() {
   psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
     select set_config('request.jwt.claim.sub', '${OWNER}', false);
     select set_config('request.jwt.claim.role', 'authenticated', false);
     set role authenticated;
-    select public.convert_quote_to_order('${QUOTE}'::uuid) ->> 'order_id';
+    select public.convert_quote_to_order('${QUOTE}'::uuid,null,null,null,'normal',null,(select row_version from public.quotes where id='${QUOTE}')) ->> 'order_id';
   " >"$1"
 }
 
@@ -97,7 +115,7 @@ REPLAY="$(psql_at "
   select set_config('request.jwt.claim.sub', '${OWNER}', false);
   select set_config('request.jwt.claim.role', 'authenticated', false);
   set role authenticated;
-  select public.convert_quote_to_order('${QUOTE}'::uuid) ->> 'order_id';
+  select public.convert_quote_to_order('${QUOTE}'::uuid,null,null,null,'normal',null,(select row_version from public.quotes where id='${QUOTE}')) ->> 'order_id';
 " | tail -n 1)"
 STORED="$(psql_at "select converted_order_id::text from public.quotes where id = '${QUOTE}'")"
 if [[ "$REPLAY" != "$STORED" ]]; then

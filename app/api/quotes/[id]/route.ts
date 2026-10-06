@@ -2,9 +2,17 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
-import { parseUpdateQuotePayload } from "@/lib/quotes/payload";
+import { parseOperationalQuotePayload, parseUpdateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
-import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
+import {
+  QUOTE_ITEM_SELECT,
+  QUOTE_SELECT,
+  QUOTE_VERSION_SELECT,
+  mapQuote,
+  mapQuoteItem,
+  mapQuoteVersion,
+  summarizeQuoteVersion,
+} from "@/lib/quotes/types";
 import { isUuid } from "@/lib/team/payload";
 
 type RouteContext = {
@@ -49,9 +57,55 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.notFound }, { status: 404 });
   }
 
+  const [versionsResult, itemsResult] = await Promise.all([
+    access.supabase
+      .from("quote_versions")
+      .select(QUOTE_VERSION_SELECT)
+      .eq("tenant_id", access.context.tenant.id)
+      .eq("quote_id", id)
+      .order("version_number", { ascending: false }),
+    loaded.quote.current_version_id
+      ? access.supabase
+          .from("quote_items")
+          .select(QUOTE_ITEM_SELECT)
+          .eq("tenant_id", access.context.tenant.id)
+          .eq("quote_version_id", loaded.quote.current_version_id)
+          .order("position", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (versionsResult.error || itemsResult.error) {
+    return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+  }
+
+  const versions = (versionsResult.data ?? []).map(mapQuoteVersion);
+  const items = (itemsResult.data ?? []).map(mapQuoteItem);
+  if (versions.some((version) => version === null) || items.some((item) => item === null)) {
+    return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+  }
+
+  const mappedVersions = versions.filter((version) => version !== null);
+  const pdfIds = mappedVersions.map((v) => v.pdf_file_id).filter((id): id is string => !!id);
+  if (pdfIds.length) {
+    const { data: files, error } = await access.supabase.from("quote_files")
+      .select("id,size_bytes,completed_at,pdf_version_id").eq("tenant_id", access.context.tenant.id)
+      .eq("quote_id", id).eq("status", "ready").eq("content_type", "application/pdf")
+      .is("deleted_at", null).in("id", pdfIds);
+    if (error) return operationalJson({ error: QUOTE_MESSAGES.commercialLoad }, { status: 500 });
+    for (const version of mappedVersions) {
+      const file = files?.find((f) => f.id === version.pdf_file_id && f.pdf_version_id === version.id);
+      version.pdf_file = file ? { id: file.id, size_bytes: Number(file.size_bytes), completed_at: file.completed_at } : null;
+    }
+  }
+  const currentVersion =
+    mappedVersions.find((version) => version.id === loaded.quote?.current_version_id) ?? null;
+
   return operationalJson({
     tenant: access.context.tenant.slug,
     quote: loaded.quote,
+    current_version: currentVersion,
+    items: items.filter((item) => item !== null),
+    versions: mappedVersions.map(summarizeQuoteVersion),
   });
 }
 
@@ -73,7 +127,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return operationalJson({ error: QUOTE_MESSAGES.invalid }, { status: 400 });
   }
 
-  const parsed = parseUpdateQuotePayload(body);
+  if (body && typeof body === "object" && ["status_id", "accepted_version_id", "converted_order_id", "current_version_id"].some((key) => key in body)) {
+    return operationalJson({ error: "Utiliza la acción comercial correspondiente.", code: "controlled_transition_required" }, { status: 422 });
+  }
+
+  const operational = !!body && typeof body === "object" && "operational_only" in body && body.operational_only === true;
+  const parsed = operational ? parseOperationalQuotePayload(body) : parseUpdateQuotePayload(body);
   if (!parsed.ok) {
     return operationalJson({ error: parsed.error }, { status: 400 });
   }
@@ -105,15 +164,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   const { data, error } = await access.supabase
     .from("quotes")
-    .update({
-      title: parsed.data.title,
-      description: parsed.data.description,
-      notes: parsed.data.notes,
-      valid_until: parsed.data.valid_until,
-      client_id: parsed.data.client_id,
-      service_id: parsed.data.service_id,
-      assigned_team_member_id: parsed.data.assigned_team_member_id,
-    })
+    .update(Object.fromEntries(
+      Object.entries(parsed.data).filter(([key]) => key !== "expected_row_version")
+    ))
     .eq("id", id)
     .eq("tenant_id", access.context.tenant.id)
     .eq("row_version", parsed.data.expected_row_version)
@@ -121,6 +174,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     .maybeSingle();
 
   if (error) {
+    if (error.code === "55000" && error.message?.includes("locked_quote_client")) {
+      return operationalJson({ error: "El cliente de una versión bloqueada no se puede cambiar. Crea una nueva versión editable.", code: "locked_quote_client" }, { status: 409 });
+    }
     return operationalJson({ error: QUOTE_MESSAGES.update }, { status: 500 });
   }
 

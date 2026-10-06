@@ -1,6 +1,7 @@
 -- Quotes V1 · tenant isolation, roles, feature gate, references and conversion.
 
 begin;
+\i supabase/tests/helpers/accepted_quote_fixture.sql
 
 do $phase33$
 declare
@@ -318,10 +319,9 @@ begin
     raise exception 'phase33: admin update did not bump row_version';
   end if;
 
-  update public.quotes
-  set status_id = v_pending_a
-  where id = v_quote
-    and row_version = 1;
+  if public.set_editable_quote_status_v1(v_quote,v_pending_a,1)->>'ok' <> 'true' then
+    raise exception 'phase33: editable RPC failed';
+  end if;
 
   select count(*)::int into v_count
   from public.activity_log
@@ -333,8 +333,9 @@ begin
     raise exception 'phase33: missing status activity';
   end if;
 
-  v_convert := public.convert_quote_to_order(v_quote);
-  v_convert_2 := public.convert_quote_to_order(v_quote);
+  perform pg_temp.accepted_quote_fixture(v_quote);
+  v_convert := public.convert_quote_to_order(v_quote,null,null,null,'normal',null,(select row_version from public.quotes where id=v_quote));
+  v_convert_2 := public.convert_quote_to_order(v_quote,null,null,null,'normal',null,(select row_version from public.quotes where id=v_quote));
   if (v_convert ->> 'ok')::boolean is not true
      or (v_convert ->> 'created')::boolean is not true
      or (v_convert_2 ->> 'created')::boolean is not false
@@ -386,7 +387,7 @@ begin
     raise exception 'phase33: feature off still lists quotes';
   end if;
 
-  v_convert := public.convert_quote_to_order(v_quote);
+  v_convert := public.convert_quote_to_order(v_quote,null,null,null,'normal',null,(select row_version from public.quotes where id=v_quote));
   if v_convert ->> 'error' is distinct from 'not_found' then
     raise exception 'phase33: feature off convert leaked %', v_convert;
   end if;
@@ -417,8 +418,8 @@ begin
   exception when others then
     v_sqlstate := sqlstate;
   end;
-  if v_sqlstate is distinct from '23503' then
-    raise exception 'phase33: foreign converted order expected 23503, got %', v_sqlstate;
+  if v_sqlstate is distinct from '55000' then
+    raise exception 'phase33: immutable converted order expected 55000, got %', v_sqlstate;
   end if;
 
   execute 'set local role authenticated';

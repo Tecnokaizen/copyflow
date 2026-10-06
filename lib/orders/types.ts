@@ -82,7 +82,10 @@ export type Order = {
   delivery_method: OrderCodedRef | null;
 };
 
+export type SourceQuote = {id:string;reference:string;total:string;currency:string;status:"accepted";version_number:number};
+
 export type OrderResponse = {
+  source_quote?: SourceQuote | null;
   tenant: string;
   order: Order;
 };

@@ -75,7 +75,7 @@ describe("file row preview wiring", () => {
       "utf8",
     );
     const quotePage = readFileSync(
-      new URL("../../app/quotes/[id]/page.tsx", import.meta.url),
+      new URL("../../components/quotes/quote-commercial-editor.tsx", import.meta.url),
       "utf8",
     );
     assert.match(orderHeader, /Imprimir pedido/);

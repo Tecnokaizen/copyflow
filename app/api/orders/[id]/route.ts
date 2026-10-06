@@ -88,8 +88,13 @@ export async function GET(
     );
   }
 
+  const { data: sourceQuote, error: sourceError } = await supabase.rpc("order_source_quote_v2", {
+    p_tenant_id: context.tenant.id, p_order_id: id,
+  });
+  if (sourceError) return operationalJson({error:"No se pudo cargar el presupuesto origen"},{status:500});
   return operationalJson({
     tenant: context.tenant.slug,
+    source_quote: sourceQuote ?? null,
     order: toPublicOrderDto(order as Record<string, unknown>),
   });
 }

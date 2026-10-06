@@ -1,4 +1,5 @@
 export const QUOTE_MESSAGES = {
+  unauthenticated: "Inicia sesión para continuar",
   unauthorized: "No tienes acceso a presupuestos",
   notFound: "No se encontró el presupuesto",
   invalid: "Los datos del presupuesto no son válidos",
@@ -12,6 +13,15 @@ export const QUOTE_MESSAGES = {
   convert: "No se pudo convertir el presupuesto",
   noInitialStatus: "La organización no tiene un estado inicial de pedido",
   noDraftStatus: "La organización no tiene el estado inicial de presupuesto",
+  commercialLoad: "No se pudo cargar el detalle comercial",
+  draft: "No se pudo guardar el borrador",
+  prepare: "No se pudo preparar el presupuesto",
+  newVersion: "No se pudo crear una nueva versión",
+  immutableVersion: "Esta versión ya está bloqueada y no se puede editar",
+  draftExists: "Ya existe una versión en borrador",
+  newVersionRequired: "Crea una nueva versión para continuar",
+  itemsRequired: "Añade al menos una partida antes de preparar el presupuesto",
+  historyRequired: "No existe una versión histórica que se pueda clonar",
 } as const;
 
 export type ConvertRpcBody = {

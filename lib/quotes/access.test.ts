@@ -39,6 +39,8 @@ describe("Quotes operational access", () => {
       "app/api/quotes/route.ts", "app/api/quotes/statuses/route.ts",
       "app/api/quotes/[id]/route.ts", "app/api/quotes/[id]/status/route.ts",
       "app/api/quotes/[id]/convert/route.ts", "app/api/quotes/[id]/activity/route.ts",
+      "app/api/quotes/[id]/draft/route.ts", "app/api/quotes/[id]/versions/route.ts",
+      "app/api/quotes/[id]/prepare/route.ts",
     ]) {
       const source = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
       assert.match(source, /await requireQuotesAccess\(\)/, file);

@@ -1,6 +1,7 @@
 -- Quote Files V1. Roles, capability, shared quota, activity, conversion.
 
 begin;
+\i supabase/tests/helpers/accepted_quote_fixture.sql
 
 do $phase35$
 declare
@@ -438,7 +439,8 @@ begin
   perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
   set local role authenticated;
-  v_result := public.convert_quote_to_order(v_quote_a);
+  perform pg_temp.accepted_quote_fixture(v_quote_a);
+  v_result := public.convert_quote_to_order(v_quote_a,null,null,null,'normal',null,(select row_version from public.quotes where id=v_quote_a));
   if (v_result->>'ok')::boolean is distinct from true then
     raise exception 'FAIL convert %', v_result;
   end if;
