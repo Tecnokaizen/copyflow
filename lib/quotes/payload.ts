@@ -477,3 +477,27 @@ export function parseOperationalQuotePayload(body: unknown): Ok<{
     service_id: service.value, assigned_team_member_id: assignee.value,
   } };
 }
+
+export type QuoteCreationPayload = {
+  creation_id: string;
+  client_id: string | null;
+  service_id: string | null;
+  assigned_team_member_id: string | null;
+  header: QuoteDraftHeader;
+  items: QuoteDraftItemInput[];
+  prepare: boolean;
+};
+export function parseQuoteCreationPayload(body: unknown): Ok<QuoteCreationPayload> | Fail {
+  const payload = record(body);
+  if (!payload || typeof payload.creation_id !== 'string' || !isUuid(payload.creation_id)
+    || typeof payload.prepare !== 'boolean') return { ok: false, error: QUOTE_MESSAGES.invalid };
+  const draft = parseQuoteDraftPayload({ ...payload, version_id: payload.creation_id, expected_row_version: 0 });
+  if (!draft.ok) return draft;
+  const client = optionalUuid(payload.client_id), service = optionalUuid(payload.service_id), assignee = optionalUuid(payload.assigned_team_member_id);
+  if (!client.ok) return client;
+  if (!service.ok) return service;
+  if (!assignee.ok) return assignee;
+  if (payload.prepare && draft.data.items.length === 0) return { ok: false, error: QUOTE_MESSAGES.itemsRequired };
+  return { ok: true, data: { creation_id: payload.creation_id, client_id: client.value, service_id: service.value,
+    assigned_team_member_id: assignee.value, header: draft.data.header, items: draft.data.items, prepare: payload.prepare } };
+}

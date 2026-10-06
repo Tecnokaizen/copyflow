@@ -1,4 +1,5 @@
 "use client";
+import { commercialStatus } from "@/lib/quotes/creation";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -21,7 +22,7 @@ import {
   quotePageRange,
   quoteStatusFilters,
 } from "@/lib/quotes/workflow";
-import { formatQuoteMoney, VERSION_LABELS } from "@/lib/quotes/editor";
+import { formatQuoteMoney } from "@/lib/quotes/editor";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
@@ -252,11 +253,11 @@ export function QuotesList() {
                     {quote.reference}
                   </Link>
                   {quote.status ? (
-                    <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
+                    <QuoteStatusBadge name={commercialStatus(quote).name} code={commercialStatus(quote).code} />
                   ) : null}
                 </div>
                 <p className="mt-2 flex flex-wrap justify-between gap-2 text-sm">
-                  <span>{quote.current_version_number ? `v${quote.current_version_number} · ${VERSION_LABELS[quote.current_version_state ?? "draft"]}` : "Sin versión comercial"}</span>
+                  <span>{(quote.current_version_number ?? 0) > 1 ? `Revisión ${quote.current_version_number}` : ""}</span>
                   <strong>{quote.current_version_id ? `${formatQuoteMoney(quote.total, quote.currency)} · ${quote.currency}` : "—"}</strong>
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">Emisión: {formatValidity(quote.issue_date)}</p>
@@ -294,7 +295,7 @@ export function QuotesList() {
                     <th>Referencia</th>
                     <th>Cliente</th>
                     <th>Trabajo / Servicio</th>
-                    <th>Versión</th>
+                    <th>Revisión</th>
                     <th>Total / moneda</th>
                     <th>Emisión</th>
                     <th>Estado</th>
@@ -329,12 +330,12 @@ export function QuotesList() {
                           </div>
                         ) : null}
                       </td>
-                      <td>{quote.current_version_number ? <><span>v{quote.current_version_number}</span><span className="mt-1 block text-xs text-muted-foreground">{VERSION_LABELS[quote.current_version_state ?? "draft"]}</span></> : "—"}</td>
+                      <td>{(quote.current_version_number ?? 0) > 1 ? `Revisión ${quote.current_version_number}` : "—"}</td>
                       <td className="whitespace-nowrap font-semibold">{quote.current_version_id ? <>{formatQuoteMoney(quote.total, quote.currency)}<span className="ml-2 text-xs text-muted-foreground">{quote.currency}</span></> : "—"}</td>
                       <td>{formatValidity(quote.issue_date)}</td>
                       <td>
                         {quote.status ? (
-                          <QuoteStatusBadge name={quote.status.name} code={quote.status.code} />
+                          <QuoteStatusBadge name={commercialStatus(quote).name} code={commercialStatus(quote).code} />
                         ) : (
                           "—"
                         )}

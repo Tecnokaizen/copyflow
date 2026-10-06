@@ -119,14 +119,14 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
 try {
   for (const width of [390, 768, 1280]) for (const theme of ["light", "dark"]) {
     const h = await setup(width, theme); const { page, events } = h;
-    await page.getByRole("heading", { name: "Cabecera comercial" }).waitFor();
+    await page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
     check(await page.getByLabel("Título / trabajo").inputValue(), "Catálogos", "Loads commercial header");
     check(await page.getByRole("button", { name: "Generar PDF", exact: true }).count(), 0, "Draft has no PDF CTA");
     await page.screenshot({ path: path.join(out, `editor-${width}-${theme}.png`), fullPage: true });
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "No page horizontal overflow");
     await page.getByLabel("Título / trabajo").fill("Trabajo editado");
     await page.getByLabel("Persona de contacto").fill("Contacto editado");
-    await page.getByLabel("Nombre fiscal").fill("Nueva razón social");
+    await page.getByLabel("Nombre / razón social").fill("Nueva razón social");
     await page.getByRole("button", { name: "Añadir línea", exact: true }).click();
     await page.getByLabel("Concepto", { exact: true }).nth(1).fill("Encuadernación");
     await page.getByLabel("Cantidad", { exact: true }).nth(1).fill("2");
@@ -166,11 +166,11 @@ try {
     await page.getByRole("dialog").waitFor();
     const before = events.filter(e => e.pathname.endsWith("/prepare")).length;
     check(before, 0, "Prepare waits for confirmation");
-    await page.getByRole("button", { name: "Preparar y bloquear versión", exact: true }).click();
-    await page.getByRole("status").filter({ hasText: "Versión preparada y bloqueada" }).waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "Preparar presupuesto", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "Presupuesto preparado" }).waitFor();
     check(await page.getByLabel("Título / trabajo").isDisabled(), true, "Prepared is readonly");
     check(h.stored().quote.status.code, "draft", "Prepared preserves commercial status");
-    check(await page.getByText("Borrador", { exact: true }).count() > 0, true, "UI never marks quote sent on prepare");
+    check(await page.getByText("Preparado", { exact: true }).count() > 0, true, "UI shows prepared commercial state");
     check(await page.getByLabel("Título / trabajo").inputValue(), "Preparar mis cambios", "Prepare saved local edits first");
     await page.screenshot({ path: path.join(out, `prepared-${width}-${theme}.png`), fullPage: true });
     check(await page.getByRole("button", { name: "Generar PDF", exact: true }).count(), 1, "Prepared without PDF offers generation");
@@ -186,21 +186,21 @@ try {
     check(events.filter(e => e.pathname.endsWith('/pdf')).every(e => e.body === null), true, "PDF generation sends no client document payload");
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "PDF controls responsive");
     await page.screenshot({ path: path.join(out, `pdf-${width}-${theme}.png`), fullPage: true });
-    await page.getByRole("button", { name: "Nueva versión", exact: true }).dblclick();
-    await page.getByRole("status").filter({ hasText: "Borrador de versión abierto" }).waitFor();
+    await page.getByRole("button", { name: "Crear revisión", exact: true }).dblclick();
+    await page.getByRole("status").filter({ hasText: "Borrador de revisión abierto" }).waitFor();
     check(h.stored().versions.filter(v => v.state === "draft").length, 1, "New version replay opens only one draft");
     check(await page.getByLabel("Título / trabajo").isEnabled(), true, "New version opens editable draft");
-    await page.getByRole("button").filter({ hasText: "v1 · Enviada" }).click();
-    await page.getByRole("heading", { name: "Resumen histórico v1", exact: true }).waitFor();
+    await page.getByRole("button").filter({ hasText: "Revisión 1 · Enviado" }).click();
+    await page.getByRole("heading", { name: "Revisión 1", exact: true }).waitFor();
     check(await page.getByRole("button", { name: "Guardar borrador", exact: true }).count(), 0, "Historical sent has no editor");
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-1/pdf", "Sent history opens its own PDF");
-    await page.getByRole("button", { name: "Volver a versión actual", exact: true }).click();
-    await page.getByRole("button").filter({ hasText: "v2 · Preparada" }).click();
-    await page.getByRole("heading", { name: "Resumen histórico v2", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
+    await page.getByRole("button").filter({ hasText: "Revisión 2 · Preparado" }).click();
+    await page.getByRole("heading", { name: "Revisión 2", exact: true }).waitFor();
     check(await page.getByLabel("Título / trabajo").count(), 0, "Historical prepared cannot be edited");
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
-    await page.getByRole("button", { name: "Volver a versión actual", exact: true }).click();
+    await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
     await page.getByRole("button", { name: "Editar gestión", exact: true }).click();
     await page.getByLabel("Servicio", { exact: true }).selectOption("service-1");
     await page.getByRole("button", { name: "Guardar gestión", exact: true }).click();
@@ -222,14 +222,14 @@ try {
   }
   for (const state of ["prepared", "sent"]) {
     const h = await setup(390, "dark", { state });
-    await h.page.getByRole("heading", { name: "Cabecera comercial" }).waitFor();
+    await h.page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
     check(await h.page.getByLabel("Título / trabajo").isDisabled(), true, `${state} current is readonly`);
     check(await h.page.getByRole("button", { name: "Guardar borrador", exact: true }).count(), 0, "No writable save");
     await h.page.close();
   }
   const legacy = await setup(390, "light", { legacy: true });
-  await legacy.page.getByRole("button", { name: "Abrir borrador comercial", exact: true }).click();
-  await legacy.page.getByRole("heading", { name: "Cabecera comercial" }).waitFor();
+  await legacy.page.getByRole("button", { name: "Completar presupuesto", exact: true }).click();
+  await legacy.page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
   check(legacy.events.filter(e => e.pathname.endsWith("/draft") && e.method === "POST").length, 1, "Explicit idempotent legacy ensure");
   await legacy.page.getByLabel("Título / trabajo").fill("Guardado con error de lectura");
   legacy.setReadFail(true);

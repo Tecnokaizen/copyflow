@@ -1,31 +1,58 @@
-# Hotfix UX: bloqueo de creación segura
+# Presupuestos V1: creación idempotente y UX
 
-Base auditada: `46038590cdfd6f6454ca2398659252bcafcc48ad`.
+Base: `46038590cdfd6f6454ca2398659252bcafcc48ad`.
 Rama: `fix/quotes-ux-flow-v1`.
 
-## Diagnóstico
+## Diagnóstico y contrato final
 
-- `app/quotes/new/page.tsx` presenta `QuoteForm`, envía únicamente la ficha operativa a `POST /api/quotes` y redirige al detalle. No guarda partidas ni cabecera comercial.
-- `app/api/quotes/route.ts` inserta un quote nuevo con UUID generado por PostgreSQL. No acepta identificador de operación ni recupera una creación anterior.
-- Si PostgreSQL confirma el INSERT pero se pierde la respuesta HTTP, el navegador carece del ID. Repetir POST duplica el presupuesto. Conservar el ID después de recibir respuesta no cubre este caso.
-- `POST /api/quotes/:id/draft` reutiliza `ensure_quote_draft_v1`, que abre o devuelve el borrador existente bajo bloqueo del agregado. Es reutilizable, pero requiere conocer el ID del quote.
-- `PUT /api/quotes/:id/draft` utiliza control de concurrencia por versión. Ante respuesta perdida, debe releerse el detalle antes de continuar; no debe repetirse con otra versión sin comprobar el contenido.
-- `lib/quotes/editor.ts::editorValues` lee contactos de quote, mientras `quote_client_snapshot_v1` aplica fallback al maestro. La interfaz omite datos que el snapshot sí puede contener.
-- `quote-commercial-editor.tsx` muestra historial con cualquier versión y la tarjeta de estado con cualquier versión actual; expone `vN`. También hay etiquetas técnicas en lista y PDF.
+El flujo anterior creaba solo la ficha básica y redirigía al detalle para abrir/editar el documento comercial. El editor leía contactos vacíos del quote aunque el snapshot heredaba datos del cliente. Mostraba estados operativos y documentales a la vez, `vN`, historial inicial y una tarjeta comercial sin acciones.
 
-## Extensión HTTP mínima propuesta, sin migración
+La propuesta HTTP-only inicial queda sustituida: el cliente autenticado NO tiene `INSERT(id)` en quotes. No se amplía ese permiso y no se usa service_role en la creación.
 
-1. La nueva pantalla genera un UUID estable por operación y conserva UUID y formulario para recuperar reintentos/recargas.
-2. Extender POST `/api/quotes` con ese ID opcional; usar la PK existente como identidad de creación. Mantener compatibilidad con clientes legacy.
-3. Validar permisos, tenant y relaciones como hoy. Insertar sin upsert que sobrescriba datos. Ante conflicto de PK, recuperar exclusivamente dentro del tenant y comprobar creador y compatibilidad de la solicitud. Conflictos incompatibles deben devolver 409; nunca revelar datos de otro tenant.
-4. Una respuesta incierta se recupera por el mismo ID. No se crea otro UUID automáticamente. La unicidad existente en PostgreSQL resuelve llamadas concurrentes entre procesos HTTP.
-5. Con el quote conocido, abrir el borrador con la RPC actual y guardar con la RPC actual. Conservar el mismo quote ante fallos parciales. Releer y reconciliar contenido ante resultado ambiguo o conflicto; no borrar automáticamente ni sobrescribir modificaciones concurrentes.
-6. Redirigir solo tras confirmar el borrador completo. Preparar utiliza después la transición actual, conservando inmutabilidad, snapshots y autorización.
+La migración `20261006130000_quote_draft_creation.sql` añade exclusivamente:
 
-Esto ofrece creación recuperable, no una transacción atómica de los tres pasos. Puede existir temporalmente un quote incompleto tras un fallo; el reintento debe completarlo con la misma identidad. Una transacción totalmente atómica requeriría una RPC nueva, y no se propone SQL en esta fase.
+- Un registro privado `quote_draft_creations` con identidad, tenant, actor, solicitud original y resultado original. RLS habilitado y todos los privilegios directos revocados para public/anon/authenticated/service_role. Su FK liga la identidad al quote del mismo tenant.
+- `create_quote_draft_v1`, SECURITY DEFINER, search_path vacío, ejecutable solo por authenticated. Autoriza actor, rol operativo, membership activa, feature y tenant activo, y valida las relaciones de cliente/servicio/responsable dentro del tenant. No otorga INSERT(id).
+- Un bloqueo transaccional por UUID que serializa creaciones concurrentes. Repetir la solicitud original con el mismo actor/tenant devuelve el resultado original, incluso después de preparar/editar el quote. Una solicitud diferente o una colisión devuelve un conflicto sin modificar ni revelar el presupuesto ajeno.
+- Creación de quote, apertura del primer draft, guardado completo de cabecera/partidas y preparación opcional en UNA transacción, reutilizando las RPC comerciales actuales. Errores intermedios revierten también la referencia y su contador.
 
-## Estado
+El resultado de creación es un acuse estable, no una lectura del estado actual. La pantalla redirige al detalle después de confirmarlo y obtiene allí el contenido actual.
 
-Se detiene la implementación conforme a la instrucción explícita de reportar antes de extender el backend cuando las APIs actuales no permitan reintentos seguros. No hay cambios de aplicación, esquema, migraciones, Production ni hardening de Next. No se han ejecutado suites ni validación visual; no existe todavía un hotfix funcional listo para merge.
+## UX
 
-Tras decidir la extensión HTTP, quedan pendientes el editor único, autofill por campos pristine, lenguaje de revisiones, pruebas de pérdida de respuesta/concurrencia y las validaciones de código y seis combinaciones de tamaño/tema solicitadas.
+`Nuevo presupuesto` abre el editor completo, con selección/creación de cliente, servicio/responsable, datos de contacto/facturación, trabajo, partidas y condiciones. Un submit guarda todo; preparar guarda y prepara dentro de la misma transacción. No se suben archivos antes de guardar.
+
+Los cinco campos de cliente se completan al seleccionar. Empresa tiene preferencia sobre nombre. La dirección sigue siendo manual. Se conservan los campos tocados por el usuario al cambiar/quitar cliente, incluidos campos vaciados mientras se edita. En un borrador ya guardado, cambiar el cliente desde gestión solicita confirmación antes de actualizar la cabecera local; esta se persiste al guardar el borrador.
+
+El estado principal se deriva del estado comercial visible: Borrador, Preparado, Enviado, Aceptado/Rechazado, Convertido en pedido. Se ocultan las acciones vacías y el historial cuando solo existe una revisión. Las revisiones reales usan `Revisiones` y `Revisión N`; PDF y lista usan el mismo lenguaje.
+
+Para presupuestos preparados, la cabecera se lee de una proyección explícita de los seis campos congelados. Los snapshots internos completos y la identidad del cliente dentro de ellos NO se devuelven como DTO. La preparación, PDF, accepted_version_id, conversión, separación quote/order e invariantes existentes permanecen intactos.
+
+## Recuperación de fallos
+
+Antes del primer envío se conserva únicamente el guardado pendiente (UUID, formulario y acción), en almacenamiento local del navegador, con clave por tenant + actor. Se borra después del acuse del servidor. No se guardan tokens ni claves.
+
+Ante respuesta perdida/error incierto, el editor conserva la solicitud original y la deja sin cambios hasta confirmarla. `Reintentar guardado` envía exactamente esa operación. También se recupera al recargar o cerrar/reabrir la pestaña. Ante validación 400/invariante 422, que no deja escrituras parciales, se habilita corregir el formulario sin regenerar automáticamente el UUID.
+
+Si se borra el almacenamiento del navegador, se pierde esta recuperación automática; los presupuestos creados siguen en la lista. La RPC garantiza idempotencia por UUID, no deduplicación de dos solicitudes distintas con UUID distintos.
+
+Se conserva la semántica existente de snapshots: valores NULL de contacto/facturación heredan del maestro al construir el snapshot. Este hotfix protege los campos vaciados durante el cambio de cliente, pero no introduce una semántica nueva para suprimir datos heredados al preparar.
+
+## Validación y límites
+
+Evidencias locales en `output/quotes-ux-flow-v1/` del workspace padre. Instalación reproducible offline con Node 22.23.2; sin cambios de dependencias, Next ni hardening.
+
+- Suite Node completa: 893 tests; 887 pasan y 6 omitidos existentes, cero fallos, con TZ=UTC. La ejecución inicial en Europe/Madrid detectó el test existente del kiosk que fija una conversión horaria UTC; no se modifica como parte del hotfix.
+- HTTP real de la ruta con dependencias simuladas: autorización antes de escribir, tenant fijado por host, un solo RPC, normalización, conflictos y resultados inciertos. PostgreSQL se valida separadamente con roles reales.
+- Reset Supabase local con todas las migraciones aplicado. Phase40–44 pasan. Phase40–43 concurrency y ocho creaciones concurrentes phase44 pasan. Se comprueban ausencia de fichas parciales, numeración única, replay después de preparar, rechazo de actor/tenant/payload incompatible y denegación de acceso directo al registro privado.
+- Editor nuevo y primer borrador en 390/768/1280, light/dark: 161 comprobaciones de navegador. Edición/PDF: 278; transiciones: 392; conversión: 458. Componentes y CSS reales con dobles HTTP. Capturas inspeccionadas de las seis combinaciones; sin overflow horizontal.
+- Lint y TypeScript pasan. Build de producción con Webpack pasa. `npm run build` con Turbopack se ejecutó pero falla por `binding to a port / Operation not permitted` del entorno local; no equivale a una build estándar verde y debe verificarse en CI antes de avanzar.
+
+## Secuencia de publicación obligatoria (NO ejecutada)
+
+1. Auditar la rama y abrir PR. CI debe quedar verde, incluida la build estándar del proyecto. No promover un deployment desde esta validación local.
+2. Aplicar únicamente esta migración revisada en Supabase Production, cuando se autorice el paso operativo; mantener el deployment actual mientras tanto. Es compatible con el código anterior, cuya ruta legacy se conserva.
+3. Verificar firma de RPC, SECURITY DEFINER/search_path, grants, RLS del registro privado, persistencia de la denegación INSERT(id), versión de migración y caché de schema PostgREST. Comprobar descubrimiento HTTP con autenticación normal sin crear presupuestos de prueba en Production.
+4. Solo después promocionar el deployment Vercel que incluya este código. Un core, un Vercel y un Supabase para todos los tenants; ninguna excepción SUR4.
+
+Si hay que revertir la aplicación, el código anterior puede seguir operando con la migración presente. No borrar recibos, historial o presupuestos como parte de una reversión improvisada. Production, merge y despliegue quedan fuera de esta ejecución.

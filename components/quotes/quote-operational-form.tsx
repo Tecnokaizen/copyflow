@@ -7,7 +7,7 @@ import type { QuoteRecord } from "@/lib/quotes/types";
 
 export function QuoteOperationalForm({ quote, busy, clientLocked, saveDisabled, onSave }: {
   quote: QuoteRecord; busy: boolean; clientLocked: boolean; saveDisabled: boolean;
-  onSave: (fields: { client_id: string | null; service_id: string | null; assigned_team_member_id: string | null }) => void;
+  onSave: (fields: { client_id: string | null; service_id: string | null; assigned_team_member_id: string | null }, client: ClientSummary | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [client, setClient] = useState<ClientSummary | null>(quote.client ? {
@@ -32,7 +32,7 @@ export function QuoteOperationalForm({ quote, busy, clientLocked, saveDisabled, 
   return <SectionCard title="Gestión operativa" description="Cliente asociado, servicio y responsable. Los datos del documento se guardan en el borrador."
     actions={<button type="button" className="gc-action min-h-11" disabled={busy} onClick={() => setOpen(!open)}>{open ? "Cerrar gestión" : "Editar gestión"}</button>} bodyClassName="p-5 sm:p-6">
     {!open ? <p className="text-sm text-muted-foreground">{quote.client?.name ?? "Sin cliente"} · {quote.service?.name ?? "Sin servicio"} · {quote.assignee?.name ?? "Sin responsable"}</p> :
-      <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); onSave({ client_id: client?.id ?? null, service_id: service || null, assigned_team_member_id: assignee || null }); }}>
+      <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); onSave({ client_id: client?.id ?? null, service_id: service || null, assigned_team_member_id: assignee || null }, client); }}>
         <div className="gc-field"><span className="gc-field-label">Cliente asociado</span><ClientSelector value={client} onChange={setClient} disabled={busy || clientLocked} allowNoClient />
           {clientLocked ? <p className="text-sm text-muted-foreground">Guarda los cambios comerciales antes de cambiar el cliente. Una versión bloqueada requiere una nueva versión.</p> : null}</div>
         <div className="grid gap-4 sm:grid-cols-2">

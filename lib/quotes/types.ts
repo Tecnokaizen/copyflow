@@ -55,6 +55,7 @@ export type QuoteTaxBreakdown = {
 export type QuotePdfMetadata = { id: string; size_bytes: number; completed_at: string | null };
 
 export type QuoteVersion = {
+  contact_header?: Pick<QuoteDraftHeader, "contact_name" | "contact_email" | "contact_phone" | "billing_name" | "tax_id" | "billing_address">;
   pdf_file?: QuotePdfMetadata | null;
   id: string;
   quote_id: string;
@@ -115,7 +116,7 @@ export type QuoteRecord = QuoteCommercialSummary & {
   row_version: number;
   converted_order_id: string | null;
   status: QuoteStatusRef | null;
-  client: QuotePartyRef | null;
+  client: (QuotePartyRef & Partial<import("@/lib/clients/types").ClientSummary>) | null;
   service: QuotePartyRef | null;
   assignee: QuotePartyRef | null;
   converted_order: QuoteOrderRef | null;
@@ -235,6 +236,7 @@ export const QUOTE_SELECT = `
   ),
   client:clients (
     id,
+    contact_name, company_name, tax_id, email, phone,
     name
   ),
   service:services (
@@ -391,7 +393,7 @@ export function mapQuote(value: unknown): QuoteRecord | null {
     row_version: rowVersion,
     converted_order_id: asString(row.converted_order_id),
     status: status(row.status),
-    client: party(row.client),
+    client: party(row.client) ? { ...party(row.client)!, ...Object.fromEntries(["contact_name", "company_name", "tax_id", "email", "phone"].map(key => [key, asString(asRecord(row.client)?.[key])])) } : null,
     service: party(row.service),
     assignee: party(row.assignee),
     converted_order: orderRef(row.converted_order),
@@ -399,6 +401,7 @@ export function mapQuote(value: unknown): QuoteRecord | null {
 }
 
 export const QUOTE_VERSION_SELECT = `
+  client_snapshot,
   id,
   quote_id,
   version_number,
@@ -540,6 +543,11 @@ export function mapQuoteVersion(value: unknown): QuoteVersion | null {
   return {
     id,
     quote_id: quoteId,
+    ...(asRecord(row.client_snapshot) ? { contact_header: {
+      contact_name: asString(asRecord(row.client_snapshot)?.contact_name), contact_email: asString(asRecord(row.client_snapshot)?.contact_email),
+      contact_phone: asString(asRecord(row.client_snapshot)?.contact_phone), billing_name: asString(asRecord(row.client_snapshot)?.billing_name),
+      tax_id: asString(asRecord(row.client_snapshot)?.tax_id), billing_address: asString(asRecord(row.client_snapshot)?.billing_address),
+    } } : {}),
     version_number: versionNumber,
     state,
     title: asString(row.title),
@@ -585,6 +593,7 @@ export function quoteStatusTone(code: string | null | undefined) {
   switch (code) {
     case "draft":
       return "neutral" as const;
+    case "prepared":
     case "pending":
       return "warning" as const;
     case "sent":
