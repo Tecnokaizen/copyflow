@@ -62,4 +62,16 @@ rpc "public.create_quote_draft_v1('$TENANT','$QUOTE',null,null,null,
  '{\"description\":\"Changed\",\"issue_date\":\"2026-10-06\",\"currency\":\"EUR\",\"prices_include_tax\":false}',
  '[]',false)->>'error'" "$TASK_DIR/conflict"
 [[ "$(cat "$TASK_DIR/conflict")" == creation_conflict ]]
+# Exact items and simultaneous ACKs have no repeated effects or timestamp changes.
+[[ "$(psql_at "select count(*)=1 and min(quantity)=2 and min(unit_price)=100 from public.quote_items where quote_version_id in (select id from public.quote_versions where quote_id='$QUOTE')")" == t ]]
+pids=()
+for n in 1 2 3 4 5 6 7 8; do
+ rpc "public.ack_quote_draft_creation_v1('$TENANT','$QUOTE')" "$TASK_DIR/ack-$n" & pids+=("$!")
+done
+for pid in "${pids[@]}"; do wait "$pid"; done
+[[ "$(cat "$TASK_DIR"/ack-* | sort -u | wc -l | tr -d ' ')" == 1 ]]
+rpc "$CREATE_CALL" "$TASK_DIR/after-ack"
+cmp "$TASK_DIR/create-1" "$TASK_DIR/after-ack"
+rpc "jsonb_array_length(public.recover_quote_draft_creations_v1('$TENANT')->'receipts')" "$TASK_DIR/pending"
+[[ "$(cat "$TASK_DIR/pending")" == 0 ]]
 echo 'phase44 creation concurrency PASS (8 exact replays, one quote/draft/receipt/reference; incompatible request rejected)'

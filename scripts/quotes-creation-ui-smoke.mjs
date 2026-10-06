@@ -29,6 +29,7 @@ await build({
     api.onResolve({ filter: /^next\/(navigation|link)$/ }, ({ path }) => ({ path, namespace: "test-next" }));
     api.onLoad({ filter: /.*/, namespace: "test-next" }, ({ path: module }) => ({ contents: module.endsWith("navigation")
       ? `import {useSyncExternalStore} from 'react';
+        const replaceState = history.replaceState.bind(history); history.replaceState = (...args) => {replaceState(...args);window.dispatchEvent(new PopStateEvent('popstate'))};
         const subscribe = cb => {window.addEventListener('popstate',cb);return ()=>window.removeEventListener('popstate',cb)};
         export const useSearchParams = () => new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));
         export const usePathname = () => '/quotes';
@@ -65,7 +66,19 @@ const cb = { ...ca, id: 'e4400000-0000-4000-8000-000000000022', name: 'Cliente B
 async function setup(width, theme, mode = 'new', state = 'draft') {
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
   const page = await context.newPage(); page.setDefaultTimeout(10000);
-  lastPage = page; const events = [], errors = []; lastEvents = events; let failNext = false;
+  lastPage = page; const events = [], errors = []; lastEvents = events; let failNext = false, failCommitted = false, failAck = false, unavailable = false; const ledger = new Map();
+  let stored = fixture(state); stored.current_version.version_number = 1; stored.versions = [stored.current_version];
+  stored.quote.current_version_number = 1; stored.quote.current_version_state = state;
+  stored.quote.client = ca; stored.quote.contact_phone = ca.phone; stored.quote.contact_email = ca.email;
+  stored.quote.billing_name = ca.company_name; stored.quote.tax_id = ca.tax_id;
+  stored.current_version.client_manual_fields = ['contact_name'];
+  if (state === 'sent') stored.quote.status = { id: 's', name: 'Enviado', code: 'sent' };
+  function saveHeader(header, items) {
+    Object.assign(stored.quote, header); stored.quote.row_version++;
+    Object.assign(stored.current_version, header); stored.current_version.row_version++;
+    stored.current_version.client_manual_fields = header.client_manual_fields;
+    stored.items = items.map((item, n) => ({...stored.items[n], ...item, id: `saved-${n}`, position: n+1}));
+  }
   page.on('pageerror', err => errors.push(err.message));
   await context.route('**/api/**', async route => {
     const req = route.request(), pathname = new URL(req.url()).pathname, method = req.method();
@@ -77,20 +90,37 @@ async function setup(width, theme, mode = 'new', state = 'draft') {
     else if (pathname === '/api/team') result = { members: [] };
     else if (pathname.endsWith('/activity')) result = { events: [] };
     else if (pathname.endsWith('/files')) result = { files: [] };
+    else if (pathname === '/api/quotes/creation-recovery') {
+      const op = new URL(req.url()).searchParams.get('op');
+      if (unavailable) { await route.abort('failed'); return; }
+      if (method === 'POST') {
+        const receipt = ledger.get(body.operation_id);
+        if (!receipt) { status = 404; result = { error: 'No encontrado' }; }
+        else { receipt.acknowledged_at ??= '2026-10-06T12:01:00Z'; result = { ok: true, quote_id: body.operation_id }; }
+        if (failAck) { failAck = false; await route.abort('failed'); return; }
+      } else result = { receipts: [...ledger.values()].filter(r => op ? r.operation_id === op : !r.acknowledged_at).map(({ payload, ...r }) => r) };
+    }
     else if (pathname === '/api/quotes/create-draft') {
       if (failNext) { failNext = false; await route.abort('failed'); return; }
-      result = { ok: true, quote_id: body.creation_id, version: { state: body.prepare ? 'prepared' : 'draft' } };
-    } else if (pathname === '/api/quotes/quote-1') {
-      result = fixture(state); result.current_version.version_number = 1;
-      result.versions = [result.current_version]; result.quote.current_version_number = 1; result.quote.current_version_state = state;
-      if (state === 'sent') result.quote.status = { id: 's', name: 'Enviado', code: 'sent' };
-    }
+      const previous = ledger.get(body.creation_id);
+      if (previous && JSON.stringify(previous.payload) !== JSON.stringify(body)) { status = 409; result = { error: 'Solicitud incompatible', code: 'creation_conflict' }; }
+      else {
+        ledger.set(body.creation_id, previous ?? { operation_id: body.creation_id, quote_id: body.creation_id, reference: `P-${ledger.size + 1}`, created_at: '2026-10-06T12:00:00Z', acknowledged_at: null, payload: body });
+        result = { ok: true, quote_id: body.creation_id, version: { state: body.prepare ? 'prepared' : 'draft' } };
+      }
+      if (failCommitted) { failCommitted = false; await route.abort('failed'); return; }
+    } else if (pathname === '/api/quotes/quote-1/draft' && method === 'PUT') {
+      saveHeader(body.header, body.items); result = { version: stored.current_version };
+    } else if (pathname === '/api/quotes/quote-1/client-draft') {
+      stored.quote.client = body.fields.client_id === ca.id ? ca : body.fields.client_id === cb.id ? cb : null;
+      saveHeader(body.draft.header, body.draft.items); result = { ok: true, version: stored.current_version };
+    } else if (pathname === '/api/quotes/quote-1') result = stored;
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(result) });
   });
   await page.goto(`${url}/?mode=${mode}&theme=${theme}`);
   await page.getByRole('heading', { name: 'Datos del presupuesto', exact: true }).waitFor();
   if (mode === 'new') await page.getByLabel('Título / trabajo').waitFor({ state: 'visible' });
-  return { page, context, events, errors, fail: () => { failNext = true; } };
+  return { page, context, events, errors, stored: () => stored, ledger, fail: () => { failNext = true; }, loseResponse: () => { failCommitted = true; }, loseAck: () => { failAck = true; }, unavailable: () => { unavailable = true; } };
 }
 async function fill(page) {
   await page.getByPlaceholder('Buscar cliente', { exact: false }).fill('Clínica');
@@ -126,7 +156,7 @@ try {
     await page.screenshot({ path: path.join(out, `new-${width}-${theme}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
     await page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
-    const writes = h.events.filter(e => e.method === 'POST'); check(writes.length, 1, 'Single complete creation submit');
+    const writes = h.events.filter(e => e.pathname === '/api/quotes/create-draft'); check(writes.length, 1, 'Single complete creation submit');
     check(writes[0].body.header.contact_name, 'Especial', 'Manual header submitted'); check(writes[0].body.items.length, 1, 'Lines submitted with header');
     check(writes[0].body.prepare, false, 'Draft action'); check(h.errors, [], 'No new editor runtime errors'); await page.close();
     const draft = await setup(width, theme, 'editor');
@@ -144,9 +174,10 @@ try {
   check(await retry.page.getByLabel('Título / trabajo').isDisabled(), true, 'Ambiguous request stays frozen');
   await retry.page.reload();
   await retry.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).waitFor();
+  const retryUrl = retry.page.url();
   await retry.page.close();
   retry.page = await retry.context.newPage(); lastPage = retry.page;
-  await retry.page.goto(`${url}/?mode=new&theme=dark`);
+  await retry.page.goto(retryUrl);
   await retry.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).click();
   await retry.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
   const writes = retry.events.filter(e => e.pathname === '/api/quotes/create-draft');
@@ -156,13 +187,115 @@ try {
   await prepare.page.getByRole('button', { name: 'Preparar presupuesto', exact: true }).click();
   await prepare.page.getByRole('dialog').getByRole('button', { name: 'Preparar presupuesto', exact: true }).click();
   await prepare.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
-  check(prepare.events.filter(e => e.method === 'POST').length, 1, 'Atomic creation and prepare in one submit');
-  check(prepare.events.find(e => e.method === 'POST').body.prepare, true, 'Prepare action passed'); await prepare.page.close();
+  check(prepare.events.filter(e => e.pathname === '/api/quotes/create-draft').length, 1, 'Atomic creation and prepare in one submit');
+  check(prepare.events.find(e => e.pathname === '/api/quotes/create-draft').body.prepare, true, 'Prepare action passed'); await prepare.page.close();
   for (const state of ['prepared', 'sent']) {
     const h = await setup(390, 'dark', 'editor', state);
     check(await h.page.getByLabel('Título / trabajo').isDisabled(), true, `${state} immutable editor`);
     check(await h.page.getByRole('button', { name: 'Guardar borrador', exact: true }).count(), 0, `${state} no save`); await h.page.close();
   }
+  async function secondPage(h, target) {
+    const page = await h.context.newPage(); page.setDefaultTimeout(10000); lastPage = page;
+    await page.goto(target ?? `${url}/?mode=new&theme=light`);
+    await page.getByLabel('Título / trabajo').waitFor();
+    return page;
+  }
+  // Two independent tabs: neither may overwrite or remove the other's receipt.
+  const distinct = await setup(390, 'light');
+  const tabB = await secondPage(distinct); await fill(distinct.page); await fill(tabB);
+  check(new URL(distinct.page.url()).searchParams.get('op') !== new URL(tabB.url()).searchParams.get('op'), true, 'Independent tabs have independent URL identities');
+  distinct.loseResponse(); await distinct.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+  await distinct.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).waitFor();
+  const aKey = await distinct.page.evaluate(() => Object.keys(localStorage)[0]);
+  await tabB.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+  await tabB.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(await distinct.page.evaluate(key => localStorage.getItem(key) !== null, aKey), true, 'Tab B keeps pending A');
+  await distinct.page.reload(); await distinct.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).click();
+  await distinct.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(distinct.ledger.size, 2, 'Exactly two independent quotes'); await distinct.context.close();
+  // Same op tabs race on a shared lock and converge on the first complete request.
+  const same = await setup(768, 'dark'); const sameB = await secondPage(same, same.page.url());
+  await fill(same.page); await fill(sameB);
+  check(new URL(same.page.url()).searchParams.get('op'), new URL(sameB.url()).searchParams.get('op'), 'Copied URL retains same operation');
+  await Promise.all([same.page.getByRole('button', { name: 'Guardar borrador', exact: true }).evaluate(button => button.click()), sameB.getByRole('button', { name: 'Guardar borrador', exact: true }).evaluate(button => button.click())]);
+  await same.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  await sameB.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(same.ledger.size, 1, 'Same operation creates exactly one quote');
+  check(same.events.filter(e => e.pathname === '/api/quotes/create-draft').length, 1, 'Second same-op tab recovers server receipt');
+  check(await same.page.evaluate(() => window.lastNavigation), await sameB.evaluate(() => window.lastNavigation), 'Both tabs converge on same quote'); await same.context.close();
+  // Committed response lost: URL alone recovers even after localStorage loss.
+  const storageLoss = await setup(390, 'dark'); await fill(storageLoss.page); storageLoss.loseResponse();
+  await storageLoss.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+  await storageLoss.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).waitFor();
+  const lossId = new URL(storageLoss.page.url()).searchParams.get('op');
+  await storageLoss.page.evaluate(() => localStorage.clear()); await storageLoss.page.reload();
+  await storageLoss.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).click();
+  await storageLoss.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(storageLoss.ledger.size, 1, 'Storage loss never creates a second quote');
+  check(await storageLoss.page.evaluate(() => window.lastNavigation), `/quotes/${lossId}`, 'URL restores exact quote');
+  // ACK replay and exact recovery after ACK also keep the same identity.
+  await storageLoss.page.reload();
+  await storageLoss.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).click();
+  await storageLoss.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(storageLoss.ledger.size, 1, 'Acknowledged URL recovery stays idempotent'); await storageLoss.context.close();
+  // Loss of URL + storage must always require an explicit decision. Test both decisions in all layouts.
+  for (const width of [390, 768, 1280]) for (const theme of ['light', 'dark']) {
+    const lost = await setup(width, theme); await fill(lost.page); lost.loseResponse();
+    await lost.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+    await lost.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).waitFor();
+    await lost.page.evaluate(() => localStorage.clear());
+    await lost.page.goto(`${url}/?mode=new&theme=${theme}`);
+    await lost.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).waitFor();
+    check(await lost.page.getByRole('button', { name: 'Guardar borrador', exact: true }).isDisabled(), true, 'Unknown identity blocks silent creation');
+    check(lost.ledger.size, 1, 'Recovery gate creates no quote');
+    check(await lost.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Recovery gate responsive');
+    await lost.page.screenshot({ path: path.join(out, `recovery-${width}-${theme}.png`), fullPage: true });
+    if (theme === 'light') {
+      await lost.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).click();
+      await lost.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+      check(lost.ledger.size, 1, 'Explicit open keeps existing quote');
+    } else {
+      await lost.page.getByRole('button', { name: 'Crear otro presupuesto', exact: true }).click();
+      check(new URL(lost.page.url()).searchParams.get('new'), '1', 'Explicit new decision survives reload');
+      await lost.page.reload(); await fill(lost.page);
+      await lost.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+      await lost.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+      check(lost.ledger.size, 2, 'Only explicit create-another creates second quote');
+    }
+    check(lost.errors, [], 'Recovery browser has no runtime errors'); await lost.context.close();
+  }
+  const editedDraft = await setup(768, 'light', 'editor');
+  await editedDraft.page.getByLabel('Persona de contacto').fill('Manual persistido');
+  await editedDraft.page.getByRole('button', {name:'Guardar borrador',exact:true}).click();
+  await editedDraft.page.getByRole('status').filter({hasText:'Borrador guardado'}).waitFor();
+  check(editedDraft.stored().current_version.client_manual_fields.includes('contact_name'),true,'Manual provenance written with draft');
+  await editedDraft.page.reload();
+  await editedDraft.page.getByRole('button',{name:'Editar gestión',exact:true}).click();
+  await editedDraft.page.getByRole('button',{name:'Cambiar',exact:true}).click();
+  await editedDraft.page.getByRole('button').filter({hasText:'Cliente B'}).click();
+  editedDraft.page.on('dialog',dialog=>dialog.accept());
+  await editedDraft.page.getByRole('button',{name:'Guardar gestión',exact:true}).click();
+  await editedDraft.page.getByRole('status').filter({hasText:'Gestión operativa guardada'}).waitFor();
+  check(await editedDraft.page.getByLabel('Persona de contacto').inputValue(),'Manual persistido','Saved draft keeps manual contact after reload and client change');
+  check(await editedDraft.page.getByLabel('Teléfono').inputValue(),cb.phone,'Saved draft updates pristine phone');
+  check(editedDraft.stored().quote.client.id,cb.id,'Saved draft changed client');
+  check(editedDraft.events.filter(e=>e.pathname.endsWith('/client-draft')).length,1,'Client and header updated in one request');
+  await editedDraft.page.reload();
+  await editedDraft.page.getByLabel('Persona de contacto').waitFor();
+  check(await editedDraft.page.getByLabel('Persona de contacto').inputValue(),'Manual persistido','Manual override persists after atomic client change');
+  check(await editedDraft.page.getByLabel('Teléfono').inputValue(),cb.phone,'Autofill persists after atomic client change');
+  check(editedDraft.errors,[],'Saved-client browser has no errors'); await editedDraft.context.close();
+  // If ACK's response is lost, its URL still resolves the executed operation.
+  const ackLoss = await setup(768, 'light'); await fill(ackLoss.page); ackLoss.loseAck();
+  await ackLoss.page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
+  await ackLoss.page.getByRole('button', { name: 'Reintentar guardado', exact: true }).waitFor();
+  await ackLoss.page.reload(); await ackLoss.page.getByRole('button', { name: 'Abrir presupuesto existente', exact: true }).click();
+  await ackLoss.page.waitForFunction(() => window.lastNavigation?.startsWith('/quotes/'));
+  check(ackLoss.ledger.size, 1, 'Lost ACK response never duplicates'); await ackLoss.context.close();
+  const offline = await setup(390, 'light'); offline.unavailable(); await offline.page.reload();
+  await offline.page.getByRole('alert').waitFor();
+  check(await offline.page.getByRole('button', {name:'Guardar borrador',exact:true}).isDisabled(),true,'Uncertain recovery fails closed');
+  check(offline.ledger.size,0,'Recovery error never writes'); await offline.context.close();
   await writeFile(path.join(out, 'results.json'), JSON.stringify({ status: 'PASS', assertions, results, scope: 'Real components and CSS; deterministic HTTP doubles. SQL suites separately test transactional guarantees.' }, null, 2));
   console.log(JSON.stringify({ status: 'PASS', assertions, output: out }));
 } catch (error) {

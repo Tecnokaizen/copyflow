@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { PDFDocument } from "pdf-lib";
 import { createHash } from "node:crypto";
 import { anfreFixture } from "./fixture";
 import { quoteDocumentModel, documentMoney, documentNumber, documentUnitPrice } from "./model";
@@ -7,6 +8,13 @@ import { renderQuotePdf } from "./render";
 import { generateQuotePdf, type PdfHead, type PdfProvider } from "./generate";
 
 describe("authoritative commercial PDF", () => {
+  it("uses commercial revision labels in PDF metadata and hides the first revision", async () => {
+    const f = anfreFixture();
+    const first = quoteDocumentModel(f.reference, { ...f.version, version_number: 1 }, f.items);
+    const second = quoteDocumentModel(f.reference, { ...f.version, version_number: 2 }, f.items);
+    assert.equal((await PDFDocument.load(await renderQuotePdf(first))).getTitle(), `Presupuesto ${f.reference}`);
+    assert.equal((await PDFDocument.load(await renderQuotePdf(second))).getTitle(), `Presupuesto ${f.reference} · Revisión 2`);
+  });
   it("rejects draft and accepts prepared/sent only", () => {
     const f = anfreFixture();
     assert.throws(() => quoteDocumentModel(f.reference, { ...f.version, state: "draft" }, f.items), /version_not_prepared/);

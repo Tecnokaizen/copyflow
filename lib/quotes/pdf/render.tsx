@@ -39,15 +39,16 @@ function Party({ label, party }: { label: string; party: DocumentParty }) {
 }
 export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): Promise<Buffer> {
   const { version: v } = model;
+  const revision = v.version_number > 1 ? ` · Revisión ${v.version_number}` : "";
   const money = (value: string) => documentMoney(value, v.currency);
   // PDF metadata derives from locked_at, never wall clock, so retries are byte-identical.
   const date = new Date(v.locked_at!);
-  const buffer = await renderToBuffer(<Document title={`Presupuesto ${model.reference} v${v.version_number}`} author={model.seller.name}
+  const buffer = await renderToBuffer(<Document title={`Presupuesto ${model.reference}${revision}`} author={model.seller.name}
     creator="Gestcopy" producer="Gestcopy commercial-v1" creationDate={date} modificationDate={date}>
     <Page size="A4" style={s.page} wrap>
       <View fixed style={[s.header, { borderBottomColor: model.brandColor }]}>
         {logo ? <Image src={logo} style={s.logo} /> : <Text style={[s.sellerName, { color: model.brandColor }]}>{model.seller.name}</Text>}
-        <View style={s.ref}><Text style={s.bold}>PRESUPUESTO</Text><Text>{model.reference} · v{v.version_number}</Text>
+        <View style={s.ref}><Text style={s.bold}>PRESUPUESTO</Text><Text>{model.reference}{revision}</Text>
           <Text>Emisión: {documentDate(v.issue_date)}</Text><Text>Validez: {documentDate(v.valid_until)}</Text></View>
       </View>
       <Text style={s.title}>{v.title || "Presupuesto"}</Text>
@@ -68,7 +69,7 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
         <View style={[s.grand, { borderTopColor: model.brandColor }]}><Text>Total</Text><Text>{money(v.total)}</Text></View>
       </View>
       {model.terms ? <View style={s.terms}><Text style={s.label}>CONDICIONES</Text><Text>{model.terms}</Text></View> : null}
-      <Text fixed style={{ position: "absolute", bottom: 25, left: 40, width: 400, fontSize: 8, color: "#62717d" }}>{model.reference} · v{v.version_number} · {v.currency}</Text>
+      <Text fixed style={{ position: "absolute", bottom: 25, left: 40, width: 400, fontSize: 8, color: "#62717d" }}>{model.reference}{revision} · {v.currency}</Text>
     </Page>
   </Document>);
   // React PDF's dynamic fixed Text reproduces invalid coordinates / missing text

@@ -30,3 +30,10 @@ export function commercialStatus(q: Pick<QuoteRecord, 'status' | 'current_versio
   if (q.current_version_state) return { name: { draft: 'Borrador', prepared: 'Preparado', sent: 'Enviado' }[q.current_version_state], code: q.current_version_state };
   return { name: q.status?.name ?? 'Borrador', code: q.status?.code ?? 'draft' };
 }
+
+// Persisted provenance takes priority. Legacy drafts protect every populated field: their original manual/auto provenance is unknowable.
+export function manualClientFields(header: QuoteDraftHeader,
+  persisted?: readonly ClientHeaderField[] | null): Set<ClientHeaderField> {
+  if (persisted) return new Set(persisted);
+  return new Set(CLIENT_HEADER_FIELDS.filter(key => header[key] !== null));
+}

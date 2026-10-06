@@ -11,8 +11,8 @@ export function QuoteOperationalForm({ quote, busy, clientLocked, saveDisabled, 
 }) {
   const [open, setOpen] = useState(false);
   const [client, setClient] = useState<ClientSummary | null>(quote.client ? {
-    ...quote.client, customer_type_id: null, customer_type_name: null, contact_name: null,
-    company_name: null, tax_id: null, email: null, phone: null, notes: null,
+    customer_type_id: null, customer_type_name: null, contact_name: null,
+    company_name: null, tax_id: null, email: null, phone: null, notes: null, ...quote.client,
   } : null);
   const [service, setService] = useState(quote.service?.id ?? "");
   const [assignee, setAssignee] = useState(quote.assignee?.id ?? "");

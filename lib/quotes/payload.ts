@@ -1,3 +1,4 @@
+import { CLIENT_HEADER_FIELDS } from "./creation";
 import { isUuid } from "@/lib/team/payload";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { isRichTextEmpty, persistRichText } from "@/lib/rich-text/html";
@@ -156,6 +157,7 @@ function commercialHeader(value: unknown): Ok<QuoteDraftHeader> | Fail {
     return { ok: false, error: QUOTE_MESSAGES.invalid };
   }
 
+  if (payload.client_manual_fields !== undefined && (!Array.isArray(payload.client_manual_fields) || payload.client_manual_fields.length > 5 || payload.client_manual_fields.some((key) => !CLIENT_HEADER_FIELDS.includes(key)))) return { ok: false, error: QUOTE_MESSAGES.invalid };
   const title = boundedOptionalText(payload.title, 500);
   const contactName = boundedOptionalText(payload.contact_name, 500);
   const contactEmail = boundedOptionalText(payload.contact_email, 320);
@@ -206,6 +208,7 @@ function commercialHeader(value: unknown): Ok<QuoteDraftHeader> | Fail {
   return {
     ok: true,
     data: {
+      ...(payload.client_manual_fields === undefined ? {} : { client_manual_fields: [...new Set(payload.client_manual_fields as typeof CLIENT_HEADER_FIELDS[number][])] }),
       title: title.value,
       description,
       terms,

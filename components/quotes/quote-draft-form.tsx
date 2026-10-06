@@ -14,12 +14,12 @@ const TEXT_FIELDS: Array<[keyof QuoteDraftHeader, string, string?, number?]> = [
   ["billing_name", "Nombre / razón social", "text", 500], ["tax_id", "NIF / CIF", "text", 100],
   ["billing_address", "Dirección de facturación", "text", 5000], ["currency", "Moneda", "text", 3],
 ];
-export function QuoteDraftForm({ detail, values, dirty, busy, errors, onChange, onSave, onPrepare, clientSlot }: {
-  detail?: QuoteCommercialDetail; clientSlot?: ReactNode; values: EditorValues; dirty: boolean; busy: boolean; errors: string[];
+export function QuoteDraftForm({ detail, values, dirty, busy, blocked = false, errors, onChange, onSave, onPrepare, clientSlot }: {
+  detail?: QuoteCommercialDetail; clientSlot?: ReactNode; values: EditorValues; dirty: boolean; busy: boolean; blocked?: boolean; errors: string[];
   onChange: (values: EditorValues) => void; onSave: () => void; onPrepare: () => void;
 }) {
   const readonly = !!detail && detail.current_version?.state !== "draft";
-  const disabled = readonly || busy;
+  const disabled = readonly || busy || blocked;
   function header(key: keyof QuoteDraftHeader, value: string | boolean | null) {
     onChange({ ...values, header: { ...values.header, [key]: value } });
   }
@@ -47,11 +47,11 @@ export function QuoteDraftForm({ detail, values, dirty, busy, errors, onChange, 
       </label>
       {([['description', 'Descripción del trabajo'], ['terms', 'Términos y condiciones']] as const).map(([key, label]) => <div className="gc-field mt-4" key={key}>
         <span className="gc-field-label">{label}</span>
-        {readonly ? <RichTextContent value={values.header[key]} /> : <RichTextEditor ariaLabel={label} value={values.header[key] ?? ""} disabled={busy} onChange={(value) => header(key, value)} />}
+        {readonly ? <RichTextContent value={values.header[key]} /> : <RichTextEditor ariaLabel={label} value={values.header[key] ?? ""} disabled={busy || blocked} onChange={(value) => header(key, value)} />}
       </div>)}
     </SectionCard>
     <SectionCard title="Partidas" description={dirty ? "Cambios sin guardar. Los importes se actualizarán al guardar." : "Importes del presupuesto guardado."}
-      actions={!readonly ? <button type="button" className="gc-action min-h-11" disabled={busy || values.items.length >= 500} onClick={() => onChange({ ...values, items: [...values.items, emptyEditorItem(crypto.randomUUID())] })}>Añadir línea</button> : undefined}
+      actions={!readonly ? <button type="button" className="gc-action min-h-11" disabled={busy || blocked || values.items.length >= 500} onClick={() => onChange({ ...values, items: [...values.items, emptyEditorItem(crypto.randomUUID())] })}>Añadir línea</button> : undefined}
       bodyClassName="p-3 sm:p-5">
       {values.items.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Todavía no hay partidas. Añade la primera línea.</p> : null}
       <ol className="grid gap-4">
@@ -64,9 +64,9 @@ export function QuoteDraftForm({ detail, values, dirty, busy, errors, onChange, 
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Partida {index + 1}</h3>
               {!readonly ? <div className="flex gap-1">
-                <button className="gc-action min-h-11" type="button" aria-label={`Subir partida ${index + 1}`} disabled={busy || index === 0} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, -1) })}><ArrowUp size={16} /></button>
-                <button className="gc-action min-h-11" type="button" aria-label={`Bajar partida ${index + 1}`} disabled={busy || index === values.items.length - 1} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, 1) })}><ArrowDown size={16} /></button>
-                <button className="gc-action min-h-11" type="button" aria-label={`Eliminar partida ${index + 1}`} disabled={busy} onClick={() => onChange({ ...values, items: values.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>
+                <button className="gc-action min-h-11" type="button" aria-label={`Subir partida ${index + 1}`} disabled={busy || blocked || index === 0} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, -1) })}><ArrowUp size={16} /></button>
+                <button className="gc-action min-h-11" type="button" aria-label={`Bajar partida ${index + 1}`} disabled={busy || blocked || index === values.items.length - 1} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, 1) })}><ArrowDown size={16} /></button>
+                <button className="gc-action min-h-11" type="button" aria-label={`Eliminar partida ${index + 1}`} disabled={busy || blocked} onClick={() => onChange({ ...values, items: values.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>
               </div> : null}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -92,8 +92,8 @@ export function QuoteDraftForm({ detail, values, dirty, busy, errors, onChange, 
     </SectionCard>
     {errors.length > 0 ? <div role="alert" className="rounded-lg border border-destructive p-4 text-sm text-destructive"><ul>{errors.map((error) => <li key={error}>{error}</li>)}</ul></div> : null}
     {!readonly ? <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-      <button type="submit" className="gc-cta min-h-11" disabled={busy}>{busy ? "Guardando…" : "Guardar borrador"}</button>
-      <button type="button" className="gc-action min-h-11" disabled={busy || values.items.length === 0 || errors.length > 0} onClick={onPrepare}>Preparar presupuesto</button>
+      <button type="submit" className="gc-cta min-h-11" disabled={busy || blocked}>{busy ? "Guardando…" : "Guardar borrador"}</button>
+      <button type="button" className="gc-action min-h-11" disabled={busy || blocked || values.items.length === 0 || errors.length > 0} onClick={onPrepare}>Preparar presupuesto</button>
     </div> : null}
   </form>;
 }

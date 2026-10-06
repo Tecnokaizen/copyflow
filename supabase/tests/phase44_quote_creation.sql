@@ -40,14 +40,20 @@ begin
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,'[]',true)->>'error'='items_required','empty prepare');
   -- Failure occurs after quote + draft INSERT; ALL effects including numbering roll back.
   perform pg_temp.expect_error(format('select public.create_quote_draft_v1(%L,%L,null,null,null,%L,%L,false)',ta,qid,h,
-    '[{"concept":"Bad","quantity":"0","unit_price":"100"}]'),'23514');
+    '[{"concept":"Good","quantity":"1","unit_price":"100"},{"concept":"Bad","quantity":"0","unit_price":"100"}]'),'23514');
   perform pg_temp.check_true(not exists(select 1 from public.quotes where id=qid),'no partial quote after error');
   execute 'reset role';
   perform pg_temp.check_true(not exists(select 1 from public.quote_draft_creations where creation_id=qid),'no partial receipt');
+  perform pg_temp.check_true(not exists(select 1 from public.quote_versions where quote_id=qid),'no partial draft');
+  perform pg_temp.check_true(not exists(select 1 from public.quote_items where tenant_id=ta),'no partial items');
+  perform pg_temp.check_true(not exists(select 1 from public.activity_log where entity_id=qid),'no partial activity');
   perform pg_temp.check_true(not exists(select 1 from public.quote_number_counters where tenant_id=ta),'no consumed number');
   execute 'set local role authenticated';
   r:=public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false);
   perform pg_temp.check_true(r->>'ok'='true' and r->>'quote_id'=qid::text,'creation acknowledgement');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=1,'own unacknowledged creation is recoverable');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(tb,qid)->'receipts')=0,'exact recovery cannot cross tenants');
+  perform pg_temp.check_true(public.ack_quote_draft_creation_v1(tb,qid)->>'error'='not_found','ACK cannot cross tenants');
   vid:=(r->'version'->>'id')::uuid; rv:=(r->'version'->>'row_version')::bigint;
   perform pg_temp.check_true((r->'version'->>'total')::numeric=217.80,'server totals in complete draft');
   perform pg_temp.check_true((select count(*)=1 from public.quote_items where quote_version_id=vid),'one valid line');
@@ -56,6 +62,8 @@ begin
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h||'{"title":"Changed"}',items,false)->>'error'='creation_conflict','changed request rejected');
   perform pg_temp.check_true(public.create_quote_draft_v1(tb,qid,null,null,null,h,items,false)->>'error'='creation_conflict','multi-membership tenant collision');
   perform set_config('request.jwt.claim.sub',other_actor::text,true);
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=0,'recovery cannot cross actors');
+  perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)->>'error'='not_found','ACK cannot cross actors');
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)->>'error'='creation_conflict','different actor rejected');
   perform set_config('request.jwt.claim.sub',actor::text,true);
   again:=public.prepare_quote_version_v1(qid,vid,rv);
@@ -65,6 +73,19 @@ begin
   execute 'reset role';
   perform pg_temp.check_true((select count(*)=1 from public.quote_draft_creations where creation_id=qid),'one private receipt');
   perform pg_temp.check_true((select last_number=1 from public.quote_number_counters where tenant_id=ta),'one number despite retries');
+  execute 'set local role authenticated';
+  perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)->>'ok'='true','ACK succeeds for original actor and tenant');
+  again:=public.ack_quote_draft_creation_v1(ta,qid);
+  perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)=again,'ACK replay exact and timestamp stable');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=0,'ACK removes only its receipt from pending list');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=1,'URL recovers after ACK');
+  perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)=r,'ACK does not alter original replay');
+  execute 'reset role';
+  update public.quote_draft_creations set created_at=now()-interval '31 days',acknowledged_at=null where creation_id=qid;
+  execute 'set local role authenticated';
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta)->'receipts')=0,'recent-list window enforced');
+  perform pg_temp.check_true(jsonb_array_length(public.recover_quote_draft_creations_v1(ta,qid)->'receipts')=1,'exact URL lookup works beyond window');
+  execute 'reset role';
   -- Matrix: each normal operative role is permitted, all others/disabled feature/inactive membership denied.
   for role_name in select unnest(array['owner','admin','manager','staff','viewer']) loop
     for enabled in select unnest(array[true,false]) loop
@@ -74,7 +95,9 @@ begin
       again:=public.create_quote_draft_v1(ta,gen_random_uuid(),null,null,null,h,items,true);
       if role_name in ('owner','admin','manager','staff') and enabled then
         perform pg_temp.check_true(again->>'ok'='true' and again->'version'->>'state'='prepared','role permitted and atomic prepare');
-      else perform pg_temp.check_true(again->>'error'='not_found','role or feature denied'); end if;
+      else perform pg_temp.check_true(again->>'error'='not_found','role or feature denied');
+        perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)->>'error'='not_found','denied role/feature cannot ACK');
+        perform pg_temp.check_true(public.recover_quote_draft_creations_v1(ta)->>'error'='not_found','denied role/feature cannot recover'); end if;
       execute 'reset role';
     end loop;
   end loop;
@@ -82,13 +105,19 @@ begin
   perform public.set_tenant_feature('phase44a','quotes',true,null);
   execute 'set local role authenticated';
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)->>'error'='not_found','inactive membership cannot replay');
+  perform pg_temp.check_true(public.ack_quote_draft_creation_v1(ta,qid)->>'error'='not_found','inactive membership cannot ACK');
+  perform pg_temp.check_true(public.recover_quote_draft_creations_v1(ta)->>'error'='not_found','inactive membership cannot recover');
   execute 'reset role';
   perform set_config('request.jwt.claim.sub','',true);
   perform pg_temp.check_true(public.create_quote_draft_v1(ta,qid,null,null,null,h,items,false)->>'error'='not_found','missing actor denied');
   execute 'set local role anon';
+  perform pg_temp.expect_error(format('select public.ack_quote_draft_creation_v1(%L,%L)',ta,qid),'42501');
+  perform pg_temp.expect_error(format('select public.recover_quote_draft_creations_v1(%L)',ta),'42501');
   perform pg_temp.expect_error(format('select public.create_quote_draft_v1(%L,%L,null,null,null,%L,%L,false)',ta,qid,h,items),'42501');
   execute 'reset role';
   execute 'set local role service_role';
+  perform pg_temp.expect_error(format('select public.ack_quote_draft_creation_v1(%L,%L)',ta,qid),'42501');
+  perform pg_temp.expect_error(format('select public.recover_quote_draft_creations_v1(%L)',ta),'42501');
   perform pg_temp.expect_error(format('select public.create_quote_draft_v1(%L,%L,null,null,null,%L,%L,false)',ta,qid,h,items),'42501');
   execute 'reset role';
 end;

@@ -55,6 +55,7 @@ export type QuoteTaxBreakdown = {
 export type QuotePdfMetadata = { id: string; size_bytes: number; completed_at: string | null };
 
 export type QuoteVersion = {
+  client_manual_fields?: import("./creation").ClientHeaderField[] | null;
   contact_header?: Pick<QuoteDraftHeader, "contact_name" | "contact_email" | "contact_phone" | "billing_name" | "tax_id" | "billing_address">;
   pdf_file?: QuotePdfMetadata | null;
   id: string;
@@ -130,6 +131,7 @@ export type QuoteCommercialDetail = {
 };
 
 export type QuoteDraftHeader = {
+  client_manual_fields?: import("./creation").ClientHeaderField[];
   title: string | null;
   description: string;
   terms: string | null;
@@ -401,6 +403,7 @@ export function mapQuote(value: unknown): QuoteRecord | null {
 }
 
 export const QUOTE_VERSION_SELECT = `
+  client_manual_fields,
   client_snapshot,
   id,
   quote_id,
@@ -543,6 +546,7 @@ export function mapQuoteVersion(value: unknown): QuoteVersion | null {
   return {
     id,
     quote_id: quoteId,
+    client_manual_fields: Array.isArray(row.client_manual_fields) ? row.client_manual_fields as import("./creation").ClientHeaderField[] : null,
     ...(asRecord(row.client_snapshot) ? { contact_header: {
       contact_name: asString(asRecord(row.client_snapshot)?.contact_name), contact_email: asString(asRecord(row.client_snapshot)?.contact_email),
       contact_phone: asString(asRecord(row.client_snapshot)?.contact_phone), billing_name: asString(asRecord(row.client_snapshot)?.billing_name),

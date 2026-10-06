@@ -19,7 +19,7 @@ import { editorValues, editorValidation, draftPayload, formatQuoteMoney, VERSION
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteCommercialDetail, QuoteVersion, QuoteRecord } from "@/lib/quotes/types";
 import { RichTextContent } from "@/components/rich-text/rich-text-content";
-import { commercialStatus, autofillClient } from "@/lib/quotes/creation";
+import { commercialStatus, autofillClient, manualClientFields, CLIENT_HEADER_FIELDS, type ClientHeaderField } from "@/lib/quotes/creation";
 import { cn } from "@/lib/utils";
 
 class QuoteHttpError extends Error {
@@ -51,11 +51,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
   const [activityKey, setActivityKey] = useState(0);
   const [reload, setReload] = useState(0);
   const pending = useRef(false);
+  const edited = useRef(new Set<ClientHeaderField>());
   const activeQuote = useRef(quoteId);
   const base = `/api/quotes/${quoteId}`;
 
   function adopt(next: QuoteCommercialDetail) {
-    setDetail(next); setValues(editorValues(next)); setDirty(false); setSelected(null);
+    const nextValues = editorValues(next);
+    edited.current = manualClientFields(nextValues.header, next.current_version?.client_manual_fields);
+    setDetail(next); setValues(nextValues); setDirty(false); setSelected(null);
     setActivityKey((key) => key + 1);
   }
   useEffect(() => {
@@ -108,7 +111,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
     if (!detail || !values) throw new Error("No hay un borrador editable.");
     const invalid = editorValidation(values);
     if (invalid.length) throw new Error(invalid.join(" "));
-    const result = await request<{ version: QuoteVersion }>(`${base}/draft`, "PUT", draftPayload(detail, values));
+    const result = await request<{ version: QuoteVersion }>(`${base}/draft`, "PUT", draftPayload(detail, { ...values, header: { ...values.header, client_manual_fields: [...edited.current] } }));
     // Acknowledge the successful write before reloading line amounts. If that read
     // fails, retain local input and the new concurrency token; do not retry the write.
     setDetail((current) => current ? { ...current, current_version: result.version, items: [] } : current);
@@ -212,7 +215,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
           <p className="mb-4 text-sm">{VERSION_LABELS[historical.state]} · Emisión {formatCivilDate(historical.issue_date)} · Validez {historical.valid_until ? formatCivilDate(historical.valid_until) : "Sin fecha"}</p>
           <dl className="grid gap-4 sm:grid-cols-3">{([['subtotal', 'Subtotal'], ['tax_total', 'IVA'], ['total', 'Total']] as const).map(([key, label]) => <div key={key}><dt className="gc-fact-label">{label}</dt><dd className="font-semibold">{formatQuoteMoney(historical[key], historical.currency)}</dd></div>)}</dl>
           <button type="button" className="gc-action mt-4 min-h-11" onClick={() => setSelected(null)}>Volver al presupuesto actual</button>
-        </SectionCard> : version ? <QuoteDraftForm detail={detail} values={values} dirty={dirty} busy={busy} errors={validation} onChange={(next) => { setValues(next); setDirty(true); setMessage(null); }} onSave={save} onPrepare={() => setPrepareConfirm(true)} /> :
+        </SectionCard> : version ? <QuoteDraftForm detail={detail} values={values} dirty={dirty} busy={busy} errors={validation} onChange={(next) => { for (const key of CLIENT_HEADER_FIELDS) if (values.header[key] !== next.header[key]) edited.current.add(key); setValues(next); setDirty(true); setMessage(null); }} onSave={save} onPrepare={() => setPrepareConfirm(true)} /> :
           <SectionCard title="Borrador del presupuesto" description="Continúa con el trabajo registrado para añadir partidas y preparar el presupuesto." bodyClassName="p-5 sm:p-6">
             <div className="mb-4"><RichTextContent value={detail.quote.description} /></div>
             <button className="gc-cta min-h-11" type="button" disabled={busy} onClick={() => createDraft(false)}>Completar presupuesto</button>
@@ -228,13 +231,16 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
         {version && version.state !== "draft" && !detail.quote.accepted_version_id && detail.quote.status?.code !== "accepted" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Crear revisión</button> : null}
         <QuoteOperationalForm key={`${detail.quote.id}-${detail.quote.row_version}`} quote={detail.quote} busy={busy} saveDisabled={dirty} clientLocked={dirty || (!!version && version.state !== "draft")} onSave={(fields, client) => {
           const changedClient = fields.client_id !== (detail.quote.client?.id ?? null);
-          if (changedClient && !window.confirm('Se actualizarán los datos de contacto y facturación del borrador con los del cliente seleccionado. ¿Quieres continuar?')) return;
+          if (changedClient && !window.confirm('Se actualizarán los datos del cliente conservando los campos que hayas editado manualmente. ¿Quieres continuar?')) return;
           void perform(async () => {
-            const result = await request<{ quote: QuoteRecord }>(base, "PATCH", { operational_only: true, expected_row_version: detail.quote.row_version, ...fields });
-            setDetail((current) => current ? { ...current, quote: result.quote } : current);
-            if (changedClient) {
-              setValues((current) => current ? { ...current, header: autofillClient(current.header, client, new Set()) } : current);
-              setDirty(true);
+            if (changedClient && version?.state === 'draft') {
+              const next = { ...values, header: { ...autofillClient(values.header, client, edited.current), client_manual_fields: [...edited.current] } };
+              await request(`${base}/client-draft`, 'POST', { fields: { operational_only: true, expected_row_version: detail.quote.row_version, ...fields }, draft: draftPayload(detail, next) });
+              setValues(next); setDirty(false);
+              try { await loadCurrent(); } catch { setActionError('Cliente y borrador guardados. Recarga la ficha para comprobar los datos.'); }
+            } else {
+              const result = await request<{ quote: QuoteRecord }>(base, "PATCH", { operational_only: true, expected_row_version: detail.quote.row_version, ...fields });
+              setDetail((current) => current ? { ...current, quote: result.quote } : current);
             }
             setMessage("Gestión operativa guardada");
           });

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { PageHeader } from "@/components/gestcopy/page-header";
@@ -12,17 +12,24 @@ import { QuoteDialog } from "./quote-dialog";
 import { QuoteStatusBadge } from "./quote-status-badge";
 import { editorValidation, type EditorValues } from "@/lib/quotes/editor";
 import { autofillClient, CLIENT_HEADER_FIELDS, creationPayload, newEditorValues, type ClientHeaderField } from "@/lib/quotes/creation";
-import { parseQuoteCreationPayload, type QuoteCreationPayload } from "@/lib/quotes/payload";
+import { operationStorageKey, parsePendingCreation, recoverCreations, acknowledgeCreation, withCreationLock, type PendingCreation, type CreationReceipt } from "@/lib/quotes/recovery";
+import { isUuid } from "@/lib/team/payload";
 import type { ClientSummary } from "@/lib/clients/types";
 
-type PendingCreation = { payload: QuoteCreationPayload; client: ClientSummary | null };
 export function QuoteCreationEditor() {
+  const params = useSearchParams();
+  return <QuoteOperationEditor key={params.get('op') ?? 'new'} />;
+}
+function QuoteOperationEditor() {
   const router = useRouter();
   const [values, setValues] = useState<EditorValues>(newEditorValues);
   const [client, setClient] = useState<ClientSummary | null>(null);
   const [service, setService] = useState(''), [assignee, setAssignee] = useState('');
   const [options, setOptions] = useState<{ services: { id: string; name: string }[]; members: { id: string; name: string }[] }>({ services: [], members: [] });
   const [storageKey, setStorageKey] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState<CreationReceipt[]>([]);
+  const [ready, setReady] = useState(false);
+  const scope = useRef<{ tenant: string; actor: string } | null>(null);
   const [pending, setPending] = useState<PendingCreation | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [confirmPrepare, setConfirmPrepare] = useState(false), [dirty, setDirty] = useState(false);
@@ -32,24 +39,32 @@ export function QuoteCreationEditor() {
     async function initialize() {
       const response = await fetch('/api/context', { cache: 'no-store' });
       const context = await response.json();
-      if (!response.ok || !context.tenant?.id || !context.user?.id || !context.features?.quotes) throw new Error('No tienes acceso a presupuestos.');
-      const key = `quote-creation:${context.tenant.id}:${context.user.id}`;
-      const stored = localStorage.getItem(key);
-      let recovered: PendingCreation | null = null;
-      if (stored) {
-        const entry = JSON.parse(stored) as PendingCreation;
-        const parsed = parseQuoteCreationPayload(entry.payload);
-        if (!parsed.ok) throw new Error('No se pudo recuperar el guardado pendiente. Conserva esta pestaña y contacta con soporte.');
-        recovered = { payload: parsed.data, client: entry.client };
-      }
       if (!active) return;
-      if (recovered) {
-        creationId.current = recovered.payload.creation_id;
-        setValues({ header: recovered.payload.header, items: recovered.payload.items.map((item, index) => ({ ...item, key: `recovered-${index}` })) });
-        setClient(recovered.client); setService(recovered.payload.service_id ?? ''); setAssignee(recovered.payload.assigned_team_member_id ?? '');
-        setPending(recovered); setError('Hay un guardado pendiente de confirmar. Reintenta para recuperar el mismo presupuesto.');
-      } else creationId.current = crypto.randomUUID();
+      if (!response.ok || !context.tenant?.id || !context.user?.id || !context.features?.quotes) throw new Error('No tienes acceso a presupuestos.');
+      const url = new URL(window.location.href);
+      let operation = url.searchParams.get('op');
+      if (operation && !isUuid(operation)) throw new Error('La URL de recuperación no es válida. Vuelve a la lista de presupuestos.');
+      if (operation) { operation = operation.toLowerCase(); url.searchParams.set('op', operation); }
+      if (!operation) { operation = crypto.randomUUID(); url.searchParams.set('op', operation); window.history.replaceState(null, '', url); }
+      else if (window.location.href !== url.href) window.history.replaceState(null, '', url);
+      const key = operationStorageKey(context.tenant.id, context.user.id, operation);
+      creationId.current = operation;
+      scope.current = { tenant: context.tenant.id, actor: context.user.id };
+      // A URL can recover an executed operation even if local storage is missing or unavailable.
+      const receipts = await recoverCreations(operation);
+      if (!active) return;
       setStorageKey(key);
+      if (receipts.length) { setRecovery(receipts); return; }
+      let stored: string | null = null;
+      try { stored = localStorage.getItem(key); } catch { /* Server recovery still works. New saves require a successful durable write. */ }
+      const recovered = parsePendingCreation(stored, operation);
+      if (recovered) adoptPending(recovered);
+      else if (url.searchParams.get('new') !== '1') {
+        const unacknowledged = await recoverCreations();
+        if (!active) return;
+        if (unacknowledged.length) { setRecovery(unacknowledged); return; }
+      }
+      if (active) setReady(true);
     }
     initialize().catch((err) => { if (active) setError(err.message); });
     Promise.all([fetch('/api/services?active=true&page_size=100'), fetch('/api/team?active=true&page_size=100')])
@@ -60,6 +75,47 @@ export function QuoteCreationEditor() {
       }).catch((err) => { if (active) setError(err.message); });
     return () => { active = false; };
   }, []);
+  function adoptPending(operation: PendingCreation) {
+    setValues({ header: operation.payload.header, items: operation.payload.items.map((item, index) => ({ ...item, key: `recovered-${index}` })) });
+    setClient(operation.client); setService(operation.payload.service_id ?? ''); setAssignee(operation.payload.assigned_team_member_id ?? '');
+    edited.current = new Set(operation.edited ?? operation.payload.header.client_manual_fields ?? CLIENT_HEADER_FIELDS);
+    setPending(operation); setError('Hay un guardado pendiente de confirmar. Reintenta para recuperar el mismo presupuesto.');
+  }
+  useEffect(() => {
+    const synchronize = (event: StorageEvent) => {
+      if (event.key === storageKey && event.newValue && creationId.current) {
+        try { const operation = parsePendingCreation(event.newValue, creationId.current); if (operation) adoptPending(operation); }
+        catch (err) { setReady(false); setError(err instanceof Error ? err.message : 'No se pudo recuperar el guardado.'); }
+      }
+    };
+    window.addEventListener('storage', synchronize);
+    return () => window.removeEventListener('storage', synchronize);
+  }, [storageKey]);
+  async function openExisting(receipt: CreationReceipt) {
+    if (submitting.current) return;
+    submitting.current = true; setBusy(true); setError(null);
+    try {
+      const currentScope = scope.current;
+      if (!currentScope) return;
+      const key = operationStorageKey(currentScope.tenant, currentScope.actor, receipt.operation_id);
+      await withCreationLock(key, async () => {
+        await acknowledgeCreation(receipt.operation_id);
+        try { localStorage.removeItem(key); } catch { /* ACK and URL remain authoritative. */ }
+        setDirty(false); router.push(`/quotes/${receipt.quote_id}`);
+      });
+    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo abrir el presupuesto.'); }
+    finally { submitting.current = false; setBusy(false); }
+  }
+  function createAnother() {
+    if (!scope.current || busy) return;
+    const operation = crypto.randomUUID(), url = new URL(window.location.href);
+    url.searchParams.set('op', operation); url.searchParams.set('new', '1');
+    window.history.replaceState(null, '', url);
+    creationId.current = operation;
+    setStorageKey(operationStorageKey(scope.current.tenant, scope.current.actor, operation));
+    setValues(newEditorValues()); setClient(null); setService(''); setAssignee(''); edited.current.clear();
+    setPending(null); setRecovery([]); setReady(true); setDirty(false); setError(null);
+  }
   useEffect(() => {
     const beforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     const beforeNavigate = (e: MouseEvent) => {
@@ -77,36 +133,42 @@ export function QuoteCreationEditor() {
     setClient(next); setValues((current) => ({ ...current, header: autofillClient(current.header, next, edited.current) })); setDirty(true);
   }
   async function save(prepare: boolean) {
-    if (submitting.current || !storageKey || !creationId.current) return;
+    if (submitting.current || !ready || !storageKey || !creationId.current || recovery.length) return;
     if (!pending && editorValidation(values).length) { setError('Revisa los campos indicados antes de guardar.'); return; }
     submitting.current = true; setBusy(true); setError(null); setConfirmPrepare(false);
-    let operation = pending;
+    const operationId = creationId.current;
     try {
-      if (!operation) {
-        operation = { payload: creationPayload(creationId.current, values, client?.id ?? null, service, assignee, prepare), client };
-        // Persist only pending saves, scoped by actor + tenant. Retain ID and request across reloads/tab closure.
+      await withCreationLock(storageKey, async () => {
+        // Recheck server and storage after acquiring the lock: another same-op tab may have finished.
+        const existing = await recoverCreations(operationId);
+        if (existing.length) {
+          await acknowledgeCreation(operationId);
+          try { localStorage.removeItem(storageKey); } catch { /* URL recovers an acknowledged receipt too. */ }
+          setDirty(false); router.push(`/quotes/${existing[0].quote_id}`); return;
+        }
+        const stored = parsePendingCreation(localStorage.getItem(storageKey), operationId);
+        const operation = stored ?? pending ?? {
+          payload: creationPayload(operationId, { ...values, header: { ...values.header, client_manual_fields: [...edited.current] } }, client?.id ?? null, service, assignee, prepare),
+          client, edited: [...edited.current],
+        };
         localStorage.setItem(storageKey, JSON.stringify(operation));
         setPending(operation);
-      }
-      const response = await fetch('/api/quotes/create-draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(operation.payload) });
-      const result = await response.json();
-      if (!response.ok || result.quote_id !== operation.payload.creation_id) {
-        // Validation/business failures are returned before a write or after full rollback.
-        // An ambiguous server/network failure must keep the original request frozen.
-        if (response.status === 400 || response.status === 422) {
-          localStorage.removeItem(storageKey); setPending(null);
-          throw new Error(result.error ?? 'Revisa los datos del presupuesto.');
+        const response = await fetch('/api/quotes/create-draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(operation.payload) });
+        const result = await response.json();
+        if (!response.ok || result.quote_id !== operationId) {
+          if (response.status === 400 || response.status === 422) { localStorage.removeItem(storageKey); setPending(null); }
+          throw new Error(result.error ?? 'No se pudo confirmar el guardado.');
         }
-        throw new Error(result.error ?? 'No se pudo confirmar el guardado.');
-      }
-      // Only remove the receipt after a confirmed server acknowledgement.
-      localStorage.removeItem(storageKey); setDirty(false);
-      router.push(`/quotes/${result.quote_id}`);
+        // Creation and ACK are separate: losing either response leaves a recoverable server receipt.
+        await acknowledgeCreation(operationId);
+        try { localStorage.removeItem(storageKey); } catch { /* Never turn a committed operation into a new UUID. */ }
+        setDirty(false); router.push(`/quotes/${result.quote_id}`);
+      });
     } catch (err) {
       setError(`${err instanceof Error ? err.message : 'No se pudo confirmar el guardado.'} Reintenta el mismo guardado; no se creará otro presupuesto.`);
     } finally { submitting.current = false; setBusy(false); }
   }
-  const disabled = busy || !!pending || !storageKey;
+  const disabled = busy || !!pending || !ready || recovery.length > 0;
   return <AppShell innerClassName="max-w-6xl">
     <AppNav />
     <PageHeader title="Nuevo presupuesto" description="Completa el presupuesto y guárdalo. La referencia se asigna al guardar."
@@ -114,11 +176,18 @@ export function QuoteCreationEditor() {
     <div className="mb-5"><QuoteStatusBadge name="Borrador" code="draft" /></div>
     {!storageKey && !error ? <LoadingState label="Cargando editor" /> : null}
     {error ? <p role="alert" className="mb-4 text-sm text-destructive">{error}</p> : null}
-    {pending ? <div className="mb-5 rounded-lg border p-4">
+    {recovery.length ? <div className="mb-5 rounded-lg border p-4" role="region" aria-label="Recuperación de presupuesto">
+      <p className="mb-3 font-medium">Hay un presupuesto cuya creación no pudimos confirmar.</p>
+      <p className="mb-3 text-sm">Puedes abrir el presupuesto existente o decidir crear otro. Los presupuestos existentes se conservarán.</p>
+      <div className="flex flex-wrap gap-3">{recovery.map(receipt => <button key={receipt.operation_id} className="gc-cta min-h-11" disabled={busy} onClick={() => void openExisting(receipt)}>
+        Abrir presupuesto existente{recovery.length > 1 ? ` · ${receipt.reference}` : ''}
+      </button>)}<button className="gc-action min-h-11" disabled={busy} onClick={createAnother}>Crear otro presupuesto</button></div>
+    </div> : null}
+    {pending && !recovery.length ? <div className="mb-5 rounded-lg border p-4">
       <p className="mb-3 text-sm">El contenido se conserva hasta confirmar el guardado. Después podrás seguir editando desde la ficha.</p>
       <button className="gc-cta min-h-11" disabled={busy} onClick={() => void save(pending.payload.prepare)}>{busy ? 'Confirmando…' : 'Reintentar guardado'}</button>
     </div> : null}
-    <QuoteDraftForm values={values} dirty={dirty} busy={disabled} errors={dirty ? editorValidation(values) : []} onChange={change}
+    <QuoteDraftForm values={values} dirty={dirty} busy={busy} blocked={disabled} errors={dirty ? editorValidation(values) : []} onChange={change}
       onSave={() => void save(false)} onPrepare={() => setConfirmPrepare(true)} clientSlot={<div className="mb-5 grid gap-4">
         <div className="gc-field"><span className="gc-field-label">Cliente</span><QuoteClientPicker value={client} onChange={selectClient} disabled={disabled} />
           <p className="text-sm text-muted-foreground">Al cambiar de cliente se conservan los campos que hayas editado. La dirección de facturación se introduce a mano.</p></div>
