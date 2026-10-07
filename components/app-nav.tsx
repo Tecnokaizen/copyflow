@@ -29,6 +29,11 @@ import {
   type NavLocation,
 } from "@/lib/nav/items";
 import { activeNavAccent } from "@/lib/tenant/branding";
+import {
+  ORGANIZATION_IDENTITY_CHANGED,
+  versionedLogoUrl,
+  type OrganizationIdentityChange,
+} from "@/lib/tenant/identity-events";
 import { helpDocsUrl } from "@/lib/help/catalog";
 import { cn } from "@/lib/utils";
 
@@ -320,11 +325,24 @@ function AppNavContent() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    let identityChanged = false;
+    function updateIdentity(event: Event) {
+      const { identity: updated, revision } = (event as CustomEvent<OrganizationIdentityChange>).detail;
+      identityChanged = true;
+      setTenant({
+        displayName: updated.display_name,
+        logoUrl: versionedLogoUrl(updated.logo_url, revision),
+        brandColor: updated.branding.brand_color,
+      });
+    }
+    window.addEventListener(ORGANIZATION_IDENTITY_CHANGED, updateIdentity);
     async function load() {
       try {
-        const response = await fetch("/api/context");
+        const response = await fetch("/api/context", { cache: "no-store" });
         if (response.ok) {
           const context = await response.json();
+          if (cancelled) return;
           setRole(context?.membership?.role ?? null);
           setQuotesEnabled(context?.features?.quotes === true);
           setIdentity(headerIdentityFromContext(context));
@@ -342,7 +360,7 @@ function AppNavContent() {
             typeof tenantRecord?.branding?.brand_color === "string"
               ? tenantRecord.branding.brand_color
               : null;
-          if (displayName || tenantRecord?.logo_url) {
+          if (!identityChanged && (displayName || tenantRecord?.logo_url)) {
             setTenant({
               displayName,
               logoUrl:
@@ -354,10 +372,14 @@ function AppNavContent() {
           }
         }
       } finally {
-        setReady(true);
+        if (!cancelled) setReady(true);
       }
     }
     void load();
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ORGANIZATION_IDENTITY_CHANGED, updateIdentity);
+    };
   }, []);
 
   return (
