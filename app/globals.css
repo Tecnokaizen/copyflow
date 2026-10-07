@@ -188,20 +188,57 @@
   .dark .gc-field-control {
     background-color: hsl(var(--accent));
   }
-  .gc-day-picker {
-    --rdp-accent-color: hsl(var(--primary));
-    --rdp-accent-background-color: hsl(var(--primary) / 0.12);
-    --rdp-today-color: hsl(var(--primary));
-    --rdp-day_button-border-radius: 0.5rem;
-    color: hsl(var(--foreground));
+  .gc-picker-panel {
+    @apply z-50 rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-xl;
   }
-  .gc-day-picker .rdp-day_button:hover {
-    background: hsl(var(--secondary));
-  }
-  .gc-day-picker .rdp-day_button:focus-visible,
-  .gc-day-picker .rdp-button_previous:focus-visible,
-  .gc-day-picker .rdp-button_next:focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
-  }
+}
+
+/* Scoped overrides outside layers keep vendor defaults from overriding Gestcopy. */
+.gc-day-picker.rdp-root {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-accent-background-color: hsl(var(--primary) / 0.12);
+  --rdp-today-color: hsl(var(--primary));
+  --rdp-day-width: 40px;
+  --rdp-day-height: 40px;
+  --rdp-day_button-width: 36px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-border-radius: 0.75rem;
+  --rdp-selected-border: 0;
+  --rdp-outside-opacity: 0.35;
+  color: hsl(var(--foreground));
+}
+.gc-day-picker .rdp-caption_label {
+  @apply text-sm;
+}
+.gc-day-picker .rdp-month_caption {
+  @apply mb-2 text-sm font-semibold capitalize;
+}
+.gc-day-picker .rdp-weekday {
+  @apply text-xs font-medium text-muted-foreground;
+}
+.gc-day-picker .rdp-day_button {
+  @apply text-sm transition-colors;
+}
+.gc-day-picker .rdp-button_previous,
+.gc-day-picker .rdp-button_next {
+  @apply rounded-lg transition-colors hover:bg-muted;
+}
+.gc-day-picker .rdp-chevron {
+  @apply size-4;
+  fill: hsl(var(--foreground));
+}
+.gc-day-picker .rdp-selected .rdp-day_button {
+  @apply bg-primary font-semibold text-primary-foreground shadow-sm;
+}
+.gc-day-picker .rdp-selected .rdp-day_button:hover {
+  background: hsl(var(--primary) / 0.9);
+}
+.gc-day-picker .rdp-day_button:hover {
+  background: hsl(var(--secondary));
+}
+.gc-day-picker .rdp-day_button:focus-visible,
+.gc-day-picker .rdp-button_previous:focus-visible,
+.gc-day-picker .rdp-button_next:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }

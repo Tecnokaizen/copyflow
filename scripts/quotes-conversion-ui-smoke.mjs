@@ -20,9 +20,16 @@ await build({
     import {QuoteCommercialEditor} from './components/quotes/quote-commercial-editor';
     import {QuotesList} from './components/quotes/quotes-list';
     import {OrderSourceQuote} from './components/orders/detail/order-source-quote';
+    import {CreateOrderForm} from './components/orders/create-order-form';
+    import {OrderProduction} from './components/orders/detail/order-production';
+    function EditOrder() {
+      const [draft,setDraft] = React.useState({description:'<p>Prueba de entrega</p>',priority:'normal',due_at:'2026-10-07T08:07:00.000Z',status_id:'',external_folder_url:''});
+      return <><OrderProduction order={{status:null}} draft={draft} editing statuses={[]} orderOptions={{team_members:[]}} orderOptionsLoading={false}
+        managementOptions={{file_statuses:[],quote_statuses:[]}} managementOptionsLoading={false} onDraftChange={patch=>setDraft(current=>({...current,...patch}))}/><output data-testid="delivery-value">{draft.due_at || ''}</output></>;
+    }
     const params = new URLSearchParams(location.search);
     createRoot(document.getElementById('root')).render(<ThemeProvider attribute="class" forcedTheme={params.get('theme') || 'light'}>
-      {params.get('mode') === 'source' ? <OrderSourceQuote quote={{id:'quote-1',reference:'P-0001',total:'121.00',currency:'EUR',status:'accepted',version_number:2}}/> : params.get('mode') === 'list' ? <QuotesList/> : <QuoteCommercialEditor quoteId="quote-1"/>}</ThemeProvider>);`, resolveDir: root, loader: "tsx" },
+      {params.get('mode') === 'order-create' ? <div className="mx-auto max-w-3xl p-5"><CreateOrderForm mode="full" onCancel={()=>{}}/></div> : params.get('mode') === 'order-edit' ? <div className="mx-auto max-w-3xl p-5"><EditOrder/></div> : params.get('mode') === 'source' ? <OrderSourceQuote quote={{id:'quote-1',reference:'P-0001',total:'121.00',currency:'EUR',status:'accepted',version_number:2}}/> : params.get('mode') === 'list' ? <QuotesList/> : <QuoteCommercialEditor quoteId="quote-1"/>}</ThemeProvider>);`, resolveDir: root, loader: "tsx" },
   jsx: "automatic", tsconfig: path.join(root, "tsconfig.json"), bundle: true,
   outfile: path.join(temp, "app.js"), platform: "browser",
   define: { "process.env": "{}", "process.env.NODE_ENV": '"development"' },
@@ -80,6 +87,8 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     else if (pathname === "/api/services") result = { services: [{ id: "service-1", name: "Impresión digital" }] };
     else if (pathname === "/api/team") result = { members: [{ id: "member-1", name: "Persona de prueba" }] };
     else if (pathname === "/api/clients") result = { clients: [] };
+    else if (pathname === "/api/clients/options") result = { customer_types:[] };
+    else if (pathname === "/api/orders/options") result = {tenant:'demo',services:[],stores:[],entry_channels:[],order_contexts:[],team_members:[],actor_role:'owner',file_statuses:[],quick_order_layout:{},max_file_bytes:1048576};
     else if (pathname.endsWith("/activity")) result = { events: [] };
     else if (pathname.endsWith("/files")) result = { files: [] };
     else if (denied) { result = { error: "Acceso no disponible" }; status = denied; }
@@ -141,9 +150,16 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
   await page.goto(`${url}/?theme=${theme}&mode=${mode}`);
   return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, loseNextConversionResponse: () => { loseConversionResponse = true; }, stored: () => stored };
 }
+async function chooseTime(page, time) {
+  await page.getByRole('button', {name:'Hora',exact:true}).click();
+  const list = page.getByRole('listbox', {name:'Hora de entrega',exact:true});
+  await page.screenshot({path:path.join(out,`delivery-time-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`)});
+  await list.getByRole('option', {name:time,exact:true}).click();
+  await list.waitFor({state:'hidden'});
+}
 async function chooseDelivery(page, date, time) {
   const picker = page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
-  await picker.locator('button[aria-haspopup="dialog"]').click();
+  await picker.locator('button[aria-haspopup="dialog"]').first().click();
   const calendar = page.locator('.gc-day-picker');
   await calendar.getByRole('grid').waitFor();
   check(await calendar.evaluate(node=>!!node.closest('dialog[open]')), true, 'Conversion calendar stays inside native modal');
@@ -156,9 +172,33 @@ async function chooseDelivery(page, date, time) {
   await page.screenshot({path:path.join(out,`delivery-calendar-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`),fullPage:true});
   await calendar.locator(`[data-day="${date}"] button`).click();
   await calendar.waitFor({state:'hidden'});
-  await picker.getByLabel('Hora', {exact:true}).fill(time);
+  await chooseTime(page, time);
 }
 try {
+  // Both real order surfaces use the same quarter-hour selector as conversion.
+  for (const width of [390,1280]) for (const theme of ['light','dark']) for (const mode of ['order-create','order-edit']) {
+    const h = await setup(width,theme,{mode}); const p=h.page;
+    if (mode==='order-create') await p.getByText('Más opciones',{exact:true}).click();
+    const trigger=p.getByRole('button',{name:'Hora',exact:true}); await trigger.waitFor();
+    check(await p.locator('datalist').count(),0,'Order surface has no datalist');
+    if (mode==='order-edit') check(await trigger.innerText().then(t=>t.includes('10:07')),true,'Existing off-grid time preserved');
+    await trigger.click();
+    const list=p.getByRole('listbox',{name:'Hora de entrega',exact:true});
+    check(await list.getByRole('option').count(),mode==='order-edit'?97:96,'All quarter-hour options plus saved custom time');
+    await list.getByRole('option',{name:'10:15',exact:true}).click();
+    if (mode==='order-edit') check(await p.getByTestId('delivery-value').innerText(),'2026-10-07T08:15:00.000Z','Order edit keeps Madrid date and sends UTC');
+    await p.getByRole('button',{name:'Mañana',exact:true}).click();
+    await p.getByRole('button',{name:'Hoy',exact:true}).click();
+    await p.getByRole('button',{name:'Quitar fecha',exact:true}).click();
+    check(await trigger.innerText().then(t=>t.includes('Elegir hora')),true,'Clear date also clears time');
+    await trigger.click();
+    const first=list.getByRole('option',{name:'00:00',exact:true});
+    await first.press('ArrowRight'); await list.getByRole('option',{name:'00:15',exact:true}).press('Enter');
+    check(await trigger.innerText().then(t=>t.includes('00:15')),true,'Keyboard selects next quarter hour');
+    check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Order picker responsive');
+    check(h.errors,[],'No errors on shared order surface');
+    await p.screenshot({path:path.join(out,mode+'-'+width+'-'+theme+'.png'),fullPage:true}); await p.close();
+  }
   // Standalone DatePicker keeps its body portal outside native dialogs.
   {
     const h = await setup(390, 'light');
@@ -242,14 +282,14 @@ try {
     await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
     const picker = h.page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
     await picker.waitFor();
-    check(await picker.locator('input[type="datetime-local"]').count(), 0, 'Conversion uses shared DateTimePicker instead of native datetime-local');
+    check(await picker.locator('input, datalist').count(), 0, 'Conversion uses shared DateTimePicker instead of native datetime-local');
     check(await picker.getByRole('button', {name:'Hoy',exact:true}).count(), 1, 'Shared picker offers Today');
     check(await picker.getByRole('button', {name:'Mañana',exact:true}).count(), 1, 'Shared picker offers Tomorrow');
     await chooseDelivery(h.page, '2026-03-29', '02:30');
     await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
     await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'La fecha y hora de entrega'}).waitFor();
     check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'Missing local hour never submitted');
-    await picker.getByLabel('Hora', {exact:true}).fill('03:30');
+    await chooseTime(h.page, '03:30');
     await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
     await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
     check(h.events.find(e=>e.pathname.endsWith('/convert')).body.due_at, '2026-03-29T01:30:00.000Z', 'Valid delivery submitted in UTC');

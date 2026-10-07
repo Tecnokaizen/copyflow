@@ -1,21 +1,18 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useState } from "react";
 import { DatePicker } from "@/components/gestcopy/date-picker";
 import {
   addLocalCivilDays,
   combineDateTimeLocal,
   isClockTime,
-  quarterHourOptions,
   splitDateTimeLocal,
 } from "@/lib/gestcopy/date-value";
 import {
   fromDateTimeLocalValue,
   MISSING_LOCAL_HOUR_MESSAGE,
 } from "@/lib/orders/format";
-import { cn } from "@/lib/utils";
-
-const HOURS = quarterHourOptions();
+import { TimePicker } from "@/components/gestcopy/time-picker";
 
 type DateTimePickerProps = {
   value: string;
@@ -30,7 +27,6 @@ export function DateTimePicker({
   disabled = false,
   id,
 }: DateTimePickerProps) {
-  const listId = useId();
   const parsed = splitDateTimeLocal(value);
   const [draft, setDraft] = useState<{ date: string; time: string } | null>(
     null
@@ -77,29 +73,10 @@ export function DateTimePicker({
             showShortcuts={false}
           />
         </div>
-        <label className="gc-field sm:w-36">
+        <div className="gc-field sm:w-40">
           <span className="gc-field-label">Hora</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            list={listId}
-            placeholder="HH:MM"
-            aria-label="Hora"
-            aria-invalid={timeInvalid || missingHour}
-            disabled={disabled}
-            value={time}
-            onChange={(event) => updateTime(event.target.value)}
-            className={cn(
-              "gc-field-control min-h-11",
-              timeInvalid && "border-destructive"
-            )}
-          />
-          <datalist id={listId}>
-            {HOURS.map((hour) => (
-              <option key={hour} value={hour} />
-            ))}
-          </datalist>
-        </label>
+          <TimePicker value={time} onChange={updateTime} disabled={disabled} invalid={timeInvalid || missingHour} />
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <button
