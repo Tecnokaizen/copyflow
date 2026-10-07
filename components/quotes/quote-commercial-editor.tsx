@@ -19,6 +19,7 @@ import { editorValues, editorValidation, draftPayload, formatQuoteMoney, VERSION
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteCommercialDetail, QuoteVersion, QuoteRecord } from "@/lib/quotes/types";
 import { RichTextContent } from "@/components/rich-text/rich-text-content";
+import { commercialStatus, autofillClient, manualClientFields, CLIENT_HEADER_FIELDS, type ClientHeaderField } from "@/lib/quotes/creation";
 import { cn } from "@/lib/utils";
 
 class QuoteHttpError extends Error {
@@ -50,11 +51,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
   const [activityKey, setActivityKey] = useState(0);
   const [reload, setReload] = useState(0);
   const pending = useRef(false);
+  const edited = useRef(new Set<ClientHeaderField>());
   const activeQuote = useRef(quoteId);
   const base = `/api/quotes/${quoteId}`;
 
   function adopt(next: QuoteCommercialDetail) {
-    setDetail(next); setValues(editorValues(next)); setDirty(false); setSelected(null);
+    const nextValues = editorValues(next);
+    edited.current = manualClientFields(nextValues.header, next.current_version?.client_manual_fields);
+    setDetail(next); setValues(nextValues); setDirty(false); setSelected(null);
     setActivityKey((key) => key + 1);
   }
   useEffect(() => {
@@ -107,7 +111,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
     if (!detail || !values) throw new Error("No hay un borrador editable.");
     const invalid = editorValidation(values);
     if (invalid.length) throw new Error(invalid.join(" "));
-    const result = await request<{ version: QuoteVersion }>(`${base}/draft`, "PUT", draftPayload(detail, values));
+    const result = await request<{ version: QuoteVersion }>(`${base}/draft`, "PUT", draftPayload(detail, { ...values, header: { ...values.header, client_manual_fields: [...edited.current] } }));
     // Acknowledge the successful write before reloading line amounts. If that read
     // fails, retain local input and the new concurrency token; do not retry the write.
     setDetail((current) => current ? { ...current, current_version: result.version, items: [] } : current);
@@ -133,7 +137,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       try { await loadCurrent(); } catch {
         setActionError("La versión está preparada y bloqueada. No se pudo refrescar la ficha; vuelve a cargarla.");
       }
-      setMessage("Versión preparada y bloqueada");
+      setMessage("Presupuesto preparado");
     });
   }
   function transition() {
@@ -144,19 +148,25 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       });
       setTransitionConfirm(null);
       await loadCurrent();
-      setMessage("Estado comercial registrado");
+      setMessage("Estado del presupuesto actualizado");
     });
   }
   function createDraft(newVersion: boolean) {
     void perform(async () => {
       await request(`${base}/${newVersion ? "versions" : "draft"}`, "POST");
       // Both created and replayed open the one current draft returned by GET.
-      await loadCurrent(); setMessage(newVersion ? "Borrador de versión abierto" : "Borrador comercial abierto");
+      await loadCurrent(); setMessage(newVersion ? "Borrador de revisión abierto" : "Borrador abierto");
     });
   }
   const historical = selected ? detail?.versions.find((version) => version.id === selected) : null;
   const validation = values ? editorValidation(values) : [];
   const version = detail?.current_version;
+  const status = detail ? commercialStatus({ ...detail.quote, current_version_state: version?.state ?? detail.quote.current_version_state }) : null;
+  const hasRevisions = (detail?.versions.length ?? 0) > 1;
+  const hasCommercialActions = !!detail && !!version && (
+    (version.state === 'prepared' && !!version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '')) ||
+    (detail.quote.status?.code === 'sent' && version.state === 'sent') ||
+    (detail.quote.status?.code === 'accepted' && !!detail.quote.accepted_version_id && !detail.quote.converted_order_id));
   return <AppShell innerClassName="max-w-6xl">
     <AppNav />
     {loading ? <LoadingState label="Cargando presupuesto" /> : null}
@@ -167,15 +177,15 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
         void perform(async () => { await loadCurrent(); setMessage("Ficha recargada"); });
       }}>Recargar ficha</button><Link href="/quotes" className="gc-action min-h-11">Volver a presupuestos</Link></>} />
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        {detail.quote.status ? <QuoteStatusBadge name={detail.quote.status.name} code={detail.quote.status.code} /> : null}
-        {version ? <span className="text-sm text-muted-foreground">v{version.version_number} · {VERSION_LABELS[version.state]}</span> : null}
+        {status ? <QuoteStatusBadge name={status.name} code={status.code} /> : null}
+        {version && hasRevisions ? <span className="text-sm text-muted-foreground">Revisión {version.version_number}</span> : null}
         <span className="text-sm">{detail.quote.client?.name ?? "Sin cliente"}</span>
         {detail.quote.converted_order ? <Link className="text-sm text-primary hover:underline" href={`/orders/${detail.quote.converted_order.id}`}>Abrir pedido {detail.quote.converted_order.reference}</Link> : null}
       </div>
       <div aria-live="polite" role="status">{message ? <p className="mb-4 text-sm text-muted-foreground">{message}</p> : null}</div>
       {actionError ? <p role="alert" className="mb-4 text-sm text-destructive">{actionError}</p> : null}
       <div className="grid min-w-0 gap-5">
-        {!historical && version ? <SectionCard title="Estado comercial" bodyClassName="flex flex-wrap items-center gap-3 p-5 sm:p-6">
+        {!historical && version && hasCommercialActions ? <SectionCard title="Acciones del presupuesto" bodyClassName="flex flex-wrap items-center gap-3 p-5 sm:p-6">
           {version.state === "prepared" && version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '') ?
             <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("send")}>Marcar como enviado</button> : null}
           {detail.quote.status?.code === "sent" && version.state === "sent" ? <>
@@ -185,14 +195,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
           {detail.quote.status?.code === "accepted" && detail.quote.accepted_version_id && !detail.quote.converted_order_id ?
             <button className="gc-cta min-h-11" disabled={busy} onClick={() => setConvertConfirm(true)}>Convertir en pedido</button> : null}
           {detail.quote.converted_order ? <p className="text-sm">Convertido en pedido {detail.quote.converted_order.reference}</p> : null}
-          {detail.quote.accepted_version_id ? <p className="text-sm">Versión aceptada: v{detail.versions.find((v) => v.id === detail.quote.accepted_version_id)?.version_number ?? '—'}</p> : null}
+          {detail.quote.accepted_version_id ? <p className="text-sm">Revisión aceptada: {detail.versions.find((v) => v.id === detail.quote.accepted_version_id)?.version_number ?? '—'}</p> : null}
         </SectionCard> : null}
-        {detail.versions.length > 0 ? <SectionCard title="Historial de versiones" bodyClassName="p-5 sm:p-6">
+        {hasRevisions ? <SectionCard title="Revisiones" bodyClassName="p-5 sm:p-6">
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {detail.versions.map((entry) => <li key={entry.id}>
               <button type="button" disabled={busy} className={cn("w-full rounded-lg border bg-background p-3 text-left text-sm hover:bg-muted", (selected === entry.id || (!selected && entry.id === version?.id)) && "border-primary")}
                 onClick={() => setSelected(entry.id === version?.id ? null : entry.id)}>
-                <span className="font-semibold">v{entry.version_number}</span> · {VERSION_LABELS[entry.state]}
+                <span className="font-semibold">Revisión {entry.version_number}</span> · {VERSION_LABELS[entry.state]}
                 <span className="mt-2 block font-medium">{formatQuoteMoney(entry.total, entry.currency)}</span>
                 <span className="mt-1 block text-muted-foreground">Creada: {when(entry.created_at)}</span>
                 {entry.locked_at ? <span className="block text-muted-foreground">Bloqueada: {when(entry.locked_at)}</span> : null}
@@ -201,14 +211,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
             </li>)}
           </ul>
         </SectionCard> : null}
-        {historical ? <SectionCard title={`Resumen histórico v${historical.version_number}`} description="Versión histórica en solo lectura. El contrato actual ofrece su resumen; no devuelve el contenido ni las partidas históricas." bodyClassName="p-5 sm:p-6">
+        {historical ? <SectionCard title={`Revisión ${historical.version_number}`} description="Consulta el resumen de esta revisión y su PDF. Los datos preparados se conservan sin cambios." bodyClassName="p-5 sm:p-6">
           <p className="mb-4 text-sm">{VERSION_LABELS[historical.state]} · Emisión {formatCivilDate(historical.issue_date)} · Validez {historical.valid_until ? formatCivilDate(historical.valid_until) : "Sin fecha"}</p>
           <dl className="grid gap-4 sm:grid-cols-3">{([['subtotal', 'Subtotal'], ['tax_total', 'IVA'], ['total', 'Total']] as const).map(([key, label]) => <div key={key}><dt className="gc-fact-label">{label}</dt><dd className="font-semibold">{formatQuoteMoney(historical[key], historical.currency)}</dd></div>)}</dl>
-          <button type="button" className="gc-action mt-4 min-h-11" onClick={() => setSelected(null)}>Volver a versión actual</button>
-        </SectionCard> : version ? <QuoteDraftForm detail={detail} values={values} dirty={dirty} busy={busy} errors={validation} onChange={(next) => { setValues(next); setDirty(true); setMessage(null); }} onSave={save} onPrepare={() => setPrepareConfirm(true)} /> :
-          <SectionCard title="Presupuesto sin versión comercial" description="El contenido operativo existente se conservará al abrir el primer borrador." bodyClassName="p-5 sm:p-6">
+          <button type="button" className="gc-action mt-4 min-h-11" onClick={() => setSelected(null)}>Volver al presupuesto actual</button>
+        </SectionCard> : version ? <QuoteDraftForm detail={detail} values={values} dirty={dirty} busy={busy} errors={validation} onChange={(next) => { for (const key of CLIENT_HEADER_FIELDS) if (values.header[key] !== next.header[key]) edited.current.add(key); setValues(next); setDirty(true); setMessage(null); }} onSave={save} onPrepare={() => setPrepareConfirm(true)} /> :
+          <SectionCard title="Borrador del presupuesto" description="Continúa con el trabajo registrado para añadir partidas y preparar el presupuesto." bodyClassName="p-5 sm:p-6">
             <div className="mb-4"><RichTextContent value={detail.quote.description} /></div>
-            <button className="gc-cta min-h-11" type="button" disabled={busy} onClick={() => createDraft(false)}>Abrir borrador comercial</button>
+            <button className="gc-cta min-h-11" type="button" disabled={busy} onClick={() => createDraft(false)}>Completar presupuesto</button>
           </SectionCard>}
         {(historical || version) ? <QuotePdfDocument key={(historical || version)!.id} quoteId={quoteId} version={(historical || version)!} onGenerated={(file) => {
           const documentVersion = (historical || version)!;
@@ -218,12 +228,20 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
           } : current);
           setActivityKey((n) => n + 1); setMessage("Documento PDF preparado");
         }} /> : null}
-        {version && version.state !== "draft" && !detail.quote.accepted_version_id && detail.quote.status?.code !== "accepted" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Nueva versión</button> : null}
-        <QuoteOperationalForm key={`${detail.quote.id}-${detail.quote.row_version}`} quote={detail.quote} busy={busy} saveDisabled={dirty} clientLocked={dirty || (!!version && version.state !== "draft")} onSave={(fields) => {
+        {version && version.state !== "draft" && !detail.quote.accepted_version_id && detail.quote.status?.code !== "accepted" && !detail.quote.converted_order_id && !historical ? <button className="gc-cta min-h-11 justify-self-end" type="button" disabled={busy} onClick={() => createDraft(true)}>Crear revisión</button> : null}
+        <QuoteOperationalForm key={`${detail.quote.id}-${detail.quote.row_version}`} quote={detail.quote} busy={busy} saveDisabled={dirty} clientLocked={dirty || (!!version && version.state !== "draft")} onSave={(fields, client) => {
+          const changedClient = fields.client_id !== (detail.quote.client?.id ?? null);
+          if (changedClient && !window.confirm('Se actualizarán los datos del cliente conservando los campos que hayas editado manualmente. ¿Quieres continuar?')) return;
           void perform(async () => {
-            const result = await request<{ quote: QuoteRecord }>(base, "PATCH", { operational_only: true, expected_row_version: detail.quote.row_version, ...fields });
-            setDetail((current) => current ? { ...current, quote: result.quote } : current);
-            // Document data and local draft inputs remain untouched.
+            if (changedClient && version?.state === 'draft') {
+              const next = { ...values, header: { ...autofillClient(values.header, client, edited.current), client_manual_fields: [...edited.current] } };
+              await request(`${base}/client-draft`, 'POST', { fields: { operational_only: true, expected_row_version: detail.quote.row_version, ...fields }, draft: draftPayload(detail, next) });
+              setValues(next); setDirty(false);
+              try { await loadCurrent(); } catch { setActionError('Cliente y borrador guardados. Recarga la ficha para comprobar los datos.'); }
+            } else {
+              const result = await request<{ quote: QuoteRecord }>(base, "PATCH", { operational_only: true, expected_row_version: detail.quote.row_version, ...fields });
+              setDetail((current) => current ? { ...current, quote: result.quote } : current);
+            }
             setMessage("Gestión operativa guardada");
           });
         }} />
@@ -246,6 +264,6 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
     {conflict ? <QuoteDialog title="Este presupuesto ha cambiado desde que lo abriste." description="Puedes recargar la versión actual o cancelar y mantener lo escrito localmente. Recargar sustituirá tus cambios locales." confirmLabel="Recargar versión actual" error={actionError} busy={busy} onCancel={() => setConflict(false)} onConfirm={() => {
       void perform(async () => { await loadCurrent(); setConflict(false); setPrepareConfirm(false); setMessage("Versión actual recargada"); });
     }} /> : null}
-    {prepareConfirm && !conflict ? <QuoteDialog title="Preparar presupuesto" description="La versión quedará bloqueada y pasará a solo lectura. Si hay cambios pendientes, se guardarán antes de preparar. Para editarla después tendrás que crear una nueva versión." confirmLabel="Preparar y bloquear versión" busy={busy} onConfirm={prepare} onCancel={() => setPrepareConfirm(false)} /> : null}
+    {prepareConfirm && !conflict ? <QuoteDialog title="Preparar presupuesto" description="El presupuesto quedará en solo lectura. Se guardarán los cambios pendientes. Para modificarlo después tendrás que crear una revisión." confirmLabel="Preparar presupuesto" busy={busy} onConfirm={prepare} onCancel={() => setPrepareConfirm(false)} /> : null}
   </AppShell>;
 }

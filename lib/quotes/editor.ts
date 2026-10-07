@@ -1,18 +1,23 @@
 import { isRichTextEmpty } from "@/lib/rich-text/html";
 import type { QuoteCommercialDetail, QuoteDraftHeader, QuoteDraftItemInput, QuoteDraftPayload } from "./types";
 
-export const VERSION_LABELS = { draft: "Borrador", prepared: "Preparada · bloqueada", sent: "Enviada · bloqueada" };
+export const VERSION_LABELS = { draft: "Borrador", prepared: "Preparado", sent: "Enviado" };
 export type EditorItem = QuoteDraftItemInput & { key: string };
 export type EditorValues = { header: QuoteDraftHeader; items: EditorItem[] };
 export function editorValues(detail: QuoteCommercialDetail): EditorValues {
   const { quote: q, current_version: v } = detail;
+  function contact(key: 'contact_name' | 'contact_email' | 'contact_phone' | 'billing_name' | 'tax_id' | 'billing_address', fallback?: string | null) {
+    if (v && v.state !== 'draft' && v.contact_header) return v.contact_header[key] ?? null;
+    return q[key] ?? v?.contact_header?.[key] ?? (v?.state === 'draft' || !v ? fallback : null) ?? null;
+  }
   return { header: {
-    title: v?.title ?? q.title, description: v?.description ?? q.description,
-    terms: v?.terms ?? q.notes, issue_date: v?.issue_date ?? q.issue_date,
-    valid_until: v?.valid_until ?? q.valid_until, currency: v?.currency ?? q.currency,
-    prices_include_tax: v?.prices_include_tax ?? q.prices_include_tax,
-    contact_name: q.contact_name, contact_email: q.contact_email, contact_phone: q.contact_phone,
-    billing_name: q.billing_name, tax_id: q.tax_id, billing_address: q.billing_address,
+    title: v ? v.title : q.title, description: v ? v.description : q.description,
+    terms: v ? v.terms : q.notes, issue_date: v ? v.issue_date : q.issue_date,
+    valid_until: v ? v.valid_until : q.valid_until, currency: v ? v.currency : q.currency,
+    prices_include_tax: v ? v.prices_include_tax : q.prices_include_tax,
+    contact_name: contact('contact_name', q.client?.contact_name), contact_email: contact('contact_email', q.client?.email),
+    contact_phone: contact('contact_phone', q.client?.phone), billing_name: contact('billing_name', q.client?.company_name || q.client?.name),
+    tax_id: contact('tax_id', q.client?.tax_id), billing_address: contact('billing_address'),
   }, items: detail.items.map((item) => ({ ...item, key: item.id })) };
 }
 export function emptyEditorItem(key: string): EditorItem {

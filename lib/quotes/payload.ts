@@ -1,3 +1,4 @@
+import { CLIENT_HEADER_FIELDS } from "./creation";
 import { isUuid } from "@/lib/team/payload";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
 import { isRichTextEmpty, persistRichText } from "@/lib/rich-text/html";
@@ -156,6 +157,7 @@ function commercialHeader(value: unknown): Ok<QuoteDraftHeader> | Fail {
     return { ok: false, error: QUOTE_MESSAGES.invalid };
   }
 
+  if (payload.client_manual_fields !== undefined && (!Array.isArray(payload.client_manual_fields) || payload.client_manual_fields.length > 5 || payload.client_manual_fields.some((key) => !CLIENT_HEADER_FIELDS.includes(key)))) return { ok: false, error: QUOTE_MESSAGES.invalid };
   const title = boundedOptionalText(payload.title, 500);
   const contactName = boundedOptionalText(payload.contact_name, 500);
   const contactEmail = boundedOptionalText(payload.contact_email, 320);
@@ -206,6 +208,7 @@ function commercialHeader(value: unknown): Ok<QuoteDraftHeader> | Fail {
   return {
     ok: true,
     data: {
+      ...(payload.client_manual_fields === undefined ? {} : { client_manual_fields: [...new Set(payload.client_manual_fields as typeof CLIENT_HEADER_FIELDS[number][])] }),
       title: title.value,
       description,
       terms,
@@ -476,4 +479,28 @@ export function parseOperationalQuotePayload(body: unknown): Ok<{
     expected_row_version: version.data, client_id: client.value,
     service_id: service.value, assigned_team_member_id: assignee.value,
   } };
+}
+
+export type QuoteCreationPayload = {
+  creation_id: string;
+  client_id: string | null;
+  service_id: string | null;
+  assigned_team_member_id: string | null;
+  header: QuoteDraftHeader;
+  items: QuoteDraftItemInput[];
+  prepare: boolean;
+};
+export function parseQuoteCreationPayload(body: unknown): Ok<QuoteCreationPayload> | Fail {
+  const payload = record(body);
+  if (!payload || typeof payload.creation_id !== 'string' || !isUuid(payload.creation_id)
+    || typeof payload.prepare !== 'boolean') return { ok: false, error: QUOTE_MESSAGES.invalid };
+  const draft = parseQuoteDraftPayload({ ...payload, version_id: payload.creation_id, expected_row_version: 0 });
+  if (!draft.ok) return draft;
+  const client = optionalUuid(payload.client_id), service = optionalUuid(payload.service_id), assignee = optionalUuid(payload.assigned_team_member_id);
+  if (!client.ok) return client;
+  if (!service.ok) return service;
+  if (!assignee.ok) return assignee;
+  if (payload.prepare && draft.data.items.length === 0) return { ok: false, error: QUOTE_MESSAGES.itemsRequired };
+  return { ok: true, data: { creation_id: payload.creation_id, client_id: client.value, service_id: service.value,
+    assigned_team_member_id: assignee.value, header: draft.data.header, items: draft.data.items, prepare: payload.prepare } };
 }

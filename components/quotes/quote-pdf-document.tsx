@@ -22,14 +22,14 @@ export function QuotePdfDocument({ quoteId, version, onGenerated }: {
     } catch (err) { setError(err instanceof Error ? err.message : "No se pudo generar el PDF."); }
     finally { pending.current = false; setBusy(false); }
   }
-  return <SectionCard title={`Documento comercial v${version.version_number}`} bodyClassName="p-5 sm:p-6">
-    <p className="mb-4 text-sm text-muted-foreground">{version.pdf_file_id ? "Documento preparado" : "La versión está bloqueada y lista para generar su documento oficial."}</p>
+  return <SectionCard title={`Documento PDF${version.version_number > 1 ? ` · Revisión ${version.version_number}` : ""}`} bodyClassName="p-5 sm:p-6">
+    <p className="mb-4 text-sm text-muted-foreground">{version.pdf_file_id ? "Documento preparado" : "El presupuesto está preparado y listo para generar su PDF."}</p>
     {version.pdf_file_id ? <>
       <div className="flex flex-wrap gap-3">
         <a href={endpoint} target="_blank" rel="noopener noreferrer" className="gc-action min-h-11">Vista previa PDF</a>
         <a href={`${endpoint}?download=1`} target="_blank" rel="noopener noreferrer" className="gc-action min-h-11">Descargar PDF</a>
       </div>
-      {version.pdf_file ? <p className="mt-3 text-xs text-muted-foreground">v{version.version_number} · {formatFileTimestamp(version.pdf_file.completed_at)} · {formatFileSize(version.pdf_file.size_bytes)}</p> : null}
+      {version.pdf_file ? <p className="mt-3 text-xs text-muted-foreground">{version.version_number > 1 ? `Revisión ${version.version_number} · ` : ""}{formatFileTimestamp(version.pdf_file.completed_at)} · {formatFileSize(version.pdf_file.size_bytes)}</p> : null}
     </> : <button type="button" className="gc-cta min-h-11" disabled={busy} onClick={() => void generate()}>{busy ? "Generando PDF…" : "Generar PDF"}</button>}
     <div aria-live="polite">{busy ? <p className="mt-3 text-sm text-muted-foreground">Preparando documento…</p> : null}</div>
     {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
