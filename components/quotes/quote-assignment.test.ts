@@ -48,6 +48,35 @@ describe("quote assignment layout", () => {
     assert.equal(html.includes("gc-section-title"), false);
   });
 
+  it("keeps the service select bound to the persisted quote service", () => {
+    const source = readFileSync(new URL("./quote-assignment.tsx", import.meta.url), "utf8");
+    assert.match(source, /value=\{quote\.service\?\.id \?\? ""\}/);
+    assert.equal(source.includes("sourceServiceId"), false);
+    assert.equal(source.includes("setServiceId"), false);
+
+    const saved = renderToStaticMarkup(createElement(QuoteClientService, {
+      quote,
+      busy: true,
+      assignmentLocked: false,
+      clientLocked: false,
+      onClientChange: () => {},
+      onServiceChange: () => {},
+    }));
+    assert.match(saved, /<option value="service-1" selected="">Impresión<\/option>/);
+    assert.match(saved, /<select[^>]*disabled=""/);
+
+    const unchanged = renderToStaticMarkup(createElement(QuoteClientService, {
+      quote: { ...quote, service: null },
+      busy: false,
+      assignmentLocked: false,
+      clientLocked: false,
+      onClientChange: () => {},
+      onServiceChange: () => {},
+    }));
+    assert.match(unchanged, /<option value="" selected="">Sin servicio<\/option>/);
+    assert.equal(unchanged.includes("service-1"), false);
+  });
+
   it("renders the assignee as a compact header action", () => {
     const html = renderToStaticMarkup(createElement(QuoteAssigneeControl, {
       assignee: null,

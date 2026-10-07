@@ -71,13 +71,6 @@ export function QuoteClientService({
   onServiceChange: (serviceId: string | null) => void;
 }) {
   const { options, error } = useNamedOptions("/api/services?active=true&page_size=100");
-  const quoteServiceId = quote.service?.id ?? "";
-  const [serviceId, setServiceId] = useState(quoteServiceId);
-  const [sourceServiceId, setSourceServiceId] = useState(quoteServiceId);
-  if (sourceServiceId !== quoteServiceId) {
-    setSourceServiceId(quoteServiceId);
-    setServiceId(quoteServiceId);
-  }
   const clientDisabled = busy || assignmentLocked || clientLocked;
   const serviceDisabled = busy || assignmentLocked;
 
@@ -103,12 +96,8 @@ export function QuoteClientService({
           aria-label="Servicio"
           className="gc-field-control"
           disabled={serviceDisabled}
-          value={serviceId}
-          onChange={(event) => {
-            const next = event.target.value;
-            setServiceId(next);
-            onServiceChange(next || null);
-          }}
+          value={quote.service?.id ?? ""}
+          onChange={(event) => onServiceChange(event.target.value || null)}
         >
           <option value="">Sin servicio</option>
           {quote.service && !options.some((option) => option.id === quote.service?.id) ? (
