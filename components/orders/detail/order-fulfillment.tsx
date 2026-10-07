@@ -95,6 +95,7 @@ export function OrderFulfillment({
           orderId={order.id}
           canWrite={canWrite}
           archived={Boolean(order.archived_at)}
+          editing
           onChanged={onCollectionChanged}
         />
       </SectionCard>
@@ -130,6 +131,7 @@ export function OrderFulfillment({
         orderId={order.id}
         canWrite={canWrite}
         archived={Boolean(order.archived_at)}
+        editing={false}
         onChanged={onCollectionChanged}
       />
     </SectionCard>

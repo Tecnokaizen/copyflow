@@ -6,7 +6,13 @@ import { ContextualActivity } from "@/components/gestcopy/contextual-activity";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { mapActivityEvent, type ActivityEvent } from "@/lib/activity/types";
 
-export function ClientActivity({ clientId }: { clientId: string }) {
+export function ClientActivity({
+  clientId,
+  reloadKey = 0,
+}: {
+  clientId: string;
+  reloadKey?: number;
+}) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,7 +39,7 @@ export function ClientActivity({ clientId }: { clientId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, reloadKey]);
 
   return (
     <div className="mt-6">

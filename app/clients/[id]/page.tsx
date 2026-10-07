@@ -87,6 +87,7 @@ function ClientDetailContent() {
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<ClientDuplicate | null>(null);
+  const [activityReload, setActivityReload] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -162,6 +163,7 @@ function ClientDetailContent() {
         throw new Error(result.error ?? "No se pudo actualizar el cliente");
       }
 
+      setActivityReload((current) => current + 1);
       const refreshed = await fetch(`/api/clients/${client.id}`);
       const refreshedResult = await refreshed.json();
       if (refreshed.ok) {
@@ -333,7 +335,7 @@ function ClientDetailContent() {
       </section>
 
       {quotesAccess ? <ClientQuotes key={client.id} clientId={client.id} /> : null}
-      <ClientActivity key={client.id} clientId={client.id} />
+      <ClientActivity key={client.id} clientId={client.id} reloadKey={activityReload} />
 
       {editOpen && (
         <ClientModal>

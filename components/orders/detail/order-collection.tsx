@@ -13,11 +13,13 @@ export function OrderCollection({
   orderId,
   canWrite,
   archived,
+  editing = false,
   onChanged,
 }: {
   orderId: string;
   canWrite: boolean;
   archived: boolean;
+  editing?: boolean;
   onChanged: () => void;
 }) {
   const [collection, setCollection] = useState<OrderCollection | null>(null);
@@ -96,7 +98,7 @@ export function OrderCollection({
     setPaymentOpen(true);
   }
 
-  const writable = canWrite && !archived;
+  const actionsEnabled = canWrite && !archived && !editing;
 
   return (
     <div className="border-t border-border/60">
@@ -116,7 +118,7 @@ export function OrderCollection({
           <FactRow label="Situación">
             <FactValue value={collectionLabel(collection.collection_state)} />
           </FactRow>
-          {writable ? (
+          {actionsEnabled ? (
             <div className="flex flex-wrap gap-2 py-3">
               <button type="button" className="gc-action" onClick={() => { setTotalDraft(collection.total_amount ?? ""); setTotalOpen(true); }}>
                 {collection.total_amount ? "Modificar total" : "Definir total"}
@@ -126,7 +128,12 @@ export function OrderCollection({
               </button>
             </div>
           ) : null}
-          {!collection.total_amount ? (
+          {canWrite && !archived && editing ? (
+            <p className="py-3 text-sm text-muted-foreground">
+              Guarda o cancela la edición para modificar el cobro.
+            </p>
+          ) : null}
+          {actionsEnabled && !collection.total_amount ? (
             <p className="pb-3 text-sm text-muted-foreground">
               Define el total del pedido antes de registrar una entrega a cuenta.
             </p>
@@ -142,7 +149,7 @@ export function OrderCollection({
                       {payment.voided_at ? " · Anulada" : ""}
                     </div>
                   </div>
-                  {writable && !payment.voided_at ? (
+                  {actionsEnabled && !payment.voided_at ? (
                     <button type="button" className="text-sm text-muted-foreground underline-offset-2 hover:underline" onClick={() => { setReason(""); setVoiding(payment); }}>
                       Anular
                     </button>
@@ -154,7 +161,7 @@ export function OrderCollection({
         </>
       ) : null}
 
-      {paymentOpen && collection ? (
+      {actionsEnabled && paymentOpen && collection ? (
         <ConfirmDialog
           title="Registrar entrega a cuenta"
           description="Esta entrega se añade al historial. No sustituye a las anteriores."
@@ -182,7 +189,7 @@ export function OrderCollection({
         </ConfirmDialog>
       ) : null}
 
-      {totalOpen && collection ? (
+      {actionsEnabled && totalOpen && collection ? (
         <ConfirmDialog
           title="Total del pedido"
           description="El total no puede quedar por debajo de lo ya entregado a cuenta."
@@ -203,7 +210,7 @@ export function OrderCollection({
         </ConfirmDialog>
       ) : null}
 
-      {voiding ? (
+      {actionsEnabled && voiding ? (
         <ConfirmDialog
           title="Anular entrega"
           description={`Se anula ${formatOrderMoney(voiding.amount)}. El movimiento permanece en el historial.`}
