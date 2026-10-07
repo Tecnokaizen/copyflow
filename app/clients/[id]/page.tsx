@@ -23,6 +23,9 @@ import {
   type ClientOrderSummary,
 } from "@/lib/clients/types";
 import { canWriteClients } from "@/lib/auth/membership-roles";
+import { ClientActivity } from "@/components/clients/client-activity";
+import { ClientQuotes } from "@/components/clients/client-quotes";
+import { canAccessQuotesModule } from "@/lib/quotes/access";
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -79,6 +82,7 @@ function ClientDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
+  const [quotesAccess, setQuotesAccess] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -109,6 +113,12 @@ function ClientDetailContent() {
       if (response.ok) {
         const context = await response.json();
         setCanWrite(canWriteClients(context?.membership?.role));
+        setQuotesAccess(
+          canAccessQuotesModule(
+            context?.membership?.role,
+            context?.features?.quotes === true
+          )
+        );
       }
     }
 
@@ -254,7 +264,7 @@ function ClientDetailContent() {
       </section>
 
       <section className="mt-6 rounded-lg border bg-card p-6">
-        <h2 className="mb-2 text-lg font-semibold">Pedidos</h2>
+        <h2 className="mb-2 text-lg font-semibold">Pedidos vinculados</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           Pedidos realizados: {data.orders_count} · Último pedido:{" "}
           {data.last_order_at
@@ -321,6 +331,9 @@ function ClientDetailContent() {
           </table>
         </div>
       </section>
+
+      {quotesAccess ? <ClientQuotes key={client.id} clientId={client.id} /> : null}
+      <ClientActivity key={client.id} clientId={client.id} />
 
       {editOpen && (
         <ClientModal>

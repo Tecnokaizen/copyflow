@@ -15,6 +15,7 @@ import { QuoteDialog } from "./quote-dialog";
 import { QuoteActivity } from "./quote-activity";
 import { QuotePdfDocument } from "./quote-pdf-document";
 import { QuoteFilesSection } from "./quote-files-section";
+import { QuoteInternalNotes } from "./quote-internal-notes";
 import { editorValues, editorValidation, draftPayload, formatQuoteMoney, VERSION_LABELS, type EditorValues } from "@/lib/quotes/editor";
 import { formatCivilDate } from "@/lib/gestcopy/date-value";
 import type { QuoteCommercialDetail, QuoteVersion, QuoteRecord } from "@/lib/quotes/types";
@@ -253,6 +254,16 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
             setMessage("Gestión operativa guardada");
           });
         }} />
+        <QuoteInternalNotes
+          key={`${detail.quote.id}-${detail.quote.row_version}-${detail.quote.internal_notes ?? ""}`}
+          quoteId={quoteId}
+          notes={detail.quote.internal_notes}
+          rowVersion={detail.quote.row_version}
+          onSaved={(next) => {
+            setDetail((current) => current ? { ...current, quote: { ...current.quote, internal_notes: next.internal_notes, row_version: next.row_version } } : current);
+            setActivityKey((n) => n + 1);
+          }}
+        />
         <QuoteFilesSection quoteId={quoteId} onChanged={() => setActivityKey((n) => n + 1)} />
         <QuoteActivity quoteId={quoteId} reloadKey={activityKey} />
       </div>

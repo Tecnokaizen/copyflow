@@ -1355,6 +1355,11 @@ export function OrderWorkspace() {
             editing={editing}
             managementOptions={managementOptions}
             managementOptionsLoading={managementOptionsLoading}
+            canWrite={canWrite}
+            onCollectionChanged={() => {
+              setActivityTick((current) => current + 1);
+              setReloadToken((current) => current + 1);
+            }}
             onDraftChange={patchDraft}
           />
           <OrderNotes

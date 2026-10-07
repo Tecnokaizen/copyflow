@@ -24,6 +24,9 @@ export const ACTIVITY_ACTIONS = [
   "order.notification_changed",
   "order.file_uploaded",
   "order.file_deleted",
+  "order.total_changed",
+  "order.payment_recorded",
+  "order.payment_voided",
   "service.created",
   "service.updated",
   "team_member.created",
@@ -36,6 +39,7 @@ export const ACTIVITY_ACTIONS = [
   "quote.pdf_generated",
   "quote.file_uploaded",
   "quote.file_deleted",
+  "quote.internal_notes_updated",
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
@@ -111,6 +115,9 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "order.notification_changed", label: "Aviso al cliente" },
   { value: "order.file_uploaded", label: "Archivo subido" },
   { value: "order.file_deleted", label: "Archivo eliminado" },
+  { value: "order.total_changed", label: "Total del pedido" },
+  { value: "order.payment_recorded", label: "Entrega a cuenta" },
+  { value: "order.payment_voided", label: "Entrega anulada" },
   { value: "client.created", label: "Cliente creado" },
   { value: "client.updated", label: "Cliente actualizado" },
   { value: "service.created", label: "Servicio creado" },
@@ -125,6 +132,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "quote.pdf_generated", label: "PDF de presupuesto generado" },
   { value: "quote.file_uploaded", label: "Archivo de presupuesto" },
   { value: "quote.file_deleted", label: "Archivo de presupuesto eliminado" },
+  { value: "quote.internal_notes_updated", label: "Notas internas" },
 ];
 
 export { canViewActivity };
