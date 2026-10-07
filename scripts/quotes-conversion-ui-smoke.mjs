@@ -1,6 +1,6 @@
 /** Real quote components and CSS, with deterministic HTTP doubles. No production access.
  * Node 22. Reuses the existing browser integration approach; no added dependencies.
- * PLAYWRIGHT_MODULE=/absolute/path/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
+ * PLAYWRIGHT_MODULE=/absolute/path/playwright/index.mjs node scripts/quotes-conversion-ui-smoke.mjs
  */
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -20,9 +20,16 @@ await build({
     import {QuoteCommercialEditor} from './components/quotes/quote-commercial-editor';
     import {QuotesList} from './components/quotes/quotes-list';
     import {OrderSourceQuote} from './components/orders/detail/order-source-quote';
+    import {CreateOrderForm} from './components/orders/create-order-form';
+    import {OrderProduction} from './components/orders/detail/order-production';
+    function EditOrder() {
+      const [draft,setDraft] = React.useState({description:'<p>Prueba de entrega</p>',priority:'normal',due_at:'2026-10-07T08:07:00.000Z',status_id:'',external_folder_url:''});
+      return <><OrderProduction order={{status:null}} draft={draft} editing statuses={[]} orderOptions={{team_members:[]}} orderOptionsLoading={false}
+        managementOptions={{file_statuses:[],quote_statuses:[]}} managementOptionsLoading={false} onDraftChange={patch=>setDraft(current=>({...current,...patch}))}/><output data-testid="delivery-value">{draft.due_at || ''}</output></>;
+    }
     const params = new URLSearchParams(location.search);
     createRoot(document.getElementById('root')).render(<ThemeProvider attribute="class" forcedTheme={params.get('theme') || 'light'}>
-      {params.get('mode') === 'source' ? <OrderSourceQuote quote={{id:'quote-1',reference:'P-0001',total:'121.00',currency:'EUR',status:'accepted',version_number:2}}/> : params.get('mode') === 'list' ? <QuotesList/> : <QuoteCommercialEditor quoteId="quote-1"/>}</ThemeProvider>);`, resolveDir: root, loader: "tsx" },
+      {params.get('mode') === 'order-create' ? <div className="mx-auto max-w-3xl p-5"><CreateOrderForm mode="full" onCancel={()=>{}}/></div> : params.get('mode') === 'order-edit' ? <div className="mx-auto max-w-3xl p-5"><EditOrder/></div> : params.get('mode') === 'source' ? <OrderSourceQuote quote={{id:'quote-1',reference:'P-0001',total:'121.00',currency:'EUR',status:'accepted',version_number:2}}/> : params.get('mode') === 'list' ? <QuotesList/> : <QuoteCommercialEditor quoteId="quote-1"/>}</ThemeProvider>);`, resolveDir: root, loader: "tsx" },
   jsx: "automatic", tsconfig: path.join(root, "tsconfig.json"), bundle: true,
   outfile: path.join(temp, "app.js"), platform: "browser",
   define: { "process.env": "{}", "process.env.NODE_ENV": '"development"' },
@@ -61,10 +68,12 @@ function fixture(state = "draft", legacy = false) {
   const item = { id: "line-1", position: 1, concept: "Impresión", description: "A4", quantity: "1", unit: "ud", unit_price: "100", discount_percent: "0", tax_rate: "21", subtotal: "100.00", tax_amount: "21.00", total: "121.00" };
   return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : [item], versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", pdf_file_id: "pdf-old", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
 }
-async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0 } = {}) {
-  const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(10000);
+async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0, code = "draft" } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, timezoneId: "Europe/Madrid" }); page.setDefaultTimeout(10000);
   lastPage = page;
-  let stored = fixture(state, legacy); let fail = null; let readFail = false; const events = []; const errors = [];
+  let stored = fixture(state, legacy);
+  stored.quote.status = { id: `status-${code}`, code, name: code };
+  if (code === 'accepted') stored.quote.accepted_version_id = stored.current_version?.id; let fail = null; let readFail = false; let loseConversionResponse = false; const events = []; const errors = [];
   lastEvents = events;
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
@@ -78,6 +87,8 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     else if (pathname === "/api/services") result = { services: [{ id: "service-1", name: "Impresión digital" }] };
     else if (pathname === "/api/team") result = { members: [{ id: "member-1", name: "Persona de prueba" }] };
     else if (pathname === "/api/clients") result = { clients: [] };
+    else if (pathname === "/api/clients/options") result = { customer_types:[] };
+    else if (pathname === "/api/orders/options") result = {tenant:'demo',services:[],stores:[],entry_channels:[],order_contexts:[],team_members:[],actor_role:'owner',file_statuses:[],quick_order_layout:{},max_file_bytes:1048576};
     else if (pathname.endsWith("/activity")) result = { events: [] };
     else if (pathname.endsWith("/files")) result = { files: [] };
     else if (denied) { result = { error: "Acceso no disponible" }; status = denied; }
@@ -86,9 +97,13 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     } else if (fail) { status = fail.status; result = { code: fail.code, error: fail.error ?? "Error simulado" }; fail = null; }
     else if (pathname.endsWith('/convert')) {
       check(Object.keys(body).sort(),['assigned_team_member_id','due_at','expected_row_version','priority','service_id','store_id'],'Explicit conversion contract');
-      check(body.expected_row_version,stored.quote.row_version,'Conversion concurrency token');
-      stored.quote.converted_order_id='order-1';stored.quote.converted_order={id:'order-1',reference:'O-0001'};stored.quote.row_version++;
-      result={ok:true,order:stored.quote.converted_order,replayed:false,quote:{converted_order_id:'order-1'}};
+      const replayed = !!stored.quote.converted_order_id;
+      if (!replayed) {
+        check(body.expected_row_version,stored.quote.row_version,'Conversion concurrency token');
+        stored.quote.converted_order_id='order-1';stored.quote.converted_order={id:'order-1',reference:'O-0001'};stored.quote.row_version++;
+      }
+      result={ok:true,order:stored.quote.converted_order,replayed,quote:{converted_order_id:'order-1'}};
+      if (loseConversionResponse) { loseConversionResponse = false; await route.abort('failed'); return; }
     }
     else if (/\/(send|accept|reject)$/.test(pathname)) {
       const action = pathname.split('/').at(-1);
@@ -133,9 +148,153 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result) });
   });
   await page.goto(`${url}/?theme=${theme}&mode=${mode}`);
-  return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, stored: () => stored };
+  return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, loseNextConversionResponse: () => { loseConversionResponse = true; }, stored: () => stored };
+}
+async function chooseTime(page, time) {
+  await page.getByRole('button', {name:'Hora',exact:true}).click();
+  const list = page.getByRole('listbox', {name:'Hora de entrega',exact:true});
+  await page.screenshot({path:path.join(out,`delivery-time-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`)});
+  await list.getByRole('option', {name:time,exact:true}).click();
+  await list.waitFor({state:'hidden'});
+}
+async function chooseDelivery(page, date, time) {
+  const picker = page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
+  await picker.locator('button[aria-haspopup="dialog"]').first().click();
+  const calendar = page.locator('.gc-day-picker');
+  await calendar.getByRole('grid').waitFor();
+  check(await calendar.evaluate(node=>!!node.closest('dialog[open]')), true, 'Conversion calendar stays inside native modal');
+  const targetMonth = date.slice(0, 7);
+  for (let step = 0; step < 36; step++) {
+    const visibleMonth = (await calendar.locator('[data-day]:not([data-outside])').first().getAttribute('data-day')).slice(0, 7);
+    if (visibleMonth === targetMonth) break;
+    await calendar.getByRole('button', {name:visibleMonth < targetMonth ? 'Ir al mes siguiente' : 'Ir al mes anterior', exact:true}).click();
+  }
+  await page.screenshot({path:path.join(out,`delivery-calendar-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`),fullPage:true});
+  await calendar.locator(`[data-day="${date}"] button`).click();
+  await calendar.waitFor({state:'hidden'});
+  await chooseTime(page, time);
 }
 try {
+  // Both real order surfaces use the same quarter-hour selector as conversion.
+  for (const width of [390,1280]) for (const theme of ['light','dark']) for (const mode of ['order-create','order-edit']) {
+    const h = await setup(width,theme,{mode}); const p=h.page;
+    if (mode==='order-create') await p.getByText('Más opciones',{exact:true}).click();
+    const trigger=p.getByRole('button',{name:'Hora',exact:true}); await trigger.waitFor();
+    check(await p.locator('datalist').count(),0,'Order surface has no datalist');
+    if (mode==='order-edit') check(await trigger.innerText().then(t=>t.includes('10:07')),true,'Existing off-grid time preserved');
+    await trigger.click();
+    const list=p.getByRole('listbox',{name:'Hora de entrega',exact:true});
+    check(await list.getByRole('option').count(),mode==='order-edit'?97:96,'All quarter-hour options plus saved custom time');
+    await list.getByRole('option',{name:'10:15',exact:true}).click();
+    if (mode==='order-edit') check(await p.getByTestId('delivery-value').innerText(),'2026-10-07T08:15:00.000Z','Order edit keeps Madrid date and sends UTC');
+    await p.getByRole('button',{name:'Mañana',exact:true}).click();
+    await p.getByRole('button',{name:'Hoy',exact:true}).click();
+    await p.getByRole('button',{name:'Quitar fecha',exact:true}).click();
+    check(await trigger.innerText().then(t=>t.includes('Elegir hora')),true,'Clear date also clears time');
+    await trigger.click();
+    const first=list.getByRole('option',{name:'00:00',exact:true});
+    await first.press('ArrowRight'); await list.getByRole('option',{name:'00:15',exact:true}).press('Enter');
+    check(await trigger.innerText().then(t=>t.includes('00:15')),true,'Keyboard selects next quarter hour');
+    check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Order picker responsive');
+    check(h.errors,[],'No errors on shared order surface');
+    await p.screenshot({path:path.join(out,mode+'-'+width+'-'+theme+'.png'),fullPage:true}); await p.close();
+  }
+  // Standalone DatePicker keeps its body portal outside native dialogs.
+  {
+    const h = await setup(390, 'light');
+    await h.page.getByLabel('Fecha emisión', {exact:true}).click();
+    const calendar = h.page.locator('.gc-day-picker');
+    await calendar.getByRole('grid').waitFor();
+    check(await calendar.evaluate(node=>node.closest('dialog')===null), true, 'Standalone date picker retains body portal');
+    await calendar.locator('[data-day="2026-10-06"] button').click();
+    await calendar.waitFor({state:'hidden'});
+    await h.page.close();
+  }
+  // Regression: conversion stays discoverable before acceptance, with no bypass.
+  for (const [state, code, hint] of [
+    ['draft', 'draft', 'Prepara el presupuesto'],
+    ['prepared', 'draft', 'Genera el PDF'],
+    ['sent', 'sent', 'Registra la aceptación'],
+    ['sent', 'rejected', 'Crea una revisión'],
+  ]) {
+    const h = await setup(390, 'light', {state, code});
+    const button = h.page.getByRole('button', {name:'Convertir en pedido', exact:true});
+    await button.waitFor();
+    check(await button.isDisabled(), true, `${code} conversion requires acceptance`);
+    await h.page.locator('#quote-conversion-hint').filter({hasText:hint}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'No implicit conversion');
+    await h.page.close();
+  }
+  {
+    const h = await setup(390, 'dark', {legacy:true});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).waitFor();
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).isDisabled(), true, 'Legacy quote guides commercial completion');
+    await h.page.close();
+  }
+  // A failed refresh must retain the acknowledged link and suppress conversion.
+  {
+    const h = await setup(390, 'dark', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.setReadFail(true);
+    await confirm.click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    await h.page.getByRole('alert').filter({hasText:'Pedido creado.'}).waitFor();
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).count(), 0, 'Refresh failure keeps created order');
+    await h.page.close();
+  }
+  // Network loss after commit: retry the same RPC, never create a second order.
+  {
+    const h = await setup(768, 'light', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.loseNextConversionResponse();
+    await confirm.click();
+    await h.page.getByRole('dialog').getByRole('alert').waitFor();
+    await confirm.click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 2, 'Lost response safely retried');
+    check(h.stored().quote.row_version, 56, 'Retry does not create another order');
+    await h.page.close();
+  }
+  // Conflict reload closes the old conversion modal, requiring fresh confirmation.
+  {
+    const h = await setup(390, 'light', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.setFail({status:409, code:'stale_row_version'});
+    await confirm.click();
+    await h.page.getByRole('button', {name:'Recargar versión actual', exact:true}).click();
+    await h.page.getByRole('status').filter({hasText:'Versión actual recargada'}).waitFor();
+    check(await h.page.getByRole('dialog').count(), 0, 'Conflict reload dismisses stale conversion confirmation');
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).isEnabled(), true, 'Fresh conversion remains available');
+    await h.page.close();
+  }
+  // Delivery time must not silently jump over the missing Madrid DST hour.
+  {
+    const h = await setup(390, 'dark', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const picker = h.page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
+    await picker.waitFor();
+    check(await picker.locator('input, datalist').count(), 0, 'Conversion uses shared DateTimePicker instead of native datetime-local');
+    check(await picker.getByRole('button', {name:'Hoy',exact:true}).count(), 1, 'Shared picker offers Today');
+    check(await picker.getByRole('button', {name:'Mañana',exact:true}).count(), 1, 'Shared picker offers Tomorrow');
+    await chooseDelivery(h.page, '2026-03-29', '02:30');
+    await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
+    await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'La fecha y hora de entrega'}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'Missing local hour never submitted');
+    await chooseTime(h.page, '03:30');
+    await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    check(h.events.find(e=>e.pathname.endsWith('/convert')).body.due_at, '2026-03-29T01:30:00.000Z', 'Valid delivery submitted in UTC');
+    await h.page.close();
+  }
   for (const width of [390, 768, 1280]) for (const theme of ["light", "dark"]) {
     const h = await setup(width, theme); const { page, events } = h;
     await page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
@@ -202,6 +361,8 @@ try {
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Current PDF uses version endpoint");
     check(await page.getByRole("link", { name: "Descargar PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf?download=1", "Download uses secure entry point");
     check(await page.getByText("Documento preparado", { exact: true }).count(), 1, "Prepared document indicator");
+    check(await page.locator('#quote-conversion-hint').innerText(), 'Marca el presupuesto como enviado y registra la aceptación del cliente para convertirlo en pedido.', 'Prepared with PDF points to sending rather than regenerating PDF');
+    check(await page.getByRole('button', {name:'Convertir en pedido', exact:true}).isDisabled(), true, 'Prepared with PDF still requires acceptance');
     check(events.filter(e => e.pathname.endsWith('/pdf')).every(e => e.body === null), true, "PDF generation sends no client document payload");
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "PDF controls responsive");
     await page.screenshot({ path: path.join(out, `pdf-${width}-${theme}.png`), fullPage: true });
@@ -258,7 +419,7 @@ try {
         await p.getByLabel('Servicio',{exact:true}).selectOption('service-1');
         await p.getByLabel('Responsable',{exact:true}).selectOption('member-1');
         await p.getByLabel('Prioridad',{exact:true}).selectOption('high');
-        await p.getByLabel('Fecha y hora de entrega',{exact:true}).fill('2026-12-10T10:30');
+        await chooseDelivery(p, '2026-12-10', '10:30');
         check(flow.events.some(e=>e.pathname.endsWith('/convert')),false,'Conversion waits for final confirmation');
         check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Conversion modal responsive');
         await p.screenshot({path:path.join(out,`conversion-modal-${width}-${theme}.png`),fullPage:true});
@@ -268,6 +429,7 @@ try {
         check(await p.getByRole('link',{name:'Abrir pedido O-0001',exact:true}).getAttribute('href'),'/orders/order-1','Opens returned order');
         check(flow.events.filter(e=>e.pathname.endsWith('/convert')).length,1,'Double click creates one request');
         check(flow.events.find(e=>e.pathname.endsWith('/convert')).body.priority,'high','Chosen priority submitted');
+        check(flow.events.find(e=>e.pathname.endsWith('/convert')).body.due_at,'2026-12-10T09:30:00.000Z','Shared picker submits selected Madrid date and time in UTC');
       }
       check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Commercial actions responsive');
       check(flow.errors,[],'No transition browser errors');

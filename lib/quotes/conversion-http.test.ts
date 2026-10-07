@@ -31,7 +31,7 @@ const input = {
   tenant_id: "tenant-b", total: "0",
 };
 
-function harness(route: string, options: { denied?: number; missing?: boolean; rpcBody?: unknown } = {}) {
+function harness(route: string, options: { denied?: number; missing?: boolean; rpcBody?: unknown; rpcError?: { code: string; message: string } } = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const filters: Array<[string, unknown]> = [];
   const supabase = {
@@ -50,7 +50,7 @@ function harness(route: string, options: { denied?: number; missing?: boolean; r
     },
     async rpc(name: string, args: Record<string, unknown>) {
       calls.push({ name, args });
-      return { data: options.rpcBody ?? { ok: true, version }, error: null };
+      return { data: options.rpcBody ?? { ok: true, version }, error: options.rpcError ?? null };
     },
   };
   const json = (body: unknown, init?: ResponseInit) => Response.json(body, init);
@@ -92,7 +92,7 @@ describe("accepted conversion HTTP",()=>{
   });
   it("binds host before RPC and returns same replay order",async()=>{
     const h=harness("convert",{rpcBody:{ok:true,created:false,replayed:true,order_id:ID,reference:"O-0001"}});
-    const response=await h.invoke("POST",conversionInput);assert.equal(response.status,200);
+    const response=await h.invoke("POST",{...conversionInput,tenant_id:"tenant-b",created_by:VERSION,accepted_version_id:VERSION,converted_order_id:VERSION});assert.equal(response.status,200);
     const result=await response.json();assert.equal(result.replayed,true);assert.equal(result.quote.converted_order_id,ID);
     assert.deepEqual(h.calls[0],{name:"convert_quote_to_order",args:{p_quote_id:ID,p_store_id:null,p_service_id:null,p_assigned_team_member_id:null,p_priority:"normal",p_due_at:null,p_expected_row_version:4}});
     assert.ok(h.filters.some(([key,value])=>key==="tenant_id"&&value==="tenant-a"));
@@ -100,6 +100,12 @@ describe("accepted conversion HTTP",()=>{
   it("gates viewer, feature, auth, cross tenant before conversion",async()=>{
     for(const denied of [401,403,404]) {const h=harness("convert",{denied});assert.equal((await h.invoke("POST",conversionInput)).status,denied);assert.equal(h.calls.length,0);}
     const h=harness("convert",{missing:true});assert.equal((await h.invoke("POST",conversionInput)).status,404);assert.equal(h.calls.length,0);
+  });
+  it("preserves database authorization failures",async()=>{
+    const h=harness("convert",{rpcError:{code:"42501",message:"permission denied"}});
+    const response=await h.invoke("POST",conversionInput);
+    assert.equal(response.status,404);
+    assert.equal((await response.json()).code,"not_found");
   });
   it("maps conflict and domain errors",async()=>{
     for(const [error,status] of [["conflict",409],["invalid_state",409],["invalid_relation",422],["no_initial_status",422],["not_found",404]] as const){

@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { QuoteDialog } from "./quote-dialog";
 import type { QuoteRecord } from "@/lib/quotes/types";
+import { fromDateTimeLocalValue } from "@/lib/orders/format";
+import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 
 type Option = { id: string; name: string };
 export type ConversionFields = { store_id: string | null; service_id: string | null; assigned_team_member_id: string | null; priority: string; due_at: string | null };
@@ -29,10 +31,11 @@ export function QuoteConversionDialog({ quote, busy, error, onConfirm, onCancel 
     }));}}).catch(err=>{if(active)setLocalError(err.message);});return()=>{active=false;};},[]);
   function confirm() {
     if (!options) return;
-    const date=fields.due_at ? new Date(fields.due_at) : null;
-    if (date && !Number.isFinite(date.getTime())) {setLocalError('La fecha y hora de entrega no son válidas.');return;}
+    const dueAt = fromDateTimeLocalValue(fields.due_at);
+    if (fields.due_at && !dueAt) {setLocalError('La fecha y hora de entrega no son válidas o esa hora no existe por el cambio horario.');return;}
+    setLocalError(null);
     onConfirm({store_id:fields.store_id||null,service_id:fields.service_id||null,assigned_team_member_id:fields.assigned_team_member_id||null,
-      priority:fields.priority,due_at:date?.toISOString()??null});
+      priority:fields.priority,due_at:dueAt});
   }
   return <QuoteDialog title="Convertir en pedido" description="Confirma los datos operativos. Se creará un único pedido desde la versión aceptada; su PDF seguirá disponible en el presupuesto origen."
     confirmLabel="Confirmar y crear pedido" busy={busy} confirmDisabled={!options} error={error||localError} onConfirm={confirm} onCancel={onCancel}>
@@ -44,7 +47,7 @@ export function QuoteConversionDialog({ quote, busy, error, onConfirm, onCancel 
       <label className="gc-field"><span className="gc-field-label">Prioridad</span><select aria-label="Prioridad" className="gc-field-control" value={fields.priority} disabled={busy} onChange={event=>setFields({...fields,priority:event.target.value})}>
         <option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option>
       </select></label>
-      <label className="gc-field sm:col-span-2"><span className="gc-field-label">Fecha y hora de entrega</span><input aria-label="Fecha y hora de entrega" type="datetime-local" className="gc-field-control" disabled={busy} value={fields.due_at} onChange={event=>setFields({...fields,due_at:event.target.value})}/></label>
+      <fieldset className="gc-field sm:col-span-2"><legend className="gc-field-label">Fecha y hora de entrega</legend><DateTimePicker disabled={busy} value={fields.due_at} onChange={value=>setFields({...fields,due_at:value})}/></fieldset>
     </div>}
   </QuoteDialog>;
 }

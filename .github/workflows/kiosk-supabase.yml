@@ -12,6 +12,12 @@ on:
       - "supabase/tests/phase43_quote_conversion*"
       - "supabase/tests/helpers/**"
       - "lib/quotes/**"
+      - "components/quotes/**"
+      - "components/gestcopy/date-picker.tsx"
+      - "components/gestcopy/date-time-picker.tsx"
+      - "components/gestcopy/time-picker.tsx"
+      - "app/globals.css"
+      - "scripts/quotes-conversion-ui-smoke.mjs"
       - "app/api/quotes/**"
       - "supabase/tests/phase12_kiosk_public_orders.sql"
       - "supabase/tests/phase12_kiosk_concurrency.sh"
@@ -83,6 +89,12 @@ jobs:
           npm run lint
           npx tsc --noEmit
           npm run build
+
+      - name: Quote conversion browser regression (desktop and mobile)
+        run: |
+          npm install --prefix /tmp/quote-conversion-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
+          node /tmp/quote-conversion-browser/node_modules/playwright/cli.js install --with-deps chromium
+          PLAYWRIGHT_MODULE=/tmp/quote-conversion-browser/node_modules/playwright/index.mjs node scripts/quotes-conversion-ui-smoke.mjs
 
       - name: Start minimal local Supabase
         run: >-
