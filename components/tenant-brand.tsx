@@ -30,9 +30,7 @@ export function TenantBrand({
         <img
           src={logoUrl ?? undefined}
           alt=""
-          width={40}
-          height={40}
-          className="size-9 shrink-0 rounded-md border border-border/80 bg-card object-contain sm:size-10"
+          className="h-auto w-auto max-h-9 max-w-28 shrink-0 rounded-md border border-border/80 bg-card object-contain sm:max-h-10 sm:max-w-40"
           style={brandColor ? { borderColor: brandColor } : undefined}
           onError={() => setLogoFailed(true)}
         />
