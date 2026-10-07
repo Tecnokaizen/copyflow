@@ -113,6 +113,8 @@ export type ActivityItem = {
     value_name?: string | null;
     client_id?: string | null;
     client_name?: string | null;
+    total_amount?: string | null;
+    amount?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
@@ -130,6 +132,8 @@ export type ActivityItem = {
     value_name?: string | null;
     client_id?: string | null;
     client_name?: string | null;
+    total_amount?: string | null;
+    amount?: string | null;
   } | null;
   metadata: {
     reference?: string;

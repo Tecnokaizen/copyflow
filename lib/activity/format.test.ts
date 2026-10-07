@@ -180,4 +180,18 @@ describe("order.archived activity", () => {
       false
     );
   });
+
+  it("records internal note edits without copying the note", () => {
+    const formatted = formatActivityEvent(event({
+      action: "quote.internal_notes_updated",
+      entity_type: "quote",
+      entity_label: "P-100",
+      previous_values: {},
+      new_values: {},
+      metadata: { field: "internal_notes", reference: "P-100" },
+    }));
+    assert.match(formatted.headline, /notas internas/i);
+    assert.equal(formatted.changes.length, 0);
+    assert.equal(JSON.stringify(formatted).toLowerCase().includes("secreto"), false);
+  });
 });

@@ -1,4 +1,5 @@
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { OrderCollection } from "@/components/orders/detail/order-collection";
 import {
   DraftSelect,
   FactRow,
@@ -20,6 +21,8 @@ export function OrderFulfillment({
   editing,
   managementOptions,
   managementOptionsLoading,
+  canWrite,
+  onCollectionChanged,
   onDraftChange,
 }: {
   order: Order;
@@ -27,6 +30,8 @@ export function OrderFulfillment({
   editing: boolean;
   managementOptions: ManagementOptionsResponse | null;
   managementOptionsLoading: boolean;
+  canWrite: boolean;
+  onCollectionChanged: () => void;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
 }) {
   if (editing && draft) {
@@ -85,6 +90,14 @@ export function OrderFulfillment({
         <FactRow label="Entregado">
           <FactValue value={formatDate(order.delivered_at)} />
         </FactRow>
+        <OrderCollection
+          key={order.id}
+          orderId={order.id}
+          canWrite={canWrite}
+          archived={Boolean(order.archived_at)}
+          editing
+          onChanged={onCollectionChanged}
+        />
       </SectionCard>
     );
   }
@@ -113,6 +126,14 @@ export function OrderFulfillment({
       <FactRow label="Entregado">
         <FactValue value={formatDate(order.delivered_at)} />
       </FactRow>
+      <OrderCollection
+        key={order.id}
+        orderId={order.id}
+        canWrite={canWrite}
+        archived={Boolean(order.archived_at)}
+        editing={false}
+        onChanged={onCollectionChanged}
+      />
     </SectionCard>
   );
 }

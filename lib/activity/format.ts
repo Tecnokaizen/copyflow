@@ -426,7 +426,21 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
       );
 
     case "order.archived":
+    case "quote.internal_notes_updated":
       return [];
+
+    case "order.total_changed":
+      return singleChange(
+        "Total",
+        asString(prev.total_amount) || "Sin definir",
+        asString(next.total_amount) || "Sin definir"
+      );
+
+    case "order.payment_recorded":
+      return singleChange("Entrega", "—", asString(next.amount) || "—");
+
+    case "order.payment_voided":
+      return singleChange("Entrega anulada", asString(prev.amount) || "—", "Anulada");
 
     case "order.client_changed":
       return singleChange(
@@ -517,6 +531,14 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Actualizó el presupuesto ${entity}`;
     case "quote.status_changed":
       return `Cambió el estado de ${entity}`;
+    case "quote.internal_notes_updated":
+      return "Actualizó las notas internas";
+    case "order.total_changed":
+      return `Actualizó el total de ${entity}`;
+    case "order.payment_recorded":
+      return `Registró una entrega a cuenta en ${entity}`;
+    case "order.payment_voided":
+      return `Anuló una entrega a cuenta de ${entity}`;
     case "quote.converted": {
       const orderReference =
         asString(asRecord(event.new_values).order_reference) ??
@@ -665,6 +687,10 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "quote.pdf_generated",
     "quote.file_uploaded",
     "quote.file_deleted",
+    "quote.internal_notes_updated",
+    "order.total_changed",
+    "order.payment_recorded",
+    "order.payment_voided",
   ].includes(event.action);
 
   const changes = extractChanges(event);

@@ -25,6 +25,8 @@ describe("authoritative commercial PDF", () => {
     assert.equal(m.client.contact, "Raquel Horcajo"); assert.equal(m.client.name, "ANFRE");
     assert.equal(m.version.total, "630.00"); assert.equal(m.version.subtotal, "520.66"); assert.equal(m.version.tax_total, "109.34");
     assert.equal(m.items[1].total, "303"); assert.equal(JSON.stringify(m).includes("INTERNAL_ONLY"), false);
+    const withInternal = quoteDocumentModel(f.reference, { ...f.version, internal_notes: "INTERNAL_NOTE_SECRET" }, f.items);
+    assert.equal(JSON.stringify(withInternal).includes("INTERNAL_NOTE_SECRET"), false);
     assert.equal(quoteDocumentModel(f.reference, { ...f.version, prices_include_tax: false, subtotal: "630", tax_total: "132.30", total: "762.30" }, f.items).version.total, "762.30");
   });
   it("formats exact DB decimal scales without rounding or insignificant zeros", () => {

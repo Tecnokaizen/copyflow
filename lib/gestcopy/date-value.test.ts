@@ -70,6 +70,10 @@ describe("operational date surfaces", () => {
       new URL("../../components/orders/create-order-form.tsx", import.meta.url),
       "utf8"
     );
+    const collection = readFileSync(
+      new URL("../../components/orders/detail/order-collection.tsx", import.meta.url),
+      "utf8"
+    );
     const production = readFileSync(
       new URL("../../components/orders/detail/order-production.tsx", import.meta.url),
       "utf8"
@@ -85,6 +89,8 @@ describe("operational date surfaces", () => {
 
     assert.match(orderForm, /DateTimePicker/);
     assert.match(production, /DateTimePicker/);
+    assert.match(collection, /DateTimePicker/);
+    assert.equal(collection.includes('type="datetime-local"'), false);
     assert.match(quoteForm, /DatePicker/);
     assert.equal(orderForm.includes('type="datetime-local"'), false);
     assert.equal(production.includes('type="datetime-local"'), false);

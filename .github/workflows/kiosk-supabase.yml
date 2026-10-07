@@ -10,6 +10,8 @@ on:
       - "supabase/tests/phase41_quote_pdf*"
       - "supabase/tests/phase42_quote_transitions*"
       - "supabase/tests/phase43_quote_conversion*"
+      - "supabase/tests/phase45_commercial_operations.sql"
+      - "supabase/tests/phase45_order_payments_concurrency.sh"
       - "supabase/tests/helpers/**"
       - "lib/quotes/**"
       - "components/quotes/**"
@@ -178,6 +180,8 @@ jobs:
           bash supabase/tests/phase42_quote_transitions_concurrency.sh "${LOCAL_DB_URL}"
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/phase43_quote_conversion.sql
           bash supabase/tests/phase43_quote_conversion_concurrency.sh "${LOCAL_DB_URL}"
+          psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/phase45_commercial_operations.sql
+          bash supabase/tests/phase45_order_payments_concurrency.sh "${LOCAL_DB_URL}"
 
       - name: Apply and verify exact rollback
         run: |
