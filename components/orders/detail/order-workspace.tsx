@@ -1325,8 +1325,9 @@ export function OrderWorkspace() {
           onArchive={archiveOrder}
         />
 
+        {sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null}
+
         <div className="grid gap-6 lg:grid-cols-2">
-          {sourceQuote ? <OrderSourceQuote quote={sourceQuote}/> : null}
           <OrderSummary
             order={order}
             draft={draft}

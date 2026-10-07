@@ -381,10 +381,9 @@ try {
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
-    await page.getByRole("button", { name: "Editar gestión", exact: true }).click();
+    await page.locator('select[aria-label="Servicio"] option[value="service-1"]').waitFor({ state: "attached" });
     await page.getByLabel("Servicio", { exact: true }).selectOption("service-1");
-    await page.getByRole("button", { name: "Guardar gestión", exact: true }).click();
-    await page.getByRole("status").filter({ hasText: "Gestión operativa guardada" }).waitFor();
+    await page.getByRole("status").filter({ hasText: "Servicio actualizado" }).waitFor();
     check(events.some(e => /\/(send|status|convert|accept|reject)$/.test(e.pathname)), false, "No excluded workflow requests");
     check(h.errors, [], "No browser errors");
     await page.close();
@@ -414,10 +413,11 @@ try {
       if (decision==='accept') {
         check(await p.getByText('Revisión aceptada: 2',{exact:true}).count(),1,'Exact accepted version displayed');
         await p.getByRole('button',{name:'Convertir en pedido',exact:true}).click();
-        await p.getByRole('button',{name:'Confirmar y crear pedido',exact:true}).waitFor();
-        await p.getByLabel('Tienda',{exact:true}).selectOption('store-1');
-        await p.getByLabel('Servicio',{exact:true}).selectOption('service-1');
-        await p.getByLabel('Responsable',{exact:true}).selectOption('member-1');
+        const conversion = p.getByRole('dialog', { name: 'Convertir en pedido' });
+        await conversion.getByRole('button',{name:'Confirmar y crear pedido',exact:true}).waitFor();
+        await conversion.getByLabel('Tienda',{exact:true}).selectOption('store-1');
+        await conversion.getByLabel('Servicio',{exact:true}).selectOption('service-1');
+        await conversion.getByLabel('Responsable',{exact:true}).selectOption('member-1');
         await p.getByLabel('Prioridad',{exact:true}).selectOption('high');
         await chooseDelivery(p, '2026-12-10', '10:30');
         check(flow.events.some(e=>e.pathname.endsWith('/convert')),false,'Conversion waits for final confirmation');
@@ -437,7 +437,8 @@ try {
       await p.close();
     }
     const origin=await setup(width,theme,{mode:'source'});
-    await origin.page.getByRole('heading',{name:'Presupuesto origen',exact:true}).waitFor();
+    await origin.page.getByText('Presupuesto origen', { exact: false }).first().waitFor();
+    check(await origin.page.getByRole('heading', { name: 'Presupuesto origen', exact: true }).count(), 0, 'Source quote stays outside the card grid');
     check(await origin.page.getByRole('link',{name:'Ver presupuesto',exact:true}).getAttribute('href'),'/quotes/quote-1','Order source uses authenticated quote page');
     check(await origin.page.getByText(/Aceptado · v2/).count(),1,'Source accepted version shown');
     check(await origin.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Order source responsive');

@@ -163,7 +163,7 @@ try {
     check(writes[0].body.prepare, false, 'Draft action'); check(h.errors, [], 'No new editor runtime errors'); await page.close();
     const draft = await setup(width, theme, 'editor');
     check(await draft.page.getByRole('heading', { name: 'Revisiones', exact: true }).count(), 0, 'Initial saved draft no history');
-    check(await draft.page.getByRole('heading', { name: 'Acciones del presupuesto', exact: true }).count(), 0, 'Initial draft no empty actions');
+    check(await draft.page.getByRole('heading', { name: 'Acciones del presupuesto', exact: true }).count(), 1, 'Draft keeps the conversion guidance');
     check(await draft.page.getByText(/v1|Historial de versiones/).count(), 0, 'No technical first-version label');
     await draft.page.screenshot({ path: path.join(out, `draft-${width}-${theme}.png`), fullPage: true });
     check(await draft.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Saved draft responsive');
@@ -294,9 +294,11 @@ try {
     check(ids.every(id => !!h.ledger.get(id).acknowledged_at), true, 'Every visible receipt acknowledged before new operation');
     check(h.ledger.size, count, 'Receipts retained without creating quotes');
     await h.page.goto(`${url}/?mode=new&theme=dark`);
-    await h.page.getByRole('button', {name:'Guardar borrador',exact:true}).waitFor();
+    const saveDraft = h.page.getByRole('button', {name:'Guardar borrador',exact:true});
+    await saveDraft.waitFor();
+    await h.page.waitForFunction(() => [...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Guardar borrador' && !button.disabled));
     check(await h.page.getByRole('region', {name:'Recuperación de presupuesto'}).count(), 0, 'Discarded receipts do not reappear without op');
-    check(await h.page.getByRole('button', {name:'Guardar borrador',exact:true}).isEnabled(), true, 'Return permits a fresh draft');
+    check(await saveDraft.isEnabled(), true, 'Return permits a fresh draft');
     check(h.errors, [], 'Discard recovery has no runtime errors'); await h.context.close();
   }
   const editedDraft = await setup(768, 'light', 'editor');
@@ -305,12 +307,10 @@ try {
   await editedDraft.page.getByRole('status').filter({hasText:'Borrador guardado'}).waitFor();
   check(editedDraft.stored().current_version.client_manual_fields.includes('contact_name'),true,'Manual provenance written with draft');
   await editedDraft.page.reload();
-  await editedDraft.page.getByRole('button',{name:'Editar gestión',exact:true}).click();
   await editedDraft.page.getByRole('button',{name:'Cambiar',exact:true}).click();
+  editedDraft.page.once('dialog',dialog=>dialog.accept());
   await editedDraft.page.getByRole('button').filter({hasText:'Cliente B'}).click();
-  editedDraft.page.on('dialog',dialog=>dialog.accept());
-  await editedDraft.page.getByRole('button',{name:'Guardar gestión',exact:true}).click();
-  await editedDraft.page.getByRole('status').filter({hasText:'Gestión operativa guardada'}).waitFor();
+  await editedDraft.page.getByRole('status').filter({hasText:'Cliente actualizado'}).waitFor();
   check(await editedDraft.page.getByLabel('Persona de contacto').inputValue(),'Manual persistido','Saved draft keeps manual contact after reload and client change');
   check(await editedDraft.page.getByLabel('Teléfono').inputValue(),cb.phone,'Saved draft updates pristine phone');
   check(editedDraft.stored().quote.client.id,cb.id,'Saved draft changed client');
