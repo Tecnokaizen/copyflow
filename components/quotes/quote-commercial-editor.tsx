@@ -163,10 +163,14 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
   const version = detail?.current_version;
   const status = detail ? commercialStatus({ ...detail.quote, current_version_state: version?.state ?? detail.quote.current_version_state }) : null;
   const hasRevisions = (detail?.versions.length ?? 0) > 1;
-  const hasCommercialActions = !!detail && !!version && (
-    (version.state === 'prepared' && !!version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '')) ||
-    (detail.quote.status?.code === 'sent' && version.state === 'sent') ||
-    (detail.quote.status?.code === 'accepted' && !!detail.quote.accepted_version_id && !detail.quote.converted_order_id));
+  const canConvert = detail?.quote.status?.code === 'accepted' && !!detail.quote.accepted_version_id && !detail.quote.converted_order_id;
+  const conversionHint = !version || version.state === 'draft'
+    ? 'Prepara el presupuesto, genera su PDF y registra el envío y la aceptación para convertirlo en pedido.'
+    : detail?.quote.status?.code === 'rejected'
+      ? 'Este presupuesto está rechazado. Crea una revisión y registra su envío y aceptación para convertirlo en pedido.'
+      : detail?.quote.status?.code === 'sent'
+        ? 'Registra la aceptación del cliente para convertir este presupuesto en pedido.'
+        : 'Genera el PDF y registra el envío y la aceptación para convertir este presupuesto en pedido.';
   return <AppShell innerClassName="max-w-6xl">
     <AppNav />
     {loading ? <LoadingState label="Cargando presupuesto" /> : null}
@@ -185,15 +189,17 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       <div aria-live="polite" role="status">{message ? <p className="mb-4 text-sm text-muted-foreground">{message}</p> : null}</div>
       {actionError ? <p role="alert" className="mb-4 text-sm text-destructive">{actionError}</p> : null}
       <div className="grid min-w-0 gap-5">
-        {!historical && version && hasCommercialActions ? <SectionCard title="Acciones del presupuesto" bodyClassName="flex flex-wrap items-center gap-3 p-5 sm:p-6">
-          {version.state === "prepared" && version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '') ?
+        {!historical ? <SectionCard title="Acciones del presupuesto" bodyClassName="flex flex-wrap items-center gap-3 p-5 sm:p-6">
+          {version?.state === "prepared" && version.pdf_file_id && ['draft', 'pending'].includes(detail.quote.status?.code ?? '') ?
             <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("send")}>Marcar como enviado</button> : null}
-          {detail.quote.status?.code === "sent" && version.state === "sent" ? <>
+          {detail.quote.status?.code === "sent" && version?.state === "sent" ? <>
             <button className="gc-cta min-h-11" disabled={busy} onClick={() => setTransitionConfirm("accept")}>Marcar aceptado</button>
             <button className="gc-action min-h-11" disabled={busy} onClick={() => setTransitionConfirm("reject")}>Marcar rechazado</button>
           </> : null}
-          {detail.quote.status?.code === "accepted" && detail.quote.accepted_version_id && !detail.quote.converted_order_id ?
-            <button className="gc-cta min-h-11" disabled={busy} onClick={() => setConvertConfirm(true)}>Convertir en pedido</button> : null}
+          {!detail.quote.converted_order_id ? <>
+            <button className="gc-cta min-h-11" type="button" disabled={busy || !canConvert} aria-describedby={!canConvert ? 'quote-conversion-hint' : undefined} onClick={() => { setActionError(null); setConvertConfirm(true); }}>Convertir en pedido</button>
+            {!canConvert ? <p id="quote-conversion-hint" className="basis-full text-sm text-muted-foreground">{conversionHint}</p> : null}
+          </> : null}
           {detail.quote.converted_order ? <p className="text-sm">Convertido en pedido {detail.quote.converted_order.reference}</p> : null}
           {detail.quote.accepted_version_id ? <p className="text-sm">Revisión aceptada: {detail.versions.find((v) => v.id === detail.quote.accepted_version_id)?.version_number ?? '—'}</p> : null}
         </SectionCard> : null}
@@ -262,7 +268,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       description={transitionConfirm === "send" ? "Esto no enviará ningún correo. Registra que el presupuesto ya se ha enviado al cliente por un canal externo." : "Se registrará la decisión del cliente sobre la versión enviada actual."}
       confirmLabel="Confirmar" busy={busy} error={actionError} onConfirm={transition} onCancel={() => setTransitionConfirm(null)} /> : null}
     {conflict ? <QuoteDialog title="Este presupuesto ha cambiado desde que lo abriste." description="Puedes recargar la versión actual o cancelar y mantener lo escrito localmente. Recargar sustituirá tus cambios locales." confirmLabel="Recargar versión actual" error={actionError} busy={busy} onCancel={() => setConflict(false)} onConfirm={() => {
-      void perform(async () => { await loadCurrent(); setConflict(false); setPrepareConfirm(false); setMessage("Versión actual recargada"); });
+      void perform(async () => { await loadCurrent(); setConflict(false); setPrepareConfirm(false); setConvertConfirm(false); setMessage("Versión actual recargada"); });
     }} /> : null}
     {prepareConfirm && !conflict ? <QuoteDialog title="Preparar presupuesto" description="El presupuesto quedará en solo lectura. Se guardarán los cambios pendientes. Para modificarlo después tendrás que crear una revisión." confirmLabel="Preparar presupuesto" busy={busy} onConfirm={prepare} onCancel={() => setPrepareConfirm(false)} /> : null}
   </AppShell>;

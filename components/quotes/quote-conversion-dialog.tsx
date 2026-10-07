@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { QuoteDialog } from "./quote-dialog";
 import type { QuoteRecord } from "@/lib/quotes/types";
+import { fromDateTimeLocalValue } from "@/lib/orders/format";
 
 type Option = { id: string; name: string };
 export type ConversionFields = { store_id: string | null; service_id: string | null; assigned_team_member_id: string | null; priority: string; due_at: string | null };
@@ -29,10 +30,11 @@ export function QuoteConversionDialog({ quote, busy, error, onConfirm, onCancel 
     }));}}).catch(err=>{if(active)setLocalError(err.message);});return()=>{active=false;};},[]);
   function confirm() {
     if (!options) return;
-    const date=fields.due_at ? new Date(fields.due_at) : null;
-    if (date && !Number.isFinite(date.getTime())) {setLocalError('La fecha y hora de entrega no son válidas.');return;}
+    const dueAt = fromDateTimeLocalValue(fields.due_at);
+    if (fields.due_at && !dueAt) {setLocalError('La fecha y hora de entrega no son válidas o esa hora no existe por el cambio horario.');return;}
+    setLocalError(null);
     onConfirm({store_id:fields.store_id||null,service_id:fields.service_id||null,assigned_team_member_id:fields.assigned_team_member_id||null,
-      priority:fields.priority,due_at:date?.toISOString()??null});
+      priority:fields.priority,due_at:dueAt});
   }
   return <QuoteDialog title="Convertir en pedido" description="Confirma los datos operativos. Se creará un único pedido desde la versión aceptada; su PDF seguirá disponible en el presupuesto origen."
     confirmLabel="Confirmar y crear pedido" busy={busy} confirmDisabled={!options} error={error||localError} onConfirm={confirm} onCancel={onCancel}>

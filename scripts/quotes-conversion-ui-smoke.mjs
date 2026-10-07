@@ -1,6 +1,6 @@
 /** Real quote components and CSS, with deterministic HTTP doubles. No production access.
  * Node 22. Reuses the existing browser integration approach; no added dependencies.
- * PLAYWRIGHT_MODULE=/absolute/path/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
+ * PLAYWRIGHT_MODULE=/absolute/path/playwright/index.mjs node scripts/quotes-conversion-ui-smoke.mjs
  */
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -61,10 +61,12 @@ function fixture(state = "draft", legacy = false) {
   const item = { id: "line-1", position: 1, concept: "Impresión", description: "A4", quantity: "1", unit: "ud", unit_price: "100", discount_percent: "0", tax_rate: "21", subtotal: "100.00", tax_amount: "21.00", total: "121.00" };
   return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : [item], versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", pdf_file_id: "pdf-old", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
 }
-async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0 } = {}) {
-  const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(10000);
+async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0, code = "draft" } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, timezoneId: "Europe/Madrid" }); page.setDefaultTimeout(10000);
   lastPage = page;
-  let stored = fixture(state, legacy); let fail = null; let readFail = false; const events = []; const errors = [];
+  let stored = fixture(state, legacy);
+  stored.quote.status = { id: `status-${code}`, code, name: code };
+  if (code === 'accepted') stored.quote.accepted_version_id = stored.current_version?.id; let fail = null; let readFail = false; let loseConversionResponse = false; const events = []; const errors = [];
   lastEvents = events;
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
@@ -86,9 +88,13 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     } else if (fail) { status = fail.status; result = { code: fail.code, error: fail.error ?? "Error simulado" }; fail = null; }
     else if (pathname.endsWith('/convert')) {
       check(Object.keys(body).sort(),['assigned_team_member_id','due_at','expected_row_version','priority','service_id','store_id'],'Explicit conversion contract');
-      check(body.expected_row_version,stored.quote.row_version,'Conversion concurrency token');
-      stored.quote.converted_order_id='order-1';stored.quote.converted_order={id:'order-1',reference:'O-0001'};stored.quote.row_version++;
-      result={ok:true,order:stored.quote.converted_order,replayed:false,quote:{converted_order_id:'order-1'}};
+      const replayed = !!stored.quote.converted_order_id;
+      if (!replayed) {
+        check(body.expected_row_version,stored.quote.row_version,'Conversion concurrency token');
+        stored.quote.converted_order_id='order-1';stored.quote.converted_order={id:'order-1',reference:'O-0001'};stored.quote.row_version++;
+      }
+      result={ok:true,order:stored.quote.converted_order,replayed,quote:{converted_order_id:'order-1'}};
+      if (loseConversionResponse) { loseConversionResponse = false; await route.abort('failed'); return; }
     }
     else if (/\/(send|accept|reject)$/.test(pathname)) {
       const action = pathname.split('/').at(-1);
@@ -133,9 +139,89 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result) });
   });
   await page.goto(`${url}/?theme=${theme}&mode=${mode}`);
-  return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, stored: () => stored };
+  return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, loseNextConversionResponse: () => { loseConversionResponse = true; }, stored: () => stored };
 }
 try {
+  // Regression: conversion stays discoverable before acceptance, with no bypass.
+  for (const [state, code, hint] of [
+    ['draft', 'draft', 'Prepara el presupuesto'],
+    ['prepared', 'draft', 'Genera el PDF'],
+    ['sent', 'sent', 'Registra la aceptación'],
+    ['sent', 'rejected', 'Crea una revisión'],
+  ]) {
+    const h = await setup(390, 'light', {state, code});
+    const button = h.page.getByRole('button', {name:'Convertir en pedido', exact:true});
+    await button.waitFor();
+    check(await button.isDisabled(), true, `${code} conversion requires acceptance`);
+    await h.page.locator('#quote-conversion-hint').filter({hasText:hint}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'No implicit conversion');
+    await h.page.close();
+  }
+  {
+    const h = await setup(390, 'dark', {legacy:true});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).waitFor();
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).isDisabled(), true, 'Legacy quote guides commercial completion');
+    await h.page.close();
+  }
+  // A failed refresh must retain the acknowledged link and suppress conversion.
+  {
+    const h = await setup(390, 'dark', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.setReadFail(true);
+    await confirm.click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    await h.page.getByRole('alert').filter({hasText:'Pedido creado.'}).waitFor();
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).count(), 0, 'Refresh failure keeps created order');
+    await h.page.close();
+  }
+  // Network loss after commit: retry the same RPC, never create a second order.
+  {
+    const h = await setup(768, 'light', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.loseNextConversionResponse();
+    await confirm.click();
+    await h.page.getByRole('dialog').getByRole('alert').waitFor();
+    await confirm.click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 2, 'Lost response safely retried');
+    check(h.stored().quote.row_version, 56, 'Retry does not create another order');
+    await h.page.close();
+  }
+  // Conflict reload closes the old conversion modal, requiring fresh confirmation.
+  {
+    const h = await setup(390, 'light', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    const confirm = h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true});
+    await confirm.waitFor();
+    await h.page.waitForFunction(()=>!document.querySelector('dialog button:last-child').disabled);
+    h.setFail({status:409, code:'stale_row_version'});
+    await confirm.click();
+    await h.page.getByRole('button', {name:'Recargar versión actual', exact:true}).click();
+    await h.page.getByRole('status').filter({hasText:'Versión actual recargada'}).waitFor();
+    check(await h.page.getByRole('dialog').count(), 0, 'Conflict reload dismisses stale conversion confirmation');
+    check(await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).isEnabled(), true, 'Fresh conversion remains available');
+    await h.page.close();
+  }
+  // Delivery time must not silently jump over the missing Madrid DST hour.
+  {
+    const h = await setup(390, 'dark', {state:'sent', code:'accepted'});
+    await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
+    await h.page.getByLabel('Fecha y hora de entrega', {exact:true}).fill('2026-03-29T02:30');
+    await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
+    await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'cambio horario'}).waitFor();
+    check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'Missing local hour never submitted');
+    await h.page.getByLabel('Fecha y hora de entrega', {exact:true}).fill('2026-03-29T03:30');
+    await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
+    await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
+    check(h.events.find(e=>e.pathname.endsWith('/convert')).body.due_at, '2026-03-29T01:30:00.000Z', 'Valid delivery submitted in UTC');
+    await h.page.close();
+  }
   for (const width of [390, 768, 1280]) for (const theme of ["light", "dark"]) {
     const h = await setup(width, theme); const { page, events } = h;
     await page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
