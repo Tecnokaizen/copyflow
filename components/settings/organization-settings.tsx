@@ -7,13 +7,13 @@ import { SectionCard } from "@/components/gestcopy/section-card";
 import { TenantBrand } from "@/components/tenant-brand";
 import { Button } from "@/components/ui/button";
 import { parseBrandColor } from "@/lib/tenant/branding";
+import {
+  notifyOrganizationIdentityChanged,
+  versionedLogoUrl,
+  type OrganizationIdentity,
+} from "@/lib/tenant/identity-events";
 
-type Identity = {
-  business_name: string | null;
-  display_name: string;
-  logo_url: string | null;
-  branding: { brand_color: string | null };
-};
+type Identity = OrganizationIdentity;
 
 export function OrganizationSettings() {
   const [identity, setIdentity] = useState<Identity | null>(null);
@@ -22,7 +22,8 @@ export function OrganizationSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [logoVersion, setLogoVersion] = useState(0);
+  const [logoVersion, setLogoVersion] = useState("initial");
+  const [logoBusy, setLogoBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,9 +76,7 @@ export function OrganizationSettings() {
 
   const draftColor = parseBrandColor(color);
   const previewColor = draftColor === undefined ? identity?.branding.brand_color ?? null : draftColor;
-  const logoUrl = identity?.logo_url
-    ? `${identity.logo_url}?v=${logoVersion}`
-    : null;
+  const logoUrl = versionedLogoUrl(identity?.logo_url ?? null, logoVersion);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -101,6 +100,7 @@ export function OrganizationSettings() {
       setIdentity(body);
       setName(body.business_name ?? "");
       setColor(body.branding.brand_color ?? "");
+      setLogoVersion(notifyOrganizationIdentityChanged(body));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se ha podido guardar.");
     } finally {
@@ -109,27 +109,40 @@ export function OrganizationSettings() {
   }
 
   async function uploadLogo(file: File) {
+    setLogoBusy(true);
     setError(null);
-    const form = new FormData();
-    form.set("file", file);
-    const response = await fetch("/api/settings/organization/logo", {
-      method: "POST",
-      body: form,
-    });
-    const body = (await response.json()) as Identity & { error?: string };
-    if (!response.ok) throw new Error(body.error ?? "No se ha podido subir el logo.");
-    setIdentity(body);
-    setLogoVersion((current) => current + 1);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/settings/organization/logo", {
+        method: "POST",
+        body: form,
+      });
+      const body = (await response.json()) as Identity & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No se ha podido subir el logo.");
+      setIdentity(body);
+      setLogoVersion(notifyOrganizationIdentityChanged(body));
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   async function deleteLogo() {
+    setLogoBusy(true);
     setError(null);
-    const response = await fetch("/api/settings/organization/logo", {
-      method: "DELETE",
-    });
-    const body = (await response.json()) as Identity & { error?: string };
-    if (!response.ok) throw new Error(body.error ?? "No se ha podido quitar el logo.");
-    setIdentity(body);
+    try {
+      const response = await fetch("/api/settings/organization/logo", {
+        method: "DELETE",
+      });
+      const body = (await response.json()) as Identity & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No se ha podido quitar el logo.");
+      setIdentity(body);
+      setLogoVersion(notifyOrganizationIdentityChanged(body));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se ha podido quitar el logo.");
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   if (loading) return <LoadingState label="Cargando identidad…" />;
@@ -176,13 +189,13 @@ export function OrganizationSettings() {
             />
           </label>
           <div className="flex flex-wrap gap-3">
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || logoBusy}>
               Guardar identidad
             </Button>
             <Button
               type="button"
               variant="outline"
-              disabled={saving || !color}
+              disabled={saving || logoBusy || !color}
               onClick={() => setColor("")}
             >
               Quitar color
@@ -197,12 +210,13 @@ export function OrganizationSettings() {
           PNG, JPEG o WebP. Máximo 2 MiB.
         </p>
         <div className="flex flex-wrap gap-3">
-          <label className="inline-flex min-h-11 cursor-pointer items-center rounded-md border border-border px-4 text-sm font-medium">
-            {identity?.logo_url ? "Sustituir logo" : "Subir logo"}
+          <label className={`inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium ${logoBusy || saving ? "cursor-wait opacity-50" : "cursor-pointer"}`}>
+            {logoBusy ? "Actualizando logo…" : identity?.logo_url ? "Sustituir logo" : "Subir logo"}
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
               className="sr-only"
+              disabled={logoBusy || saving}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -214,7 +228,7 @@ export function OrganizationSettings() {
             />
           </label>
           {identity?.logo_url ? (
-            <Button type="button" variant="outline" onClick={() => void deleteLogo()}>
+            <Button type="button" variant="outline" disabled={logoBusy || saving} onClick={() => void deleteLogo()}>
               Quitar logo
             </Button>
           ) : null}
