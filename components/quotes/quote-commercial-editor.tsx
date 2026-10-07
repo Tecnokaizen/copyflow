@@ -170,7 +170,9 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
       ? 'Este presupuesto está rechazado. Crea una revisión y registra su envío y aceptación para convertirlo en pedido.'
       : detail?.quote.status?.code === 'sent'
         ? 'Registra la aceptación del cliente para convertir este presupuesto en pedido.'
-        : 'Genera el PDF y registra el envío y la aceptación para convertir este presupuesto en pedido.';
+        : version.state === 'prepared' && version.pdf_file_id
+          ? 'Marca el presupuesto como enviado y registra la aceptación del cliente para convertirlo en pedido.'
+          : 'Genera el PDF y registra el envío y la aceptación para convertir este presupuesto en pedido.';
   return <AppShell innerClassName="max-w-6xl">
     <AppNav />
     {loading ? <LoadingState label="Cargando presupuesto" /> : null}

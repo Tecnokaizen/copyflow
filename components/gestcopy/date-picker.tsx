@@ -33,6 +33,7 @@ export function DatePicker({
   showShortcuts = true,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
+  const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
   const selected = civilDateToLocalDate(value) ?? undefined;
   const label = value ? formatCivilDate(value) : "";
 
@@ -49,6 +50,7 @@ export function DatePicker({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
+        ref={setTrigger}
         id={id}
         type="button"
         disabled={disabled}
@@ -59,7 +61,7 @@ export function DatePicker({
       >
         {label || placeholder}
       </Popover.Trigger>
-      <Popover.Portal>
+      <Popover.Portal container={trigger?.closest("dialog") ?? undefined}>
         <Popover.Content
           side="bottom"
           align="start"

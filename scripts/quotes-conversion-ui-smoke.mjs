@@ -141,7 +141,35 @@ async function setup(width, theme, { state = "draft", legacy = false, mode = "ed
   await page.goto(`${url}/?theme=${theme}&mode=${mode}`);
   return { page, events, errors, setFail: (next) => { fail = next; }, setReadFail: (next) => { readFail = next; }, loseNextConversionResponse: () => { loseConversionResponse = true; }, stored: () => stored };
 }
+async function chooseDelivery(page, date, time) {
+  const picker = page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
+  await picker.locator('button[aria-haspopup="dialog"]').click();
+  const calendar = page.locator('.gc-day-picker');
+  await calendar.getByRole('grid').waitFor();
+  check(await calendar.evaluate(node=>!!node.closest('dialog[open]')), true, 'Conversion calendar stays inside native modal');
+  const targetMonth = date.slice(0, 7);
+  for (let step = 0; step < 36; step++) {
+    const visibleMonth = (await calendar.locator('[data-day]:not([data-outside])').first().getAttribute('data-day')).slice(0, 7);
+    if (visibleMonth === targetMonth) break;
+    await calendar.getByRole('button', {name:visibleMonth < targetMonth ? 'Ir al mes siguiente' : 'Ir al mes anterior', exact:true}).click();
+  }
+  await page.screenshot({path:path.join(out,`delivery-calendar-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`),fullPage:true});
+  await calendar.locator(`[data-day="${date}"] button`).click();
+  await calendar.waitFor({state:'hidden'});
+  await picker.getByLabel('Hora', {exact:true}).fill(time);
+}
 try {
+  // Standalone DatePicker keeps its body portal outside native dialogs.
+  {
+    const h = await setup(390, 'light');
+    await h.page.getByLabel('Fecha emisión', {exact:true}).click();
+    const calendar = h.page.locator('.gc-day-picker');
+    await calendar.getByRole('grid').waitFor();
+    check(await calendar.evaluate(node=>node.closest('dialog')===null), true, 'Standalone date picker retains body portal');
+    await calendar.locator('[data-day="2026-10-06"] button').click();
+    await calendar.waitFor({state:'hidden'});
+    await h.page.close();
+  }
   // Regression: conversion stays discoverable before acceptance, with no bypass.
   for (const [state, code, hint] of [
     ['draft', 'draft', 'Prepara el presupuesto'],
@@ -212,11 +240,16 @@ try {
   {
     const h = await setup(390, 'dark', {state:'sent', code:'accepted'});
     await h.page.getByRole('button', {name:'Convertir en pedido', exact:true}).click();
-    await h.page.getByLabel('Fecha y hora de entrega', {exact:true}).fill('2026-03-29T02:30');
+    const picker = h.page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
+    await picker.waitFor();
+    check(await picker.locator('input[type="datetime-local"]').count(), 0, 'Conversion uses shared DateTimePicker instead of native datetime-local');
+    check(await picker.getByRole('button', {name:'Hoy',exact:true}).count(), 1, 'Shared picker offers Today');
+    check(await picker.getByRole('button', {name:'Mañana',exact:true}).count(), 1, 'Shared picker offers Tomorrow');
+    await chooseDelivery(h.page, '2026-03-29', '02:30');
     await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
-    await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'cambio horario'}).waitFor();
+    await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'La fecha y hora de entrega'}).waitFor();
     check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'Missing local hour never submitted');
-    await h.page.getByLabel('Fecha y hora de entrega', {exact:true}).fill('2026-03-29T03:30');
+    await picker.getByLabel('Hora', {exact:true}).fill('03:30');
     await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
     await h.page.getByRole('link', {name:'Abrir pedido O-0001', exact:true}).waitFor();
     check(h.events.find(e=>e.pathname.endsWith('/convert')).body.due_at, '2026-03-29T01:30:00.000Z', 'Valid delivery submitted in UTC');
@@ -288,6 +321,8 @@ try {
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Current PDF uses version endpoint");
     check(await page.getByRole("link", { name: "Descargar PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf?download=1", "Download uses secure entry point");
     check(await page.getByText("Documento preparado", { exact: true }).count(), 1, "Prepared document indicator");
+    check(await page.locator('#quote-conversion-hint').innerText(), 'Marca el presupuesto como enviado y registra la aceptación del cliente para convertirlo en pedido.', 'Prepared with PDF points to sending rather than regenerating PDF');
+    check(await page.getByRole('button', {name:'Convertir en pedido', exact:true}).isDisabled(), true, 'Prepared with PDF still requires acceptance');
     check(events.filter(e => e.pathname.endsWith('/pdf')).every(e => e.body === null), true, "PDF generation sends no client document payload");
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "PDF controls responsive");
     await page.screenshot({ path: path.join(out, `pdf-${width}-${theme}.png`), fullPage: true });
@@ -344,7 +379,7 @@ try {
         await p.getByLabel('Servicio',{exact:true}).selectOption('service-1');
         await p.getByLabel('Responsable',{exact:true}).selectOption('member-1');
         await p.getByLabel('Prioridad',{exact:true}).selectOption('high');
-        await p.getByLabel('Fecha y hora de entrega',{exact:true}).fill('2026-12-10T10:30');
+        await chooseDelivery(p, '2026-12-10', '10:30');
         check(flow.events.some(e=>e.pathname.endsWith('/convert')),false,'Conversion waits for final confirmation');
         check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Conversion modal responsive');
         await p.screenshot({path:path.join(out,`conversion-modal-${width}-${theme}.png`),fullPage:true});
@@ -354,6 +389,7 @@ try {
         check(await p.getByRole('link',{name:'Abrir pedido O-0001',exact:true}).getAttribute('href'),'/orders/order-1','Opens returned order');
         check(flow.events.filter(e=>e.pathname.endsWith('/convert')).length,1,'Double click creates one request');
         check(flow.events.find(e=>e.pathname.endsWith('/convert')).body.priority,'high','Chosen priority submitted');
+        check(flow.events.find(e=>e.pathname.endsWith('/convert')).body.due_at,'2026-12-10T09:30:00.000Z','Shared picker submits selected Madrid date and time in UTC');
       }
       check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Commercial actions responsive');
       check(flow.errors,[],'No transition browser errors');
