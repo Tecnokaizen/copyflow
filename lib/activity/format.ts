@@ -1,5 +1,6 @@
 import { formatLeadTimeMinutes } from "@/lib/services/types";
 import { richTextToPlainText } from "@/lib/rich-text/html";
+import { assigneeActivityOption } from "@/lib/activity/filters";
 import {
   ACTION_OPTIONS,
   type ActivityEvent,
@@ -338,7 +339,10 @@ function entityHref(event: ActivityEvent) {
 
   switch (event.entity_type) {
     case "order":
-      return id ? `/orders/${id}` : "/orders";
+      if (!id || event.navigable === false) {
+        return null;
+      }
+      return `/orders/${id}`;
     case "quote":
       return id ? `/quotes/${id}` : "/quotes";
     case "client":
@@ -708,11 +712,26 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
   };
 }
 
-export function actionsForEntity(entityType: string) {
+export function actionsForEntity(
+  entityType: string
+): { value: string; label: string }[] {
   if (!entityType) {
     return ACTION_OPTIONS;
   }
 
   const prefix = `${entityType}.`;
-  return ACTION_OPTIONS.filter((option) => option.value.startsWith(prefix));
+  const options: { value: string; label: string }[] = ACTION_OPTIONS.filter(
+    (option) => option.value.startsWith(prefix)
+  );
+
+  if (entityType !== "order") {
+    return options;
+  }
+
+  const statusIndex = options.findIndex(
+    (option) => option.value === "order.status_changed"
+  );
+  const withAssignee = options.slice();
+  withAssignee.splice(statusIndex + 1, 0, assigneeActivityOption);
+  return withAssignee;
 }

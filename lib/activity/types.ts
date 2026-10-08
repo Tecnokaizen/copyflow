@@ -67,6 +67,7 @@ export type ActivityEvent = {
   previous_values: JsonValue | null;
   new_values: JsonValue | null;
   metadata: JsonValue | null;
+  navigable?: boolean;
 };
 
 export type ActivityResponse = {
