@@ -11,9 +11,13 @@ import {
   displayBusinessName,
   identityPayloadExposesSecrets,
   logoDeclaredSizeIsAllowed,
+  mergeBranding,
   monogramFromName,
   parseBusinessName,
+  parseQuoteFooter,
   publicOrganizationIdentity,
+  quoteFooterFromBranding,
+  settingsOrganizationIdentity,
   validateLogoBytes,
 } from "./branding";
 
@@ -145,5 +149,70 @@ describe("organization identity", () => {
     assert.match(org, /context\.tenant\.id/);
     assert.match(org, /tenant_id/);
     assert.doesNotMatch(org, /searchParams/);
+    assert.doesNotMatch(context, /quote_footer/);
+    assert.equal("quote_footer" in identity, false);
+    assert.equal("quote_footer" in identity.branding, false);
+  });
+
+  it("stores a quote footer without exposing logo secrets or other tenants", () => {
+    const logo = {
+      storage_key: "branding/tenant-a/logo/file",
+      content_type: "image/png" as const,
+    };
+    const tenantA = {
+      brand_color: "#112233",
+      logo,
+      quote_footer: "Pie A",
+    };
+    const tenantB = {
+      brand_color: "#abcdef",
+      logo: { storage_key: "branding/tenant-b/logo/file", content_type: "image/png" },
+      quote_footer: "Pie B",
+    };
+    const saved = parseQuoteFooter("  SUR 4\r\nC/ Ejemplo  ");
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    assert.equal(saved.value, "SUR 4\nC/ Ejemplo");
+    const next = mergeBranding(tenantA, { quoteFooter: saved.value });
+    assert.equal(next.quote_footer, "SUR 4\nC/ Ejemplo");
+    assert.equal(next.brand_color, "#112233");
+    assert.deepEqual(next.logo, logo);
+    assert.equal(tenantA.quote_footer, "Pie A");
+    assert.equal(tenantB.quote_footer, "Pie B");
+    assert.equal(quoteFooterFromBranding(next), "SUR 4\nC/ Ejemplo");
+
+    const cleared = mergeBranding(next, { quoteFooter: null });
+    assert.equal("quote_footer" in cleared, false);
+    assert.equal(cleared.brand_color, "#112233");
+    assert.deepEqual(cleared.logo, logo);
+    const blank = parseQuoteFooter("   \n  ");
+    assert.equal(blank.ok, true);
+    if (blank.ok) assert.equal(blank.value, null);
+
+    assert.equal(parseQuoteFooter("a".repeat(401)).ok, false);
+    assert.equal(parseQuoteFooter("1\n2\n3\n4\n5").ok, false);
+    assert.equal(parseQuoteFooter(12).ok, false);
+    assert.equal(parseQuoteFooter("1\n2\n3\n4").ok, true);
+
+    const settings = settingsOrganizationIdentity({
+      businessName: "Norte",
+      tenantName: "Norte",
+      branding: next,
+    });
+    assert.equal(settings.quote_footer, "SUR 4\nC/ Ejemplo");
+    assert.equal(identityPayloadExposesSecrets(settings), false);
+    assert.equal(JSON.stringify(settings).includes("storage_key"), false);
+    assert.equal(JSON.stringify(publicOrganizationIdentity({
+      businessName: "Norte",
+      tenantName: "Norte",
+      branding: next,
+    })).includes("quote_footer"), false);
+    const model = readSource("lib/quotes/pdf/model.ts");
+    const render = readSource("lib/quotes/pdf/render.tsx");
+    assert.match(model, /This projection is a whitelist/);
+    assert.match(model, /quoteFooterFromBranding\(seller\.branding\)/);
+    assert.doesNotMatch(model, /tenant_settings/);
+    assert.doesNotMatch(render, /tenant_settings/);
+    assert.match(render, /PDFDocument\.load/);
   });
 });

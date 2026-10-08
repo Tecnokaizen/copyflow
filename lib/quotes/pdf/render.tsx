@@ -31,7 +31,25 @@ const s = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
   grand: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 9, fontSize: 13, fontWeight: 700 },
   terms: { marginTop: 22 }, footer: { position: "absolute", bottom: 25, left: 40, right: 40, fontSize: 8, color: "#62717d", flexDirection: "row", justifyContent: "space-between" },
+  quoteFooter: { position: "absolute", left: 40, right: 40, fontSize: 8, color: "#62717d", lineHeight: 1.35 },
+  quoteFooterLine: { fontSize: 8, color: "#62717d" },
 });
+
+const FOOTER_WRAP_CHARS = 72;
+function wrapFooterLine(line: string) {
+  if (!line) return [" "];
+  if (line.length <= FOOTER_WRAP_CHARS) return [line];
+  const wrapped: string[] = [];
+  let rest = line;
+  while (rest.length > FOOTER_WRAP_CHARS) {
+    const space = rest.lastIndexOf(" ", FOOTER_WRAP_CHARS);
+    const cut = space > 0 ? space : FOOTER_WRAP_CHARS;
+    wrapped.push(rest.slice(0, cut));
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) wrapped.push(rest);
+  return wrapped;
+}
 function Party({ label, party }: { label: string; party: DocumentParty }) {
   return <View style={s.party}><Text style={s.label}>{label}</Text><Text style={s.bold}>{party.name}</Text>
     {[party.contact, party.taxId && `NIF: ${party.taxId}`, party.address, party.email, party.phone].filter(Boolean).map((value, i) => <Text key={i}>{value}</Text>)}
@@ -41,11 +59,18 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
   const { version: v } = model;
   const revision = v.version_number > 1 ? ` · Revisión ${v.version_number}` : "";
   const money = (value: string) => documentMoney(value, v.currency);
+  const footerLines = model.footer
+    ? model.footer.split("\n").flatMap(wrapFooterLine)
+    : [];
+  const footerHeight = footerLines.length * 12;
+  const pageStyle = footerHeight
+    ? [s.page, { paddingBottom: 58 + footerHeight }]
+    : s.page;
   // PDF metadata derives from locked_at, never wall clock, so retries are byte-identical.
   const date = new Date(v.locked_at!);
   const buffer = await renderToBuffer(<Document title={`Presupuesto ${model.reference}${revision}`} author={model.seller.name}
     creator="Gestcopy" producer="Gestcopy commercial-v1" creationDate={date} modificationDate={date}>
-    <Page size="A4" style={s.page} wrap>
+    <Page size="A4" style={pageStyle} wrap>
       <View fixed style={[s.header, { borderBottomColor: model.brandColor }]}>
         {logo ? <Image src={logo} style={s.logo} /> : <Text style={[s.sellerName, { color: model.brandColor }]}>{model.seller.name}</Text>}
         <View style={s.ref}><Text style={s.bold}>PRESUPUESTO</Text><Text>{model.reference}{revision}</Text>
@@ -69,6 +94,13 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
         <View style={[s.grand, { borderTopColor: model.brandColor }]}><Text>Total</Text><Text>{money(v.total)}</Text></View>
       </View>
       {model.terms ? <View style={s.terms}><Text style={s.label}>CONDICIONES</Text><Text>{model.terms}</Text></View> : null}
+      {footerLines.length ? (
+        <View fixed style={[s.quoteFooter, { bottom: 40 }]}>
+          {footerLines.map((line, index) => (
+            <Text key={index} style={[s.quoteFooterLine, { width: 515 }]}>{line}</Text>
+          ))}
+        </View>
+      ) : null}
       <Text fixed style={{ position: "absolute", bottom: 25, left: 40, width: 400, fontSize: 8, color: "#62717d" }}>{model.reference}{revision} · {v.currency}</Text>
     </Page>
   </Document>);

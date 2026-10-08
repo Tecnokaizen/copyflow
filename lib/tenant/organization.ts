@@ -4,7 +4,7 @@ import { canManageOrganizationIdentity } from "@/lib/auth/membership-roles";
 import { createClient } from "@/lib/supabase/server";
 import {
   mergeBranding,
-  publicOrganizationIdentity,
+  settingsOrganizationIdentity,
   storedLogoFromBranding,
   type PublicBrandColor,
   type StoredLogo,
@@ -35,7 +35,7 @@ export function organizationResponse(input: {
   businessName?: string | null;
   branding: unknown;
 }) {
-  return publicOrganizationIdentity({
+  return settingsOrganizationIdentity({
     businessName: input.businessName,
     tenantName: input.tenantName,
     branding: input.branding,
@@ -44,13 +44,19 @@ export function organizationResponse(input: {
 
 export async function saveOrganizationSettings(
   tenantId: string,
-  patch: { businessName?: string | null; brandColor?: PublicBrandColor; logo?: StoredLogo | null }
+  patch: {
+    businessName?: string | null;
+    brandColor?: PublicBrandColor;
+    logo?: StoredLogo | null;
+    quoteFooter?: string | null;
+  }
 ) {
   const current = await loadOrganizationSettings(tenantId);
   const supabase = await createClient();
   const nextBranding = mergeBranding(current?.branding, {
     brandColor: patch.brandColor,
     logo: patch.logo,
+    quoteFooter: patch.quoteFooter,
   });
   const update: { business_name?: string | null; branding: Record<string, unknown>; logo_url?: null } = {
     branding: nextBranding,

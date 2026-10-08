@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseBrandColor, parseBusinessName } from "@/lib/tenant/branding";
+import { parseBrandColor, parseBusinessName, parseQuoteFooter } from "@/lib/tenant/branding";
 import {
   loadOrganizationSettings,
   organizationResponse,
@@ -56,7 +56,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid organization fields" }, { status: 400 });
   }
 
-  const patch: { businessName?: string | null; brandColor?: string | null } = {};
+  const patch: {
+    businessName?: string | null;
+    brandColor?: string | null;
+    quoteFooter?: string | null;
+  } = {};
   if ("business_name" in record) {
     const businessName = parseBusinessName(record.business_name);
     if (!businessName.ok) {
@@ -70,6 +74,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Invalid brand color" }, { status: 400 });
     }
     patch.brandColor = color;
+  }
+  if ("quote_footer" in record) {
+    const footer = parseQuoteFooter(record.quote_footer);
+    if (!footer.ok) {
+      return NextResponse.json({ error: footer.error }, { status: 400 });
+    }
+    patch.quoteFooter = footer.value;
   }
 
   try {

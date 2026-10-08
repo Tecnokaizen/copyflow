@@ -6,19 +6,26 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { TenantBrand } from "@/components/tenant-brand";
 import { Button } from "@/components/ui/button";
-import { parseBrandColor } from "@/lib/tenant/branding";
+import {
+  parseBrandColor,
+  parseQuoteFooter,
+  QUOTE_FOOTER_MAX_CHARS,
+  QUOTE_FOOTER_MAX_LINES,
+} from "@/lib/tenant/branding";
 
 type Identity = {
   business_name: string | null;
   display_name: string;
   logo_url: string | null;
   branding: { brand_color: string | null };
+  quote_footer: string;
 };
 
 export function OrganizationSettings() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState("");
+  const [footer, setFooter] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +44,7 @@ export function OrganizationSettings() {
         setIdentity(body);
         setName(body.business_name ?? "");
         setColor(body.branding.brand_color ?? "");
+        setFooter(body.quote_footer ?? "");
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -63,6 +71,7 @@ export function OrganizationSettings() {
         setIdentity(body);
         setName(body.business_name ?? "");
         setColor(body.branding.brand_color ?? "");
+        setFooter(body.quote_footer ?? "");
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -74,6 +83,8 @@ export function OrganizationSettings() {
   }
 
   const draftColor = parseBrandColor(color);
+  const footerChars = footer.length;
+  const footerLines = footer.length === 0 ? 0 : footer.split("\n").length;
   const previewColor = draftColor === undefined ? identity?.branding.brand_color ?? null : draftColor;
   const logoUrl = identity?.logo_url
     ? `${identity.logo_url}?v=${logoVersion}`
@@ -85,6 +96,11 @@ export function OrganizationSettings() {
       setError("El color debe ser un hexadecimal de 6 dígitos, por ejemplo #1D4ED8.");
       return;
     }
+    const draftFooter = parseQuoteFooter(footer);
+    if (!draftFooter.ok) {
+      setError(draftFooter.error);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -94,6 +110,7 @@ export function OrganizationSettings() {
         body: JSON.stringify({
           business_name: name,
           brand_color: draftColor,
+          quote_footer: footer,
         }),
       });
       const body = (await response.json()) as Identity & { error?: string };
@@ -101,6 +118,7 @@ export function OrganizationSettings() {
       setIdentity(body);
       setName(body.business_name ?? "");
       setColor(body.branding.brand_color ?? "");
+      setFooter(body.quote_footer ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se ha podido guardar.");
     } finally {
@@ -174,6 +192,31 @@ export function OrganizationSettings() {
               placeholder="#1D4ED8"
               onChange={(event) => setColor(event.target.value)}
             />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            Pie de presupuestos
+            <textarea
+              className="gc-field-control min-h-28 resize-y"
+              value={footer}
+              rows={4}
+              onChange={(event) => setFooter(event.target.value)}
+            />
+            <span className="text-muted-foreground">
+              Este texto aparecerá en el pie de los nuevos presupuestos preparados.
+              Los presupuestos ya preparados conservarán el pie que tenían en ese momento.
+            </span>
+            <span
+              className={
+                footerChars > QUOTE_FOOTER_MAX_CHARS ||
+                footerLines > QUOTE_FOOTER_MAX_LINES
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
+              {footerChars} / {QUOTE_FOOTER_MAX_CHARS}
+              {" · "}
+              Máximo 400 caracteres y 4 líneas.
+            </span>
           </label>
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={saving}>
