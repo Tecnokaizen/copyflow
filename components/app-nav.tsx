@@ -278,8 +278,8 @@ function AppNavFrame({
   });
 
   return (
-    <header className="mb-6 dark:bg-secondary">
-      <div className="flex items-center justify-between gap-3 border-b border-border/80 py-3">
+    <header className="mb-6 -mx-6 dark:bg-secondary md:-mx-8 lg:-mx-10">
+      <div className="flex items-center justify-between gap-3 border-b border-border/80 px-6 py-3 md:px-8 lg:px-10">
         <TenantBrand
           displayName={tenant?.displayName ?? ""}
           logoUrl={tenant?.logoUrl}
@@ -292,7 +292,7 @@ function AppNavFrame({
         </div>
       </div>
 
-      <div className="border-b border-border/80 py-2">
+      <div className="border-b border-border/80 px-6 py-2 md:px-8 lg:px-10">
         <DesktopNav
           entries={entries}
           location={location}

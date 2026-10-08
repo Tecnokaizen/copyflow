@@ -496,15 +496,19 @@ describe("review surfaces share one definition", () => {
       /effectiveFilter === "attention"[\s\S]{0,160}\.eq\(\s*"status\.is_ready"/
     );
 
+    const quotesAt = screen.indexOf('title="Presupuestos"');
+    const workloadAt = screen.indexOf("Carga del equipo");
     const reviewAt = screen.indexOf("Requieren revisión");
-    const quotesAt = screen.indexOf("Presupuestos");
     const upcomingAt = screen.indexOf("Próximas entregas");
-    assert.ok(reviewAt >= 0);
-    assert.ok(reviewAt < quotesAt);
-    assert.ok(quotesAt < upcomingAt);
+    assert.ok(quotesAt >= 0);
+    assert.ok(quotesAt < workloadAt);
+    assert.ok(workloadAt < reviewAt);
+    assert.ok(reviewAt < upcomingAt);
     assert.match(screen, /Pedidos que requieren una acción antes de continuar\./);
     assert.match(screen, /No hay pedidos que requieran revisión\./);
-    assert.match(screen, /lg:grid-cols-2/);
+    assert.match(screen, /grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3/);
+    assert.match(screen, /grid-cols-1 items-start gap-4 lg:grid-cols-2/);
+    assert.doesNotMatch(screen, /min-h-\[|h-full|lg:row-span/);
     assert.doesNotMatch(screen, /Necesitan atención/);
     assert.match(screen, /formatDueTime\(order\.due_at, timeZone\)/);
   });
