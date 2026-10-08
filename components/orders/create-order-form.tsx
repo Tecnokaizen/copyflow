@@ -514,8 +514,8 @@ export function CreateOrderForm({
 
   function renderClientField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
-        Cliente
+      <div className="grid gap-2 text-sm font-medium text-foreground">
+        <span>Cliente</span>
         <ClientSelector
           value={selectedClient}
           disabled={submitting}
@@ -526,7 +526,7 @@ export function CreateOrderForm({
         <span className="text-xs font-normal text-muted-foreground">
           Busca por nombre, empresa o teléfono, o créalo sin salir.
         </span>
-      </label>
+      </div>
     );
   }
 
