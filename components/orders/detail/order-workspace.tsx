@@ -117,6 +117,7 @@ export function OrderWorkspace() {
     () => searchParams.get("created") === "1"
   );
   const [sourceQuote,setSourceQuote] = useState<SourceQuote|null>(null);
+  const [sourceQuoteRestricted, setSourceQuoteRestricted] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,6 +253,7 @@ export function OrderWorkspace() {
 
         setOrder(normalizeLoadedOrder(result.order));
         setSourceQuote(result.source_quote ?? null);
+        setSourceQuoteRestricted(result.source_quote_restricted === true);
         setError(null);
         setLoading(false);
       } catch (err) {
@@ -1347,6 +1349,8 @@ export function OrderWorkspace() {
             orderOptionsLoading={orderOptionsLoading}
             managementOptions={managementOptions}
             managementOptionsLoading={managementOptionsLoading}
+            sourceQuote={sourceQuote}
+            sourceQuoteRestricted={sourceQuoteRestricted}
             onDraftChange={patchDraft}
             onDueAtInvalid={handleDueAtInvalid}
           />
