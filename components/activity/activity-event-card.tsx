@@ -37,6 +37,7 @@ export function ActivityEventCard({
                 headline={formatted.headline}
                 entityLabel={formatted.entityLabel}
                 href={formatted.href}
+                entityType={event.entity_type}
               />
             ) : (
               formatted.headline
@@ -81,16 +82,22 @@ function HeadlineWithLink({
   headline,
   entityLabel,
   href,
+  entityType,
 }: {
   headline: string;
   entityLabel: string;
   href: string;
+  entityType: string;
 }) {
   const index = entityLabel ? headline.lastIndexOf(entityLabel) : -1;
+  const linkClass =
+    entityType === "order"
+      ? "text-primary hover:underline"
+      : "font-medium hover:underline";
 
   if (index < 0) {
     return (
-      <Link href={href} className="hover:underline">
+      <Link href={href} className={linkClass}>
         {headline}
       </Link>
     );
@@ -99,7 +106,7 @@ function HeadlineWithLink({
   return (
     <>
       {headline.slice(0, index)}
-      <Link href={href} className="font-medium hover:underline">
+      <Link href={href} className={linkClass}>
         {headline.slice(index, index + entityLabel.length)}
       </Link>
       {headline.slice(index + entityLabel.length)}
