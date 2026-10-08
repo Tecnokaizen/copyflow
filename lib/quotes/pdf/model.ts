@@ -1,5 +1,5 @@
 import { richTextToPlainText } from "@/lib/rich-text/html";
-import { brandColorFromBranding } from "@/lib/tenant/branding";
+import { brandColorFromBranding, quoteFooterFromBranding } from "@/lib/tenant/branding";
 import { mapQuoteItem, mapQuoteVersion, type QuoteItem, type QuoteVersion } from "@/lib/quotes/types";
 
 export function record(value: unknown): Record<string, unknown> {
@@ -10,6 +10,7 @@ export type DocumentParty = { name: string; contact: string; taxId: string; addr
 export type QuoteDocumentModel = {
   templateCode: "commercial-v1"; reference: string; version: QuoteVersion; items: QuoteItem[];
   seller: DocumentParty; client: DocumentParty; brandColor: string; description: string; terms: string;
+  footer: string;
 };
 // This projection is a whitelist. Never spread quotes, snapshots or internal fields into the renderer.
 export function quoteDocumentModel(reference: string, source: unknown, rows: unknown[]): QuoteDocumentModel {
@@ -26,6 +27,7 @@ export function quoteDocumentModel(reference: string, source: unknown, rows: unk
     client: { name: text(client.billing_name) || text(client.name), contact: text(client.contact_name), taxId: text(client.tax_id), address: text(client.billing_address), email: text(client.contact_email), phone: text(client.contact_phone) },
     brandColor: brandColorFromBranding(seller.branding) || "#163b4c",
     description: richTextToPlainText(version.description), terms: richTextToPlainText(version.terms),
+    footer: quoteFooterFromBranding(seller.branding),
   };
 }
 // Format decimal strings without floating point: DB numeric(20,2) exceeds JS safe integers.
