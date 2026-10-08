@@ -30,6 +30,8 @@ import {
 } from "@/lib/time/zoned-day";
 import { cn } from "@/lib/utils";
 import { nextListFilterForStatusSelection } from "@/lib/orders/list-filter-status";
+import { isOrderOperational } from "@/lib/orders/operational";
+import { formatTenantDueLabel } from "@/lib/orders/review";
 
 type Order = {
   id: string;
@@ -79,6 +81,8 @@ type OrdersResponse = {
   page_size: number;
   orders: Order[];
   timezone?: string;
+  local_date?: string;
+  now?: string;
   week_start?: string;
   week_days?: string[];
   from?: string | null;
@@ -325,6 +329,36 @@ function formatDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function presentDue(
+  order: Order,
+  timeZone: string | null | undefined,
+  localDate: string | null | undefined,
+  nowIso: string | null | undefined
+) {
+  const operational = isOrderOperational({
+    archived_at: order.archived_at ?? null,
+    status: order.status,
+  });
+  const now = nowIso ? new Date(nowIso) : null;
+
+  if (!timeZone || !localDate || !now || Number.isNaN(now.getTime())) {
+    return {
+      dueToday: false,
+      overdue: false,
+      label: formatDate(order.due_at),
+      indicator: null as "Entrega hoy" | null,
+    };
+  }
+
+  return formatTenantDueLabel(
+    order.due_at,
+    timeZone,
+    localDate,
+    operational,
+    now
+  );
 }
 
 function priorityClassName(priority: string) {
@@ -1463,9 +1497,29 @@ function OrdersPageContent() {
                               </td>
                             </tr>
                           ) : (
-                            listOrders.map((order) => (
-                              <tr key={order.id}>
-                                <td>
+                            listOrders.map((order) => {
+                              const due = presentDue(
+                                order,
+                                data?.timezone,
+                                data?.local_date,
+                                data?.now
+                              );
+                              return (
+                              <tr
+                                key={order.id}
+                                className={
+                                  due.dueToday
+                                    ? "bg-[hsl(var(--gc-info)/0.05)]"
+                                    : undefined
+                                }
+                              >
+                                <td
+                                  className={
+                                    due.dueToday
+                                      ? "border-l-[3px] border-l-[hsl(var(--gc-info))] bg-[hsl(var(--gc-info)/0.06)]"
+                                      : undefined
+                                  }
+                                >
                                   <Link
                                     href={`/orders/${order.id}`}
                                     className="font-semibold text-foreground hover:underline"
@@ -1509,22 +1563,26 @@ function OrdersPageContent() {
                                 <td>
                                   <div
                                     className={
-                                      now &&
-                                      order.due_at &&
-                                      new Date(order.due_at) < now &&
-                                      order.status?.is_closed !== true &&
-                                      order.status?.is_cancelled !== true
+                                      due.overdue
                                         ? "font-medium text-[hsl(var(--gc-danger))]"
-                                        : ""
+                                        : due.dueToday
+                                          ? "font-semibold text-[hsl(var(--gc-info))]"
+                                          : ""
                                     }
                                   >
-                                    {formatDate(order.due_at)}
+                                    {due.label}
                                   </div>
+                                  {due.indicator ? (
+                                    <div className="mt-1 text-xs font-medium text-[hsl(var(--gc-info))]">
+                                      {due.indicator}
+                                    </div>
+                                  ) : null}
                                 </td>
 
                                 <td>{order.store?.name ?? "Sin tienda"}</td>
                               </tr>
-                            ))
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -1867,11 +1925,22 @@ function OrdersPageContent() {
                         </div>
                       ) : (
                         <div className="grid gap-2">
-                          {serviceDetailOrders.map((order) => (
+                          {serviceDetailOrders.map((order) => {
+                            const due = presentDue(
+                              order,
+                              byServiceData?.timezone,
+                              byServiceData?.local_date,
+                              byServiceData?.now
+                            );
+                            return (
                             <Link
                               key={order.id}
                               href={`/orders/${order.id}`}
-                              className="block rounded-lg border bg-card p-3 text-sm hover:bg-muted/40"
+                              className={cn(
+                                "block rounded-lg border bg-card p-3 text-sm hover:bg-muted/40",
+                                due.dueToday &&
+                                  "border-l-[3px] border-l-[hsl(var(--gc-info))] bg-[hsl(var(--gc-info)/0.06)]"
+                              )}
                             >
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
@@ -1902,10 +1971,22 @@ function OrdersPageContent() {
                                   {order.assigned_team_member?.name ??
                                     "Sin asignar"}
                                 </div>
-                                <div>{formatDate(order.due_at)}</div>
+                                <div
+                                  className={
+                                    due.overdue
+                                      ? "font-medium text-[hsl(var(--gc-danger))]"
+                                      : due.dueToday
+                                        ? "font-semibold text-[hsl(var(--gc-info))]"
+                                        : ""
+                                  }
+                                >
+                                  {due.label}
+                                  {due.indicator ? ` · ${due.indicator}` : ""}
+                                </div>
                               </div>
                             </Link>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </section>

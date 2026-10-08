@@ -1,3 +1,5 @@
+import type { ReviewReason } from "@/lib/orders/review";
+
 export type DashboardUpcomingOrder = {
   id: string;
   reference: string;
@@ -13,8 +15,10 @@ export type DashboardUpcomingOrder = {
   } | null;
 };
 
-/** Same shape as upcoming; same active + is_ready rule as counts.needs_attention. */
-export type DashboardAttentionOrder = DashboardUpcomingOrder;
+/** Operational orders that require review. Count is unique orders, not reasons. */
+export type DashboardAttentionOrder = DashboardUpcomingOrder & {
+  review_reasons: ReviewReason[];
+};
 
 export type DashboardWorkloadMember = {
   id: string;
@@ -38,6 +42,10 @@ export type DashboardResponse = {
     needs_attention: number;
   };
   needs_attention_includes: {
+    overdue: boolean;
+    due_today_pending: boolean;
+    customer_not_notified: boolean;
+    unassigned: boolean;
     ready: boolean;
     incomplete_files: boolean;
     pending_quote: boolean;
