@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { formatActivityEvent } from "@/lib/activity/format";
+import type { ActivityEvent } from "@/lib/activity/types";
 import { buildCreateOrderPayload } from "./create-form";
+import { deriveOrderTitle } from "./create";
 import { fieldsForPlacement } from "@/lib/settings/quick-order-layout";
 
 const PAYLOAD_INPUT = {
@@ -105,6 +109,135 @@ describe("CreateOrderForm payload is shared across modes", () => {
         store_id: "store-1",
         notes: "<p>interno</p>",
       }
+    );
+  });
+
+  it("persists a custom title and keeps the automatic fallback", () => {
+    assert.equal(
+      buildCreateOrderPayload({
+        ...PAYLOAD_INPUT,
+        title: deriveOrderTitle({
+          title: "Carteles feria",
+          description: "otra descripción",
+          serviceName: "Copias",
+        }),
+      }).title,
+      "Carteles feria"
+    );
+    assert.equal(
+      deriveOrderTitle({ title: "", description: "", serviceName: "Copias" }),
+      "Copias"
+    );
+    assert.equal(
+      deriveOrderTitle({ title: "   ", description: "", serviceName: "" }),
+      "Pedido"
+    );
+
+    const created: ActivityEvent = {
+      id: "evt-title",
+      created_at: "2026-10-08T10:00:00.000Z",
+      actor_type: "user",
+      actor_name: "Ana",
+      user_id: null,
+      team_member_id: null,
+      action: "order.created",
+      entity_type: "order",
+      entity_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      entity_label: "GC-0010",
+      changed_field: null,
+      previous_values: null,
+      new_values: { title: "200 tarjetas de visita" },
+      metadata: { reference: "GC-0010" },
+    };
+    const activity = formatActivityEvent(created);
+    assert.equal(
+      activity.changes.some(
+        (change) =>
+          change.label === "Título" && change.to === "200 tarjetas de visita"
+      ),
+      true
+    );
+  });
+
+  it("asks for the order title before the client in both create forms", () => {
+    const form = readFileSync(
+      new URL("../../components/orders/create-order-form.tsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(form, /Título del pedido/);
+    assert.match(form, /Ej\. 200 tarjetas de visita/);
+    assert.match(
+      form,
+      /Registra el pedido con su título y los datos imprescindibles\./
+    );
+    assert.equal(form.includes("El resto se puede completar en la ficha"), false);
+    assert.equal(
+      readFileSync(
+        new URL("../../app/orders/quick/page.tsx", import.meta.url),
+        "utf8"
+      ).includes("El resto se completa en la ficha"),
+      false
+    );
+    assert.match(
+      form,
+      /Registra un nuevo pedido y completa los datos necesarios para su gestión\./
+    );
+    assert.equal(form.includes("Datos mínimos para registrar el trabajo"), false);
+    assert.match(form, /title: derivedTitle/);
+    assert.match(form, /field !== "title"/);
+
+    const body = form.slice(form.indexOf("<form"));
+    const fullBranch = body.slice(body.indexOf(") : ("));
+    assert.ok(fullBranch.indexOf("{renderTitleField()}") >= 0);
+    assert.ok(
+      fullBranch.indexOf("{renderTitleField()}") <
+        fullBranch.indexOf("{renderClientField()}")
+    );
+    assert.equal(
+      fullBranch.slice(fullBranch.indexOf("<details")).includes("{renderTitleField()}"),
+      false
+    );
+
+    const quickBranch = body.slice(
+      body.indexOf("{isQuick ? ("),
+      body.indexOf(") : (")
+    );
+    assert.ok(
+      quickBranch.indexOf("{renderTitleField()}") <
+        quickBranch.indexOf("quickPrimaryFields.map")
+    );
+
+    const ordersPage = readFileSync(
+      new URL("../../app/orders/page.tsx", import.meta.url),
+      "utf8"
+    );
+    const list = ordersPage.slice(ordersPage.indexOf("listOrders.map"));
+    const calendar = ordersPage.slice(ordersPage.indexOf("dayOrders.map"));
+    const service = ordersPage.slice(ordersPage.indexOf("serviceDetailOrders.map"));
+    assert.match(list, /\{order\.title\}/);
+    assert.match(calendar, /\{order\.title\}/);
+    assert.match(service, /\{order\.title\}/);
+    assert.match(
+      readFileSync(
+        new URL("../../components/orders/detail/order-header.tsx", import.meta.url),
+        "utf8"
+      ),
+      /order\.title/
+    );
+    assert.match(
+      readFileSync(
+        new URL("../../components/dashboard/tenant-dashboard.tsx", import.meta.url),
+        "utf8"
+      ),
+      /\{order\.title\}/
+    );
+    assert.match(
+      readFileSync(new URL("../../app/api/orders/route.ts", import.meta.url), "utf8"),
+      /title is required/
+    );
+    assert.match(
+      readFileSync(new URL("../../app/api/orders/route.ts", import.meta.url), "utf8"),
+      /insert\(\{[\s\S]*title,/
     );
   });
 });
