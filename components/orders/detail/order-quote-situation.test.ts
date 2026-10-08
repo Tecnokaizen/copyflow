@@ -118,4 +118,73 @@ describe("order ficha · Producción · Presupuesto", () => {
     assert.equal(production.includes("— Sin definir —</option>\n            {managementOptions?.quote_statuses"), false);
     assert.match(workspace, /sourceQuote=\{sourceQuote\}/);
   });
+
+  it("required by service: pending badge plus Requiere presupuesto, never No requerido", () => {
+    const html = renderToStaticMarkup(
+      createElement(OrderQuoteSituationValue, {
+        situation: resolveOrderQuoteSituation({
+          sourceQuote: null,
+          quoteStatus: null,
+          serviceRequiresQuote: true,
+          quoteStatusOptions: options,
+        }),
+      })
+    );
+    assert.match(html, /En revisión/);
+    assert.match(html, /Requiere presupuesto/);
+    assert.equal(html.includes("No requerido"), false);
+  });
+
+  it("restricted users see the link exists but no commercial data, and cannot edit it", () => {
+    const situation = resolveOrderQuoteSituation({
+      sourceQuote: null,
+      sourceQuoteRestricted: true,
+      quoteStatus: pending,
+      quoteStatusOptions: options,
+    });
+    const view = renderToStaticMarkup(createElement(OrderQuoteSituationValue, { situation }));
+    assert.match(view, /Vinculado a un presupuesto/);
+    assert.match(view, /Detalle no disponible/);
+    assert.equal(/href=|Aceptado|En revisión|No requerido|SUR4-P/.test(view), false);
+    const edit = renderToStaticMarkup(
+      createElement(OrderQuoteSituationField, {
+        situation,
+        value: "s-pending",
+        storedId: "s-pending",
+        options,
+        onChange: () => {},
+      })
+    );
+    assert.equal(edit.includes("<select"), false);
+  });
+
+  it("edit mode with a service that requires a quote: empty option follows the service rule", () => {
+    const html = renderToStaticMarkup(
+      createElement(OrderQuoteSituationField, {
+        situation: resolveOrderQuoteSituation({
+          sourceQuote: null,
+          quoteStatus: null,
+          serviceRequiresQuote: true,
+          quoteStatusOptions: options,
+        }),
+        value: null,
+        storedId: null,
+        options,
+        serviceRequiresQuote: true,
+        onChange: () => {},
+      })
+    );
+    assert.match(html, /<option value=""[^>]*>Requiere presupuesto \(según el servicio\)<\/option>/);
+    assert.match(html, /value="s-nr"/);
+  });
+
+  it("workspace and Producción pass the restricted flag and the service rule", () => {
+    const production = readFileSync(new URL("./order-production.tsx", import.meta.url), "utf8");
+    const workspace = readFileSync(new URL("./order-workspace.tsx", import.meta.url), "utf8");
+    assert.match(workspace, /setSourceQuoteRestricted\(result\.source_quote_restricted === true\)/);
+    assert.match(workspace, /sourceQuoteRestricted=\{sourceQuoteRestricted\}/);
+    assert.match(production, /serviceRequiresQuote: order\.service\?\.requires_quote === true/);
+    assert.match(production, /serviceRequiresQuote=\{order\.service\?\.requires_quote === true\}/);
+  });
 });
+

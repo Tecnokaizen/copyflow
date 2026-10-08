@@ -3,6 +3,8 @@ import { DraftSelect } from "@/components/orders/detail/order-field";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
 import {
   QUOTE_NOT_REQUIRED_LABEL,
+  QUOTE_REQUIRED_DETAIL,
+  isDerivedQuoteSituation,
   manualQuoteStatusOptions,
   type OrderQuoteSituation,
 } from "@/lib/orders/quote-situation";
@@ -20,6 +22,34 @@ export function OrderQuoteSituationValue({
 
   if (situation.kind === "manual") {
     return <QuoteStatusBadge name={situation.label} code={situation.code} />;
+  }
+
+  if (situation.kind === "restricted") {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span>{situation.label}</span>
+        <span className="text-sm font-normal text-muted-foreground">
+          · {situation.detail}
+        </span>
+      </span>
+    );
+  }
+
+  if (situation.kind === "required") {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {situation.code ? (
+          <QuoteStatusBadge name={situation.label} code={situation.code} />
+        ) : (
+          <span>{situation.label}</span>
+        )}
+        {situation.code ? (
+          <span className="text-sm font-normal text-muted-foreground">
+            · {situation.detail}
+          </span>
+        ) : null}
+      </span>
+    );
   }
 
   return (
@@ -47,6 +77,7 @@ export function OrderQuoteSituationField({
   value,
   storedId,
   options,
+  serviceRequiresQuote = false,
   disabled,
   onChange,
 }: {
@@ -54,10 +85,12 @@ export function OrderQuoteSituationField({
   value: string | null;
   storedId: string | null;
   options: ReadonlyArray<ManagementOption> | null | undefined;
+  /** The empty value falls back to the service rule instead of "No requerido". */
+  serviceRequiresQuote?: boolean;
   disabled?: boolean;
   onChange: (value: string | null) => void;
 }) {
-  if (situation.kind === "source") {
+  if (isDerivedQuoteSituation(situation)) {
     return (
       <div className="space-y-1 py-1">
         <OrderQuoteSituationValue situation={situation} />
@@ -74,8 +107,15 @@ export function OrderQuoteSituationField({
       disabled={disabled}
       onChange={(next) => onChange(next || null)}
     >
-      <option value="">{QUOTE_NOT_REQUIRED_LABEL}</option>
-      {manualQuoteStatusOptions(options, value ?? storedId).map((option) => (
+      <option value="">
+        {serviceRequiresQuote
+          ? `${QUOTE_REQUIRED_DETAIL} (según el servicio)`
+          : QUOTE_NOT_REQUIRED_LABEL}
+      </option>
+      {(serviceRequiresQuote
+        ? [...(options ?? [])]
+        : manualQuoteStatusOptions(options, value ?? storedId)
+      ).map((option) => (
         <option key={option.id} value={option.id}>
           {option.name}
         </option>

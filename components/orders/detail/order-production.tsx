@@ -39,6 +39,7 @@ export function OrderProduction({
   managementOptions,
   managementOptionsLoading,
   sourceQuote = null,
+  sourceQuoteRestricted = false,
   onDraftChange,
   onDueAtInvalid,
 }: {
@@ -52,13 +53,17 @@ export function OrderProduction({
   managementOptionsLoading: boolean;
   /** Tenant-scoped source quote (order_source_quote_v2); source of truth when present. */
   sourceQuote?: SourceQuote | null;
+  /** The order has a source quote this user cannot read. */
+  sourceQuoteRestricted?: boolean;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
   onDueAtInvalid?: (invalid: boolean) => void;
 }) {
   const [rejectedLocal, setRejectedLocal] = useState<string | null>(null);
   const quoteSituation = resolveOrderQuoteSituation({
     sourceQuote,
+    sourceQuoteRestricted,
     quoteStatus: order.quote_status,
+    serviceRequiresQuote: order.service?.requires_quote === true,
     quoteStatusOptions: managementOptions?.quote_statuses,
   });
 
@@ -136,6 +141,7 @@ export function OrderProduction({
             value={draft.quote_status_id}
             storedId={order.quote_status_id}
             options={managementOptions?.quote_statuses}
+            serviceRequiresQuote={order.service?.requires_quote === true}
             disabled={managementOptionsLoading}
             onChange={(value) => onDraftChange({ quote_status_id: value })}
           />

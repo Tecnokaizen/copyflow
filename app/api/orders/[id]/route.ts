@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { toPublicOrderDto } from "@/lib/orders/concurrency";
 import { executeChangeOrderStatus } from "@/lib/orders/change-status-api";
+import { orderComesFromQuote } from "@/lib/orders/source-quote-link";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -66,7 +67,7 @@ export async function GET(
         notes,
         active
       ),
-      service:services(id, name, active),
+      service:services(id, name, active, requires_quote),
       status:order_statuses(id, code, name, is_initial, is_ready, is_closed, is_cancelled, active),
       entry_channel:entry_channels(id, code, name, active),
       assigned_team_member:team_members(id, name, active),
@@ -92,9 +93,14 @@ export async function GET(
     p_tenant_id: context.tenant.id, p_order_id: id,
   });
   if (sourceError) return operationalJson({error:"No se pudo cargar el presupuesto origen"},{status:500});
+  // When the scoped RPC returns nothing (role without quote access or quotes
+  // feature off) only the existence of the link is exposed, never its data.
+  const sourceQuoteRestricted =
+    !sourceQuote && (await orderComesFromQuote(supabase, context.tenant.id, id));
   return operationalJson({
     tenant: context.tenant.slug,
     source_quote: sourceQuote ?? null,
+    source_quote_restricted: sourceQuoteRestricted,
     order: toPublicOrderDto(order as Record<string, unknown>),
   });
 }

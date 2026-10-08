@@ -4,10 +4,13 @@ import { describe, it } from "node:test";
 import {
   QUOTE_NOT_REQUIRED_LABEL,
   formatOrderQuoteSituation,
+  isDerivedQuoteSituation,
   manualQuoteStatusOptions,
   resolveOrderQuoteSituation,
 } from "./quote-situation";
 import { buildDraftSaveSteps, createOrderDraft } from "./draft";
+import { toPublicOrderDto } from "@/lib/files/dto";
+import { orderComesFromQuote } from "./source-quote-link";
 import type { Order, SourceQuote } from "./types";
 
 const catalog = [
@@ -174,4 +177,111 @@ describe("order quote situation", () => {
       false
     );
   });
+
+  it("13. service that requires a quote shows the tenant pending status instead of No requerido", () => {
+    const situation = resolveOrderQuoteSituation({
+      sourceQuote: null,
+      quoteStatus: null,
+      serviceRequiresQuote: true,
+      quoteStatusOptions: catalog,
+    });
+    assert.equal(situation.kind, "required");
+    assert.equal(situation.code, "pending");
+    assert.equal(situation.label, "En revisión");
+    assert.equal(formatOrderQuoteSituation(situation), "En revisión · Requiere presupuesto");
+  });
+
+  it("13b. without a pending catalog entry no status is invented", () => {
+    const situation = resolveOrderQuoteSituation({
+      sourceQuote: null,
+      quoteStatus: null,
+      serviceRequiresQuote: true,
+      quoteStatusOptions: [{ code: "accepted", name: "Aceptado" }],
+    });
+    assert.equal(situation.kind, "required");
+    assert.equal(situation.code, null);
+    assert.equal(formatOrderQuoteSituation(situation), "Requiere presupuesto");
+  });
+
+  it("13c. an explicit manual value on the order wins over the service rule", () => {
+    const situation = resolveOrderQuoteSituation({
+      sourceQuote: null,
+      quoteStatus: { code: "not_required", name: "No requerido" },
+      serviceRequiresQuote: true,
+      quoteStatusOptions: catalog,
+    });
+    assert.equal(situation.kind, "manual");
+    assert.equal(situation.label, "No requerido");
+  });
+
+  it("13d. a source quote wins over the service rule", () => {
+    const situation = resolveOrderQuoteSituation({
+      sourceQuote: source,
+      quoteStatus: null,
+      serviceRequiresQuote: true,
+    });
+    assert.equal(situation.kind, "source");
+  });
+
+  it("14. restricted users: a hidden source quote never falls back to a manual or default state", () => {
+    for (const quoteStatus of [null, { code: "pending", name: "En revisión" }]) {
+      const situation = resolveOrderQuoteSituation({
+        sourceQuote: null,
+        sourceQuoteRestricted: true,
+        quoteStatus,
+        serviceRequiresQuote: true,
+        quoteStatusOptions: catalog,
+      });
+      assert.equal(situation.kind, "restricted");
+      const text = formatOrderQuoteSituation(situation);
+      assert.equal(text, "Vinculado a un presupuesto · Detalle no disponible");
+      assert.equal(/No requerido|En revisión|Aceptado|SUR4-P|€/.test(text), false);
+    }
+  });
+
+  it("14b. derived situations (source/restricted) are not manually editable", () => {
+    assert.equal(isDerivedQuoteSituation(resolveOrderQuoteSituation({ sourceQuote: source, quoteStatus: null })), true);
+    assert.equal(
+      isDerivedQuoteSituation(
+        resolveOrderQuoteSituation({ sourceQuote: null, sourceQuoteRestricted: true, quoteStatus: null })
+      ),
+      true
+    );
+    assert.equal(isDerivedQuoteSituation(resolveOrderQuoteSituation({ sourceQuote: null, quoteStatus: null })), false);
+  });
+
+  it("14c. the order API only exposes a boolean for restricted links; metadata never leaves the server", async () => {
+    const route = readFileSync(new URL("../../app/api/orders/[id]/route.ts", import.meta.url), "utf8");
+    assert.match(route, /service:services\(id, name, active, requires_quote\)/);
+    assert.match(route, /!sourceQuote && \(await orderComesFromQuote\(supabase, context\.tenant\.id, id\)\)/);
+    assert.match(route, /source_quote_restricted: sourceQuoteRestricted/);
+
+    const helper = readFileSync(new URL("./source-quote-link.ts", import.meta.url), "utf8");
+    assert.match(helper, /\.select\("quote_origin:metadata->>source"\)/);
+    assert.match(helper, /\.eq\("tenant_id", tenantId\)/);
+    assert.equal(helper.includes("service_role"), false);
+
+    const calls: string[] = [];
+    const fake = (row: { quote_origin?: unknown } | null) => ({
+      from: (table: "orders") => {
+        calls.push(table);
+        return {
+          select: () => ({
+            eq: (_c: "id", _v: string) => ({
+              eq: (_c2: "tenant_id", _v2: string) => ({
+                maybeSingle: async () => ({ data: row, error: null }),
+              }),
+            }),
+          }),
+        };
+      },
+    });
+    assert.equal(await orderComesFromQuote(fake({ quote_origin: "quote" }), "t1", "o1"), true);
+    assert.equal(await orderComesFromQuote(fake({ quote_origin: "kiosk" }), "t1", "o1"), false);
+    assert.equal(await orderComesFromQuote(fake(null), "t1", "o1"), false);
+
+    const dto = toPublicOrderDto({ id: "o", row_version: 1, metadata: { source: "quote" } });
+    assert.equal("metadata" in dto, false);
+  });
 });
+
