@@ -81,12 +81,12 @@ try {
     });
     await page.goto(`${url}/?mode=${mode}`);
     const create = page.getByRole("button", {name:/Crear nuevo cliente/}); await create.waitFor();
-    const initialUrl = page.url();
     if (mode === "quote") await page.getByRole("button",{name:"Añadir línea",exact:true}).click();
     const search = page.getByPlaceholder("Buscar cliente", {exact:false});
     await search.fill("Cliente inline"); await search.press("Escape"); await create.click();
     const modal = page.locator("form").filter({has:page.getByRole("heading", {name:/^(Nuevo cliente|Crear cliente)$/})}).last();
     await modal.getByLabel("Nombre *", {exact:true}).waitFor();
+    const initialUrl = page.url();
     // Inspect native form ownership before submitting, including an incomplete quote.
     const ownership = await modal.getByRole("button", {name:"Crear cliente",exact:true}).evaluate(button=>({
       nested:!!button.closest('form')?.parentElement?.closest('form'),
