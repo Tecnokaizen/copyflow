@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
 import { applyOperationalOrdersFilter, applyNonArchivedOrdersFilter, applyArchivedOrdersFilter } from "@/lib/orders/operational";
+import { REVIEW_ID_CHUNK, loadOperationalReviewOrders, loadTenantZonedDay } from "@/lib/orders/review-load";
 import {
   ORDERS_CLIENT_SEARCH_EMBED,
   buildOrdersClientNameImatchValue,
@@ -24,7 +25,7 @@ import {
   type StoreListFilter,
 } from "@/lib/stores/scope";
 import { mapStoreLookup } from "@/lib/stores/types";
-import { getZonedDayBounds, resolveTimeZone, getZonedWeekBoundsFromMonday, getZonedWeekMondayCivil, parseCivilDate } from "@/lib/time/zoned-day";
+import { resolveTimeZone, getZonedWeekBoundsFromMonday, getZonedWeekMondayCivil, parseCivilDate } from "@/lib/time/zoned-day";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PRIORITIES = ["normal", "high", "urgent"] as const;
@@ -133,6 +134,147 @@ function applyListOrdering(
         .order("created_at", { ascending: false })
         .order("id", { ascending: false });
   }
+}
+
+function chunkIds(ids: string[], size: number) {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function relatedName(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return readString((value as { name?: unknown }).name);
+}
+
+function compareText(
+  left: string | null,
+  right: string | null,
+  dir: SortDir
+) {
+  if (left == null && right == null) {
+    return 0;
+  }
+  if (left == null) {
+    return 1;
+  }
+  if (right == null) {
+    return -1;
+  }
+
+  const compared = left.localeCompare(right, "es", { sensitivity: "base" });
+  return dir === "desc" ? -compared : compared;
+}
+
+function compareListedOrders(
+  left: unknown,
+  right: unknown,
+  sort: SortField | null,
+  dir: SortDir | null
+) {
+  const a = (left ?? {}) as Record<string, unknown>;
+  const b = (right ?? {}) as Record<string, unknown>;
+  const direction = dir ?? "asc";
+  let primary = 0;
+
+  switch (sort) {
+    case "reference":
+      primary = compareText(readString(a.reference), readString(b.reference), direction);
+      break;
+    case "client":
+      primary = compareText(relatedName(a.client), relatedName(b.client), direction);
+      break;
+    case "channel":
+      primary = compareText(
+        relatedName(a.entry_channel),
+        relatedName(b.entry_channel),
+        direction
+      );
+      break;
+    case "assignee":
+      primary = compareText(
+        relatedName(a.assigned_team_member),
+        relatedName(b.assigned_team_member),
+        direction
+      );
+      break;
+    case "status": {
+      const leftStatus =
+        a.status && typeof a.status === "object"
+          ? (a.status as { sort_order?: unknown; name?: unknown })
+          : null;
+      const rightStatus =
+        b.status && typeof b.status === "object"
+          ? (b.status as { sort_order?: unknown; name?: unknown })
+          : null;
+      const leftOrder =
+        typeof leftStatus?.sort_order === "number" ? leftStatus.sort_order : null;
+      const rightOrder =
+        typeof rightStatus?.sort_order === "number" ? rightStatus.sort_order : null;
+      if (leftOrder == null && rightOrder == null) {
+        primary = 0;
+      } else if (leftOrder == null) {
+        primary = 1;
+      } else if (rightOrder == null) {
+        primary = -1;
+      } else {
+        primary = direction === "desc" ? rightOrder - leftOrder : leftOrder - rightOrder;
+      }
+      if (primary === 0) {
+        primary = compareText(
+          readString(leftStatus?.name),
+          readString(rightStatus?.name),
+          "asc"
+        );
+      }
+      break;
+    }
+    case "due_at": {
+      const leftDue = readString(a.due_at);
+      const rightDue = readString(b.due_at);
+      if (leftDue == null && rightDue == null) {
+        primary = 0;
+      } else if (leftDue == null) {
+        primary = 1;
+      } else if (rightDue == null) {
+        primary = -1;
+      } else {
+        const compared = Date.parse(leftDue) - Date.parse(rightDue);
+        primary = direction === "desc" ? -compared : compared;
+      }
+      break;
+    }
+    default: {
+      const leftCreated = Date.parse(readString(a.created_at) ?? "");
+      const rightCreated = Date.parse(readString(b.created_at) ?? "");
+      const compared =
+        (Number.isNaN(rightCreated) ? 0 : rightCreated) -
+        (Number.isNaN(leftCreated) ? 0 : leftCreated);
+      if (compared !== 0) {
+        return compared;
+      }
+      return (readString(b.id) ?? "").localeCompare(readString(a.id) ?? "");
+    }
+  }
+
+  if (primary !== 0) {
+    return primary;
+  }
+
+  if (sort === "reference") {
+    return (readString(a.id) ?? "").localeCompare(readString(b.id) ?? "");
+  }
+
+  return compareText(readString(a.reference), readString(b.reference), "asc");
 }
 
 const ORDER_SELECT = `
@@ -405,22 +547,6 @@ async function countAllOrders(
   return { error: null, total: count ?? 0 };
 }
 
-async function resolveUpcomingCutoffIso(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  tenantId: string
-) {
-  const { data: settings } = await supabase
-    .from("tenant_settings")
-    .select("timezone")
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-
-  const timezone = resolveTimeZone(
-    typeof settings?.timezone === "string" ? settings.timezone : null
-  );
-  const day = getZonedDayBounds(new Date(), timezone);
-  return day.end.toISOString();
-}
 
 export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
@@ -689,6 +815,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const zonedActive = await loadTenantZonedDay(supabase, context.tenant.id);
+    if (zonedActive.error || !zonedActive.day) {
+      console.error("[GET /api/orders] Could not load tenant timezone", {
+        tenantId: context.tenant.id,
+        error: zonedActive.error,
+      });
+
+      return operationalJson(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
     return operationalJson({
       tenant: context.tenant.slug,
       count: result.orders.length,
@@ -696,6 +835,8 @@ export async function GET(request: NextRequest) {
       page: 1,
       page_size: result.orders.length,
       orders: result.orders,
+      timezone: zonedActive.day.timezone,
+      local_date: zonedActive.day.localDate,
     });
   }
 
@@ -712,66 +853,191 @@ export async function GET(request: NextRequest) {
     select = `${select.trim()},\n  ${ORDERS_CLIENT_SEARCH_EMBED}`;
   }
 
-  let query = supabase
-    .from("orders")
-    .select(select, { count: "exact" })
-    .eq("tenant_id", context.tenant.id);
+  const listedAt = new Date();
+  const zoned = await loadTenantZonedDay(supabase, context.tenant.id, listedAt);
+  if (zoned.error || !zoned.day) {
+    console.error("[GET /api/orders] Could not load tenant timezone", {
+      tenantId: context.tenant.id,
+      error: zoned.error,
+    });
 
-  if (needsStatusInner) {
-    query = applyOperationalOrdersFilter(query);
-  } else if (effectiveFilter === "archived") {
-    query = applyArchivedOrdersFilter(query);
-  } else if (effectiveFilter === "all" || effectiveFilter === null) {
-    // "all" and unfiltered list pages: non-archived only
-    query = applyNonArchivedOrdersFilter(query);
-  }
-
-  if (effectiveFilter === "urgent") {
-    query = query.eq("priority", "urgent");
-  }
-
-  if (effectiveFilter === "overdue") {
-    query = query
-      .not("due_at", "is", null)
-      .lt("due_at", new Date().toISOString());
-  }
-
-  if (effectiveFilter === "attention") {
-    query = query.eq("status.is_ready", true);
-  }
-
-  if (effectiveFilter === "upcoming") {
-    const upcomingCutoff = await resolveUpcomingCutoffIso(
-      supabase,
-      context.tenant.id
+    return operationalJson(
+      { error: "Could not load orders" },
+      { status: 500 }
     );
-    query = query.gte("due_at", upcomingCutoff);
   }
 
-  if (assignedTeamMemberId) {
-    query = query.eq("assigned_team_member_id", assignedTeamMemberId);
+  let reviewIds: string[] | null = null;
+  if (effectiveFilter === "attention") {
+    const review = await loadOperationalReviewOrders(
+      supabase,
+      context.tenant.id,
+      zoned.day,
+      listedAt
+    );
+
+    if (review.error) {
+      console.error("[GET /api/orders] Could not load review orders", {
+        tenantId: context.tenant.id,
+        error: review.error,
+      });
+
+      return operationalJson(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
+    reviewIds = review.orders.map((row) => row.id);
   }
 
-  if (statusId) {
-    query = query.eq("status_id", statusId);
+  const day = zoned.day;
+  const listMeta = {
+    timezone: day.timezone,
+    local_date: day.localDate,
+  };
+
+  if (reviewIds && reviewIds.length === 0) {
+    const allTotalResult = await countAllOrders(supabase, context.tenant.id);
+    if (allTotalResult.error) {
+      return operationalJson(
+        { error: "Could not load orders" },
+        { status: 500 }
+      );
+    }
+
+    return operationalJson({
+      tenant: context.tenant.slug,
+      count: 0,
+      total: 0,
+      all_total: allTotalResult.total,
+      page,
+      page_size: pageSize,
+      orders: [],
+      ...listMeta,
+    });
   }
 
-  query = applyStoreListFilter(query, storeFilter);
+  const tenantId = context.tenant.id;
 
-  if (searchQuery) {
-    // Embed name filter (AND on embed) + top-level OR with not.is.null.
-    // Keeps reference/title matches even when client name does not match.
-    // imatch (not ilike): PostgREST rewrites *→% in like/ilike even when quoted.
-    query = query
-      .filter("client_search.name", "imatch", buildOrdersClientNameImatchValue(searchQuery))
-      .or(buildOrdersListSearchOrClause(searchQuery));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase builder
+  function buildListQuery(idChunk: string[] | null): any {
+    let query = supabase
+      .from("orders")
+      .select(select, { count: "exact" })
+      .eq("tenant_id", tenantId);
+
+    if (needsStatusInner) {
+      query = applyOperationalOrdersFilter(query);
+    } else if (effectiveFilter === "archived") {
+      query = applyArchivedOrdersFilter(query);
+    } else if (effectiveFilter === "all" || effectiveFilter === null) {
+      // "all" and unfiltered list pages: non-archived only
+      query = applyNonArchivedOrdersFilter(query);
+    }
+
+    if (effectiveFilter === "urgent") {
+      query = query.eq("priority", "urgent");
+    }
+
+    if (effectiveFilter === "overdue") {
+      query = query
+        .not("due_at", "is", null)
+        .lt("due_at", new Date().toISOString());
+    }
+
+    if (effectiveFilter === "upcoming") {
+      query = query.gte("due_at", day.dayEnd.toISOString());
+    }
+
+    if (assignedTeamMemberId) {
+      query = query.eq("assigned_team_member_id", assignedTeamMemberId);
+    }
+
+    if (statusId) {
+      query = query.eq("status_id", statusId);
+    }
+
+    query = applyStoreListFilter(query, storeFilter);
+
+    if (searchQuery) {
+      // Embed name filter (AND on embed) + top-level OR with not.is.null.
+      // Keeps reference/title matches even when client name does not match.
+      // imatch (not ilike): PostgREST rewrites *→% in like/ilike even when quoted.
+      query = query
+        .filter("client_search.name", "imatch", buildOrdersClientNameImatchValue(searchQuery))
+        .or(buildOrdersListSearchOrClause(searchQuery));
+    }
+
+    if (idChunk) {
+      query = query.in("id", idChunk);
+    }
+
+    return query;
   }
 
-  const {
-    data: orders,
-    error,
-    count: total,
-  } = await applyListOrdering(query, sortField, sortDir).range(from, to);
+  let orders: unknown[] | null = null;
+  let total = 0;
+  let error: { message?: string } | null = null;
+
+  if (reviewIds && reviewIds.length > REVIEW_ID_CHUNK) {
+    const collected: unknown[] = [];
+    for (const chunk of chunkIds(reviewIds, REVIEW_ID_CHUNK)) {
+      let offset = 0;
+      while (true) {
+        const result = await applyListOrdering(
+          buildListQuery(chunk),
+          sortField,
+          sortDir
+        ).range(offset, offset + 999);
+
+        if (result.error) {
+          error = result.error;
+          break;
+        }
+
+        const batch = (result.data ?? []) as unknown[];
+        collected.push(...batch);
+        if (batch.length < 1000) {
+          break;
+        }
+        offset += 1000;
+      }
+
+      if (error) {
+        break;
+      }
+    }
+
+    if (!error) {
+      const seen = new Set<string>();
+      const unique = collected.filter((row) => {
+        if (!row || typeof row !== "object") {
+          return false;
+        }
+        const id = (row as { id?: unknown }).id;
+        if (typeof id !== "string" || seen.has(id)) {
+          return false;
+        }
+        seen.add(id);
+        return true;
+      });
+      unique.sort((left, right) =>
+        compareListedOrders(left, right, sortField, sortDir)
+      );
+      total = unique.length;
+      orders = unique.slice(from, to + 1);
+    }
+  } else {
+    const result = await applyListOrdering(
+      buildListQuery(reviewIds),
+      sortField,
+      sortDir
+    ).range(from, to);
+    orders = result.data;
+    total = result.count ?? 0;
+    error = result.error;
+  }
 
   if (error) {
     console.error("[GET /api/orders] Could not load orders", {
@@ -807,6 +1073,7 @@ export async function GET(request: NextRequest) {
     page,
     page_size: pageSize,
     orders: omitRowVersionFromList(orders ?? []),
+    ...listMeta,
   });
 }
 
