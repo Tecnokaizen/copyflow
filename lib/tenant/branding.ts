@@ -1,7 +1,11 @@
+import { looksLikeHtml, normalizeRichText } from "@/lib/rich-text/html";
+import { richTextLineStats } from "@/lib/rich-text/lines";
+
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const BUSINESS_NAME_MAX_LENGTH = 120;
 export const QUOTE_FOOTER_MAX_CHARS = 400;
 export const QUOTE_FOOTER_MAX_LINES = 4;
+export const QUOTE_FOOTER_MAX_HTML_CHARS = 8_000;
 export const TENANT_LOGO_PATH = "/api/tenant/logo";
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -63,21 +67,26 @@ export function parseQuoteFooter(
   if (typeof value !== "string") {
     return { ok: false, error: "El pie de presupuestos debe ser texto." };
   }
-  const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (value.length > QUOTE_FOOTER_MAX_HTML_CHARS) {
+    return { ok: false, error: "El pie de presupuestos contiene demasiado formato." };
+  }
+  const legacy = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const normalized = normalizeRichText(legacy);
   if (!normalized) return { ok: true, value: null };
-  if (normalized.length > QUOTE_FOOTER_MAX_CHARS) {
+  const stats = richTextLineStats(normalized);
+  if (stats.chars > QUOTE_FOOTER_MAX_CHARS) {
     return {
       ok: false,
       error: "El pie de presupuestos admite como máximo 400 caracteres.",
     };
   }
-  if (normalized.split("\n").length > QUOTE_FOOTER_MAX_LINES) {
+  if (stats.lines > QUOTE_FOOTER_MAX_LINES) {
     return {
       ok: false,
       error: "El pie de presupuestos admite como máximo 4 líneas.",
     };
   }
-  return { ok: true, value: normalized };
+  return { ok: true, value: looksLikeHtml(legacy) ? normalized : legacy };
 }
 
 export function quoteFooterFromBranding(branding: unknown): string {

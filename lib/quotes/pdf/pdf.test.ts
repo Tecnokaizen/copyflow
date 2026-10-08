@@ -6,8 +6,36 @@ import { anfreFixture } from "./fixture";
 import { quoteDocumentModel, documentMoney, documentNumber, documentUnitPrice } from "./model";
 import { renderQuotePdf } from "./render";
 import { generateQuotePdf, type PdfHead, type PdfProvider } from "./generate";
+import { PDFName, PDFDict, PDFString } from "pdf-lib";
 
 describe("authoritative commercial PDF", () => {
+  it("renders frozen rich footer marks, safe links and numbering on every page deterministically", async () => {
+    const f = anfreFixture();
+    const footer = '<p><strong><em>Empresa &amp; compañía</em></strong> · <u>NIF</u> · <s>Anterior</s></p><ul><li><p>Calle 12</p></li></ul><ol><li><p><a href="https://example.org/?a=1&amp;b=2">Web</a> · <a href="mailto:info@example.org">Correo</a></p></li></ol><p>' + "W".repeat(250) + '</p>';
+    const branding = { quote_footer: footer };
+    const version = { ...f.version, seller_snapshot: { ...f.version.seller_snapshot, branding } };
+    const frozen = quoteDocumentModel(f.reference, version, f.items);
+    branding.quote_footer = "Nuevo pie";
+    assert.equal(frozen.footer.includes("Empresa"), true);
+    assert.equal(frozen.footer.includes("Nuevo pie"), false);
+    const model = { ...frozen, items: Array.from({ length: 160 }, (_, index) => ({ ...frozen.items[index % 4], id: `${index}`, position: index + 1 })) };
+    const buffer = await renderQuotePdf(model);
+    const pdf = await PDFDocument.load(buffer);
+    assert.ok(pdf.getPageCount() > 2);
+    assert.deepEqual(pageNumberLabels(pdf), pdf.getPages().map((_, index) => `${index + 1} / ${pdf.getPageCount()}`));
+    for (const page of pdf.getPages()) {
+      const uris = (page.node.Annots()?.asArray() ?? []).flatMap((ref) => {
+        const annotation = pdf.context.lookup(ref, PDFDict);
+        const action = annotation.lookupMaybe(PDFName.of("A"), PDFDict);
+        const uri = action?.lookupMaybe(PDFName.of("URI"), PDFString);
+        return uri ? [uri.decodeText()] : [];
+      });
+      assert.deepEqual(uris, ["https://example.org/?a=1&b=2", "mailto:info@example.org"]);
+    }
+    assert.match(buffer.toString("latin1"), /NotoSans-BoldItalic/);
+    await renderQuotePdf({ ...frozen, footer: "Otro presupuesto entre reintentos" });
+    assert.deepEqual(buffer, await renderQuotePdf(model));
+  });
   it("uses commercial revision labels in PDF metadata and hides the first revision", async () => {
     const f = anfreFixture();
     const first = quoteDocumentModel(f.reference, { ...f.version, version_number: 1 }, f.items);
