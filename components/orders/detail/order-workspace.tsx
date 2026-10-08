@@ -1347,6 +1347,7 @@ export function OrderWorkspace() {
             orderOptionsLoading={orderOptionsLoading}
             managementOptions={managementOptions}
             managementOptionsLoading={managementOptionsLoading}
+            sourceQuote={sourceQuote}
             onDraftChange={patchDraft}
             onDueAtInvalid={handleDueAtInvalid}
           />

@@ -10,7 +10,12 @@ import {
   FactRow,
   FactValue,
 } from "@/components/orders/detail/order-field";
+import {
+  OrderQuoteSituationField,
+  OrderQuoteSituationValue,
+} from "@/components/orders/detail/order-quote-situation";
 import { formatFactLabel } from "@/lib/orders/fact-label";
+import { resolveOrderQuoteSituation } from "@/lib/orders/quote-situation";
 import {
   fromDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -21,6 +26,7 @@ import type {
   OrderDraft,
   OrderOptionsResponse,
   OrderStatus,
+  SourceQuote,
 } from "@/lib/orders/types";
 
 export function OrderProduction({
@@ -32,6 +38,7 @@ export function OrderProduction({
   orderOptionsLoading,
   managementOptions,
   managementOptionsLoading,
+  sourceQuote = null,
   onDraftChange,
   onDueAtInvalid,
 }: {
@@ -43,10 +50,17 @@ export function OrderProduction({
   orderOptionsLoading: boolean;
   managementOptions: ManagementOptionsResponse | null;
   managementOptionsLoading: boolean;
+  /** Tenant-scoped source quote (order_source_quote_v2); source of truth when present. */
+  sourceQuote?: SourceQuote | null;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
   onDueAtInvalid?: (invalid: boolean) => void;
 }) {
   const [rejectedLocal, setRejectedLocal] = useState<string | null>(null);
+  const quoteSituation = resolveOrderQuoteSituation({
+    sourceQuote,
+    quoteStatus: order.quote_status,
+    quoteStatusOptions: managementOptions?.quote_statuses,
+  });
 
   if (editing && draft) {
     return (
@@ -117,20 +131,14 @@ export function OrderProduction({
           </DraftSelect>
         </FactRow>
         <FactRow label="Presupuesto">
-          <DraftSelect
-            value={draft.quote_status_id ?? ""}
+          <OrderQuoteSituationField
+            situation={quoteSituation}
+            value={draft.quote_status_id}
+            storedId={order.quote_status_id}
+            options={managementOptions?.quote_statuses}
             disabled={managementOptionsLoading}
-            onChange={(value) =>
-              onDraftChange({ quote_status_id: value || null })
-            }
-          >
-            <option value="">— Sin definir —</option>
-            {managementOptions?.quote_statuses.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </DraftSelect>
+            onChange={(value) => onDraftChange({ quote_status_id: value })}
+          />
         </FactRow>
         <FactRow label="Enlace a Drive">
           <DraftInput
@@ -198,7 +206,7 @@ export function OrderProduction({
         <FactValue value={order.file_status?.name} empty="Sin estado de archivo" />
       </FactRow>
       <FactRow label="Presupuesto">
-        <FactValue value={order.quote_status?.name} />
+        <OrderQuoteSituationValue situation={quoteSituation} />
       </FactRow>
       <FactRow label="Enlace a Drive">
         {order.external_folder_url?.trim() ? (
