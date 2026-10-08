@@ -815,7 +815,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const zonedActive = await loadTenantZonedDay(supabase, context.tenant.id);
+    const activeNow = new Date();
+    const zonedActive = await loadTenantZonedDay(
+      supabase,
+      context.tenant.id,
+      activeNow
+    );
     if (zonedActive.error || !zonedActive.day) {
       console.error("[GET /api/orders] Could not load tenant timezone", {
         tenantId: context.tenant.id,
@@ -837,6 +842,7 @@ export async function GET(request: NextRequest) {
       orders: result.orders,
       timezone: zonedActive.day.timezone,
       local_date: zonedActive.day.localDate,
+      now: activeNow.toISOString(),
     });
   }
 
@@ -895,6 +901,7 @@ export async function GET(request: NextRequest) {
   const listMeta = {
     timezone: day.timezone,
     local_date: day.localDate,
+    now: listedAt.toISOString(),
   };
 
   if (reviewIds && reviewIds.length === 0) {

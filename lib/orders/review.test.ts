@@ -181,21 +181,23 @@ describe("classifyOrderReview", () => {
   });
 
   it("uses the tenant timezone when it differs from another zone", () => {
-    const now = new Date("2026-10-07T16:30:00.000Z");
-    const due = new Date("2026-10-07T14:00:00.000Z").toISOString();
-    const value = order({
-      due_at: due,
+    const now = new Date("2026-10-07T21:30:00.000Z");
+    const future = order({
+      due_at: new Date("2026-10-07T23:00:00.000Z").toISOString(),
+      status: { is_ready: false, is_closed: false, is_cancelled: false },
+    });
+    const past = order({
+      id: "past",
+      due_at: new Date("2026-10-07T20:00:00.000Z").toISOString(),
       status: { is_ready: false, is_closed: false, is_cancelled: false },
     });
 
-    assert.deepEqual(
-      codes(value, { timeZone: "Europe/Madrid", now }),
-      ["due_today_pending"]
-    );
-    assert.deepEqual(
-      codes(value, { timeZone: "Asia/Tokyo", now }),
-      ["overdue"]
-    );
+    assert.deepEqual(codes(future, { timeZone: "America/New_York", now }), [
+      "due_today_pending",
+    ]);
+    assert.deepEqual(codes(future, { timeZone: "Europe/Madrid", now }), []);
+    assert.deepEqual(codes(past, { timeZone: "Europe/Madrid", now }), ["overdue"]);
+    assert.deepEqual(codes(past, { timeZone: "America/New_York", now }), ["overdue"]);
   });
 
   it("classifies the midnight boundary on the tenant civil day", () => {
@@ -208,17 +210,24 @@ describe("classifyOrderReview", () => {
       id: "before",
       due_at: new Date(day.start.getTime() - 1000).toISOString(),
     });
-    const after = order({
-      id: "after",
+    const justAfterMidnight = order({
+      id: "just-after",
       due_at: new Date(day.start.getTime() + 1000).toISOString(),
+    });
+    const laterToday = order({
+      id: "later",
+      due_at: new Date(now.getTime() + 60_000).toISOString(),
     });
 
     assert.deepEqual(codes(before, context), ["overdue"]);
-    assert.deepEqual(codes(after, context), ["due_today_pending"]);
+    assert.equal(codes(before, context).includes("due_today_pending"), false);
+    assert.deepEqual(codes(justAfterMidnight, context), ["overdue"]);
     assert.equal(
-      codes(before, context).includes("due_today_pending"),
+      codes(justAfterMidnight, context).includes("due_today_pending"),
       false
     );
+    assert.deepEqual(codes(laterToday, context), ["due_today_pending"]);
+    assert.equal(codes(laterToday, context).includes("overdue"), false);
   });
 
   it("keeps the civil day across DST transitions", () => {
@@ -356,24 +365,113 @@ describe("classifyOrderReview", () => {
   });
 
   it("labels an operational due-today order as HOY and leaves terminal orders plain", () => {
+    const now = new Date("2026-10-08T12:00:00.000Z");
     const due = new Date("2026-10-08T15:00:00.000Z").toISOString();
-    const today = formatTenantDueLabel(due, "Europe/Madrid", "2026-10-08", true);
+    const today = formatTenantDueLabel(due, "Europe/Madrid", "2026-10-08", true, now);
     assert.match(today.label, /^HOY · /);
     assert.equal(today.indicator, "Entrega hoy");
     assert.equal(today.overdue, false);
 
-    const closed = formatTenantDueLabel(due, "Europe/Madrid", "2026-10-08", false);
+    const closed = formatTenantDueLabel(
+      due,
+      "Europe/Madrid",
+      "2026-10-08",
+      false,
+      now
+    );
     assert.equal(closed.dueToday, false);
+    assert.equal(closed.overdue, false);
     assert.equal(closed.indicator, null);
 
     const late = formatTenantDueLabel(
       new Date("2026-10-07T15:00:00.000Z").toISOString(),
       "Europe/Madrid",
       "2026-10-08",
-      true
+      true,
+      now
     );
     assert.equal(late.dueToday, false);
     assert.equal(late.overdue, true);
+    assert.equal(late.indicator, null);
+    assert.doesNotMatch(late.label, /^HOY · /);
+  });
+
+  it("treats a passed hour today as overdue, not entrega hoy pendiente", () => {
+    const now = new Date("2026-10-08T14:00:00.000Z");
+    const context: ReviewContext = { timeZone: "Europe/Madrid", now };
+    const value = order({
+      due_at: new Date("2026-10-08T08:00:00.000Z").toISOString(),
+      assigned_team_member_id: null,
+      status: { is_ready: false, is_closed: false, is_cancelled: false },
+    });
+
+    assert.deepEqual(labels(value, context), ["Retrasado", "Sin responsable"]);
+    assert.equal(codes(value, context).includes("due_today_pending"), false);
+    assert.ok(new Date(value.due_at ?? "").getTime() < now.getTime());
+  });
+
+  it("keeps a later hour today as entrega hoy pendiente", () => {
+    const now = new Date("2026-10-08T14:00:00.000Z");
+    const context: ReviewContext = { timeZone: "Europe/Madrid", now };
+    const value = order({
+      due_at: new Date("2026-10-08T15:00:00.000Z").toISOString(),
+      status: { is_ready: false, is_closed: false, is_cancelled: false },
+    });
+
+    assert.deepEqual(labels(value, context), ["Entrega hoy pendiente"]);
+    assert.equal(codes(value, context).includes("overdue"), false);
+  });
+
+  it("shows a passed hour today in danger without the entrega hoy indicator", () => {
+    const now = new Date("2026-10-08T14:00:00.000Z");
+    const due = formatTenantDueLabel(
+      new Date("2026-10-08T08:00:00.000Z").toISOString(),
+      "Europe/Madrid",
+      "2026-10-08",
+      true,
+      now
+    );
+
+    assert.match(due.label, /^HOY · /);
+    assert.equal(due.overdue, true);
+    assert.equal(due.dueToday, false);
+    assert.equal(due.indicator, null);
+  });
+
+  it("shows a future hour today with the entrega hoy indicator", () => {
+    const now = new Date("2026-10-08T14:00:00.000Z");
+    const due = formatTenantDueLabel(
+      new Date("2026-10-08T15:00:00.000Z").toISOString(),
+      "Europe/Madrid",
+      "2026-10-08",
+      true,
+      now
+    );
+
+    assert.match(due.label, /^HOY · /);
+    assert.equal(due.dueToday, true);
+    assert.equal(due.overdue, false);
+    assert.equal(due.indicator, "Entrega hoy");
+  });
+
+  it("does not contradict the overdue filter for a due instant that already passed", () => {
+    const now = new Date("2026-10-08T14:00:00.000Z");
+    const dueAt = new Date("2026-10-08T08:00:00.000Z").toISOString();
+    const value = order({
+      due_at: dueAt,
+      status: { is_ready: false, is_closed: false, is_cancelled: false },
+    });
+    const ordersRoute = readFileSync(
+      path.join(root, "app/api/orders/route.ts"),
+      "utf8"
+    );
+
+    assert.ok(new Date(dueAt).getTime() < now.getTime());
+    assert.deepEqual(codes(value, { timeZone: "Europe/Madrid", now }), ["overdue"]);
+    assert.match(
+      ordersRoute,
+      /effectiveFilter === "overdue"[\s\S]{0,160}\.lt\(\s*"due_at"/
+    );
   });
 });
 

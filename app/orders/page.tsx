@@ -82,6 +82,7 @@ type OrdersResponse = {
   orders: Order[];
   timezone?: string;
   local_date?: string;
+  now?: string;
   week_start?: string;
   week_days?: string[];
   from?: string | null;
@@ -333,14 +334,16 @@ function formatDate(value: string | null) {
 function presentDue(
   order: Order,
   timeZone: string | null | undefined,
-  localDate: string | null | undefined
+  localDate: string | null | undefined,
+  nowIso: string | null | undefined
 ) {
   const operational = isOrderOperational({
     archived_at: order.archived_at ?? null,
     status: order.status,
   });
+  const now = nowIso ? new Date(nowIso) : null;
 
-  if (!timeZone || !localDate) {
+  if (!timeZone || !localDate || !now || Number.isNaN(now.getTime())) {
     return {
       dueToday: false,
       overdue: false,
@@ -349,7 +352,13 @@ function presentDue(
     };
   }
 
-  return formatTenantDueLabel(order.due_at, timeZone, localDate, operational);
+  return formatTenantDueLabel(
+    order.due_at,
+    timeZone,
+    localDate,
+    operational,
+    now
+  );
 }
 
 function priorityClassName(priority: string) {
@@ -1492,7 +1501,8 @@ function OrdersPageContent() {
                               const due = presentDue(
                                 order,
                                 data?.timezone,
-                                data?.local_date
+                                data?.local_date,
+                                data?.now
                               );
                               return (
                               <tr
@@ -1919,7 +1929,8 @@ function OrdersPageContent() {
                             const due = presentDue(
                               order,
                               byServiceData?.timezone,
-                              byServiceData?.local_date
+                              byServiceData?.local_date,
+                              byServiceData?.now
                             );
                             return (
                             <Link

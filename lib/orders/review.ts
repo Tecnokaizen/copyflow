@@ -12,8 +12,10 @@ import {
  * Ready means the current status flag `status.is_ready === true`.
  * `ready_at` is sticky and must not be read here.
  *
- * "Retrasado" is the tenant civil day before today, so it cannot overlap
- * "entrega hoy". The existing overdue list filter stays `due_at < now`.
+ * "Retrasado" is the same instant rule as the overdue KPI and filter:
+ * `due_at < now`. A later hour on the tenant's civil day is
+ * "Entrega hoy pendiente" only when the order is not ready.
+ * Those two reasons never apply together.
  */
 
 export const REVIEW_REASON_ORDER = [
@@ -126,7 +128,7 @@ export function matchesReviewCandidateQuery(
   const day = getZonedDayBounds(context.now, context.timeZone);
   const due = validDue(order.due_at);
 
-  if (due && due < day.start) {
+  if (due && due.getTime() < context.now.getTime()) {
     return true;
   }
 
@@ -158,7 +160,7 @@ export function classifyOrderReview(
 
   if (due) {
     const civil = formatZonedCivilDate(due, context.timeZone);
-    if (civil < day.date) {
+    if (due.getTime() < context.now.getTime()) {
       present.add("overdue");
     } else if (civil === day.date && !isCurrentReady(order)) {
       present.add("due_today_pending");
@@ -236,7 +238,8 @@ export function formatTenantDueLabel(
   dueAt: string | null | undefined,
   timeZone: string,
   localDate: string,
-  operational: boolean
+  operational: boolean,
+  now: Date
 ): {
   dueToday: boolean;
   overdue: boolean;
@@ -254,15 +257,17 @@ export function formatTenantDueLabel(
   }
 
   const civil = formatZonedCivilDate(due, timeZone);
-  const dueToday = operational && civil === localDate;
-  const overdue = operational && civil < localDate;
+  const onTenantToday = civil === localDate;
+  const past = due.getTime() < now.getTime();
+  const overdue = operational && past;
+  const dueToday = operational && onTenantToday && !past;
 
-  if (dueToday) {
+  if (operational && onTenantToday) {
     return {
-      dueToday: true,
-      overdue: false,
+      dueToday,
+      overdue,
       label: `HOY · ${formatZonedTime(due, timeZone)}`,
-      indicator: "Entrega hoy",
+      indicator: dueToday ? "Entrega hoy" : null,
     };
   }
 
