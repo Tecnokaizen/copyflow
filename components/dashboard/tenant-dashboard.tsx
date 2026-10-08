@@ -341,9 +341,10 @@ export function TenantDashboard() {
       <PageHeader
         title="GESTCOPY · Panel diario"
         description={dateLabel || undefined}
-        className="mb-7 sm:mb-8"
+        className="mb-6 sm:mb-7"
       />
 
+      <div className="space-y-6 sm:space-y-7">
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiLink
           label="Pedidos activos"
@@ -370,43 +371,9 @@ export function TenantDashboard() {
         />
       </div>
 
-      <SectionCard
-        title="Requieren revisión"
-        description="Pedidos que requieren una acción antes de continuar."
-        className="mt-7 sm:mt-8"
-        actions={
-          attentionCount > attentionOrders.length ? (
-            <Link
-              href="/orders?view=list&filter=attention"
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Ver todos
-            </Link>
-          ) : null
-        }
-        bodyClassName="space-y-2.5 p-4 sm:p-5"
-      >
-        {attentionOrders.length === 0 ? (
-          <EmptyState
-            title="No hay pedidos que requieran revisión."
-            className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
-          />
-        ) : (
-          attentionOrders.map((order) => (
-            <AttentionRow
-              key={order.id}
-              order={order}
-              timeZone={data?.timezone ?? "Europe/Madrid"}
-              localDate={data?.local_date ?? ""}
-            />
-          ))
-        )}
-      </SectionCard>
-
       {data?.quotes ? (
         <SectionCard
           title="Presupuestos"
-          className="mt-7 sm:mt-8"
           actions={
             <Link
               href="/quotes"
@@ -442,7 +409,62 @@ export function TenantDashboard() {
         </SectionCard>
       ) : null}
 
-      <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-2 lg:gap-5">
+      <SectionCard
+        title="Carga del equipo"
+        description="Pedidos activos por persona"
+        bodyClassName="p-4 sm:p-5"
+      >
+        {members.length === 0 ? (
+          <EmptyState
+            title="No hay miembros activos."
+            className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {members.map((member) => (
+              <WorkloadRow
+                key={member.id}
+                member={member}
+                maxCount={workloadMax}
+              />
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-5">
+        <SectionCard
+          title="Requieren revisión"
+          description="Pedidos que requieren una acción antes de continuar."
+          actions={
+            attentionCount > attentionOrders.length ? (
+              <Link
+                href="/orders?view=list&filter=attention"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Ver todos
+              </Link>
+            ) : null
+          }
+          bodyClassName="space-y-2.5 p-4 sm:p-5"
+        >
+          {attentionOrders.length === 0 ? (
+            <EmptyState
+              title="No hay pedidos que requieran revisión."
+              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
+            />
+          ) : (
+            attentionOrders.map((order) => (
+              <AttentionRow
+                key={order.id}
+                order={order}
+                timeZone={data?.timezone ?? "Europe/Madrid"}
+                localDate={data?.local_date ?? ""}
+              />
+            ))
+          )}
+        </SectionCard>
+
         <SectionCard
           title="Próximas entregas"
           description="Entregas posteriores a hoy."
@@ -463,27 +485,7 @@ export function TenantDashboard() {
             ))
           )}
         </SectionCard>
-
-        <SectionCard
-          title="Carga del equipo"
-          description="Pedidos activos por persona"
-          bodyClassName="space-y-2.5 p-4 sm:p-5"
-        >
-          {members.length === 0 ? (
-            <EmptyState
-              title="No hay miembros activos."
-              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
-            />
-          ) : (
-            members.map((member) => (
-              <WorkloadRow
-                key={member.id}
-                member={member}
-                maxCount={workloadMax}
-              />
-            ))
-          )}
-        </SectionCard>
+      </div>
       </div>
     </DashboardShell>
   );
