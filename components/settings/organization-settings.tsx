@@ -5,6 +5,8 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { TenantBrand } from "@/components/tenant-brand";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { richTextLineStats } from "@/lib/rich-text/lines";
 import { Button } from "@/components/ui/button";
 import {
   parseBrandColor,
@@ -83,8 +85,8 @@ export function OrganizationSettings() {
   }
 
   const draftColor = parseBrandColor(color);
-  const footerChars = footer.length;
-  const footerLines = footer.length === 0 ? 0 : footer.split("\n").length;
+  const { chars: footerChars, lines: footerLines } = richTextLineStats(footer);
+  const footerValid = parseQuoteFooter(footer).ok;
   const previewColor = draftColor === undefined ? identity?.branding.brand_color ?? null : draftColor;
   const logoUrl = identity?.logo_url
     ? `${identity.logo_url}?v=${logoVersion}`
@@ -193,13 +195,14 @@ export function OrganizationSettings() {
               onChange={(event) => setColor(event.target.value)}
             />
           </label>
-          <label className="grid gap-1.5 text-sm">
-            Pie de presupuestos
-            <textarea
-              className="gc-field-control min-h-28 resize-y"
+          <div className="grid gap-1.5 text-sm">
+            <span>Pie de presupuestos</span>
+            <RichTextEditor
+              ariaLabel="Pie de presupuestos"
               value={footer}
-              rows={4}
-              onChange={(event) => setFooter(event.target.value)}
+              onChange={setFooter}
+              disabled={saving}
+              invalid={!footerValid}
             />
             <span className="text-muted-foreground">
               Este texto aparecerá en el pie de los nuevos presupuestos preparados.
@@ -215,9 +218,9 @@ export function OrganizationSettings() {
             >
               {footerChars} / {QUOTE_FOOTER_MAX_CHARS}
               {" · "}
-              Máximo 400 caracteres y 4 líneas.
+              Máximo 400 caracteres visibles y 4 líneas de contenido.
             </span>
-          </label>
+          </div>
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={saving}>
               Guardar identidad
