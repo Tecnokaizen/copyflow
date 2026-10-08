@@ -250,9 +250,13 @@ export function CreateOrderForm({
   const quickPrimaryFields = fieldsForPlacement(
     quickLayout,
     "primary"
-  ).filter((field) => quickFieldIsAvailable(field, quickCatalogCounts));
+  ).filter(
+    (field) =>
+      field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
+  );
   const quickMoreFields = fieldsForPlacement(quickLayout, "more").filter(
-    (field) => quickFieldIsAvailable(field, quickCatalogCounts)
+    (field) =>
+      field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
 
   function openCreateClient(query: string) {
@@ -632,18 +636,19 @@ export function CreateOrderForm({
   function renderTitleField() {
     return (
       <label className="grid gap-2 text-sm font-medium text-foreground">
-        Nombre del pedido
+        Título del pedido
         <DraftInput
           value={title}
           disabled={submitting}
+          placeholder="Ej. 200 tarjetas de visita"
           className="max-w-none text-base"
           onChange={setTitle}
         />
-        <span className="text-xs font-normal text-muted-foreground">
-          {title.trim()
-            ? "Este nombre es el que verás en la ficha y en la lista."
-            : `Si lo dejas vacío se usará «${derivedTitle}».`}
-        </span>
+        {title.trim() ? null : (
+          <span className="text-xs font-normal text-muted-foreground">
+            {`Si lo dejas vacío se usará «${derivedTitle}».`}
+          </span>
+        )}
       </label>
     );
   }
@@ -792,8 +797,8 @@ export function CreateOrderForm({
       title={isQuick ? "Pedido rápido" : "Nuevo pedido"}
       description={
         isQuick
-          ? "Cliente, servicio y lo imprescindible para dejarlo apuntado."
-          : "Datos mínimos para registrar el trabajo. El resto se puede completar en la ficha."
+          ? "Registra el pedido con su título y los datos imprescindibles."
+          : "Registra un nuevo pedido y completa los datos necesarios para su gestión."
       }
       className="mb-6"
       bodyClassName="px-5 py-5 sm:px-6"
@@ -814,6 +819,7 @@ export function CreateOrderForm({
         <form onSubmit={handleSubmit} className="grid gap-5">
           {isQuick ? (
             <>
+              {renderTitleField()}
               {quickPrimaryFields.map((field) => (
                 <Fragment key={field}>{renderQuickField(field)}</Fragment>
               ))}
@@ -834,6 +840,7 @@ export function CreateOrderForm({
             </>
           ) : (
             <>
+              {renderTitleField()}
               {renderClientField()}
               {renderStoreField()}
               {renderServiceField()}
@@ -849,7 +856,6 @@ export function CreateOrderForm({
                   Más opciones
                 </summary>
                 <div className="mt-4 grid gap-5">
-                  {renderTitleField()}
                   {renderContextField()}
                   {renderNotesField()}
                 </div>
