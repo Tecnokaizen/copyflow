@@ -14,6 +14,7 @@ export function OrderCollection({
   canWrite,
   archived,
   editing = false,
+  compactSummary = false,
   onChanged,
   onInteractionChange,
 }: {
@@ -21,6 +22,7 @@ export function OrderCollection({
   canWrite: boolean;
   archived: boolean;
   editing?: boolean;
+  compactSummary?: boolean;
   onChanged: () => void;
   onInteractionChange?: (active: boolean) => void;
 }) {
@@ -112,15 +114,38 @@ export function OrderCollection({
       {error ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
       {collection ? (
         <>
-          <FactRow label="Total del pedido" emphasis>
-            <FactValue value={collection.total_amount ? formatOrderMoney(collection.total_amount) : null} empty="Sin definir" />
-          </FactRow>
-          <FactRow label="Entregado a cuenta">
-            <FactValue value={formatOrderMoney(collection.paid_amount)} />
-          </FactRow>
-          <FactRow label="Pendiente de cobro" emphasis>
-            <FactValue value={collection.pending_amount ? formatOrderMoney(collection.pending_amount) : null} empty="Sin definir" />
-          </FactRow>
+          {compactSummary ? (
+            <div className="grid gap-3 py-3 sm:grid-cols-3">
+              <div className="min-w-0 rounded-md border border-border/70 p-3">
+                <p className="text-xs text-muted-foreground">Importe total</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {collection.total_amount ? formatOrderMoney(collection.total_amount) : "Sin definir"}
+                </p>
+              </div>
+              <div className="min-w-0 rounded-md border border-border/70 p-3">
+                <p className="text-xs text-muted-foreground">Entregado a cuenta</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">{formatOrderMoney(collection.paid_amount)}</p>
+              </div>
+              <div className="min-w-0 rounded-md border border-border/70 p-3">
+                <p className="text-xs text-muted-foreground">Pendiente de pago</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  {collection.pending_amount ? formatOrderMoney(collection.pending_amount) : "Sin definir"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <FactRow label="Total del pedido" emphasis>
+                <FactValue value={collection.total_amount ? formatOrderMoney(collection.total_amount) : null} empty="Sin definir" />
+              </FactRow>
+              <FactRow label="Entregado a cuenta">
+                <FactValue value={formatOrderMoney(collection.paid_amount)} />
+              </FactRow>
+              <FactRow label="Pendiente de cobro" emphasis>
+                <FactValue value={collection.pending_amount ? formatOrderMoney(collection.pending_amount) : null} empty="Sin definir" />
+              </FactRow>
+            </>
+          )}
           <FactRow label="Situación">
             <FactValue value={collectionLabel(collection.collection_state)} />
           </FactRow>
