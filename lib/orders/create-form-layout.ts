@@ -77,3 +77,27 @@ export function suggestedAssigneeId(input: {
 
   return input.availableMemberIds.includes(sessionId) ? sessionId : "";
 }
+
+// The tenant still controls which fields are primary, in More, or hidden.
+// Layout changes only the order/columns of fields already selected as primary.
+// Title remains always visible (existing quick-create behavior).
+export function groupQuickOrderPrimaryFields(fields: readonly QuickOrderField[]) {
+  const primary = new Set<QuickOrderField>(fields);
+  const identification = (["store", "due_at"] as const).filter((field) =>
+    primary.has(field)
+  );
+  const assignment = (["client", "assigned_team_member", "priority"] as const).filter(
+    (field) => primary.has(field)
+  );
+  const description = primary.has("description");
+  const used = new Set<QuickOrderField>([
+    "title", "store", "due_at", "client",
+    "assigned_team_member", "priority", "description",
+  ]);
+  return {
+    identification,
+    assignment,
+    description,
+    additional: fields.filter((field) => !used.has(field)),
+  };
+}

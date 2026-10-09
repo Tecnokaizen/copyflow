@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   defaultSingleCatalogId,
+  groupQuickOrderPrimaryFields,
   isQuickCreateMode,
   shouldStayOnCreateForm,
   showEntryChannelInMainForm,
@@ -11,6 +12,26 @@ import {
 } from "./create-form-layout";
 
 describe("create order form layout", () => {
+  it("groups only configured primary fields in croquis order without duplicating priority", () => {
+    const groups = groupQuickOrderPrimaryFields([
+      "description", "priority", "service", "client", "store",
+      "due_at", "assigned_team_member", "files", "file_status",
+    ]);
+    assert.deepEqual(groups.identification, ["store", "due_at"]);
+    assert.deepEqual(groups.assignment, ["client", "assigned_team_member", "priority"]);
+    assert.equal(groups.description, true);
+    assert.deepEqual(groups.additional, ["service", "files", "file_status"]);
+    assert.equal(groups.assignment.filter(field => field === "priority").length, 1);
+  });
+
+  it("preserves tenant placements when fields are omitted from primary", () => {
+    const groups = groupQuickOrderPrimaryFields(["client", "notes"]);
+    assert.deepEqual(groups.identification, []);
+    assert.deepEqual(groups.assignment, ["client"]);
+    assert.equal(groups.description, false);
+    assert.deepEqual(groups.additional, ["notes"]);
+  });
+
   it("keeps the full form on Pedidos and stays on Pedido rápido after creating", () => {
     assert.equal(isQuickCreateMode("full"), false);
     assert.equal(isQuickCreateMode("quick"), true);

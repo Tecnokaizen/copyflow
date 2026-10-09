@@ -51,7 +51,7 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-  for (const width of [390, 1280]) {
+  for (const width of [390, 820, 1280]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     const errors = [];
     page.on("pageerror", (error) => { errors.push(error.message); console.error(error.message); });
@@ -78,8 +78,10 @@ try {
         return json({ layout, revision: "2026-09-23T10:00:00Z" });
       }
       if (pathname === "/api/orders/options") return json({
-        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }], stores: [],
-        entry_channels: [], order_contexts: [], team_members: [], actor_role: "staff",
+        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }],
+        stores: [{ id: "store-a", name: "Tienda centro" }],
+        entry_channels: [], order_contexts: [],
+        team_members: [{ id: "member-a", name: "Natalia" }], actor_role: "staff",
         file_statuses: [{ id: "state-a", name: "Pendiente", code: "pending" }],
         quick_order_layout: layout, max_file_bytes: 1048576,
       });
@@ -216,8 +218,32 @@ try {
     await page.getByRole("heading", { name: "Pedido creado", exact: true }).waitFor();
     assert.equal(body.title, "Carteles feria");
     await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
+    // Croquis: three compact columns on desktop; stacked fields on mobile.
+    layout = {
+      ...layout, client: "primary", store: "primary", due_at: "primary",
+      assigned_team_member: "primary", priority: "primary",
+      description: "primary", service: "primary",
+    };
+    await page.goto(url);
+    const identification = page.getByTestId("quick-primary-identification");
+    const assignment = page.getByTestId("quick-primary-assignment");
+    const description = page.getByTestId("quick-primary-description");
+    await description.waitFor();
+    assert.equal(await identification.locator(":scope > div").count(), 3);
+    assert.equal(await assignment.locator(":scope > div").count(), 3);
+    assert.equal(await assignment.locator('select option[value="urgent"]').count(), 1);
+    const countColumns = (testId) => page.getByTestId(testId).evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length);
+    assert.equal(await countColumns("quick-primary-identification"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
+    assert.equal(await countColumns("quick-primary-assignment"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
+    const firstRow = await identification.boundingBox();
+    const secondRow = await assignment.boundingBox();
+    const descriptionRow = await description.boundingBox();
+    assert.ok(firstRow && secondRow && descriptionRow && firstRow.y < secondRow.y && secondRow.y < descriptionRow.y);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(out, `croquis-${width}.png`), fullPage: true });
     assert.deepEqual(errors, []);
-    results.push({ width, passed: true, checks: "title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
+    results.push({ width, passed: true, checks: "croquis columns desktop/mobile, primary tenant settings, title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
     await page.close();
   }
   await writeFile(path.join(out, "results.json"), JSON.stringify(results, null, 2));
