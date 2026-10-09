@@ -63,6 +63,7 @@ try {
       file_status: "primary", files: "primary",
     };
     const events = [];
+    let sketchCatalog = false;
     let body;
     let collection = { total_amount: null, paid_amount: "0.00", pending_amount: null, collection_state: "undefined", row_version: "1", payments: [] };
     const moneyRequests = [];
@@ -78,8 +79,11 @@ try {
         return json({ layout, revision: "2026-09-23T10:00:00Z" });
       }
       if (pathname === "/api/orders/options") return json({
-        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }], stores: [],
-        entry_channels: [], order_contexts: [], team_members: [], actor_role: "staff",
+        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }],
+        stores: sketchCatalog ? [{ id: "store-a", name: "Centro", active: true }] : [],
+        entry_channels: [], order_contexts: [],
+        team_members: sketchCatalog ? [{ id: "member-a", name: "Natalia" }] : [],
+        actor_role: "staff",
         file_statuses: [{ id: "state-a", name: "Pendiente", code: "pending" }],
         quick_order_layout: layout, max_file_bytes: 1048576,
       });
@@ -216,8 +220,47 @@ try {
     await page.getByRole("heading", { name: "Pedido creado", exact: true }).waitFor();
     assert.equal(body.title, "Carteles feria");
     await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
+
+    // Verify Tamara's 2 x 3 layout with all essential fields enabled,
+    // including actual responsive placement and the full-width description.
+    sketchCatalog = true;
+    layout = {
+      ...layout,
+      client: "primary", store: "primary", due_at: "primary",
+      priority: "primary", assigned_team_member: "primary", description: "primary",
+    };
+    await page.goto(url);
+    const sketchSelectors = [
+      page.getByRole("textbox", { name: "Título del pedido" }),
+      page.getByLabel("Tienda", { exact: true }),
+      page.getByText("Entrega prevista", { exact: true }),
+      page.getByPlaceholder(/Buscar cliente/),
+      page.getByLabel("Responsable", { exact: true }),
+      page.getByLabel("Prioridad", { exact: true }),
+    ];
+    const boxes = [];
+    for (const selector of sketchSelectors) {
+      const rect = await selector.boundingBox();
+      assert.ok(rect, "Essential sketch field is visible");
+      boxes.push(rect);
+    }
+    const descriptionBox = await page.getByText("Descripción", { exact: true }).boundingBox();
+    assert.ok(descriptionBox);
+    if (width >= 1024) {
+      assert.ok(boxes[0].x < boxes[1].x && boxes[1].x < boxes[2].x);
+      assert.ok(boxes[3].x < boxes[4].x && boxes[4].x < boxes[5].x);
+      assert.ok(Math.abs(boxes[0].y - boxes[1].y) < 24);
+      assert.ok(Math.abs(boxes[3].y - boxes[4].y) < 24);
+      assert.ok(boxes[3].y > boxes[0].y);
+    } else {
+      assert.ok(boxes.every((box, index) => index === 0 || box.y > boxes[index - 1].y));
+    }
+    assert.ok(descriptionBox.y > boxes[5].y);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(out, `sketch-${width}.png`), fullPage: true });
+
     assert.deepEqual(errors, []);
-    results.push({ width, passed: true, checks: "title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
+    results.push({ width, passed: true, checks: "title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, Tamara 2-row responsive layout, no overflow" });
     await page.close();
   }
   await writeFile(path.join(out, "results.json"), JSON.stringify(results, null, 2));
