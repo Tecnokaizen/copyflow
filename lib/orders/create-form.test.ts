@@ -185,6 +185,9 @@ describe("CreateOrderForm payload is shared across modes", () => {
     assert.equal(form.includes("Datos mínimos para registrar el trabajo"), false);
     assert.match(form, /title: derivedTitle/);
     assert.match(form, /field !== "title"/);
+    assert.equal(form.split("{renderInitialFinanceFields()}").length - 1, 2);
+    assert.match(form, /persistInitialFinance/);
+    assert.match(form, /Reintentar guardar importes/);
 
     const body = form.slice(form.indexOf("<form"));
     const fullBranch = body.slice(body.indexOf(") : ("));
