@@ -7,7 +7,7 @@ import { CreateOrderFiles } from "@/components/files/create-order-files";
 import { OrderFilesSection } from "@/components/files/order-files-section";
 import { type ClientUploadItem, MAX_ORDER_FILE_BYTES } from "@/lib/files/client";
 import { createOrderUploadQueue } from "@/lib/files/create-order-queue";
-import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
