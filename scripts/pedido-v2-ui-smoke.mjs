@@ -231,7 +231,7 @@ try {
     await description.waitFor();
     assert.equal(await identification.locator(":scope > div").count(), 3);
     assert.equal(await assignment.locator(":scope > div").count(), 3);
-    assert.equal(await page.getByLabel("Prioridad", { exact: true }).count(), 1);
+    assert.equal(await assignment.locator('select option[value="urgent"]').count(), 1);
     const countColumns = (testId) => page.getByTestId(testId).evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length);
     assert.equal(await countColumns("quick-primary-identification"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
