@@ -2,6 +2,32 @@ import type { QuickOrderField } from "@/lib/settings/quick-order-layout";
 
 export type CreateOrderFormMode = "full" | "quick";
 
+// Present the six essential fields in Tamara's two desktop rows, regardless
+// of the order used by the per-tenant quick-form field settings.
+const QUICK_OVERVIEW_FIELDS = [
+  "store",
+  "due_at",
+  "client",
+  "assigned_team_member",
+  "priority",
+] as const satisfies readonly QuickOrderField[];
+
+export function planQuickOrderPrimaryLayout(
+  primaryFields: readonly QuickOrderField[]
+) {
+  const selected = new Set(primaryFields);
+  return {
+    overviewFields: QUICK_OVERVIEW_FIELDS.filter((field) => selected.has(field)),
+    showDescription: selected.has("description"),
+    additionalFields: primaryFields.filter(
+      (field) =>
+        field !== "title" &&
+        field !== "description" &&
+        !QUICK_OVERVIEW_FIELDS.some((overview) => overview === field)
+    ),
+  };
+}
+
 type QuickCatalogCounts = {
   stores: number;
   entryChannels: number;
