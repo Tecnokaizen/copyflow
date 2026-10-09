@@ -98,7 +98,7 @@ try {
         return json(collection);
       }
       if (pathname === "/api/orders/saved-order/total") {
-        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.equal(payload.total_amount, "85");
+        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.ok(["85", "85.00"].includes(payload.total_amount));
         collection = { ...collection, total_amount: "85.00", pending_amount: "85.00", collection_state: "unpaid", row_version: "2" };
         return json(collection);
       }
@@ -242,6 +242,51 @@ try {
     assert.ok(firstRow && secondRow && descriptionRow && firstRow.y < secondRow.y && secondRow.y < descriptionRow.y);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(out, `croquis-${width}.png`), fullPage: true });
+
+    // Both forms expose total, advance and an instantly calculated pending amount.
+    const totalInput = page.getByRole("textbox", { name: "Importe total (€)" });
+    const advanceInput = page.getByRole("textbox", { name: "Entregado a cuenta (€)" });
+    await totalInput.fill("85,00");
+    await advanceInput.fill("100");
+    assert.equal(await page.getByText("La entrega a cuenta no puede superar el total del pedido.").count(), 1);
+    const createCountBeforeInvalid = events.filter(event => event === "create").length;
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    assert.equal(events.filter(event => event === "create").length, createCountBeforeInvalid);
+    await advanceInput.fill("30");
+    assert.equal(await page.getByTestId("initial-finance-pending").textContent(), "55,00 €");
+
+    // Simulate uncertain payment acknowledgement. Retrying must use the same key
+    // and MUST NOT create another order or lower the total.
+    collection = { total_amount: null, paid_amount: "0.00", pending_amount: null,
+      collection_state: "undefined", row_version: "1", payments: [] };
+    rejectPayment = true;
+    const paymentCallsBefore = moneyRequests.length;
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.getByRole("button", { name: "Reintentar guardar importes" }).waitFor();
+    assert.equal(events.filter(event => event === "create").length, createCountBeforeInvalid + 1);
+    assert.equal(await page.getByRole("button", { name: "Crear otro" }).isEnabled(), false);
+    await page.getByRole("button", { name: "Reintentar guardar importes" }).click();
+    await page.getByRole("button", { name: "Modificar total" }).waitFor();
+    const initialPayments = moneyRequests.slice(paymentCallsBefore);
+    assert.equal(initialPayments.length, 2);
+    assert.equal(initialPayments[0].idempotency_key, initialPayments[1].idempotency_key);
+    assert.equal(initialPayments[0].amount, "30.00");
+    await page.getByText("55,00 €", { exact: true }).waitFor();
+
+    // Full mode uses the SAME finance inputs and persists before navigating.
+    collection = { total_amount: null, paid_amount: "0.00", pending_amount: null,
+      collection_state: "undefined", row_version: "1", payments: [] };
+    rejectPayment = false;
+    await page.goto(`${url}/?mode=full`);
+    const fullTotal = page.getByRole("textbox", { name: "Importe total (€)" });
+    await fullTotal.waitFor();
+    await fullTotal.fill("85");
+    await page.getByRole("textbox", { name: "Entregado a cuenta (€)" }).fill("30");
+    assert.equal(await page.getByTestId("initial-finance-pending").textContent(), "55,00 €");
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.waitForFunction(() => window.lastNavigation === "/orders/saved-order?created=1");
+    assert.equal(collection.total_amount, "85.00");
+    assert.equal(collection.paid_amount, "30.00");
     assert.deepEqual(errors, []);
     results.push({ width, passed: true, checks: "croquis columns desktop/mobile, primary tenant settings, title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
     await page.close();
