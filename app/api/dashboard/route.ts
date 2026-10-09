@@ -1,4 +1,5 @@
 import { OPEN_QUOTE_STATUS_CODES } from "@/lib/dashboard/quotes";
+import { canReadOperationalOverview, canReadDashboardQuoteCounts } from "@/lib/orders/operational-access";
 import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
@@ -90,7 +91,7 @@ function asPreviewOrder(row: unknown): DashboardUpcomingOrder | null {
 export async function GET() {
   const context = await getCurrentContext();
 
-  if (!context) {
+  if (!context || !canReadOperationalOverview(context.membership.role)) {
     return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
@@ -287,7 +288,7 @@ export async function GET() {
       return a.name.localeCompare(b.name, "es");
     });
 
-  const quotesEnabled = canAccessQuotesModule(
+  const quotesEnabled = canReadDashboardQuoteCounts(context.membership.role) && canAccessQuotesModule(
     context.membership.role,
     await tenantHasFeature(supabase, tenantId, QUOTES_FEATURE_CODE)
   );

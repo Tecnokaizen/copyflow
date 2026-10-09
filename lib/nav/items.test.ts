@@ -37,6 +37,7 @@ describe("staff and management navigation", () => {
       "Mostrador",
       "Pedido rápido",
       "Todos los pedidos",
+      "Calendario",
       "Archivados",
       "Clientes",
       "Servicios",
@@ -60,19 +61,22 @@ describe("staff and management navigation", () => {
 
   it("4. staff sees a simplified work navigation", () => {
     assert.deepEqual(labels("staff"), [
+      "Inicio",
       "Mis pedidos",
       "Mostrador",
       "Pedido rápido",
+      "Todos los pedidos",
+      "Calendario",
       "Clientes",
     ]);
-    assert.equal(isNavItemVisible("home", "staff"), false);
-    assert.equal(isNavItemVisible("orders", "staff"), false);
+    assert.equal(isNavItemVisible("home", "staff"), true);
+    assert.equal(isNavItemVisible("orders", "staff"), true);
     assert.equal(isNavItemVisible("archived", "staff"), false);
     assert.equal(isNavItemVisible("services", "staff"), false);
     assert.equal(isNavItemVisible("team", "staff"), false);
     assert.equal(isNavItemVisible("activity", "staff"), false);
     assert.equal(isNavItemVisible("settings", "staff"), false);
-    assert.equal(homePathForRole("staff"), "/orders/mine");
+    assert.equal(homePathForRole("staff"), "/");
   });
 
   it("5. viewer does not see Pedido rápido or Equipo", () => {
@@ -87,6 +91,7 @@ describe("staff and management navigation", () => {
       "Mis pedidos",
       "Mostrador",
       "Todos los pedidos",
+      "Calendario",
       "Archivados",
       "Clientes",
       "Servicios",
@@ -172,6 +177,7 @@ describe("nav structure groups", () => {
     assert.deepEqual(groupChildLabels("owner", "orders"), [
       "Mostrador",
       "Todos los pedidos",
+      "Calendario",
       "Mis pedidos",
       "Pedido rápido",
       "Archivados",
@@ -191,9 +197,11 @@ describe("nav structure groups", () => {
   });
 
   it("omits empty groups for staff", () => {
-    assert.deepEqual(groupLabels("staff"), ["Pedidos", "Clientes"]);
+    assert.deepEqual(groupLabels("staff"), ["Inicio", "Pedidos", "Clientes"]);
     assert.deepEqual(groupChildLabels("staff", "orders"), [
       "Mostrador",
+      "Todos los pedidos",
+      "Calendario",
       "Mis pedidos",
       "Pedido rápido",
     ]);
@@ -340,12 +348,17 @@ describe("nav structure groups", () => {
     );
   });
 
-  it("Archivados uses the same gate as Todos los pedidos", () => {
-    for (const role of ["owner", "admin", "manager", "viewer", "staff"] as const) {
-      assert.equal(
-        isNavItemVisible("archived", role),
-        isNavItemVisible("orders", role)
-      );
+  it("keeps archive navigation hidden for staff while exposing operational views", () => {
+    assert.equal(isNavItemVisible("archived", "staff"), false);
+    assert.equal(isNavItemVisible("orders", "staff"), true);
+    assert.equal(isNavItemVisible("calendar", "staff"), true);
+    for (const role of ["owner", "admin", "manager", "viewer"]) {
+      assert.equal(isNavItemVisible("archived", role), true);
+    }
+    for (const role of [null, "unknown"]) {
+      assert.equal(isNavItemVisible("home", role), false);
+      assert.equal(isNavItemVisible("orders", role), false);
+      assert.equal(isNavItemVisible("calendar", role), false);
     }
   });
 });

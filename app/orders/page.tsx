@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, List, LayoutGrid } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
@@ -546,6 +546,7 @@ function OrdersPageContent() {
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const listLayout = searchParams.get("layout") === "grid" ? "grid" : "list";
   const urlView = parseViewMode(searchParams.get("view"));
   const rawListFilter = parseListFilter(searchParams.get("filter"));
   const assignedMemberId = parseAssignedTeamMemberId(
@@ -1000,6 +1001,12 @@ function OrdersPageContent() {
     };
   }, [loadOrders, listReloadToken, view]);
 
+  function changeListLayout(layout: "list" | "grid") {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("layout", layout);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
   function navigateToView(nextView: ViewMode) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("view", nextView);
@@ -1209,7 +1216,7 @@ function OrdersPageContent() {
       : null;
   const weekLabel =
     weekDays.length === 7 && calendarTimezone
-      ? `${formatZonedDayLabel(weekDays[0], calendarTimezone)} – ${formatZonedDayLabel(weekDays[6], calendarTimezone)}`
+      ? `${formatZonedDayLabel(weekDays[0], calendarTimezone)} – ${formatZonedDayLabel(weekDays[5], calendarTimezone)}`
       : "";
   const ordersByDay = new Map<string, Order[]>();
 
@@ -1246,6 +1253,7 @@ function OrdersPageContent() {
           ? "Sin servicio"
           : "Servicio";
   const calendarOrderCount = calendarData?.orders?.length ?? 0;
+  const sundayOrders = ordersByDay.get(weekDays[6]) ?? [];
 
   const primaryFilters: Array<{ id: PrimaryListFilter; label: string }> = [
     { id: "active", label: "Activos" },
@@ -1313,6 +1321,22 @@ function OrdersPageContent() {
 
         {view === "list" ? (
           <div className="gc-filter-bar">
+            <div className="flex flex-wrap items-center gap-3">
+              <div role="group" aria-label="Presentación de pedidos" className="flex gap-1">
+                <button type="button" aria-label="Lista" title="Lista" aria-pressed={listLayout === "list"} onClick={() => changeListLayout("list")} className={cn("gc-chip min-h-11 min-w-11 justify-center", listLayout === "list" && "gc-chip-active")}><List className="size-5" aria-hidden /></button>
+                <button type="button" aria-label="Cuadrícula" title="Cuadrícula" aria-pressed={listLayout === "grid"} onClick={() => changeListLayout("grid")} className={cn("gc-chip min-h-11 min-w-11 justify-center", listLayout === "grid" && "gc-chip-active")}><LayoutGrid className="size-5" aria-hidden /></button>
+              </div>
+              {listLayout === "grid" ? <label className="gc-field">
+                <span className="gc-field-label">Ordenar tarjetas</span>
+                <select aria-label="Ordenar tarjetas" className="gc-field-control" value={sortField ? `${sortField}:${sortDir ?? "asc"}` : ""} onChange={(event) => {
+                  const [field, direction] = event.target.value.split(":");
+                  replaceListParams({ sort: (field || null) as SortField | null, dir: direction as SortDir });
+                }}>
+                  <option value="">Más recientes</option>
+                  {([["reference", "Pedido"], ["client", "Cliente"], ["channel", "Canal"], ["assignee", "Responsable"], ["status", "Estado"], ["due_at", "Entrega"]] as const).flatMap(([field, label]) => ["asc", "desc"].map(direction => <option key={`${field}:${direction}`} value={`${field}:${direction}`}>{label} · {direction === "asc" ? "Ascendente" : "Descendente"}</option>))}
+                </select>
+              </label> : null}
+            </div>
             <div className="flex flex-wrap gap-2">
               {primaryFilters.map((item) => (
                 <button
@@ -1454,6 +1478,26 @@ function OrdersPageContent() {
                           : undefined
                       }
                     />
+                  </div>
+                ) : listLayout === "grid" ? (
+                  <div ref={listRef}>
+                    {loading ? <LoadingState label="Cargando pedidos..." /> : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Pedidos en cuadrícula">
+                      {listOrders.map(order => {
+                        const due = presentDue(order, data?.timezone, data?.local_date, data?.now);
+                        return <Link key={order.id} href={`/orders/${order.id}`} className={cn("gc-card min-w-0 p-4 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", due.dueToday && "border-[hsl(var(--gc-info))]")}>
+                          <p className="text-xs text-muted-foreground">{order.reference}{order.archived_at ? " · Archivado" : ""}</p>
+                          <h2 className="mt-1 break-words font-semibold">{order.title}</h2>
+                          <p className="mt-2 break-words text-sm">{order.client?.name ?? "Sin cliente"}</p>
+                          <div className="mt-2 flex flex-wrap gap-2"><StatusBadge status={order.status} />{order.priority !== "normal" ? <span className={priorityClassName(order.priority)}>{priorityLabel(order.priority)}</span> : null}</div>
+                          <dl className="mt-3 grid gap-1 text-sm">
+                            <div><dt className="inline text-muted-foreground">Responsable: </dt><dd className="inline break-words">{order.assigned_team_member?.name ?? "Sin asignar"}</dd></div>
+                            <div><dt className="inline text-muted-foreground">Canal: </dt><dd className="inline break-words">{order.entry_channel?.name ?? "—"}</dd></div>
+                            <div><dt className="inline text-muted-foreground">Tienda: </dt><dd className="inline break-words">{order.store?.name ?? "Sin tienda"}</dd></div>
+                          </dl>
+                          <p className={cn("mt-3 text-sm", due.overdue && "text-[hsl(var(--gc-danger))]", due.dueToday && "font-semibold text-[hsl(var(--gc-info))]")}>{due.label}{due.indicator ? ` · ${due.indicator}` : ""}</p>
+                        </Link>;
+                      })}
+                    </div>}
                   </div>
                 ) : (
                   <div ref={listRef} className="gc-card">
@@ -1735,9 +1779,9 @@ function OrdersPageContent() {
                 <EmptyState title="No hay entregas esta semana" />
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <div className="grid min-w-[840px] grid-cols-7 gap-2">
-                  {weekDays.map((day) => {
+              <div className="grid gap-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-6">
+                  {weekDays.slice(0, 6).map((day) => {
                     const dayOrders = ordersByDay.get(day) ?? [];
                     const isToday = day === todayKey;
 
@@ -1806,6 +1850,17 @@ function OrdersPageContent() {
                     );
                   })}
                 </div>
+                {sundayOrders.length > 0 ? <section className="gc-card p-4" aria-label="Entregas del domingo">
+                  <h2 className="font-semibold">Domingo · {sundayOrders.length} entregas</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">El domingo queda fuera de la cuadrícula. Sus entregas siguen disponibles aquí y en la lista de pedidos.</p>
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {sundayOrders.map(order => <li key={order.id}><Link href={`/orders/${order.id}`} className="block rounded-md border p-3 text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <p className="font-semibold">{formatZonedTime(new Date(order.due_at!), calendarTimezone)} · {order.title}</p>
+                      <p className="mt-1 break-words text-muted-foreground">{order.reference} · {order.client?.name ?? "Sin cliente"} · {order.assigned_team_member?.name ?? "Sin asignar"}</p>
+                      <div className="mt-2"><StatusBadge status={order.status} /></div>
+                    </Link></li>)}
+                  </ul>
+                </section> : null}
               </div>
             )}
           </div>

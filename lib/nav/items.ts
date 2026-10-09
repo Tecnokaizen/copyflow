@@ -5,6 +5,7 @@ import {
   canWriteTeam,
 } from "@/lib/auth/membership-roles";
 import { canAccessQuotesModule } from "@/lib/quotes/access";
+import { canReadOperationalOverview } from "@/lib/orders/operational-access";
 
 export type AppNavItemId =
   | "home"
@@ -12,6 +13,7 @@ export type AppNavItemId =
   | "counter"
   | "quick"
   | "orders"
+  | "calendar"
   | "archived"
   | "clients"
   | "quotes"
@@ -51,6 +53,7 @@ const NAV_BY_ID: Record<AppNavItemId, AppNavItem> = {
     label: "Todos los pedidos",
   },
   mine: { id: "mine", href: "/orders/mine", label: "Mis pedidos" },
+  calendar: { id: "calendar", href: "/orders?view=calendar", label: "Calendario" },
   quick: { id: "quick", href: "/orders/quick", label: "Pedido rápido" },
   archived: {
     id: "archived",
@@ -76,6 +79,7 @@ const NAV_CATALOG: AppNavItem[] = [
   NAV_BY_ID.counter,
   NAV_BY_ID.quick,
   NAV_BY_ID.orders,
+  NAV_BY_ID.calendar,
   NAV_BY_ID.archived,
   NAV_BY_ID.clients,
   NAV_BY_ID.services,
@@ -87,6 +91,7 @@ const NAV_CATALOG: AppNavItem[] = [
 const ORDERS_GROUP_IDS: AppNavItemId[] = [
   "counter",
   "orders",
+  "calendar",
   "mine",
   "quick",
   "archived",
@@ -109,10 +114,7 @@ export function canUseQuickOrder(role: string | null | undefined) {
 }
 
 export function homePathForRole(role: string | null | undefined) {
-  if (role === "staff") {
-    return "/orders/mine";
-  }
-  return "/";
+  return canReadOperationalOverview(role) ? "/" : "/auth/login";
 }
 
 export function isNavItemVisible(
@@ -121,7 +123,9 @@ export function isNavItemVisible(
 ) {
   switch (id) {
     case "home":
-      return role !== "staff";
+    case "orders":
+    case "calendar":
+      return canReadOperationalOverview(role);
     case "mine":
     case "clients":
       return true;
@@ -129,7 +133,6 @@ export function isNavItemVisible(
       return canAccessCounter(role);
     case "quick":
       return canUseQuickOrder(role);
-    case "orders":
     case "archived":
       return role !== "staff";
     case "services":
@@ -244,7 +247,10 @@ export function navItemIsActive(item: AppNavItem, location: NavLocation | string
     return pathname === "/orders" && filter === "archived";
   }
   if (item.id === "orders") {
-    return pathname === "/orders" && filter === "all";
+    return pathname === "/orders" && filter === "all" && normalized.searchParams?.get("view") !== "calendar";
+  }
+  if (item.id === "calendar") {
+    return pathname === "/orders" && normalized.searchParams?.get("view") === "calendar";
   }
   if (item.id === "clients") {
     return pathname === "/clients" || pathname.startsWith("/clients/");

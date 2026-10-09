@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { canReadOperationalOverview } from "@/lib/orders/operational-access";
 import { createClient } from "@/lib/supabase/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { omitRowVersion, omitRowVersionFromList } from "@/lib/orders/concurrency";
@@ -551,7 +552,7 @@ async function countAllOrders(
 export async function GET(request: NextRequest) {
   const context = await getCurrentContext();
 
-  if (!context) {
+  if (!context || !canReadOperationalOverview(context.membership.role)) {
     return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
