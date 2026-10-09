@@ -63,6 +63,9 @@ try {
       return json({});
     });
     await page.goto(`${url}/orders?view=list&filter=all&assigned_team_member_id=${member}&status_id=${status}&store_id=${store}&sort=due_at&dir=asc`);
+    // No layout= parameter: Cuadrícula is the default, on desktop and mobile.
+    await page.getByLabel('Pedidos en cuadrícula',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Cuadrícula',exact:true}).getAttribute('aria-pressed'),'true');
     await page.getByRole('link',{name:'Trabajo lista',exact:true}).waitFor();
     if (width < 768) await page.getByRole('button',{name:'Menú',exact:true}).click();
     await page.getByRole('link',{name:'Inicio',exact:true}).waitFor();
