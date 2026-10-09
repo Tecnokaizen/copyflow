@@ -202,9 +202,14 @@ describe("CreateOrderForm payload is shared across modes", () => {
       body.indexOf("{isQuick ? ("),
       body.indexOf(") : (")
     );
+    assert.ok(quickBranch.includes('data-testid="quick-primary-identification"'));
+    assert.ok(quickBranch.includes('data-testid="quick-primary-assignment"'));
     assert.ok(
-      quickBranch.indexOf("{renderTitleField()}") <
-        quickBranch.indexOf("quickPrimaryFields.map")
+      quickBranch.indexOf("{renderTitleField()}") >= 0 &&
+        quickBranch.indexOf("{renderTitleField()}") <
+          quickBranch.indexOf("quickGroups.identification.map") &&
+        quickBranch.indexOf("{renderTitleField()}") <
+          quickBranch.indexOf("quickGroups.assignment.map")
     );
 
     const ordersPage = readFileSync(
