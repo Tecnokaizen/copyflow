@@ -12,6 +12,8 @@ declare
   oa uuid := 'ea460000-0000-4000-8000-000000000021';
   ob uuid := 'ea460000-0000-4000-8000-000000000022';
   n integer;
+  r jsonb;
+  version text;
 begin
   insert into auth.users(id, email, raw_user_meta_data) values (staff,'staff@tamara.test','{}'),(owner_a,'owner-a@tamara.test','{}'),(owner_b,'owner-b@tamara.test','{}');
   insert into public.profiles(id, full_name) values(staff,'Personal'),(owner_a,'Owner A'),(owner_b,'Owner B');
@@ -27,6 +29,22 @@ begin
   insert into public.orders(id,tenant_id,title,status_id) select ob,tb,'Otro tenant',id from public.order_statuses where tenant_id=tb;
   perform set_config('request.jwt.claim.sub',staff::text,true);
   perform pg_temp.ok((select count(*)=1 from public.orders where id=oa),'staff reads own Sunday order');
+  r := public.record_order_payment(oa,'30',now(),'tamara-payment-first');
+  perform pg_temp.ok(r->>'error'='total_undefined','cannot record payment before total');
+  select row_version::text into version from public.orders where id=oa;
+  r := public.set_order_total_amount(oa,'85',version);
+  perform pg_temp.ok((r->>'ok')::boolean,'staff can define canonical total');
+  r := public.record_order_payment(oa,'30','2026-10-09T10:00:00Z','tamara-payment-first');
+  perform pg_temp.ok(r->>'paid_amount'='30.00' and r->>'pending_amount'='55.00','canonical 85 total - 30 advance = 55 pending');
+  r := public.record_order_payment(oa,'30','2026-10-09T10:00:00Z','tamara-payment-first');
+  perform pg_temp.ok(r->>'paid_amount'='30.00','retry does not duplicate advance');
+  r := public.record_order_payment(oa,'60',now(),'tamara-payment-excess');
+  perform pg_temp.ok(r->>'error'='payment_exceeds_total','advance cannot exceed pending');
+  r := public.set_order_total_amount(oa,'29',(select row_version::text from public.orders where id=oa));
+  perform pg_temp.ok(r->>'error'='total_below_paid','cannot reduce total below advance');
+  r := public.record_order_payment(ob,'30',now(),'tamara-payment-other');
+  perform pg_temp.ok(r->>'error'='not_found','cannot record advance in other tenant');
+
   perform pg_temp.ok((select count(*)=0 from public.orders where id=ob),'staff cannot read other tenant');
   perform pg_temp.ok((select count(*)=1 from public.tenant_settings where tenant_id=ta),'staff reads own timezone');
   perform pg_temp.ok((select count(*)=0 from public.tenant_settings where tenant_id=tb),'settings tenant isolation');
