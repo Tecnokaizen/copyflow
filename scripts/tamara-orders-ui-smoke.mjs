@@ -66,7 +66,7 @@ try {
     // No layout= parameter: Cuadrícula is the default, on desktop and mobile.
     await page.getByLabel('Pedidos en cuadrícula',{exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'Cuadrícula',exact:true}).getAttribute('aria-pressed'),'true');
-    await page.getByRole('link',{name:'Trabajo lista',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Trabajo lista',exact:true}).waitFor();
     if (width < 768) await page.getByRole('button',{name:'Menú',exact:true}).click();
     await page.getByRole('link',{name:'Inicio',exact:true}).waitFor();
     if (width < 768) {
