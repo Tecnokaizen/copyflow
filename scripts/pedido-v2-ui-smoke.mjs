@@ -51,7 +51,7 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-  for (const width of [390, 1280]) {
+  for (const width of [390, 820, 1280]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     const errors = [];
     page.on("pageerror", (error) => { errors.push(error.message); console.error(error.message); });
@@ -234,8 +234,8 @@ try {
     assert.equal(await page.getByText("Prioridad", { exact: true }).count(), 1);
     const countColumns = (testId) => page.getByTestId(testId).evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length);
-    assert.equal(await countColumns("quick-primary-identification"), width >= 1280 ? 3 : 1);
-    assert.equal(await countColumns("quick-primary-assignment"), width >= 1280 ? 3 : 1);
+    assert.equal(await countColumns("quick-primary-identification"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
+    assert.equal(await countColumns("quick-primary-assignment"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
     const firstRow = await identification.boundingBox();
     const secondRow = await assignment.boundingBox();
     const descriptionRow = await description.boundingBox();
