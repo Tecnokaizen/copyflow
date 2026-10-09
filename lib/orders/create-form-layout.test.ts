@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   defaultSingleCatalogId,
+  planQuickOrderPrimaryLayout,
   isQuickCreateMode,
   shouldStayOnCreateForm,
   showEntryChannelInMainForm,
@@ -11,6 +12,25 @@ import {
 } from "./create-form-layout";
 
 describe("create order form layout", () => {
+  it("uses the sketch's two rows while preserving optional tenant-configured primary fields", () => {
+    const plan = planQuickOrderPrimaryLayout([
+      "description", "service", "priority", "client", "store",
+      "due_at", "notes", "assigned_team_member", "title",
+    ]);
+    assert.deepEqual(plan.overviewFields, [
+      "store", "due_at", "client", "assigned_team_member", "priority",
+    ]);
+    assert.equal(plan.showDescription, true);
+    assert.deepEqual(plan.additionalFields, ["service", "notes"]);
+  });
+
+  it("does not resurrect hidden or Más opciones fields in the main rows", () => {
+    const plan = planQuickOrderPrimaryLayout(["service", "priority"]);
+    assert.deepEqual(plan.overviewFields, ["priority"]);
+    assert.equal(plan.showDescription, false);
+    assert.deepEqual(plan.additionalFields, ["service"]);
+  });
+
   it("keeps the full form on Pedidos and stays on Pedido rápido after creating", () => {
     assert.equal(isQuickCreateMode("full"), false);
     assert.equal(isQuickCreateMode("quick"), true);
