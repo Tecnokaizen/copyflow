@@ -64,6 +64,9 @@ try {
     };
     const events = [];
     let body;
+    let collection = { total_amount: null, paid_amount: "0.00", pending_amount: null, collection_state: "undefined", row_version: "1", payments: [] };
+    const moneyRequests = [];
+    let rejectPayment = true;
     let completeCalls = 0;
     const file = { id: "file-1", original_name: "arte.pdf", status: "ready", content_type: "application/pdf", size_bytes: 8, created_at: "2026-09-23T10:00:00Z", completed_at: null };
     await page.route("**/api/**", async (route) => {
@@ -84,6 +87,18 @@ try {
       if (pathname === "/api/clients") {
         if (req.method() === "POST") return json({ client: { id: "client-a", name: "Cliente inline" } }, 201);
         return json({ clients: [] });
+      }
+      if (pathname === "/api/orders/saved-order/payments") {
+        if (req.method() === "GET") return json(collection);
+        const payment = req.postDataJSON(); moneyRequests.push(payment);
+        if (rejectPayment) { rejectPayment = false; return json({ error: "No se pudo confirmar el cobro. Reintenta." }, 500); }
+        collection = { ...collection, paid_amount: "30.00", pending_amount: "55.00", collection_state: "partial", row_version: "3", payments: [{ id: "payment-1", amount: "30.00", paid_at: payment.paid_at, created_at: payment.paid_at, actor_name: "Personal", voided_at: null }] };
+        return json(collection);
+      }
+      if (pathname === "/api/orders/saved-order/total") {
+        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.equal(payload.total_amount, "85");
+        collection = { ...collection, total_amount: "85.00", pending_amount: "85.00", collection_state: "unpaid", row_version: "2" };
+        return json(collection);
       }
       if (pathname === "/api/orders") {
         events.push("create"); body = req.postDataJSON();
@@ -144,6 +159,23 @@ try {
     assert.equal(downloaded.suggestedFilename(), "arte.pdf");
     assert.ok(events.includes("download"));
     await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Definir total", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Crear otro' && button.disabled));
+    assert.equal(await page.getByRole("button", { name: "Crear otro", exact: true }).isEnabled(), false);
+    await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("85");
+    await page.getByRole("button", { name: "Guardar total", exact: true }).click();
+    await page.getByRole("button", { name: "Modificar total", exact: true }).waitFor();
+    assert.equal(await page.getByText("85,00 €", { exact: true }).count(), 2);
+    await page.getByRole("button", { name: "Registrar entrega a cuenta", exact: true }).click();
+    await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("30");
+    await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
+    await page.getByText("No se pudo confirmar el cobro. Reintenta.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
+    await page.getByText("55,00 €", { exact: true }).waitFor();
+    assert.equal(moneyRequests.length, 2);
+    assert.equal(moneyRequests[0].idempotency_key, moneyRequests[1].idempotency_key);
+    assert.equal(events.filter(event => event === "create").length, 1);
+    assert.equal(await page.getByRole("button", { name: "Crear otro", exact: true }).isEnabled(), true);
     await page.screenshot({ path: path.join(out, `saved-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: "Crear otro", exact: true }).click();
     assert.equal(await page.getByText("arte.pdf", { exact: true }).count(), 0);
@@ -185,7 +217,7 @@ try {
     assert.equal(body.title, "Carteles feria");
     await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    results.push({ width, passed: true, checks: "title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, ficha link, reset, Settings, full form notes, overflow" });
+    results.push({ width, passed: true, checks: "title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
     await page.close();
   }
   await writeFile(path.join(out, "results.json"), JSON.stringify(results, null, 2));

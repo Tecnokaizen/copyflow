@@ -43,3 +43,12 @@ Presupuestos ya tiene impresión operativa A4 (`/quotes/[id]/print`) para datos 
 No cambia esquema, billing/Stripe, secretos ni datos de producción. El despliegue de estas vistas no requiere migración.
 
 Resultado local de la PR de permisos/vistas: 982 tests aprobados, 6 omitidos (988 total), typecheck y build correctos. SQL transaccional correcto. Browser integration correcto a 390 y 1280 px. Capturas disponibles en el informe local de QA; producción se comprueba por separado después del merge.
+
+
+## Pedido rápido e impresión (segunda PR)
+
+El bloque canónico de cobro de la ficha se muestra después del alta en Pedido rápido, sin abandonar esa pantalla. Permite definir total y registrar entregas, con total/entregado/pendiente siempre derivados por los mismos RPC. Se muestra solamente cuando el pedido ya existe; no se declara un cobro antes de confirmarlo. Crear otro se bloquea mientras hay diálogo/operación de cobro. Los errores quedan dentro del bloque del pedido guardado y el reintento no recrea el pedido. La ficha completa y el formulario rápido consultan exactamente la misma fuente.
+
+Imprimir presupuesto se muestra también con revisión comercial. Es la hoja de control A4 ya existente, basada en la ficha guardada, sin cambiar estados ni generar una nueva revisión. El botón queda desactivado si hay cambios sin guardar o una operación en curso. El PDF comercial versionado conserva su generación, términos y líneas/importe propios; no se sustituyen ni mezclan documentos. Los datos de notas internas no se imprimen. No cambian modelos, RPC ni reglas de cobro.
+
+Resultado local segunda PR: suite completa 982 aprobadas + 6 omitidas; navegador Pedido rápido a 390/1280 px confirma 85,00 € de total, 30,00 € entregados y 55,00 € pendientes, reintento con la misma clave, un solo pedido y Crear otro bloqueado durante cobro. Prueba de editor de presupuestos: 290 aserciones, a 390/768/1280 px en claro/oscuro, impresión con revisión y bloqueo por cambios sin guardar. SQL prueba total indefinido, exceso, total inferior a pagos, replay y otro tenant; rollback correcto.

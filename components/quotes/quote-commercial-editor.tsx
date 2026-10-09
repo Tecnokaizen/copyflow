@@ -226,7 +226,7 @@ export function QuoteCommercialEditor({ quoteId }: { quoteId: string }) {
     {loading ? <LoadingState label="Cargando presupuesto" /> : null}
     {!loading && loadError ? <ErrorState title="No se pudo cargar el presupuesto" description={loadError} onRetry={() => { setLoading(true); setReload((n) => n + 1); }} /> : null}
     {!loading && !loadError && detail && values ? <>
-      <PageHeader title={detail.quote.reference} description={detail.quote.title || "Presupuesto"} actions={<>{!version ? <Link href={`/quotes/${detail.quote.id}/print`} target="_blank" rel="noopener noreferrer" className="gc-action min-h-11">Imprimir presupuesto</Link> : null}<button className="gc-action min-h-11" type="button" disabled={busy} onClick={() => {
+      <PageHeader title={detail.quote.reference} description={detail.quote.title || "Presupuesto"} actions={<>{dirty || busy ? <button type="button" disabled title="Guarda los cambios para imprimir la información actualizada." className="gc-action min-h-11">Imprimir presupuesto</button> : <Link href={`/quotes/${detail.quote.id}/print`} target="_blank" rel="noopener noreferrer" title="Hoja de control A4 con la información guardada. El PDF comercial sigue disponible en Documento PDF." className="gc-action min-h-11">Imprimir presupuesto</Link>}<button className="gc-action min-h-11" type="button" disabled={busy} onClick={() => {
         if (dirty && !window.confirm("Recargar sustituirá tus cambios sin guardar. ¿Quieres continuar?")) return;
         void perform(async () => { await loadCurrent(); setMessage("Ficha recargada"); });
       }}>Recargar ficha</button><Link href="/quotes" className="gc-action min-h-11">Volver a presupuestos</Link></>} />

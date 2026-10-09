@@ -15,12 +15,14 @@ export function OrderCollection({
   archived,
   editing = false,
   onChanged,
+  onInteractionChange,
 }: {
   orderId: string;
   canWrite: boolean;
   archived: boolean;
   editing?: boolean;
   onChanged: () => void;
+  onInteractionChange?: (active: boolean) => void;
 }) {
   const [collection, setCollection] = useState<OrderCollection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,10 @@ export function OrderCollection({
   const [reason, setReason] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    onInteractionChange?.(busy || paymentOpen || totalOpen || voiding !== null);
+  }, [busy, paymentOpen, totalOpen, voiding, onInteractionChange]);
 
   useEffect(() => {
     let cancelled = false;

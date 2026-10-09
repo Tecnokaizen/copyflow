@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { OrderCollection } from "@/components/orders/detail/order-collection";
 import { CreateOrderFiles } from "@/components/files/create-order-files";
 import { OrderFilesSection } from "@/components/files/order-files-section";
 import { type ClientUploadItem, MAX_ORDER_FILE_BYTES } from "@/lib/files/client";
@@ -90,6 +92,8 @@ export function CreateOrderForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOrder | null>(null);
+  const [collectionActive, setCollectionActive] = useState(false);
+  const [collectionMessage, setCollectionMessage] = useState<string | null>(null);
 
   const submitLock = useRef(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
@@ -178,6 +182,8 @@ export function CreateOrderForm({
     setNotes("");
     setError(null);
     setCreated(null);
+    setCollectionActive(false);
+    setCollectionMessage(null);
     setSubmitting(false);
     if (nextOptions) {
       applyCatalogDefaults(nextOptions);
@@ -764,6 +770,19 @@ export function CreateOrderForm({
           ) : null}
           {pendingUploads && !submitting ? <p className="text-sm text-muted-foreground">Los archivos pendientes siguen en esta pantalla. Si sales, tendrás que seleccionarlos de nuevo en la ficha.</p> : null}
         </div>
+        {isQuick && !submitting ? <div className="mb-5">
+          <h2 className="font-semibold">Importe y entrega a cuenta</h2>
+          <p className="mt-1 mb-3 text-sm text-muted-foreground">Define el importe total y registra lo entregado a cuenta en este pedido. El pendiente se calcula automáticamente.</p>
+          <OrderCollection
+            key={created.id}
+            orderId={created.id}
+            canWrite={canWriteOrders(options?.actor_role)}
+            archived={false}
+            onChanged={() => setCollectionMessage("Cobro actualizado en el pedido.")}
+            onInteractionChange={setCollectionActive}
+          />
+          {collectionMessage ? <p role="status" className="mt-2 text-sm text-muted-foreground">{collectionMessage}</p> : null}
+        </div> : null}
         {!submitting ? <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Link
             href={`/orders/${created.id}`}
@@ -773,7 +792,7 @@ export function CreateOrderForm({
           </Link>
           <button
             type="button"
-            disabled={pendingUploads}
+            disabled={pendingUploads || collectionActive}
             onClick={() => resetQuickForm(options)}
             className="gc-action min-h-11 w-full sm:w-auto"
           >
