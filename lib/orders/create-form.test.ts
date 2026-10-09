@@ -203,8 +203,9 @@ describe("CreateOrderForm payload is shared across modes", () => {
       body.indexOf(") : (")
     );
     assert.ok(
-      quickBranch.indexOf("{renderTitleField()}") <
-        quickBranch.indexOf("quickPrimaryFields.map")
+      quickBranch.includes("{renderTitleField()}") &&
+        quickBranch.indexOf("{renderTitleField()}") <
+          quickBranch.indexOf("quickSections.overviewFields.map")
     );
 
     const ordersPage = readFileSync(
