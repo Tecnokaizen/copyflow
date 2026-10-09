@@ -38,6 +38,12 @@ import {
   buildCreateOrderPayload,
 } from "@/lib/orders/create-form";
 import {
+  parseInitialFinance,
+  pendingInitialFinanceLabel,
+  persistInitialFinance,
+  type ParsedInitialFinance,
+} from "@/lib/orders/initial-finance";
+import {
   defaultSingleCatalogId,
   groupQuickOrderPrimaryFields,
   isQuickCreateMode,
@@ -72,6 +78,12 @@ type CreatedOrder = {
   reference: string;
 };
 
+type InitialFinanceIntent = {
+  finance: Extract<ParsedInitialFinance, { ok: true }>;
+  idempotencyKey: string;
+  paidAt: string;
+};
+
 type QuickOrderOptionsResponse = OrderOptionsResponse & {
   quick_order_layout: QuickOrderLayout;
   file_statuses: { id: string; code: string; name: string }[];
@@ -95,6 +107,11 @@ export function CreateOrderForm({
   const [created, setCreated] = useState<CreatedOrder | null>(null);
   const [collectionActive, setCollectionActive] = useState(false);
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null);
+  const [totalDraft, setTotalDraft] = useState("");
+  const [advanceDraft, setAdvanceDraft] = useState("");
+  const [financeIntent, setFinanceIntent] = useState<InitialFinanceIntent | null>(null);
+  const [financePending, setFinancePending] = useState(false);
+  const [financeError, setFinanceError] = useState<string | null>(null);
 
   const submitLock = useRef(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
@@ -169,6 +186,11 @@ export function CreateOrderForm({
 
   function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
     uploadQueue.clear();
+    setTotalDraft("");
+    setAdvanceDraft("");
+    setFinanceIntent(null);
+    setFinancePending(false);
+    setFinanceError(null);
     setFileStatusId("");
     setTitle("");
     setSelectedClient(null);
@@ -266,6 +288,10 @@ export function CreateOrderForm({
       field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
   const quickGroups = groupQuickOrderPrimaryFields(quickPrimaryFields);
+  const financePreview = parseInitialFinance({
+    totalAmount: totalDraft,
+    advanceAmount: advanceDraft,
+  });
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -366,6 +392,10 @@ export function CreateOrderForm({
       setError("Quita los archivos no válidos de la cola antes de crear el pedido.");
       return;
     }
+    if (!financePreview.ok) {
+      setError(financePreview.error);
+      return;
+    }
     submitLock.current = true;
     setSubmitting(true);
     setError(null);
@@ -415,15 +445,59 @@ export function CreateOrderForm({
         reference: typeof result.order.reference === "string" ? result.order.reference : "Pedido",
       };
       setCreated(savedOrder);
+      const intent: InitialFinanceIntent | null =
+        financePreview.totalAmount !== null
+          ? {
+              finance: financePreview,
+              idempotencyKey: crypto.randomUUID(),
+              paidAt: new Date().toISOString(),
+            }
+          : null;
+      setFinanceIntent(intent);
+      setFinancePending(Boolean(intent));
+      let financeComplete = true;
+      if (intent) {
+        try {
+          await persistInitialFinance({ orderId: savedOrder.id, ...intent });
+          setFinancePending(false);
+          setFinanceError(null);
+        } catch (err) {
+          financeComplete = false;
+          setFinanceError(
+            err instanceof Error ? err.message : "No se pudo registrar el importe."
+          );
+        }
+      }
       const allUploaded = await uploadQueue.upload(savedOrder.id, maxFileBytes);
       if (!allUploaded) {
         setError("El pedido está creado. Algunos archivos no se han podido subir; reinténtalos aquí.");
-      } else if (!shouldStayOnCreateForm(mode)) {
+      } else if (financeComplete && !shouldStayOnCreateForm(mode)) {
         router.push(`/orders/${savedOrder.id}?created=1`);
       }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No se pudo crear el pedido"
+      );
+    } finally {
+      setSubmitting(false);
+      submitLock.current = false;
+    }
+  }
+
+  async function retryInitialFinance() {
+    if (!created || !financeIntent || submitLock.current) return;
+    submitLock.current = true;
+    setSubmitting(true);
+    setFinanceError(null);
+    try {
+      await persistInitialFinance({ orderId: created.id, ...financeIntent });
+      setFinancePending(false);
+      if (!pendingUploads && !shouldStayOnCreateForm(mode)) {
+        router.push(`/orders/${created.id}?created=1`);
+      }
+    } catch (err) {
+      setFinanceError(
+        err instanceof Error ? err.message : "No se pudo registrar el importe."
       );
     } finally {
       setSubmitting(false);
@@ -439,13 +513,61 @@ export function CreateOrderForm({
     try {
       const complete = await uploadQueue.upload(created.id, maxFileBytes);
       if (!complete) setError("Quedan archivos pendientes. Puedes volver a reintentar.");
-      else if (!shouldStayOnCreateForm(mode)) router.push(`/orders/${created.id}?created=1`);
+      else if (!financePending && !shouldStayOnCreateForm(mode)) router.push(`/orders/${created.id}?created=1`);
     } catch {
       setError("No se han podido completar los archivos. El pedido ya está creado.");
     } finally {
       setSubmitting(false);
       submitLock.current = false;
     }
+  }
+
+  function renderInitialFinanceFields() {
+    return (
+      <div className="grid gap-3 rounded-lg border border-border/70 bg-secondary/10 p-4">
+        <h3 className="text-sm font-semibold text-foreground">Importe y cobro</h3>
+        <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <label className="grid min-w-0 gap-2 text-sm font-medium text-foreground">
+            Importe total (€)
+            <input
+              className="gc-field-control min-w-0"
+              inputMode="decimal"
+              value={totalDraft}
+              disabled={submitting}
+              placeholder="0,00"
+              onChange={(event) => setTotalDraft(event.target.value)}
+            />
+          </label>
+          <label className="grid min-w-0 gap-2 text-sm font-medium text-foreground">
+            Entregado a cuenta (€)
+            <input
+              className="gc-field-control min-w-0"
+              inputMode="decimal"
+              value={advanceDraft}
+              disabled={submitting}
+              placeholder="0,00"
+              onChange={(event) => setAdvanceDraft(event.target.value)}
+            />
+          </label>
+          <div className="grid min-w-0 gap-2 text-sm font-medium text-foreground">
+            <span>Pendiente de pago</span>
+            <output
+              className="gc-field-control flex min-h-11 items-center font-semibold"
+              aria-live="polite"
+              data-testid="initial-finance-pending"
+            >
+              {pendingInitialFinanceLabel(financePreview)}
+            </output>
+          </div>
+        </div>
+        {!financePreview.ok ? (
+          <p className="text-sm text-destructive" role="alert">{financePreview.error}</p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          El total y la entrega a cuenta se registrarán al crear el pedido.
+        </p>
+      </div>
+    );
   }
 
   function renderFilesField() {
@@ -772,7 +894,24 @@ export function CreateOrderForm({
           ) : null}
           {pendingUploads && !submitting ? <p className="text-sm text-muted-foreground">Los archivos pendientes siguen en esta pantalla. Si sales, tendrás que seleccionarlos de nuevo en la ficha.</p> : null}
         </div>
-        {isQuick && !submitting ? <div className="mb-5">
+        {financePending ? (
+          <div className="mb-5 grid gap-3 rounded-md border border-border p-4" role="status">
+            <p className="text-sm font-medium text-foreground">
+              Pedido creado. Falta confirmar los importes y la entrega a cuenta.
+            </p>
+            {financeError ? <p className="text-sm text-destructive">{financeError}</p> : null}
+            {!submitting ? (
+              <button
+                type="button"
+                className="gc-cta min-h-11 w-full sm:w-fit"
+                onClick={() => void retryInitialFinance()}
+              >
+                Reintentar guardar importes
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {!financePending && isQuick && !submitting ? <div className="mb-5">
           <h2 className="font-semibold">Importe y entrega a cuenta</h2>
           <p className="mt-1 mb-3 text-sm text-muted-foreground">Define el importe total y registra lo entregado a cuenta en este pedido. El pendiente se calcula automáticamente.</p>
           <OrderCollection
@@ -794,7 +933,7 @@ export function CreateOrderForm({
           </Link>
           <button
             type="button"
-            disabled={pendingUploads || collectionActive}
+            disabled={pendingUploads || collectionActive || financePending || submitting}
             onClick={() => resetQuickForm(options)}
             className="gc-action min-h-11 w-full sm:w-auto"
           >
@@ -864,6 +1003,7 @@ export function CreateOrderForm({
                   {renderQuickDescriptionField()}
                 </div>
               ) : null}
+              {renderInitialFinanceFields()}
               {quickGroups.additional.length > 0 ? (
                 <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {quickGroups.additional.map((field) => (
@@ -907,6 +1047,7 @@ export function CreateOrderForm({
               {renderPriorityField()}
               {renderFileStatusField()}
               {renderFilesField()}
+              {renderInitialFinanceFields()}
               {showChannelInMain ? renderChannelField() : null}
               <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                 <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
