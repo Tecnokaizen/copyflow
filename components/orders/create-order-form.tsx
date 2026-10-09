@@ -39,6 +39,7 @@ import {
 } from "@/lib/orders/create-form";
 import {
   defaultSingleCatalogId,
+  groupQuickOrderPrimaryFields,
   isQuickCreateMode,
   quickFieldIsAvailable,
   shouldStayOnCreateForm,
@@ -264,6 +265,7 @@ export function CreateOrderForm({
     (field) =>
       field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
+  const quickGroups = groupQuickOrderPrimaryFields(quickPrimaryFields);
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -838,10 +840,46 @@ export function CreateOrderForm({
         <form onSubmit={handleSubmit} className="grid gap-5">
           {isQuick ? (
             <>
-              {renderTitleField()}
-              {quickPrimaryFields.map((field) => (
-                <Fragment key={field}>{renderQuickField(field)}</Fragment>
-              ))}
+              <div
+                data-testid="quick-primary-identification"
+                className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3"
+              >
+                <div className="min-w-0">{renderTitleField()}</div>
+                {quickGroups.identification.map((field) => (
+                  <div key={field} className="min-w-0">{renderQuickField(field)}</div>
+                ))}
+              </div>
+              {quickGroups.assignment.length > 0 ? (
+                <div
+                  data-testid="quick-primary-assignment"
+                  className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3"
+                >
+                  {quickGroups.assignment.map((field) => (
+                    <div key={field} className="min-w-0">{renderQuickField(field)}</div>
+                  ))}
+                </div>
+              ) : null}
+              {quickGroups.description ? (
+                <div data-testid="quick-primary-description" className="min-w-0">
+                  {renderQuickDescriptionField()}
+                </div>
+              ) : null}
+              {quickGroups.additional.length > 0 ? (
+                <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {quickGroups.additional.map((field) => (
+                    <div
+                      key={field}
+                      className={
+                        field === "files" || field === "notes"
+                          ? "min-w-0 md:col-span-2 xl:col-span-3"
+                          : "min-w-0"
+                      }
+                    >
+                      {renderQuickField(field)}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {quickMoreFields.length > 0 ? (
                 <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                   <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
