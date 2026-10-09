@@ -40,6 +40,7 @@ import {
 import {
   defaultSingleCatalogId,
   isQuickCreateMode,
+  planQuickOrderPrimaryLayout,
   quickFieldIsAvailable,
   shouldStayOnCreateForm,
   showEntryChannelInMainForm,
@@ -264,6 +265,7 @@ export function CreateOrderForm({
     (field) =>
       field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
+  const quickSections = planQuickOrderPrimaryLayout(quickPrimaryFields);
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -779,6 +781,7 @@ export function CreateOrderForm({
             canWrite={canWriteOrders(options?.actor_role)}
             archived={false}
             onChanged={() => setCollectionMessage("Cobro actualizado en el pedido.")}
+            compactSummary
             onInteractionChange={setCollectionActive}
           />
           {collectionMessage ? <p role="status" className="mt-2 text-sm text-muted-foreground">{collectionMessage}</p> : null}
@@ -838,20 +841,61 @@ export function CreateOrderForm({
         <form onSubmit={handleSubmit} className="grid gap-5">
           {isQuick ? (
             <>
-              {renderTitleField()}
-              {quickPrimaryFields.map((field) => (
-                <Fragment key={field}>{renderQuickField(field)}</Fragment>
-              ))}
+              {/* Título/Tienda/Entrega, then Cliente/Responsable/Prioridad. */}
+              <div className="grid items-start gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="min-w-0">{renderTitleField()}</div>
+                {quickSections.overviewFields.map((field) => (
+                  <div key={field} className="min-w-0">
+                    {renderQuickField(field)}
+                  </div>
+                ))}
+              </div>
+              {quickSections.showDescription ? (
+                <div className="min-w-0">{renderQuickDescriptionField()}</div>
+              ) : null}
+              <section
+                aria-label="Importe y cobro del pedido"
+                className="rounded-lg border border-border/70 bg-secondary/10 p-4"
+              >
+                <h3 className="text-sm font-semibold text-foreground">Importe y cobro</h3>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  {["Importe total", "Entregado a cuenta", "Pendiente de pago"].map((label) => (
+                    <div key={label} className="min-w-0 rounded-md border border-border/60 bg-background/60 p-3">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="mt-1 text-base font-semibold text-muted-foreground">—</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Al crear el pedido podrás definir el total, registrar lo entregado a cuenta
+                  y consultar el pendiente, sin salir de esta pantalla.
+                </p>
+              </section>
+              {quickSections.additionalFields.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {quickSections.additionalFields.map((field) => (
+                    <div
+                      key={field}
+                      className={field === "notes" || field === "files" ? "min-w-0 md:col-span-2 lg:col-span-3" : "min-w-0"}
+                    >
+                      {renderQuickField(field)}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {quickMoreFields.length > 0 ? (
                 <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                   <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
                     Más opciones
                   </summary>
-                  <div className="mt-4 grid gap-5">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {quickMoreFields.map((field) => (
-                      <Fragment key={field}>
+                      <div
+                        key={field}
+                        className={field === "notes" || field === "files" || field === "description" ? "min-w-0 md:col-span-2 lg:col-span-3" : "min-w-0"}
+                      >
                         {renderQuickField(field)}
-                      </Fragment>
+                      </div>
                     ))}
                   </div>
                 </details>
