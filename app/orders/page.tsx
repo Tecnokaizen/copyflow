@@ -29,6 +29,7 @@ import {
   formatZonedTime,
 } from "@/lib/time/zoned-day";
 import { cn } from "@/lib/utils";
+import { resolveOrdersListLayout } from "@/lib/orders/list-layout";
 import { nextListFilterForStatusSelection } from "@/lib/orders/list-filter-status";
 import { isOrderOperational } from "@/lib/orders/operational";
 import { formatTenantDueLabel } from "@/lib/orders/review";
@@ -546,7 +547,7 @@ function OrdersPageContent() {
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const listLayout = searchParams.get("layout") === "grid" ? "grid" : "list";
+  const listLayout = resolveOrdersListLayout(searchParams.get("layout"));
   const urlView = parseViewMode(searchParams.get("view"));
   const rawListFilter = parseListFilter(searchParams.get("filter"));
   const assignedMemberId = parseAssignedTeamMemberId(
