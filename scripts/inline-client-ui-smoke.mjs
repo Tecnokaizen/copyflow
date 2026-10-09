@@ -64,6 +64,7 @@ try {
       if (pathname === "/api/quotes/creation-recovery") return json(method === "POST" ? {quote_id:body.operation_id} : {receipts:[]});
       if (pathname === "/api/quotes/create-draft" && method === "POST") return json({quote_id:body.creation_id,version:{state:"draft"}});
       if (pathname === "/api/orders" && method === "POST") return json({order:{id:"order-created",reference:"DEMO-001"}});
+      if (pathname === "/api/orders/order-created/payments" && method === "GET") return json({total_amount:null,paid_amount:"0.00",pending_amount:null,collection_state:"undefined",row_version:"1",payments:[]});
       if (pathname === "/api/services") return json({services:[]});
       if (pathname === "/api/team") return json({members:[]});
       if (pathname === "/api/clients/options") return json({customer_types:[]});
