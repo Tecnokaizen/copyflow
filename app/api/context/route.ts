@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { VOICE_ORDERS_FEATURE_CODE } from "@/lib/ai/voice-orders/feature";
 import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
 import { QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { createClient } from "@/lib/supabase/server";
@@ -28,6 +29,11 @@ export async function GET() {
     context.tenant.id,
     QUOTES_FEATURE_CODE
   );
+  const voice_orders = await tenantHasFeature(
+    supabase,
+    context.tenant.id,
+    VOICE_ORDERS_FEATURE_CODE
+  );
   let settings: Awaited<ReturnType<typeof loadOrganizationSettings>> = null;
   try {
     settings = await loadOrganizationSettings(context.tenant.id);
@@ -54,6 +60,7 @@ export async function GET() {
     team_member: teamMember,
     features: {
       quotes,
+      voice_orders,
     },
   });
 }

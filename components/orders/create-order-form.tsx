@@ -47,12 +47,15 @@ import {
   suggestedAssigneeId,
 } from "@/lib/orders/create-form-layout";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
+import { VoiceOrderPanel } from "@/components/orders/voice/voice-order-panel";
 import {
   fromDateTimeLocalValue,
   MISSING_LOCAL_HOUR_MESSAGE,
+  toDateTimeLocalValue,
 } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
 import { fetchLive } from "@/lib/refresh/fetch-live";
+import { appendRichText } from "@/lib/rich-text/html";
 import {
   DEFAULT_QUICK_ORDER_LAYOUT,
   fieldsForPlacement,
@@ -60,6 +63,7 @@ import {
   type QuickOrderLayout,
 } from "@/lib/settings/quick-order-layout";
 import { defaultActiveStoreId } from "@/lib/stores/scope";
+import type { VoiceTouchedFields } from "@/lib/ai/voice-orders/apply-draft";
 
 type CreateOrderFormProps = {
   mode?: "full" | "quick";
@@ -138,6 +142,13 @@ export function CreateOrderForm({
   const [assignedTeamMemberId, setAssignedTeamMemberId] = useState("");
   const [storeId, setStoreId] = useState("");
   const [notes, setNotes] = useState("");
+  const [touchedFields, setTouchedFields] = useState<VoiceTouchedFields>({});
+
+  function markTouched(field: keyof VoiceTouchedFields) {
+    setTouchedFields((current) =>
+      current[field] ? current : { ...current, [field]: true }
+    );
+  }
 
   function applyCatalogDefaults(nextOptions: OrderOptionsResponse) {
     setStoreId((current) => {
@@ -186,6 +197,7 @@ export function CreateOrderForm({
     setCollectionActive(false);
     setCollectionMessage(null);
     setSubmitting(false);
+    setTouchedFields({});
     if (nextOptions) {
       applyCatalogDefaults(nextOptions);
     }
@@ -486,7 +498,10 @@ export function CreateOrderForm({
           value={entryChannelId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setEntryChannelId}
+          onChange={(value) => {
+            markTouched("entryChannelId");
+            setEntryChannelId(value);
+          }}
         >
           <option value="">Sin canal</option>
           {options?.entry_channels.map((channel) => (
@@ -511,7 +526,10 @@ export function CreateOrderForm({
           value={storeId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setStoreId}
+          onChange={(value) => {
+            markTouched("storeId");
+            setStoreId(value);
+          }}
         >
           <option value="">Sin tienda</option>
           {options?.stores.map((store) => (
@@ -532,7 +550,10 @@ export function CreateOrderForm({
           value={selectedClient}
           disabled={submitting}
           allowNoClient
-          onChange={setSelectedClient}
+          onChange={(client) => {
+            markTouched("clientId");
+            setSelectedClient(client);
+          }}
           onCreateNew={openCreateClient}
         />
         <span className="text-xs font-normal text-muted-foreground">
@@ -550,7 +571,10 @@ export function CreateOrderForm({
           value={serviceId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setServiceId}
+          onChange={(value) => {
+            markTouched("serviceId");
+            setServiceId(value);
+          }}
         >
           <option value="">Sin servicio</option>
           {options?.services.map((service) => (
@@ -571,7 +595,10 @@ export function CreateOrderForm({
           ariaLabel="Descripción"
           value={description}
           disabled={submitting}
-          onChange={setDescription}
+          onChange={(value) => {
+            markTouched("description");
+            setDescription(value);
+          }}
         />
       </div>
     );
@@ -585,7 +612,10 @@ export function CreateOrderForm({
           ariaLabel="Instrucciones"
           value={description}
           disabled={submitting}
-          onChange={setDescription}
+          onChange={(value) => {
+            markTouched("description");
+            setDescription(value);
+          }}
         />
       </div>
     );
@@ -595,7 +625,14 @@ export function CreateOrderForm({
     return (
       <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
-        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} />
+        <DateTimePicker
+          value={dueAt}
+          disabled={submitting}
+          onChange={(value) => {
+            markTouched("dueAt");
+            setDueAt(value);
+          }}
+        />
       </div>
     );
   }
@@ -608,7 +645,10 @@ export function CreateOrderForm({
           value={assignedTeamMemberId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setAssignedTeamMemberId}
+          onChange={(value) => {
+            markTouched("assignedTeamMemberId");
+            setAssignedTeamMemberId(value);
+          }}
         >
           <option value="">Sin asignar</option>
           {options?.team_members.map((member) => (
@@ -629,9 +669,10 @@ export function CreateOrderForm({
           value={priority}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={(value) =>
-            setPriority(value as "normal" | "high" | "urgent")
-          }
+          onChange={(value) => {
+            markTouched("priority");
+            setPriority(value as "normal" | "high" | "urgent");
+          }}
         >
           <option value="normal">Normal</option>
           <option value="high">Alta</option>
@@ -650,7 +691,10 @@ export function CreateOrderForm({
           disabled={submitting}
           placeholder="Ej. 200 tarjetas de visita"
           className="max-w-none text-base"
-          onChange={setTitle}
+          onChange={(value) => {
+            markTouched("title");
+            setTitle(value);
+          }}
         />
         {title.trim() ? null : (
           <span className="text-xs font-normal text-muted-foreground">
@@ -673,7 +717,10 @@ export function CreateOrderForm({
           value={orderContextId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setOrderContextId}
+          onChange={(value) => {
+            markTouched("orderContextId");
+            setOrderContextId(value);
+          }}
         >
           <option value="">Sin contexto</option>
           {options?.order_contexts.map((context) => (
@@ -694,7 +741,10 @@ export function CreateOrderForm({
           ariaLabel="Notas internas"
           value={notes}
           disabled={submitting}
-          onChange={setNotes}
+          onChange={(value) => {
+            markTouched("notes");
+            setNotes(value);
+          }}
         />
       </div>
     );
@@ -838,6 +888,77 @@ export function CreateOrderForm({
         />
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-5">
+          <VoiceOrderPanel
+            mode={isQuick ? "quick" : "full"}
+            tenantSlug={options?.tenant ?? ""}
+            visibleFields={
+              isQuick
+                ? ([...quickPrimaryFields, ...quickMoreFields, "title"] as QuickOrderField[])
+                : ([
+                    "client",
+                    "service",
+                    "description",
+                    "store",
+                    "due_at",
+                    "priority",
+                    "assigned_team_member",
+                    "entry_channel",
+                    "title",
+                    "order_context",
+                    "notes",
+                  ] as QuickOrderField[])
+            }
+            formSnapshot={{
+              title,
+              description,
+              notes,
+              serviceId,
+              storeId,
+              entryChannelId,
+              orderContextId,
+              assignedTeamMemberId,
+              priority,
+              dueAt,
+              clientId: selectedClient?.id ?? null,
+            }}
+            touchedFields={touchedFields}
+            onApplyPatch={(patch) => {
+              if (patch.title !== undefined) setTitle(patch.title);
+              if (patch.description !== undefined) {
+                if (patch.descriptionMode === "append") {
+                  setDescription((current) =>
+                    appendRichText(current, patch.description)
+                  );
+                } else {
+                  setDescription(patch.description);
+                }
+              }
+              if (patch.notes !== undefined) setNotes(patch.notes);
+              if (patch.serviceId !== undefined) setServiceId(patch.serviceId);
+              if (patch.storeId !== undefined) setStoreId(patch.storeId);
+              if (patch.entryChannelId !== undefined) {
+                setEntryChannelId(patch.entryChannelId);
+              }
+              if (patch.orderContextId !== undefined) {
+                setOrderContextId(patch.orderContextId);
+              }
+              if (patch.assignedTeamMemberId !== undefined) {
+                setAssignedTeamMemberId(patch.assignedTeamMemberId);
+              }
+              if (patch.priority !== undefined) setPriority(patch.priority);
+              if (patch.dueAtIso !== undefined) {
+                setDueAt(toDateTimeLocalValue(patch.dueAtIso));
+              }
+              if (patch.clientId) {
+                void selectClientById(patch.clientId).catch(() => {
+                  setError("No se pudo cargar el cliente propuesto");
+                });
+              }
+              if (patch.openCreateClientName) {
+                openCreateClient(patch.openCreateClientName);
+              }
+            }}
+          />
           {isQuick ? (
             <>
               <div

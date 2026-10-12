@@ -37,7 +37,7 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string) {
   return asUtc - instant.getTime();
 }
 
-function zonedWallTimeToUtc(
+export function zonedWallTimeToUtc(
   timeZone: string,
   year: number,
   month: number,
@@ -50,6 +50,75 @@ function zonedWallTimeToUtc(
   let instant = wallAsUtc - getTimeZoneOffsetMs(new Date(wallAsUtc), timeZone);
   instant = wallAsUtc - getTimeZoneOffsetMs(new Date(instant), timeZone);
   return new Date(instant);
+}
+
+/** Convert tenant wall time to UTC, detecting nonexistent local hours (DST spring forward). */
+export function zonedWallTimeToUtcChecked(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0
+):
+  | { ok: true; instant: Date; dstAmbiguous: boolean }
+  | { ok: false; reason: "nonexistent_local_time" } {
+  const instant = zonedWallTimeToUtc(
+    timeZone,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second
+  );
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  if (
+    Number(values.year) !== year ||
+    Number(values.month) !== month ||
+    Number(values.day) !== day ||
+    Number(values.hour) !== hour ||
+    Number(values.minute) !== minute ||
+    Number(values.second) !== second
+  ) {
+    return { ok: false, reason: "nonexistent_local_time" };
+  }
+
+  // Probe one hour earlier: if it formats to the same wall time, the hour is duplicated.
+  const earlier = new Date(instant.getTime() - 60 * 60 * 1000);
+  const earlierParts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(earlier);
+  const earlierValues = Object.fromEntries(
+    earlierParts.map((part) => [part.type, part.value])
+  );
+  const dstAmbiguous =
+    Number(earlierValues.year) === year &&
+    Number(earlierValues.month) === month &&
+    Number(earlierValues.day) === day &&
+    Number(earlierValues.hour) === hour &&
+    Number(earlierValues.minute) === minute;
+
+  return { ok: true, instant, dstAmbiguous };
 }
 
 export function getZonedDayBounds(now: Date, timeZone: string) {
