@@ -136,6 +136,10 @@ begin
 
   perform public.ai_settle_usage(v_event, 'committed', 800, 12, null, null, null);
 
+  -- Ledger inspection is operator-only (postgres). authenticated has no table
+  -- privileges on ai_usage_events; do not GRANT SELECT to pass this check.
+  execute 'reset role';
+
   select count(*) into v_count
   from public.ai_usage_events
   where id = v_event and status = 'committed' and actual_micros = 800;
@@ -143,8 +147,25 @@ begin
     raise exception 'phase46: settle committed failed';
   end if;
 
-  -- settle idempotent
+  -- Confirm authenticated cannot read the ledger directly.
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  v_sqlstate := null;
+  begin
+    perform 1 from public.ai_usage_events where id = v_event;
+  exception when insufficient_privilege then
+    v_sqlstate := '42501';
+  when others then
+    v_sqlstate := sqlstate;
+  end;
+  if v_sqlstate is distinct from '42501' then
+    raise exception 'phase46: authenticated must not select ai_usage_events, got %', v_sqlstate;
+  end if;
+
+  -- settle idempotent (still as authenticated via RPC)
   perform public.ai_settle_usage(v_event, 'released', 0, null, null, null, null);
+  execute 'reset role';
   select count(*) into v_count
   from public.ai_usage_events
   where id = v_event and status = 'committed';
@@ -153,6 +174,9 @@ begin
   end if;
 
   -- budget exhaustion at tenant scope (5000)
+  perform set_config('request.jwt.claim.sub', v_owner_a::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
   v_sqlstate := null;
   begin
     perform public.ai_reserve_usage(

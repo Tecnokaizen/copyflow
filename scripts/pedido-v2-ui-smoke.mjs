@@ -85,6 +85,15 @@ try {
         file_statuses: [{ id: "state-a", name: "Pendiente", code: "pending" }],
         quick_order_layout: layout, max_file_bytes: 1048576,
       });
+      // Manual/regression path: Voice AI stays disabled; no provider calls.
+      if (pathname === "/api/ai/voice-orders/status") {
+        return json({
+          enabled: false,
+          reason: "feature_disabled",
+          limits: { max_clip_seconds: 60, max_audio_bytes: 3000000 },
+          remaining: { user_requests_today: null },
+        });
+      }
       if (pathname === "/api/clients/options") return json({ customer_types: [] });
       if (pathname === "/api/clients") {
         if (req.method() === "POST") return json({ client: { id: "client-a", name: "Cliente inline" } }, 201);
@@ -126,6 +135,8 @@ try {
 
     await page.goto(url);
     await page.getByRole("button", { name: "Crear pedido", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Dictar pedido" }).count(), 0);
+    assert.equal(await page.getByText("Pedido por voz").count(), 0);
     assert.equal(await page.getByLabel("Notas internas", { exact: true }).count(), 0);
     assert.equal(await page.getByRole("textbox", { name: "Nombre del pedido" }).count(), 0);
     const title = page.getByRole("textbox", { name: "Título del pedido" });

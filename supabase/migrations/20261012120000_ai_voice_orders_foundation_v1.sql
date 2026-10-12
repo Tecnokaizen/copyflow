@@ -50,6 +50,9 @@ comment on table public.ai_usage_limits is
 
 alter table public.ai_usage_limits enable row level security;
 
+-- Internal cost-control tables: no direct client table access.
+revoke all on table public.ai_usage_limits from public, anon, authenticated;
+
 create table public.ai_usage_events (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
@@ -88,17 +91,9 @@ create index ai_usage_events_user_created_idx
 
 alter table public.ai_usage_events enable row level security;
 
--- Optional read for supervisors (no insert/update/delete for authenticated).
-create policy ai_usage_events_select_supervisors
-  on public.ai_usage_events
-  for select
-  to authenticated
-  using (
-    public.has_tenant_role(
-      tenant_id,
-      array['owner', 'admin']::text[]
-    )
-  );
+-- No SELECT/INSERT/UPDATE/DELETE for authenticated. Ledger is internal;
+-- operative clients only touch it through SECURITY DEFINER RPCs.
+revoke all on table public.ai_usage_events from public, anon, authenticated;
 
 insert into public.ai_usage_limits (
   scope,
