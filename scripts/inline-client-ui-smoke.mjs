@@ -69,6 +69,14 @@ try {
       if (pathname === "/api/team") return json({members:[]});
       if (pathname === "/api/clients/options") return json({customer_types:[]});
       if (pathname === "/api/orders/options") return json({tenant:"demo",services:[],stores:[],entry_channels:[],order_contexts:[],team_members:[],actor_role:"owner",file_statuses:[],max_file_bytes:1048576});
+      if (pathname === "/api/ai/voice-orders/status") {
+        return json({
+          enabled: false,
+          reason: "feature_disabled",
+          limits: { max_clip_seconds: 60, max_audio_bytes: 3000000 },
+          remaining: { user_requests_today: null },
+        });
+      }
       if (pathname === "/api/clients") {
         if (method === "POST") {
           if (reject) return json({error:"Could not create client"}, 500);
