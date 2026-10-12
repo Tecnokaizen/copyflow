@@ -1,6 +1,6 @@
 # Voice Orders AI V1 — validación
 
-Fecha: 2026-10-12 · Rama: `feature/ai-voice-orders-v1` · Base: `main@58525fb`
+Fecha: 2026-10-12 · Rama: `feature/ai-voice-orders-v1` · Base: `main@58525fb` · PR Draft: https://github.com/Tecnokaizen/copyflow/pull/90
 
 ## Comandos ejecutados
 
