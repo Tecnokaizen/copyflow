@@ -38,7 +38,7 @@ export function DateTimePicker({
   const showDraft =
     draft !== null &&
     (draftValue === value || (value === "" && draftValue === "") ||
-      (Boolean(draftValue) && !fromDateTimeLocalValue(draftValue)));
+      (draftValue !== null && draftValue !== "" && !fromDateTimeLocalValue(draftValue)));
   const date = showDraft && draft ? draft.date : parsed.date;
   const time = showDraft && draft ? draft.time : parsed.time;
   const timeInvalid = time !== "" && !isClockTime(time);
