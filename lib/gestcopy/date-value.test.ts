@@ -102,6 +102,10 @@ describe("operational date surfaces", () => {
     assert.match(picker, /withDefaultDeliveryHour/);
     assert.match(picker, /onValidityChange/);
     assert.match(picker, /function clear\(\)/);
+    assert.match(
+      picker,
+      /if \(!fromDateTimeLocalValue\(complete\)\) \{[\s\S]*?onChange\(complete\);/
+    );
     assert.match(orderForm, /onValidityChange=\{setDueAtInvalid\}/);
     assert.match(orderForm, /if \(dueAtInvalid\)/);
     assert.match(production, /onValidityChange=/);
