@@ -251,6 +251,7 @@ export function OrderCollection({
             Importe
             <input className="gc-field-control" inputMode="decimal" value={totalDraft} onChange={(event) => setTotalDraft(event.target.value)} />
           </label>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
         </ConfirmDialog>
       ) : null}
 
