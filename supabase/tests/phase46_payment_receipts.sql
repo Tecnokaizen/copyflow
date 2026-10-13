@@ -61,6 +61,7 @@ declare
   second_order uuid := 'e4600000-0000-4000-8000-000000000065';
   deletable uuid := 'e4600000-0000-4000-8000-000000000066';
   historical uuid := 'e4600000-0000-4000-8000-000000000067';
+  historical_void uuid := 'e4600000-0000-4000-8000-000000000068';
   method text;
 begin
   if exists(select 1 from vault.secrets where name = 'files_signing_secret') then
@@ -133,6 +134,21 @@ begin
   perform pg_temp.ok((select count(*) = 0 from public.order_payments where order_id = order_a), 'invalid calls did not post money');
 
   reset role;
+  alter table public.order_payments add constraint order_payments_phase46_unrelated check (amount <> 7.77);
+  set local role authenticated;
+  begin
+    perform public.record_order_payment(order_a, '7.77', paid_at, 'unrelated-check', 'cash', null, ta);
+    raise exception 'phase46: unrelated check became a payment result';
+  exception when check_violation then
+    if sqlerrm in ('payment_exceeds_total', 'invalid_payment_method', 'total_undefined', 'total_below_paid') then
+      raise exception 'phase46: unrelated check reported as %', sqlerrm;
+    end if;
+  end;
+  reset role;
+  alter table public.order_payments drop constraint order_payments_phase46_unrelated;
+  perform pg_temp.ok((select count(*) = 0 from public.order_payments where idempotency_key = 'unrelated-check'), 'unrelated check did not post money');
+
+  reset role;
   insert into public.orders(id,tenant_id,title,status_id)
     select second_order,ta,'Segundo',id from public.order_statuses where tenant_id=ta and is_initial;
   perform set_config('request.jwt.claim.sub','',true);
@@ -148,8 +164,21 @@ begin
   alter table public.order_payments disable trigger trg_order_payment_details_guard;
   perform set_config('request.jwt.claim.sub',a::text,true);
   insert into public.order_payments(id,tenant_id,order_id,amount,paid_at,created_by,idempotency_key)
-    values(historical,ta,order_a,1,paid_at,a,'historic-key');
-  alter table public.order_payments enable trigger trg_order_payment_details_guard;
+    values
+      (historical,ta,order_a,1,paid_at,a,'historic-key'),
+      (historical_void,ta,order_a,2,paid_at,a,'historic-void-key');
+  -- The rows exist as they did before the guard. Apply that guard now.
+  drop trigger if exists trg_order_payment_details_guard on public.order_payments;
+  create trigger trg_order_payment_details_guard
+    before insert or update on public.order_payments
+    for each row execute function public.tg_order_payment_details_guard();
+  set local role authenticated;
+
+  r := public.void_order_payment(historical_void, 'anulación de histórico');
+  perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '1.00', 'historical null method voids after the guard is applied');
+  perform pg_temp.ok((select payment_method is null and voided_at is not null from public.order_payments where id = historical_void), 'void keeps the unspecified historical method');
+  reset role;
+  perform pg_temp.boom(format('insert into public.order_payments(tenant_id,order_id,amount,paid_at,created_by,idempotency_key) values(%L,%L,1,%L,%L,''new-null-method'')', ta, order_a, paid_at, a), '23514');
   set local role authenticated;
 
   r := public.order_collection_v1(order_a);
@@ -166,7 +195,7 @@ begin
   perform pg_temp.ok(r->>'error'='invalid_receipt','same tenant different order rejected');
   r := public.record_order_payment(order_a,'10.00',paid_at,'wrong-context','bizum',null,tb);
   perform pg_temp.ok(r->>'error'='not_found','resolved context is mandatory');
-  perform pg_temp.ok((select count(*)=6 from public.order_payments where order_id=order_a),'no payment from invalid receipts');
+  perform pg_temp.ok((select count(*)=7 from public.order_payments where order_id=order_a),'no payment from invalid receipts');
 
   r := public.record_order_payment(order_a,'10.00',paid_at,'receipt-key','bizum',receipt,ta);
   perform pg_temp.ok(r->>'ok'='true' and r->>'paid_amount'='16.00','payment with receipt');

@@ -27,9 +27,11 @@ begin
       or new.receipt_file_id is distinct from old.receipt_file_id then
       raise exception 'order_payment_immutable' using errcode = '55000';
     end if;
+    -- A historical row may keep payment_method NULL. Voiding changes only
+    -- voided_at, voided_by and void_reason, and must remain possible.
     return new;
   end if;
-  if new.payment_method is null then
+  if tg_op = 'INSERT' and new.payment_method is null then
     raise exception 'invalid_payment_method' using errcode = '23514';
   end if;
   if new.receipt_file_id is not null then
@@ -75,11 +77,71 @@ create trigger trg_order_file_receipt_guard before update or delete on public.or
   for each row execute function public.tg_order_file_receipt_guard();
 revoke all on function public.tg_order_file_receipt_guard() from public, anon, authenticated, service_role;
 
--- Retire the old contract without silently accepting payments with no method.
+-- Retire the old contract. An in-flight tab may retry a payment that was
+-- already stored; that retry replays and does not insert. A new call cannot
+-- create money without a method.
 create or replace function public.record_order_payment(
   p_order_id uuid, p_amount text, p_paid_at timestamptz, p_idempotency_key text
-) returns jsonb language sql set search_path to '' as $function$
-  select pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_payment_method');
+) returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+as $function$
+declare
+  v_order public.orders%rowtype;
+  v_amount numeric(20,2);
+  v_existing public.order_payments%rowtype;
+begin
+  if auth.uid() is null or p_order_id is null then
+    return pg_catalog.jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  select *
+    into v_order
+  from public.orders
+  where id = p_order_id
+  for update;
+
+  if not found or not public.is_tenant_member(v_order.tenant_id) then
+    return pg_catalog.jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  if not public.has_tenant_role(
+    v_order.tenant_id,
+    array['owner', 'admin', 'manager', 'staff']::text[]
+  ) then
+    return pg_catalog.jsonb_build_object('ok', false, 'error', 'forbidden');
+  end if;
+
+  if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9:_-]{8,80}$' then
+    return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_idempotency_key');
+  end if;
+
+  v_amount := null;
+  if p_amount is not null and p_amount ~ '^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,2})?$' then
+    v_amount := p_amount::numeric(20,2);
+  end if;
+
+  select *
+    into v_existing
+  from public.order_payments
+  where tenant_id = v_order.tenant_id
+    and order_id = v_order.id
+    and idempotency_key = p_idempotency_key;
+
+  if found then
+    if v_amount is not null and v_existing.amount = v_amount and v_existing.paid_at = p_paid_at then
+      return pg_catalog.jsonb_build_object(
+        'ok', true,
+        'replayed', true,
+        'payment_id', v_existing.id
+      ) || public.order_collection_snapshot(v_order);
+    end if;
+    return pg_catalog.jsonb_build_object('ok', false, 'error', 'idempotency_mismatch');
+  end if;
+
+  return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_payment_method');
+end;
 $function$;
 revoke all on function public.record_order_payment(uuid, text, timestamptz, text) from public, anon, service_role;
 grant execute on function public.record_order_payment(uuid, text, timestamptz, text) to authenticated;
@@ -323,14 +385,23 @@ exception
     if sqlerrm = 'invalid_payment_method' then
       return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_payment_method');
     end if;
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'payment_exceeds_total');
+    if sqlerrm = 'payment_exceeds_total' then
+      return pg_catalog.jsonb_build_object('ok', false, 'error', 'payment_exceeds_total');
+    end if;
+    raise;
   when sqlstate 'P0001' then
     if sqlerrm = 'invalid_receipt' then
       return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_receipt');
     end if;
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'total_undefined');
+    if sqlerrm = 'total_undefined' then
+      return pg_catalog.jsonb_build_object('ok', false, 'error', 'total_undefined');
+    end if;
+    raise;
   when sqlstate '55000' then
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'order_archived');
+    if sqlerrm = 'order_archived' then
+      return pg_catalog.jsonb_build_object('ok', false, 'error', 'order_archived');
+    end if;
+    raise;
 end;
 $function$;
 revoke all on function public.record_order_payment(uuid, text, timestamptz, text, text, uuid, uuid)

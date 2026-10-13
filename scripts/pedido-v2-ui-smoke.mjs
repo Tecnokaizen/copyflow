@@ -77,6 +77,10 @@ try {
         if (req.method() === "PATCH") layout = req.postDataJSON().layout;
         return json({ layout, revision: "2026-09-23T10:00:00Z" });
       }
+      if (pathname === "/api/context") return json({
+        tenant: { id: "tenant-a", slug: "demo", name: "Demo" },
+        user: { id: "user-a" },
+      });
       if (pathname === "/api/orders/options") return json({
         tenant: "demo", services: [{ id: "service-a", name: "Impresión" }],
         stores: [{ id: "store-a", name: "Tienda centro" }],
@@ -170,12 +174,14 @@ try {
     assert.equal(await page.getByText("85,00 €", { exact: true }).count(), 2);
     await page.getByRole("button", { name: "Registrar entrega a cuenta", exact: true }).click();
     await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("30");
+    await page.getByRole("dialog").getByLabel("Método de pago").selectOption("cash");
     await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
-    await page.getByText("No se pudo confirmar el cobro. Reintenta.", { exact: true }).waitFor();
+    await page.getByRole("alert").filter({ hasText: "No se pudo confirmar el cobro. Reintenta." }).waitFor();
     await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
     await page.getByText("55,00 €", { exact: true }).waitFor();
     assert.equal(moneyRequests.length, 2);
     assert.equal(moneyRequests[0].idempotency_key, moneyRequests[1].idempotency_key);
+    assert.equal(moneyRequests[0].payment_method, "cash");
     assert.equal(events.filter(event => event === "create").length, 1);
     assert.equal(await page.getByRole("button", { name: "Crear otro", exact: true }).isEnabled(), true);
     await page.screenshot({ path: path.join(out, `saved-${width}.png`), fullPage: true });

@@ -32,6 +32,7 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const fileId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const results = [];
 let checks = 0;
+let actor = { tenant: 'tenant-a', user: 'user-a' };
 function check(actual, expected, label) { assert.deepEqual(actual, expected, label); checks++; }
 async function setup(width=1280, theme='light', query='') {
   const page = await browser.newPage({ viewport: { width, height: width < 600 ? 844 : 900 } });
@@ -44,7 +45,8 @@ async function setup(width=1280, theme='light', query='') {
   await page.route('**/api/**', async route => {
     const req=route.request();const url=new URL(req.url());const method=req.method();const body=req.postData()?req.postDataJSON():null;
     events.push({ path:url.pathname,method,body }); let result={};let status=200;
-    if (url.pathname.endsWith('/payments') && method==='GET') result=snapshot();
+    if (url.pathname === '/api/context') result = { tenant: { id: actor.tenant }, user: { id: actor.user } };
+    else if (url.pathname.endsWith('/payments') && method==='GET') result=snapshot();
     else if (url.pathname.endsWith('/payments') && method==='POST') {
       if (!storedKeys.has(body.idempotency_key)) {
         const payment={id:`payment-${payments.length}`,amount:body.amount,paid_at:body.paid_at,payment_method:body.payment_method,receipt:body.receipt_file_id?{id:body.receipt_file_id,original_name:'bizum.pdf'}:null};
@@ -109,6 +111,32 @@ try {
   const noFile=await setup();const nd=await open(noFile,false);await nd.getByRole('button',{name:'Confirmar entrega',exact:true}).click();await nd.waitFor({state:'hidden'});check(noFile.stored()[1].receipt,null,'Optional receipt');check(noFile.events.some(e=>e.method==='PUT'),false,'No upload without receipt');await noFile.page.close();
   const total=await setup();await total.page.getByRole('button',{name:'Modificar total'}).click();const td=total.page.getByRole('dialog');await td.getByLabel('Importe').fill('250');total.setTotalConflict();await td.getByRole('button',{name:'Guardar total'}).click();await td.getByRole('alert').waitFor();check(await td.getByLabel('Importe').inputValue(),'250','PR93 preserves total draft');check(total.events.filter(e=>e.method==='PATCH').length,1,'No automatic monetary retry');await td.getByRole('button',{name:'Guardar total'}).click();await td.waitFor({state:'hidden'});await total.page.close();
   for(const query of ['&role=viewer','&archived=true']) {const h=await setup(390,'light',query);check(await h.page.getByRole('button',{name:'Registrar entrega a cuenta'}).count(),0,'No write actions for viewer/archive');await h.page.close();}
+  actor = { tenant: 'tenant-a', user: 'user-a' };
+  const shared = await setup();
+  const sharedDialog = await open(shared, false);
+  shared.setLosePayment();
+  await sharedDialog.getByRole('button', { name: 'Confirmar entrega', exact: true }).click();
+  await sharedDialog.getByRole('alert').waitFor();
+  const pendingKey = 'gestcopy.payment-pending.v2:tenant-a:user-a:order-a';
+  check(await shared.page.evaluate((key) => sessionStorage.getItem(key) !== null, pendingKey), true, 'Pending confirmation is stored for this user and tenant');
+  actor = { tenant: 'tenant-a', user: 'user-b' };
+  await shared.page.reload();
+  await shared.page.getByRole('button', { name: 'Registrar entrega a cuenta', exact: true }).click();
+  const otherUser = shared.page.getByRole('dialog');
+  check(await otherUser.getByLabel('Método de pago').isDisabled(), false, 'Another user on this computer does not resume the pending confirmation');
+  check(await otherUser.getByLabel('Importe', { exact: true }).inputValue(), '', 'Another user starts a separate confirmation');
+  await otherUser.getByLabel('Importe', { exact: true }).fill('4');
+  await otherUser.getByLabel('Método de pago').selectOption('card');
+  await otherUser.getByRole('button', { name: 'Confirmar entrega', exact: true }).click();
+  await otherUser.waitFor({ state: 'hidden' });
+  const otherKey = 'gestcopy.payment-pending.v2:tenant-a:user-b:order-a';
+  check(await shared.page.evaluate((key) => sessionStorage.getItem(key), pendingKey) !== null, true, 'Original pending confirmation remains after the other user pays');
+  check(await shared.page.evaluate((key) => sessionStorage.getItem(key), otherKey), null, 'The other user does not keep a pending confirmation');
+  actor = { tenant: 'tenant-a', user: 'user-a' };
+  await shared.page.reload();
+  await shared.page.getByRole('button', { name: 'Registrar entrega a cuenta', exact: true }).click();
+  check(await shared.page.getByRole('dialog').getByLabel('Método de pago').isDisabled(), true, 'Original user still has the pending confirmation');
+  await shared.page.close();
   await writeFile(path.join(out,'results.json'),JSON.stringify({checks,results,extra:['PUT failure','COMPLETE retry','response loss/reload/replay','optional receipt','PR93 conflict','viewer/archive']},null,2));
   console.log(`PASS ${checks} UI assertions. Evidence: ${out}`);
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

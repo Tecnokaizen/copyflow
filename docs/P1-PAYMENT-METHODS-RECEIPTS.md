@@ -21,7 +21,7 @@ Orden de confirmación: INIT existente → PUT directo privado en R2 → COMPLET
 
 Un fallo de INIT/PUT/COMPLETE no envía la escritura monetaria. Si se pierde COMPLETE, se reintenta COMPLETE del mismo archivo. Un archivo que queda confirmado antes de cancelar o de fallar el pago permanece como archivo del pedido y puede eliminarse si no está asociado a un cobro; no se registra dinero ni se enlaza a otro movimiento automáticamente.
 
-Antes del POST monetario se guarda el payload exacto y la clave en sessionStorage, por pedido. La respuesta incierta congela importe, fecha, método y justificante. Cerrar/reabrir o recargar recupera la confirmación pendiente; el usuario confirma su reintento. No se realiza ninguna escritura monetaria automática. Un replay debe coincidir en importe, fecha, método y archivo; anular y reintentar no revive ni duplica el movimiento.
+Antes del POST monetario se guarda el payload exacto y la clave en sessionStorage, con la clave `gestcopy.payment-pending.v2` más tenant, usuario y pedido. Otra persona en el mismo navegador no recupera esa confirmación. La respuesta incierta congela importe, fecha, método y justificante. Cerrar/reabrir o recargar recupera la confirmación pendiente de esa misma sesión; el usuario confirma su reintento. No se realiza ninguna escritura monetaria automática. Un replay debe coincidir en importe, fecha, método y archivo; anular y reintentar no revive ni duplica el movimiento. La firma antigua de cuatro argumentos solo puede repetir un movimiento ya guardado: no inserta un cobro nuevo sin método.
 
 ## Carrera entre cobro y borrado
 
@@ -33,7 +33,7 @@ Si falla R2 después de reservar el borrado, se devuelve 502 `R2_DELETE_PENDING`
 
 La rama empezó en `main` `58525fb93c88e20d2547032a68194ffbc2fd012c` y conserva por merges locales los commits exactos de las PR pendientes:
 
-- #92: `8e1bf8c83858f93bf9a2d0752182f72ac11a3b41`, validación de fechas. El popup nuevo usa su aviso de selección incompleta.
+- #92: `9c991fc5e60006b231cf4fd1b1a2ba4d73cd6620`, validación de fechas, incluida la hora inexistente del cambio horario. El popup nuevo usa su aviso de selección incompleta. La corrección de total de #91 no se reescribe aquí: `set_order_total_amount` sigue siendo la de esa PR.
 - #93: `dd836e757adb184ff627bcf63a934c0053db17c9`, refresco de versión antes de cambiar el total y recuperación del 409 sin reintentar dinero.
 
 Ambos heads son ancestros de la rama. No se han cambiado sus ramas, PR, estados ni contenido. Integrar y validar #92/#93 antes de esta PR; cuando estén en main, el diff quedará centrado en métodos/justificantes. No hacer squash de esta rama para eludir la validación de las dependencias.

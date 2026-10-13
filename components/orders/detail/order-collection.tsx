@@ -7,6 +7,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { FactRow, FactValue } from "@/components/orders/detail/order-field";
 import type { OrderCollection, OrderPayment } from "@/lib/orders/collection";
 import { formatDate, fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/orders/format";
+import { paymentPendingStorageKey } from "@/lib/orders/payment-pending";
 import { PAYMENT_METHODS, isPaymentMethod, paymentMethodLabel, type PaymentMethod } from "@/lib/orders/payment-methods";
 import { parsePaymentPayload, type PaymentPayload } from "@/lib/orders/payment-payload";
 import { canonicalMoney } from "@/lib/orders/money";
@@ -45,6 +46,7 @@ export function OrderCollection({
   const receiptId = useRef<string | null>(null);
   const completeId = useRef<string | null>(null);
   const paymentAttempt = useRef<PaymentPayload | null>(null);
+  const pendingKeyRef = useRef<string | null>(null);
   const paymentBusy = useRef(false);
   const [attemptPending, setAttemptPending] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -149,17 +151,33 @@ export function OrderCollection({
     }
   }
 
-  const pendingKey = `gestcopy:payment:${orderId}`;
+  async function pendingKeyForCurrentSession() {
+    const response = await fetch("/api/context", { cache: "no-store" });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const tenantId = body?.tenant?.id;
+    const userId = body?.user?.id;
+    if (typeof tenantId !== "string" || typeof userId !== "string") return null;
+    return paymentPendingStorageKey(tenantId, userId, orderId);
+  }
 
-  function openPayment() {
+  async function openPayment() {
     setError(null);
     setUploadStatus("");
     setPaidAtInvalid(false);
     setReceiptFile(null);
     receiptId.current = null;
     completeId.current = null;
+    const pendingKey = await pendingKeyForCurrentSession();
+    if (!pendingKey) {
+      setError("No se ha podido comprobar la sesión. Vuelve a intentarlo.");
+      return;
+    }
+    pendingKeyRef.current = pendingKey;
     // A lost payment response must survive closing the popup or reloading.
     // Restoring only opens the form; the user explicitly confirms the replay.
+    // The key includes tenant and user, so another person on this browser
+    // cannot resume this confirmation.
     let pending: PaymentPayload | null = null;
     try {
       const saved = sessionStorage.getItem(pendingKey);
@@ -186,6 +204,10 @@ export function OrderCollection({
     setBusy(true);
     setError(null);
     try {
+      const pendingKey = await pendingKeyForCurrentSession();
+      if (!pendingKey || pendingKey !== pendingKeyRef.current) {
+        throw new Error("La sesión ha cambiado. Revisa el historial antes de registrar una entrega.");
+      }
       let payload = paymentAttempt.current;
       if (!payload) {
         if (receiptFile && !receiptId.current) {
@@ -289,7 +311,7 @@ export function OrderCollection({
               <button type="button" className="gc-action" disabled={busy} onClick={() => { void openTotal(); }}>
                 {collection.total_amount ? "Modificar total" : "Definir total"}
               </button>
-              <button type="button" className="gc-cta" disabled={busy || !collection.total_amount} onClick={openPayment}>
+              <button type="button" className="gc-cta" disabled={busy || !collection.total_amount} onClick={() => { void openPayment(); }}>
                 Registrar entrega a cuenta
               </button>
             </div>
