@@ -151,7 +151,7 @@ export function OrderCollection({
   return (
     <div className="border-t border-border/60">
       {loading ? <LoadingState label="Cargando cobro…" className="px-0 py-6" /> : null}
-      {error ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
+      {error && !paymentOpen && !totalOpen && !voiding ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
       {collection ? (
         <>
           <FactRow label="Total del pedido" emphasis>

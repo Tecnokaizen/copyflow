@@ -192,6 +192,7 @@ try {
       await page.getByRole("dialog").getByRole("button", { name: confirm, exact: true }).click();
       await page.getByRole("dialog").getByRole("alert").filter({ hasText: error }).waitFor();
       check(await page.getByRole("dialog").getByRole("alert").innerText(), error, "Business error remains visible inside its dialog");
+      check(await page.getByText(error, { exact: true }).count(), 1, "An open dialog shows the error exactly once");
       check(reads(h), readCount, "Business 409 does not refresh as a stale total");
       check(writes(h).length, writeCount + 1, "Business 409 is never retried automatically");
       await page.getByRole("dialog").getByRole("button", { name: "Cancelar", exact: true }).click();
