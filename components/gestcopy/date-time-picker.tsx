@@ -7,6 +7,7 @@ import {
   combineDateTimeLocal,
   isClockTime,
   splitDateTimeLocal,
+  withDefaultDeliveryHour,
 } from "@/lib/gestcopy/date-value";
 import {
   fromDateTimeLocalValue,
@@ -36,7 +37,8 @@ export function DateTimePicker({
   const draftValue = draft ? combineDateTimeLocal(draft.date, draft.time) : null;
   const showDraft =
     draft !== null &&
-    (draftValue === value || (value === "" && draftValue === ""));
+    (draftValue === value || (value === "" && draftValue === "") ||
+      (Boolean(draftValue) && !fromDateTimeLocalValue(draftValue)));
   const date = showDraft && draft ? draft.date : parsed.date;
   const time = showDraft && draft ? draft.time : parsed.time;
   const timeInvalid = time !== "" && !isClockTime(time);
@@ -63,7 +65,7 @@ export function DateTimePicker({
 
   function updateDate(nextDate: string) {
     // Use a default hour for a newly selected date; preserve any existing hour.
-    publish(nextDate, nextDate && !time ? "18:00" : time);
+    publish(nextDate, withDefaultDeliveryHour(nextDate, time));
   }
 
   function updateTime(nextTime: string) {
