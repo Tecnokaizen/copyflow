@@ -157,7 +157,7 @@ async function chooseTime(page, time) {
   await list.getByRole('option', {name:time,exact:true}).click();
   await list.waitFor({state:'hidden'});
 }
-async function chooseDelivery(page, date, time) {
+async function chooseDate(page, date) {
   const picker = page.getByRole('group', {name:'Fecha y hora de entrega', exact:true});
   await picker.locator('button[aria-haspopup="dialog"]').first().click();
   const calendar = page.locator('.gc-day-picker');
@@ -172,6 +172,9 @@ async function chooseDelivery(page, date, time) {
   await page.screenshot({path:path.join(out,`delivery-calendar-${page.viewportSize().width}-${new URL(page.url()).searchParams.get('theme')}.png`),fullPage:true});
   await calendar.locator(`[data-day="${date}"] button`).click();
   await calendar.waitFor({state:'hidden'});
+}
+async function chooseDelivery(page, date, time) {
+  await chooseDate(page, date);
   await chooseTime(page, time);
 }
 try {
@@ -191,10 +194,16 @@ try {
     await p.getByRole('button',{name:'Hoy',exact:true}).click();
     await p.getByRole('button',{name:'Quitar fecha',exact:true}).click();
     check(await trigger.innerText().then(t=>t.includes('Elegir hora')),true,'Clear date also clears time');
+    if (mode==='order-edit') check(await p.getByTestId('delivery-value').innerText(),'','Explicit clear removes stored delivery');
     await trigger.click();
     const first=list.getByRole('option',{name:'00:00',exact:true});
     await first.press('ArrowRight'); await list.getByRole('option',{name:'00:15',exact:true}).press('Enter');
     check(await trigger.innerText().then(t=>t.includes('00:15')),true,'Keyboard selects next quarter hour');
+    if (mode==='order-create') {
+      await p.getByRole('button',{name:'Crear pedido',exact:true}).click();
+      await p.getByRole('alert').filter({hasText:'Debes indicar una fecha y hora de entrega válidas'}).waitFor();
+      check(h.events.filter(e=>e.method==='POST' && e.pathname==='/api/orders').length,0,'Incomplete delivery time never creates an order');
+    }
     check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Order picker responsive');
     check(h.errors,[],'No errors on shared order surface');
     await p.screenshot({path:path.join(out,mode+'-'+width+'-'+theme+'.png'),fullPage:true}); await p.close();
@@ -285,7 +294,9 @@ try {
     check(await picker.locator('input, datalist').count(), 0, 'Conversion uses shared DateTimePicker instead of native datetime-local');
     check(await picker.getByRole('button', {name:'Hoy',exact:true}).count(), 1, 'Shared picker offers Today');
     check(await picker.getByRole('button', {name:'Mañana',exact:true}).count(), 1, 'Shared picker offers Tomorrow');
-    await chooseDelivery(h.page, '2026-03-29', '02:30');
+    await chooseDate(h.page, '2026-03-29');
+    check(await h.page.getByRole('button', {name:'Hora',exact:true}).innerText().then(t=>t.includes('18:00')), true, 'New delivery date defaults to 18:00');
+    await chooseTime(h.page, '02:30');
     await h.page.getByRole('button', {name:'Confirmar y crear pedido', exact:true}).click();
     await h.page.getByRole('dialog').getByRole('alert').filter({hasText:'La fecha y hora de entrega'}).waitFor();
     check(h.events.filter(e=>e.pathname.endsWith('/convert')).length, 0, 'Missing local hour never submitted');

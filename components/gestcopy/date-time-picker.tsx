@@ -56,7 +56,10 @@ export function DateTimePicker({
       return;
     }
     if (!fromDateTimeLocalValue(complete)) {
+      // Keep the impossible local hour in the parent so save and conversion
+      // reject it. Leaving the previous valid hour would submit 18:00 instead.
       onValidityChange?.(true);
+      onChange(complete);
       return;
     }
     onValidityChange?.(false);
