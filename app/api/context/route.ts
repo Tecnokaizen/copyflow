@@ -5,17 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { publicOrganizationIdentity } from "@/lib/tenant/branding";
 import { loadOrganizationSettings } from "@/lib/tenant/organization";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import { requireCurrentAccess } from "@/lib/tenant/access-response";
 
 export async function GET() {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/context");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
+
+  const context = access.context;
 
   const supabase = await createClient();
   const teamMember = await resolveCurrentTeamMember(

@@ -8,7 +8,7 @@ import { OrderFilesSection } from "@/components/files/order-files-section";
 import { type ClientUploadItem, MAX_ORDER_FILE_BYTES } from "@/lib/files/client";
 import { createOrderUploadQueue } from "@/lib/files/create-order-queue";
 import { Fragment, FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ClientForm } from "@/components/clients/client-form";
 import { ClientModal } from "@/components/clients/client-modal";
 import { ClientSelector } from "@/components/clients/client-selector";
@@ -30,10 +30,14 @@ import {
   type ClientFormData,
   type ClientSummary,
 } from "@/lib/clients/types";
+import { authHrefWithNext, sessionResumePath } from "@/lib/auth/safe-next-path";
+import { deriveOrderTitle } from "@/lib/orders/create";
+import { interpretOperationalFailure, type OperationalFailure } from "@/lib/orders/operational-failure";
 import {
-  deriveOrderTitle,
-  userFacingCreateOrderError,
-} from "@/lib/orders/create";
+  clearOrderDraft,
+  readOrderDraft,
+  writeOrderDraft,
+} from "@/lib/orders/session-draft";
 import {
   buildCreateOrderPayload,
 } from "@/lib/orders/create-form";
@@ -84,6 +88,11 @@ export function CreateOrderForm({
   onCancel,
 }: CreateOrderFormProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const loginHref = authHrefWithNext(
+    "/auth/login",
+    sessionResumePath(pathname || "/orders")
+  );
   const isQuick = isQuickCreateMode(mode);
   const [options, setOptions] =
     useState<QuickOrderOptionsResponse | null>(null);
@@ -92,6 +101,10 @@ export function CreateOrderForm({
   const [optionsReload, setOptionsReload] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessPrompt, setAccessPrompt] = useState<OperationalFailure | null>(
+    null
+  );
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOrder | null>(null);
   const [collectionActive, setCollectionActive] = useState(false);
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null);
@@ -182,6 +195,9 @@ export function CreateOrderForm({
     setStoreId("");
     setNotes("");
     setError(null);
+    setAccessPrompt(null);
+    setDraftNotice(null);
+    clearOrderDraft(window.sessionStorage);
     setCreated(null);
     setCollectionActive(false);
     setCollectionMessage(null);
@@ -191,6 +207,99 @@ export function CreateOrderForm({
     }
   }
 
+  function rememberDraft() {
+    if (!options?.tenant || !options.actor_id) {
+      return;
+    }
+
+    writeOrderDraft(window.sessionStorage, {
+      tenantSlug: options.tenant,
+      userId: options.actor_id,
+      savedAt: Date.now(),
+      hadFiles: uploads.length > 0,
+      title,
+      clientId:
+        selectedClient && selectedClient.id !== "pending"
+          ? selectedClient.id
+          : null,
+      clientName: selectedClient?.name ?? null,
+      serviceId,
+      description,
+      dueAt,
+      entryChannelId,
+      orderContextId,
+      priority,
+      assignedTeamMemberId,
+      storeId,
+      notes,
+      fileStatusId,
+    });
+  }
+
+  function restoreDraft(nextOptions: QuickOrderOptionsResponse) {
+    if (!nextOptions.tenant || !nextOptions.actor_id) {
+      return;
+    }
+
+    const draft = readOrderDraft(window.sessionStorage, {
+      tenantSlug: nextOptions.tenant,
+      userId: nextOptions.actor_id,
+      now: Date.now(),
+    });
+    if (!draft) {
+      return;
+    }
+
+    setTitle(draft.title);
+    setServiceId(draft.serviceId);
+    setDescription(draft.description);
+    setDueAt(draft.dueAt);
+    setEntryChannelId(draft.entryChannelId);
+    setOrderContextId(draft.orderContextId);
+    setPriority(draft.priority);
+    setAssignedTeamMemberId(draft.assignedTeamMemberId);
+    setStoreId(draft.storeId);
+    setNotes(draft.notes);
+    setFileStatusId(draft.fileStatusId);
+    if (draft.clientId && draft.clientName) {
+      setSelectedClient({
+        id: draft.clientId,
+        name: draft.clientName,
+        customer_type_id: null,
+        customer_type_name: null,
+        contact_name: null,
+        company_name: null,
+        tax_id: null,
+        email: null,
+        phone: null,
+        notes: null,
+      });
+    }
+    if (draft.hadFiles) {
+      setDraftNotice(
+        "Los archivos adjuntos no se han conservado. Selecciónalos de nuevo."
+      );
+    }
+  }
+
+  function presentFailure(
+    status: number,
+    body: { code?: unknown; error?: unknown } | null,
+    action: "order" | "client" | "options"
+  ) {
+    const failure = interpretOperationalFailure(status, body, action);
+    if (failure.kind === "session_expired") {
+      rememberDraft();
+      if (uploads.length > 0) {
+        setDraftNotice(
+          "Los archivos adjuntos no se han conservado. Selecciónalos de nuevo."
+        );
+      }
+    }
+    setAccessPrompt(failure);
+    return failure;
+  }
+
   useEffect(() => {
     async function loadOptions() {
       try {
@@ -198,9 +307,10 @@ export function CreateOrderForm({
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            result.error ?? "No se pudieron cargar las opciones"
-          );
+          const failure = presentFailure(response.status, result, "options");
+          setOptions(null);
+          setOptionsError(failure.message);
+          return;
         }
 
         const nextOptions = {
@@ -214,20 +324,20 @@ export function CreateOrderForm({
           stores: result.stores ?? [],
           actor_role:
             typeof result.actor_role === "string" ? result.actor_role : null,
+          actor_id: typeof result.actor_id === "string" ? result.actor_id : null,
           current_team_member: result.current_team_member ?? null,
           quick_order_layout:
             result.quick_order_layout ?? DEFAULT_QUICK_ORDER_LAYOUT,
         };
         setOptions(nextOptions);
         applyCatalogDefaults(nextOptions);
+        restoreDraft(nextOptions);
         setOptionsError(null);
-      } catch (err) {
+        setAccessPrompt(null);
+      } catch {
+        const failure = presentFailure(0, null, "options");
         setOptions(null);
-        setOptionsError(
-          err instanceof Error
-            ? err.message
-            : "Error al cargar las opciones del formulario"
-        );
+        setOptionsError(failure.message);
       } finally {
         setOptionsLoading(false);
       }
@@ -326,11 +436,9 @@ export function CreateOrderForm({
       }
 
       if (!response.ok) {
-        throw new Error(
-          userFacingCreateOrderError(
-            result.error ?? "Could not create client"
-          )
-        );
+        const failure = presentFailure(response.status, result, "client");
+        setClientActionError(failure.message);
+        return;
       }
 
       const summary = mapClientSummary(result.client);
@@ -342,7 +450,11 @@ export function CreateOrderForm({
       setClientModalOpen(false);
     } catch (err) {
       setClientActionError(
-        err instanceof Error ? err.message : "No se pudo crear el cliente"
+        err instanceof TypeError
+          ? presentFailure(0, null, "client").message
+          : err instanceof Error
+            ? err.message
+            : "No se pudo crear el cliente"
       );
     } finally {
       setSavingClient(false);
@@ -369,6 +481,7 @@ export function CreateOrderForm({
     submitLock.current = true;
     setSubmitting(true);
     setError(null);
+    setAccessPrompt(null);
 
     try {
       const existingClientId =
@@ -400,14 +513,17 @@ export function CreateOrderForm({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          userFacingCreateOrderError(result.error ?? "Could not create order")
-        );
+        const failure = presentFailure(response.status, result, "order");
+        setError(failure.message);
+        return;
       }
 
       if (!result.order?.id) {
         throw new Error("No se pudo crear el pedido");
       }
+
+      clearOrderDraft(window.sessionStorage);
+      setDraftNotice(null);
 
       // Remember the saved order before any upload; failures only retry its queue.
       const savedOrder = {
@@ -422,9 +538,13 @@ export function CreateOrderForm({
         router.push(`/orders/${savedOrder.id}?created=1`);
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudo crear el pedido"
-      );
+      if (err instanceof TypeError) {
+        setError(presentFailure(0, null, "order").message);
+      } else {
+        setError(
+          err instanceof Error ? err.message : "No se pudo crear el pedido"
+        );
+      }
     } finally {
       setSubmitting(false);
       submitLock.current = false;
@@ -752,6 +872,13 @@ export function CreateOrderForm({
           });
         }}
       />
+      {accessPrompt?.login ? (
+        <p className="mt-4 text-center">
+          <Link href={loginHref} className="text-sm font-medium underline">
+            Iniciar sesión
+          </Link>
+        </p>
+      ) : null}
     </ClientModal>
   ) : null;
 
@@ -765,7 +892,16 @@ export function CreateOrderForm({
       >
         <div className="mb-5 grid gap-3" aria-live="polite">
           {uploads.length > 0 && (pendingUploads || submitting) ? renderFilesField() : null}
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          {error ? (
+            <div role="alert" className="grid gap-2">
+              <p className="text-sm text-destructive">{error}</p>
+              {accessPrompt?.login ? (
+                <Link href={loginHref} className="text-sm font-medium underline">
+                  Iniciar sesión
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
           {pendingUploads && !submitting ? <button type="button" className="gc-cta min-h-11" onClick={() => void retryUploads()}>Reintentar archivos pendientes</button> : null}
           {!submitting && uploads.some((item) => item.phase === "success") ? (
             <OrderFilesSection key={uploads.filter((item) => item.phase === "success").length} orderId={created.id} canMutate={false} archived={false} />
@@ -827,15 +963,30 @@ export function CreateOrderForm({
       {optionsLoading ? (
         <LoadingState label="Cargando opciones…" className="px-0 py-8" />
       ) : optionsError ? (
-        <ErrorState
-          title={userFacingCreateOrderError(optionsError)}
-          className="px-0 py-6"
-          onRetry={() => {
-            setOptionsError(null);
-            setOptionsLoading(true);
-            setOptionsReload((current) => current + 1);
-          }}
-        />
+        <div>
+          <ErrorState
+            title={optionsError}
+            description={accessPrompt ? "" : undefined}
+            className="px-0 py-6"
+            onRetry={
+              accessPrompt?.retry !== false
+                ? () => {
+                    setOptionsError(null);
+                    setAccessPrompt(null);
+                    setOptionsLoading(true);
+                    setOptionsReload((current) => current + 1);
+                  }
+                : undefined
+            }
+          />
+          {accessPrompt?.login ? (
+            <p className="pb-6 text-center">
+              <Link href={loginHref} className="text-sm font-medium underline">
+                Iniciar sesión
+              </Link>
+            </p>
+          ) : null}
+        </div>
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-5">
           {isQuick ? (
@@ -920,10 +1071,20 @@ export function CreateOrderForm({
             </>
           )}
 
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
+          {draftNotice ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              {draftNotice}
             </p>
+          ) : null}
+          {error ? (
+            <div className="grid gap-2" role="alert">
+              <p className="text-sm text-destructive">{error}</p>
+              {accessPrompt?.login ? (
+                <Link href={loginHref} className="text-sm font-medium underline">
+                  Iniciar sesión
+                </Link>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

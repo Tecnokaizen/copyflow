@@ -4,7 +4,10 @@ import {
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import {
+  requireCurrentAccess,
+  roleDeniedResponse,
+} from "@/lib/tenant/access-response";
 import { parseClientPayload } from "@/lib/clients/payload";
 import { mapClientSummaries } from "@/lib/clients/types";
 import {
@@ -27,14 +30,13 @@ function parseLimit(raw: string | null) {
 }
 
 export async function GET(request: NextRequest) {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/clients");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
+
+  const context = access.context;
 
   const search = request.nextUrl.searchParams.get("search");
   const query = search?.trim() ? search.trim() : null;
@@ -74,20 +76,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("POST /api/clients");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
 
+  const context = access.context;
+
   if (!hasMembershipRole(context.membership.role, OPERATIVE_ROLES)) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+    return roleDeniedResponse("POST /api/clients", context.tenant.slug);
   }
 
   let body: unknown;
