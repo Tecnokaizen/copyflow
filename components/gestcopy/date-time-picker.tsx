@@ -7,6 +7,7 @@ import {
   combineDateTimeLocal,
   isClockTime,
   splitDateTimeLocal,
+  withDefaultDeliveryHour,
 } from "@/lib/gestcopy/date-value";
 import {
   fromDateTimeLocalValue,
@@ -19,6 +20,7 @@ type DateTimePickerProps = {
   onChange: (value: string) => void;
   disabled?: boolean;
   id?: string;
+  onValidityChange?: (invalid: boolean) => void;
 };
 
 export function DateTimePicker({
@@ -26,6 +28,7 @@ export function DateTimePicker({
   onChange,
   disabled = false,
   id,
+  onValidityChange,
 }: DateTimePickerProps) {
   const parsed = splitDateTimeLocal(value);
   const [draft, setDraft] = useState<{ date: string; time: string } | null>(
@@ -34,7 +37,8 @@ export function DateTimePicker({
   const draftValue = draft ? combineDateTimeLocal(draft.date, draft.time) : null;
   const showDraft =
     draft !== null &&
-    (draftValue === value || (value === "" && draftValue === ""));
+    (draftValue === value || (value === "" && draftValue === "") ||
+      (draftValue !== null && draftValue !== "" && !fromDateTimeLocalValue(draftValue)));
   const date = showDraft && draft ? draft.date : parsed.date;
   const time = showDraft && draft ? draft.time : parsed.time;
   const timeInvalid = time !== "" && !isClockTime(time);
@@ -44,11 +48,24 @@ export function DateTimePicker({
 
   function publish(nextDate: string, nextTime: string) {
     setDraft({ date: nextDate, time: nextTime });
-    onChange(combineDateTimeLocal(nextDate, nextTime));
+    const complete = combineDateTimeLocal(nextDate, nextTime);
+    // A partial selection must never be treated as "Quitar fecha".
+    // Clearing the stored date is only possible through the explicit button.
+    if (!complete) {
+      onValidityChange?.(Boolean(nextDate || nextTime));
+      return;
+    }
+    if (!fromDateTimeLocalValue(complete)) {
+      onValidityChange?.(true);
+      return;
+    }
+    onValidityChange?.(false);
+    onChange(complete);
   }
 
   function updateDate(nextDate: string) {
-    publish(nextDate, time);
+    // Use a default hour for a newly selected date; preserve any existing hour.
+    publish(nextDate, withDefaultDeliveryHour(nextDate, time));
   }
 
   function updateTime(nextTime: string) {
@@ -57,6 +74,7 @@ export function DateTimePicker({
 
   function clear() {
     setDraft(null);
+    onValidityChange?.(false);
     onChange("");
   }
 
