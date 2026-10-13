@@ -44,6 +44,7 @@ export function OrderCollection({
   const [method, setMethod] = useState<PaymentMethod | "">("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const receiptId = useRef<string | null>(null);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
   const completeId = useRef<string | null>(null);
   const paymentAttempt = useRef<PaymentPayload | null>(null);
   const pendingKeyRef = useRef<string | null>(null);
@@ -378,11 +379,56 @@ export function OrderCollection({
           <div className="mt-3">
             <DateTimePicker value={paidAt} onChange={setPaidAt} onValidityChange={setPaidAtInvalid} disabled={busy || attemptPending} />
           </div>
-          <label className="mt-3 grid gap-1 text-sm">
-            Justificante (opcional)
-            <input type="file" className="gc-field-control max-w-full text-xs" accept={ORDER_FILE_ACCEPT} disabled={busy || attemptPending}
-              onChange={(event) => { setReceiptFile(event.target.files?.[0] ?? null); receiptId.current = null; completeId.current = null; }} />
-          </label>
+          <div className="mt-3 grid gap-1 text-sm">
+            <span id="payment-receipt-label">Justificante (opcional)</span>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="gc-action min-h-11 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={busy || attemptPending}
+                onClick={() => receiptInputRef.current?.click()}
+              >
+                Adjuntar justificante
+              </button>
+              {receiptFile ? (
+                <>
+                  <span className="min-w-0 max-w-full flex-1 truncate text-sm text-foreground" title={receiptFile.name}>
+                    {receiptFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    className="gc-action min-h-11 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={busy || attemptPending}
+                    aria-label="Quitar justificante"
+                    onClick={() => {
+                      setReceiptFile(null);
+                      receiptId.current = null;
+                      completeId.current = null;
+                      if (receiptInputRef.current) receiptInputRef.current.value = "";
+                    }}
+                  >
+                    Quitar
+                  </button>
+                </>
+              ) : (
+                <span className="text-sm text-muted-foreground">Ningún archivo</span>
+              )}
+            </div>
+            <input
+              ref={receiptInputRef}
+              id="payment-receipt-file"
+              type="file"
+              className="sr-only"
+              accept={ORDER_FILE_ACCEPT}
+              aria-labelledby="payment-receipt-label"
+              disabled={busy || attemptPending}
+              onChange={(event) => {
+                setReceiptFile(event.target.files?.[0] ?? null);
+                receiptId.current = null;
+                completeId.current = null;
+              }}
+            />
+          </div>
           {attemptPending ? <p className="mt-2 text-xs text-muted-foreground">Se conservan los datos y el justificante adjunto para comprobar esta confirmación.</p> : null}
           {uploadStatus ? <p role="status" className="mt-2 text-sm text-muted-foreground">{uploadStatus}</p> : null}
           {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}

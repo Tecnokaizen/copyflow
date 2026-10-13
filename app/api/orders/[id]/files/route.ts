@@ -15,6 +15,11 @@ import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
 import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import {
+  receiptIdsFromRows,
+  receiptSchemaUnavailable,
+  withReceiptMarker,
+} from "@/lib/files/receipt-links";
 import { presignPut } from "@/lib/storage/r2";
 
 const UUID_PATTERN =
@@ -63,7 +68,7 @@ export async function GET(
   const { data: files, error } = await supabase
     .from("order_files")
     .select(
-      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by, payment_receipts:order_payments!order_payments_receipt_fk(id)"
+      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by"
     )
     .eq("tenant_id", context.tenant.id)
     .eq("order_id", orderId)
@@ -76,6 +81,20 @@ export async function GET(
     });
     return NextResponse.json({ error: "Could not list files" }, { status: 500 });
   }
+
+  const { data: links, error: linkError } = await supabase
+    .from("order_payments")
+    .select("receipt_file_id")
+    .eq("tenant_id", context.tenant.id)
+    .eq("order_id", orderId)
+    .not("receipt_file_id", "is", null);
+  if (linkError && !receiptSchemaUnavailable(linkError.message)) {
+    console.error("[GET /api/orders/:id/files] receipt links failed", {
+      message: linkError.message,
+    });
+    return NextResponse.json({ error: "Could not list files" }, { status: 500 });
+  }
+  const linkedReceipts = linkError ? new Set<string>() : receiptIdsFromRows(links);
 
   const { data: settingsRow } = await supabase
     .from("tenant_settings")
@@ -118,7 +137,7 @@ export async function GET(
     max_file_bytes: maxFileBytes,
     files: (files ?? []).map((row) =>
       toPublicOrderFileDto(
-        row as Record<string, unknown>,
+        withReceiptMarker(row as Record<string, unknown>, linkedReceipts),
         typeof row.uploaded_by === "string"
           ? nameByUser.get(row.uploaded_by) ?? null
           : null

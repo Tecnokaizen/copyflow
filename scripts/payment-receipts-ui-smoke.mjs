@@ -74,7 +74,16 @@ async function open(h, receipt=true) {
   check(await dialog.getByLabel('Método de pago').locator('option').count(),6,'Five methods plus placeholder');
   await dialog.getByLabel('Importe',{exact:true}).fill('10,50');
   await dialog.getByLabel('Método de pago').selectOption('bizum');
-  if(receipt) await dialog.getByLabel('Justificante (opcional)').setInputFiles({name:'bizum.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')});
+  if(receipt) {
+    check(await dialog.getByRole('button',{name:'Adjuntar justificante'}).isVisible(),true,'Custom receipt button');
+    const longName=`comprobante-${'bizum-'.repeat(24)}largo.pdf`;
+    await dialog.getByLabel('Justificante (opcional)').setInputFiles({name:longName,mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')});
+    const name=dialog.getByTitle(longName);
+    check(await name.evaluate(node=>node.className.includes('truncate')&&node.scrollWidth>node.clientWidth),true,'Receipt name truncates');
+    await dialog.getByRole('button',{name:'Quitar justificante'}).click();
+    check(await dialog.getByText('Ningún archivo').count(),1,'Receipt can be removed');
+    await dialog.getByLabel('Justificante (opcional)').setInputFiles({name:'bizum.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')});
+  }
   return dialog;
 }
 try {
