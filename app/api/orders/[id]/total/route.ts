@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
-import { collectionError, mapOrderCollection, withActorNames } from "@/lib/orders/collection";
+import { collectionFailure, mapOrderCollection, withActorNames } from "@/lib/orders/collection";
 import { loadProfileNames } from "@/lib/orders/profile-names";
 import { canonicalMoney } from "@/lib/orders/money";
 import { parseExpectedVersion } from "@/lib/orders/concurrency";
@@ -50,10 +50,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (error) {
     return operationalJson({ error: "No se pudo guardar el total" }, { status: 500 });
   }
-  const payload = data as { ok?: boolean; error?: string };
+  const payload = data as { ok?: boolean; error?: string; row_version?: unknown };
   if (!payload?.ok) {
-    const mapped = collectionError(payload.error);
-    return operationalJson({ error: mapped.error }, { status: mapped.status });
+    const mapped = collectionFailure(payload.error, payload.row_version);
+    const { status, ...body } = mapped;
+    return operationalJson(body, { status });
   }
   const collection = mapOrderCollection(data);
   if (!collection) {

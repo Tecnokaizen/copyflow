@@ -93,6 +93,7 @@ export function OrderFulfillment({
         <OrderCollection
           key={order.id}
           orderId={order.id}
+          orderVersion={order.version}
           canWrite={canWrite}
           archived={Boolean(order.archived_at)}
           editing
@@ -129,6 +130,7 @@ export function OrderFulfillment({
       <OrderCollection
         key={order.id}
         orderId={order.id}
+        orderVersion={order.version}
         canWrite={canWrite}
         archived={Boolean(order.archived_at)}
         editing={false}

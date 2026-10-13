@@ -59,6 +59,30 @@ export function collectionError(code: string | null | undefined) {
   };
 }
 
+const ORDER_VERSION = /^[0-9]+$/;
+
+export function preferredOrderVersion(
+  stored: string,
+  live: string | null | undefined
+): string {
+  const liveVersion = typeof live === "string" && ORDER_VERSION.test(live) ? live : null;
+  if (!liveVersion || !ORDER_VERSION.test(stored)) {
+    return liveVersion ?? stored;
+  }
+  return BigInt(liveVersion) > BigInt(stored) ? liveVersion : stored;
+}
+
+export function collectionFailure(
+  code: string | null | undefined,
+  rowVersion?: unknown
+) {
+  const mapped = collectionError(code);
+  if (code === "conflict" && typeof rowVersion === "string" && ORDER_VERSION.test(rowVersion)) {
+    return { ...mapped, row_version: rowVersion };
+  }
+  return mapped;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;

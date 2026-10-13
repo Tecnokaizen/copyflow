@@ -6,11 +6,13 @@ import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { FactRow, FactValue } from "@/components/orders/detail/order-field";
 import type { OrderCollection, OrderPayment } from "@/lib/orders/collection";
+import { preferredOrderVersion } from "@/lib/orders/collection";
 import { formatDate, fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/orders/format";
 import { collectionLabel, formatOrderMoney } from "@/lib/orders/money";
 
 export function OrderCollection({
   orderId,
+  orderVersion,
   canWrite,
   archived,
   editing = false,
@@ -18,6 +20,7 @@ export function OrderCollection({
   onInteractionChange,
 }: {
   orderId: string;
+  orderVersion?: string;
   canWrite: boolean;
   archived: boolean;
   editing?: boolean;
@@ -72,17 +75,49 @@ export function OrderCollection({
     };
   }, [orderId]);
 
+  async function currentTotalVersion(fallback: string) {
+    const withOrder = preferredOrderVersion(fallback, orderVersion);
+    try {
+      const response = await fetch(`/api/orders/${orderId}/payments`, { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok || typeof body?.row_version !== "string") return withOrder;
+      const next = preferredOrderVersion(withOrder, body.row_version);
+      setCollection((current) => (
+        current && next !== current.row_version ? { ...current, row_version: next } : current
+      ));
+      return next;
+    } catch {
+      return withOrder;
+    }
+  }
+
   async function submit(url: string, payload: unknown) {
     setBusy(true);
     setError(null);
     try {
+      let bodyPayload = payload;
+      if (url.endsWith("/total") && payload && typeof payload === "object") {
+        const record = payload as { expected_version?: unknown };
+        const fallback = typeof record.expected_version === "string" ? record.expected_version : (orderVersion ?? "");
+        bodyPayload = {
+          ...record,
+          expected_version: await currentTotalVersion(fallback),
+        };
+      }
       const response = await fetch(url, {
         method: url.endsWith("/total") ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyPayload),
       });
       const body = await response.json();
       if (!response.ok) {
+        if (typeof body?.row_version === "string") {
+          setCollection((current) => {
+            if (!current) return current;
+            const next = preferredOrderVersion(current.row_version, body.row_version);
+            return next === current.row_version ? current : { ...current, row_version: next };
+          });
+        }
         throw new Error(body.error ?? "No se pudo guardar");
       }
       setCollection(body as OrderCollection);
