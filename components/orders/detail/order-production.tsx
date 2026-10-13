@@ -158,6 +158,10 @@ export function OrderProduction({
           <DateTimePicker
             value={rejectedLocal ?? toDateTimeLocalValue(draft.due_at)}
             disabled={orderOptionsLoading}
+            onValidityChange={(invalid) => {
+              onDueAtInvalid?.(invalid);
+              setRejectedLocal(null);
+            }}
             onChange={(value) => {
               if (!value) {
                 setRejectedLocal(null);
