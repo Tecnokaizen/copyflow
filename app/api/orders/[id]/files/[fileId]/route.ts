@@ -77,30 +77,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
   }
 
-  // Delete the blob first. If R2 fails, metadata stays active so the delete can
-  // be retried without leaving a silently orphaned object behind.
-  try {
-    await deleteObject({ key: file.storage_key });
-  } catch (error) {
-    console.error(
-      "[DELETE .../files/:fileId] R2 delete failed (metadata preserved)",
-      {
-        message: error instanceof Error ? error.message : "unknown",
-        file_id: fileId,
-      }
-    );
-    return NextResponse.json(
-      { error: "Could not delete file" },
-      { status: 502 }
-    );
-  }
-
-  // Idempotent replay: metadata may already be soft-deleted from an earlier
-  // successful request. Re-deleting the R2 object is safe.
-  if (file.deleted_at) {
-    return new NextResponse(null, { status: 204 });
-  }
-
   const issuedAt = filesCapabilityIssuedAtNow();
   const capability = createFilesCapability(
     {
@@ -130,6 +106,18 @@ export async function DELETE(
     });
     const mapped = mapOrderFileRpcError(deleteError, "Could not delete file");
     return NextResponse.json(mapped.body, { status: mapped.status });
+  }
+
+  // Reserve deletion in PostgreSQL first. The same order lock serializes with
+  // receipt attachment, so a protected receipt can never reach R2 deletion.
+  // A failed R2 delete leaves soft-deleted metadata; replay retries the blob.
+  try {
+    await deleteObject({ key: file.storage_key });
+  } catch {
+    return NextResponse.json(
+      { error: "No se pudo eliminar el archivo. Reintenta para completar el borrado.", code: "R2_DELETE_PENDING" },
+      { status: 502 }
+    );
   }
 
   return new NextResponse(null, { status: 204 });

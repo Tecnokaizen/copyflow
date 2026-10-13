@@ -63,7 +63,7 @@ export async function GET(
   const { data: files, error } = await supabase
     .from("order_files")
     .select(
-      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by"
+      "id, original_name, content_type, size_bytes, status, created_at, completed_at, uploaded_by, payment_receipts:order_payments!order_payments_receipt_fk(id)"
     )
     .eq("tenant_id", context.tenant.id)
     .eq("order_id", orderId)

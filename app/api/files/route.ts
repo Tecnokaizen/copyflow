@@ -132,6 +132,7 @@ export async function GET(request: NextRequest) {
       completed_at,
       uploaded_by,
       order_id,
+      payment_receipts:order_payments!order_payments_receipt_fk(id),
       orders!inner (
         id,
         reference,

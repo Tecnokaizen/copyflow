@@ -548,7 +548,7 @@ export function OrderFilesSection({
               <OrderFileRow
                 key={file.id}
                 file={file}
-                canMutate={canMutate}
+                canMutate={canMutate && !file.protected_document}
                 downloading={downloadingId === file.id}
                 previewing={previewFile?.id === file.id}
                 onPreview={() => {
@@ -557,7 +557,7 @@ export function OrderFilesSection({
                 }}
                 onDownload={() => void handleDownload(file)}
                 onDelete={
-                  canMutate ? () => setPendingDelete(file) : undefined
+                  canMutate && !file.protected_document ? () => setPendingDelete(file) : undefined
                 }
               />
             ))}

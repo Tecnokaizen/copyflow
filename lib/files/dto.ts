@@ -111,7 +111,7 @@ export function toPublicOrderFileDto(
     uploaded_by:
       typeof row.uploaded_by === "string" ? row.uploaded_by : null,
     uploader_name: uploaderName,
-    ...(typeof row.pdf_version_id === "string" ? { protected_document: true } : {}),
+    ...(typeof row.pdf_version_id === "string" || (Array.isArray(row.payment_receipts) && row.payment_receipts.length > 0) ? { protected_document: true } : {}),
   };
 }
 
