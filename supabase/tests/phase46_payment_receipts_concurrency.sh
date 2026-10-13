@@ -13,7 +13,14 @@ TASK_DIR="$(mktemp -d)"
 sql() { psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "$1"; }
 rpc() { sql "begin;select set_config('request.jwt.claim.sub','$ACTOR',true);select set_config('request.jwt.claim.role','authenticated',true);set local role authenticated;select $1;commit;" | tail -1; }
 cleanup() {
-  sql "delete from public.orders where tenant_id='$TENANT';delete from public.tenants where id='$TENANT';delete from auth.users where id='$ACTOR';delete from vault.secrets where id in (select id from vault.decrypted_secrets where name='files_signing_secret' and decrypted_secret='phase46-concurrency-test-secret-32-characters');" >/dev/null || true
+  if [[ -f "$TASK_DIR/prior-secret" ]]; then
+    prior="$(cat "$TASK_DIR/prior-secret")"
+    prior="${prior//\'/\'\'}"
+    sql "select vault.update_secret((select id from vault.secrets where name='files_signing_secret' order by updated_at desc limit 1),'$prior');" >/dev/null || true
+  else
+    sql "delete from vault.secrets where id in (select id from vault.decrypted_secrets where name='files_signing_secret' and decrypted_secret='phase46-concurrency-test-secret-32-characters');" >/dev/null || true
+  fi
+  sql "delete from public.orders where tenant_id='$TENANT';delete from public.tenants where id='$TENANT';delete from auth.users where id='$ACTOR';" >/dev/null || true
   rm -rf "$TASK_DIR"
 }
 trap cleanup EXIT
@@ -45,9 +52,15 @@ done
 for pid in "${pids[@]}"; do wait "$pid"; done
 [[ "$(sql "select count(*) from public.order_payments where receipt_file_id='$RETRY_FILE'")" == 1 ]]
 echo 'PASS: four concurrent exact retries with receipt create one payment'
-# Only an isolated test DB may be used: never overwrite an existing signing key.
-[[ "$(sql "select count(*) from vault.secrets where name='files_signing_secret'")" == 0 ]]
-sql "select vault.create_secret('phase46-concurrency-test-secret-32-characters','files_signing_secret');" >/dev/null
+# A previous local suite may already hold the signing key. Borrow it for this
+# race and put the previous value back in cleanup. Never leave the test value behind.
+prior="$(sql "select decrypted_secret from vault.decrypted_secrets where name='files_signing_secret' order by updated_at desc limit 1")"
+if [[ -n "$prior" ]]; then
+  printf '%s' "$prior" > "$TASK_DIR/prior-secret"
+  sql "select vault.update_secret((select id from vault.secrets where name='files_signing_secret' order by updated_at desc limit 1),'phase46-concurrency-test-secret-32-characters');" >/dev/null
+else
+  sql "select vault.create_secret('phase46-concurrency-test-secret-32-characters','files_signing_secret');" >/dev/null
+fi
 ISSUED="$(sql "select extract(epoch from now())::bigint")"
 SIGNATURE="$(sql "select encode(extensions.hmac(convert_to('files-v1|delete|$ACTOR|$TENANT|$ORDER|$RACE_FILE|$ISSUED','UTF8'),convert_to('phase46-concurrency-test-secret-32-characters','UTF8'),'sha256'),'hex')")"
 # A delete exception is mapped to a text outcome in its own session.
