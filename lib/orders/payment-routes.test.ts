@@ -109,6 +109,8 @@ describe("payment methods and real API handlers", () => {
     assert.equal(historic?.payments[0].receipt, null);
     assert.deepEqual(mapOrderCollection(snapshot)?.payments[0].receipt, { id: file, original_name: "bizum.pdf" });
     assert.equal(toPublicOrderFileDto({ id: file, payment_receipts: [{ id: "payment" }] }).protected_document, true);
+    assert.equal(toPublicOrderFileDto({ id: file, payment_receipts: { id: "payment" } }).protected_document, true);
+    assert.equal(toPublicOrderFileDto({ id: file, payment_receipts: null }).protected_document, undefined);
   });
   it("protects receipt before any blob delete; permits retry after an R2 failure", async () => {
     const protectedFile = harness({ rpcError: "payment_receipt_protected" });
