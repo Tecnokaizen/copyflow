@@ -72,6 +72,34 @@ export function OrderCollection({
     };
   }, [orderId]);
 
+  async function loadLatestCollection(): Promise<OrderCollection> {
+    const response = await fetch(`/api/orders/${orderId}/payments`, {
+      cache: "no-store",
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error ?? "No se pudo actualizar el cobro");
+    }
+    return body as OrderCollection;
+  }
+
+  async function openTotal() {
+    setBusy(true);
+    setError(null);
+    try {
+      // The parent order may have changed while this component stayed mounted.
+      // Refresh the server row_version before opening an optimistic-concurrency form.
+      const latest = await loadLatestCollection();
+      setCollection(latest);
+      setTotalDraft(latest.total_amount ?? "");
+      setTotalOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar el cobro");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(url: string, payload: unknown) {
     setBusy(true);
     setError(null);
@@ -83,6 +111,20 @@ export function OrderCollection({
       });
       const body = await response.json();
       if (!response.ok) {
+        if (url.endsWith("/total") && response.status === 409 && body.code === "conflict") {
+          // Never retry a monetary write automatically: the user must verify
+          // the latest total and decide whether to submit again.
+          let refreshed = false;
+          try {
+            setCollection(await loadLatestCollection());
+            refreshed = true;
+          } catch {
+            // Preserve the original conflict rather than obscuring it.
+          }
+          throw new Error(refreshed
+            ? "El pedido ha cambiado. Hemos actualizado los importes; revisa el total y vuelve a confirmar."
+            : "El pedido ha cambiado. No se pudieron actualizar los importes; cierra el diálogo y vuelve a abrirlo antes de confirmar.");
+        }
         throw new Error(body.error ?? "No se pudo guardar");
       }
       setCollection(body as OrderCollection);
@@ -109,7 +151,7 @@ export function OrderCollection({
   return (
     <div className="border-t border-border/60">
       {loading ? <LoadingState label="Cargando cobro…" className="px-0 py-6" /> : null}
-      {error ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
+      {error && !paymentOpen && !totalOpen && !voiding ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
       {collection ? (
         <>
           <FactRow label="Total del pedido" emphasis>
@@ -126,7 +168,7 @@ export function OrderCollection({
           </FactRow>
           {actionsEnabled ? (
             <div className="flex flex-wrap gap-2 py-3">
-              <button type="button" className="gc-action" onClick={() => { setTotalDraft(collection.total_amount ?? ""); setTotalOpen(true); }}>
+              <button type="button" className="gc-action" disabled={busy} onClick={() => { void openTotal(); }}>
                 {collection.total_amount ? "Modificar total" : "Definir total"}
               </button>
               <button type="button" className="gc-cta" disabled={!collection.total_amount} onClick={openPayment}>
@@ -192,6 +234,7 @@ export function OrderCollection({
           <div className="mt-3">
             <DateTimePicker value={paidAt} onChange={setPaidAt} disabled={busy} />
           </div>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
         </ConfirmDialog>
       ) : null}
 
@@ -213,6 +256,7 @@ export function OrderCollection({
             Importe
             <input className="gc-field-control" inputMode="decimal" value={totalDraft} onChange={(event) => setTotalDraft(event.target.value)} />
           </label>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
         </ConfirmDialog>
       ) : null}
 
@@ -233,6 +277,7 @@ export function OrderCollection({
             Motivo
             <textarea className="gc-field-control min-h-20" value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
         </ConfirmDialog>
       ) : null}
     </div>
