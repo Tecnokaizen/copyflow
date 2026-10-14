@@ -5,10 +5,12 @@ import {
   filesCapabilityIssuedAtNow,
   requireFilesSigningSecret,
 } from "@/lib/files/capability";
+import { assertStorageKeyMatchesIds } from "@/lib/files/object-key";
 import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
+import { storageDeletionIdFromRpc } from "@/lib/files/storage-deletion";
+import { finalizeUserFileDeletion } from "@/lib/files/storage-deletion-server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-import { deleteObject } from "@/lib/storage/r2";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,7 +62,7 @@ export async function DELETE(
 
   const { data: file, error: fileError } = await supabase
     .from("order_files")
-    .select("id, storage_key, deleted_at")
+    .select("id, storage_key")
     .eq("id", fileId)
     .eq("order_id", orderId)
     .eq("tenant_id", context.tenant.id)
@@ -70,35 +72,18 @@ export async function DELETE(
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  if (typeof file.storage_key !== "string" || !file.storage_key) {
-    console.error("[DELETE .../files/:fileId] storage_key missing", {
+  if (
+    typeof file.storage_key !== "string" ||
+    !assertStorageKeyMatchesIds(file.storage_key, {
+      tenantId: context.tenant.id,
+      orderId,
+      fileId,
+    })
+  ) {
+    console.error("[DELETE .../files/:fileId] storage_key invalid", {
       file_id: fileId,
     });
     return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
-  }
-
-  // Delete the blob first. If R2 fails, metadata stays active so the delete can
-  // be retried without leaving a silently orphaned object behind.
-  try {
-    await deleteObject({ key: file.storage_key });
-  } catch (error) {
-    console.error(
-      "[DELETE .../files/:fileId] R2 delete failed (metadata preserved)",
-      {
-        message: error instanceof Error ? error.message : "unknown",
-        file_id: fileId,
-      }
-    );
-    return NextResponse.json(
-      { error: "Could not delete file" },
-      { status: 502 }
-    );
-  }
-
-  // Idempotent replay: metadata may already be soft-deleted from an earlier
-  // successful request. Re-deleting the R2 object is safe.
-  if (file.deleted_at) {
-    return new NextResponse(null, { status: 204 });
   }
 
   const issuedAt = filesCapabilityIssuedAtNow();
@@ -114,6 +99,8 @@ export async function DELETE(
     signingSecret
   );
 
+  // Reserve first: the RPC hides the file and enqueues the R2 deletion in one
+  // transaction. Nothing touches R2 unless this commits.
   const { data: deleted, error: deleteError } = await supabase.rpc(
     "soft_delete_order_file",
     {
@@ -131,6 +118,12 @@ export async function DELETE(
     const mapped = mapOrderFileRpcError(deleteError, "Could not delete file");
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
+
+  // Optimisation only; the maintenance cron completes any pending task.
+  await finalizeUserFileDeletion(
+    storageDeletionIdFromRpc(deleted),
+    "[DELETE .../files/:fileId]"
+  );
 
   return new NextResponse(null, { status: 204 });
 }
