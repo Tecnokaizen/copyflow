@@ -37,6 +37,10 @@ function createR2Client() {
     region: "auto",
     endpoint,
     forcePathStyle: true,
+    // SDK default WHEN_SUPPORTED adds optional CRC32 query params.
+    // R2 rejects those on presigned PUT/GET. Required checksums stay enabled.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId,
       secretAccessKey,
