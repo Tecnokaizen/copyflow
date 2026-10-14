@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import {
   PROTECTED_PROJECT_REFS,
+  STAGING_E2E_WORKFLOW,
   checkTrackedFile,
   checkWorkflow,
 } from "./production-safety";
@@ -55,6 +56,45 @@ describe("production safety: workflow rules", () => {
     assert.ok(checkWorkflow("w.yml", SAFE_WORKFLOW.replace("permissions:\n  contents: read\n", "")).length > 0);
     assert.ok(checkWorkflow("w.yml", SAFE_WORKFLOW.replace("pull_request:", "pull_request_target:")).length > 0);
   });
+});
+
+const STAGING_E2E = `name: E2E staging
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: node run.mjs
+        env:
+          E2E_USER_PASSWORD: \${{ secrets.E2E_USER_PASSWORD }}
+`;
+
+describe("production safety: staging E2E workflow exception", () => {
+  it("accepts the manual staging workflow with allowlisted secrets", () => {
+    assert.deepEqual(checkWorkflow(STAGING_E2E_WORKFLOW, STAGING_E2E), []);
+  });
+
+  it("keeps rejecting secrets in any other workflow", () => {
+    assert.ok(checkWorkflow(".github/workflows/other.yml", STAGING_E2E).length > 0);
+  });
+
+  for (const [label, content] of [
+    ["automatic trigger", STAGING_E2E.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request:\n")],
+    ["push trigger", STAGING_E2E.replace("  workflow_dispatch:\n", "  push:\n")],
+    ["missing environment", STAGING_E2E.replace("    environment: staging\n", "")],
+    ["other environment", STAGING_E2E.replace("environment: staging", "environment: production")],
+    ["non-allowlisted secret", STAGING_E2E + "          X: \${{ secrets.SUPABASE_PROD_KEY }}\n"],
+    ["production credential name", STAGING_E2E + "          SUPABASE_SECRET_KEY: x\n"],
+    ["write token", STAGING_E2E.replace("contents: read", "contents: write")],
+  ]) {
+    it(`rejects ${label}`, () => {
+      assert.ok(checkWorkflow(STAGING_E2E_WORKFLOW, content).length > 0);
+    });
+  }
 });
 
 describe("production safety: repository rules", () => {
