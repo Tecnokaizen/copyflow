@@ -1,7 +1,8 @@
 # Sprint de consolidación — 15 a 18 de octubre de 2026
 
 Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `4877db7`.
-Staging integrado: `gestcopy-staging` `4570ea5`. Con autorización expresa se
+Staging integrado: `gestcopy-staging` `4570ea5` (sin la corrección del logo de
+#58, `d487d54`, que solo se ha probado en local). Con autorización expresa se
 han integrado **#106**, **#99**, **#105** (con su migración), **#94** (sin
 migraciones), **#95**, **#107** y **#108** (migraciones aplicadas antes del
 merge) y **#58** (sin migraciones).
@@ -125,9 +126,10 @@ despliegue y el cierre de la integración.
 
 ## Pendientes y riesgos
 
-- **Sin autorización todavía**: el resto de merges en `main` y de migraciones en
-  Production, la activación de Pro en SUR4 y el cierre de #91.
-- **Contract de #95**: PR posterior al despliegue.
+- **Sin autorización todavía**: integrar esta PR (#109), cerrar #91, el contract
+  de #95 y la activación de Pro en SUR4.
+- **Contract de #95**: PR posterior, no antes del 16/10 a las 22:34 UTC (24 h
+  después del despliegue de la app que siempre envía método).
 - **#104**: requiere decisiones de producto (ver el ADR).
 - **Voz**: integrar #90 exige renombrar el código de feature y la migración y
   resolver conflictos con #94.
@@ -142,12 +144,18 @@ despliegue y el cierre de la integración.
 - **Código**: revertir el merge correspondiente. Ninguna PR elimina columnas,
   datos ni funciones.
 - **#95**: la expand es compatible con la app anterior, así que basta con revertir el código. No se
-  borra el ledger.
+  borra el ledger. Reversión de la base de datos, probada y solo mientras no haya
+  cobros con método o justificante:
+  `supabase/rollbacks/20261016091000_order_payment_methods_receipts_expand.sql`.
 - **#105**: retirar la concesión con `set_tenant_feature(..., false)` o
   restaurar la ausencia de la fila (ver `docs/PRO-EARLY-ACCESS-V1.md`).
-- **#108**: volver a aplicar la definición de `20261007190056` de
-  `convert_quote_to_order`.
-- **#107**: revertir el código. La columna y las v2 pueden quedarse.
+- **#108**: `supabase/rollbacks/20261016110000_quote_conversion_notes_v1.sql`
+  (probada; vuelve a la definición de `20261007190056`). Las notas ya heredadas se
+  quedan en sus pedidos.
+- **#107**: revertir el código. La columna y las v2 pueden quedarse. Retirarlas:
+  `supabase/rollbacks/20261016100000_clients_address_v1.sql` (probada; se niega
+  si algún cliente ya tiene dirección).
+- **#58**: revertir el código; no hay nada que deshacer en la base de datos.
 
 ## Próximo paso concreto
 

@@ -14,10 +14,12 @@ de su merge salvo la de #105) y ningún tenant tiene Pro activado. Sin fusionar:
 
 ## 2. `gestcopy-staging`
 
-`4570ea5` = `main` + #105, #99, #95, #106, #107, #108, #94 y #58, integradas solo con
-fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
-**no** está. El contenido de pruebas y documentación de los últimos commits de
-#95 (`8886ecf`) y #108 (`53d3e3a`) no se ha desplegado porque no cambia la app.
+`4570ea5`, integrado solo con fast-forwards, con las mismas PR que ya están en
+`main`. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90 **no** está.
+Mismas migraciones que `main` y Production. En código de la app, solo le falta la
+corrección del logo de #58 (`d487d54`, `components/tenant-brand.tsx`), probada en
+local con `scripts/tenant-header-ui-smoke.mjs`. Para igualarlo con `main`, otro
+fast-forward cuando se autorice.
 
 ## 3. PR abiertas
 
@@ -106,7 +108,8 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 1. ~~Merge de #106 y #99~~ (hecho el 15/10).
 2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
 3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
-4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91.
+4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91
+   y, no antes del 16/10 a las 22:34 UTC, el contract de #95.
 5. ~~#107~~ (hecho el 15/10, 22:58 UTC) y ~~#108~~ (hecho el 15/10, 23:23 UTC).
 6. ~~Merge de #58~~ (hecho el 15/10, 23:41 UTC).
 7. Decisiones de #104.
