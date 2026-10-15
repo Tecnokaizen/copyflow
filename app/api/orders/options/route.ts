@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
 import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import { requireCurrentAccess } from "@/lib/tenant/access-response";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { resolveQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 
 export async function GET() {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/orders/options");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
+
+  const context = access.context;
 
   const supabase = await createClient();
   const tenantId = context.tenant.id;
@@ -109,6 +108,7 @@ export async function GET() {
       team_members: teamMembersResult.data ?? [],
       stores: storesResult.data ?? [],
       actor_role: context.membership.role,
+      actor_id: context.user.id,
       current_team_member: currentTeamMember,
       quick_order_layout: resolveQuickOrderLayout(
         settingsResult.data?.preferences

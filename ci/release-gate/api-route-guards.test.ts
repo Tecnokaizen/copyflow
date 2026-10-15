@@ -18,6 +18,9 @@ const TENANT_GUARDS = [
   /\bgetCurrentContext\s*\(/,
   /\brequireQuotesAccess\s*\(/,
   /\brequireOrganizationEditor\s*\(/,
+  // lib/tenant/access-response.ts: session + active tenant + active membership,
+  // answering 401/403/503 instead of a single 403 (PR #94).
+  /\brequireCurrentAccess\s*\(/,
 ];
 
 /** Guards for routes that are not tenant-session bound. */

@@ -10,7 +10,7 @@ Sin mocks de API. Production queda fuera por diseño (ver *Seguridad*).
 |---|---|---|
 | Pedidos | login → `GESTCOPY · Panel diario` → `Nuevo cliente` → `/orders?create=1` (cliente, título, entrega «Mañana») → listado `filter=all` en vista de tarjetas + búsqueda → recarga del listado → ficha | `POST /api/clients` 200, `POST /api/orders` 201, referencia `E2E-NNNN`, la búsqueda devuelve solo ese pedido, tarjeta (hija de `Pedidos en cuadrícula` con `h2` = título) con referencia, cliente, `Recibido` y entrega a las 18:00, antes y después de recargar; `GET /api/orders/{id}` |
 | Archivos R2 | `Añadir archivos` → `.txt` de ~600 B con contenido único → recarga → `Descargar` | INIT 201 con URL presignada al bucket de Staging, PUT 200 en R2, COMPLETE 200 `status: ready` (HEAD en servidor), fila tras recarga, SHA-256 descargado = subido |
-| Cobro parcial | `Definir total` 100 € → `Registrar entrega a cuenta` 20 € → recarga → `Cambiar estado` En proceso → Listo → Entregado (`Confirmar entrega`) → recarga | `PATCH …/total` (`unpaid`), `POST …/payments` (`partial`, pendiente `80.00`), UI `100,00 €` / `20,00 €` / `80,00 €` / `Parcial` antes y después de recargar, `ready_at` y `delivered_at` fijados, el saldo parcial se mantiene tras Entregado. Nunca archiva. |
+| Cobro parcial | `Definir total` 100 € → `Registrar entrega a cuenta` 20 € con método Bizum y justificante `.txt` (INIT → PUT R2 → COMPLETE → cobro) → recarga → descarga del justificante con SHA-256 → `Cambiar estado` En proceso → Listo → Entregado (`Confirmar entrega`) → recarga | `PATCH …/total` (`unpaid`), `POST …/payments` (`partial`, pendiente `80.00`), UI `100,00 €` / `20,00 €` / `80,00 €` / `Parcial` antes y después de recargar, `ready_at` y `delivered_at` fijados, el saldo parcial se mantiene tras Entregado. Nunca archiva. |
 
 Dependencias: archivos y cobro usan el pedido del flujo 1; si este falla se
 omiten. Un fallo de archivos no impide ejecutar el cobro.
@@ -40,6 +40,8 @@ tenant `e2e`.
 | `e2e/staging/harness.ts` | Navegador, preflight (TLS / Deployment Protection), egress, artefactos |
 | `e2e/staging/run.ts` | Los tres recorridos |
 | `e2e/staging/seed.ts` | Aprovisionamiento idempotente del tenant `e2e` (solo terminal de confianza) |
+| `e2e/staging/seed-viewer.ts` | Viewer sintético opcional en `e2e` para el recorrido Pro (solo terminal de confianza) |
+| `e2e/staging/pro-early-access.ts` | Recorrido Gestcopy Pro ON/OFF de solo lectura ([PRO-EARLY-ACCESS-V1.md](PRO-EARLY-ACCESS-V1.md)) |
 | `.github/workflows/e2e-staging.yml` | Workflow manual (`workflow_dispatch`, entorno `staging`) |
 
 Playwright `1.58.2` se instala fuera de `package.json`, igual que en

@@ -10,7 +10,13 @@ export type RichTextRun = {
   href?: string;
 };
 
-/** Project only the shared editor's sanitized vocabulary; never render raw HTML. */
+/**
+ * Project only the shared editor's sanitized vocabulary; never render raw HTML.
+ * Lines are what the reader sees: whitespace between blocks (pasted or
+ * pretty-printed HTML) is not a line, and empty lines before the first or
+ * after the last visible line (e.g. Enter after the last line) are dropped.
+ * Blank lines between visible lines are kept and counted.
+ */
 export function richTextLines(value: string): RichTextRun[][] {
   const html = normalizeRichText(value);
   if (!html) return [];
@@ -70,7 +76,8 @@ export function richTextLines(value: string): RichTextRun[][] {
       // sanitize-html already decoded every entity, then escaped these three for HTML.
       const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">" };
       const text = escaped.replace(/&(amp|lt|gt);/g, (entity) => entities[entity]).replace(/\s+/g, " ");
-      if (text) {
+      // Whitespace-only text with nothing on the current line sits between blocks.
+      if (text && (text.trim() || current.length)) {
         current.push({
           text,
           bold: marks.some((mark) => mark.tag === "strong"),
@@ -85,6 +92,8 @@ export function richTextLines(value: string): RichTextRun[][] {
     },
   });
   if (current.length) flush();
+  while (lines.length && lines[0].length === 0) lines.shift();
+  while (lines.length && lines[lines.length - 1].length === 0) lines.pop();
   return lines;
 }
 

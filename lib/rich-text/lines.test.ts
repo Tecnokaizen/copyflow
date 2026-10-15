@@ -24,6 +24,26 @@ describe("quote footer rich text", () => {
     assert.equal(parseQuoteFooter("<p>1</p><p></p><p></p><p></p><p>5</p>").ok, false);
     assert.equal(parseQuoteFooter("<ul>" + "<li><p>x</p></li>".repeat(5) + "</ul>").ok, false);
   });
+  it("counts four visible lines as four whatever the editor or a paste adds around them (#100)", () => {
+    const lines = ["Copistería Ejemplo S.L. · NIF B12345678", "Calle Mayor 1, 28001 Madrid", "Presupuesto válido 30 días.", "Pago por transferencia o Bizum."];
+    const paragraphs = lines.map((line) => `<p>${line}</p>`);
+    for (const html of [
+      paragraphs.join("") + "<p></p>", // Enter after the last line
+      paragraphs.join("") + "<p><br></p><p></p>",
+      paragraphs.join("\n"), // pasted or pretty-printed HTML
+      paragraphs.join("\n  ") + "\n",
+      `<p><br>${lines.join("<br>")}</p>`, // leading break from a paste
+      "<p></p>" + paragraphs.join(""),
+    ]) {
+      assert.deepEqual(plain(html), lines, html);
+      assert.equal(richTextLineStats(html).lines, 4, html);
+      const parsed = parseQuoteFooter(html);
+      assert.equal(parsed.ok, true, html);
+    }
+    assert.deepEqual(plain("<p><strong>A</strong> <em>B</em></p>"), ["A B"], "inline spaces between marks stay");
+    assert.equal(parseQuoteFooter(paragraphs.join("") + "<p>Quinta</p>").ok, false, "a fifth visible line is still rejected");
+    assert.equal(parseQuoteFooter(`${paragraphs[0]}<p></p>${paragraphs.slice(1).join("")}`).ok, false, "blank lines between text still count");
+  });
   it("limits visible text separately from markup and never truncates excess", () => {
     const value = `<p><strong>${"x".repeat(400)}</strong></p>`;
     assert.deepEqual(richTextLineStats(value), { chars: 400, lines: 1 });

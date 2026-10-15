@@ -36,7 +36,7 @@ rpc "public.set_order_total_amount('$ORDER','100.00','$VERSION')->>'total_amount
 
 pids=()
 for n in 1 2 3 4 5; do
-  rpc "public.record_order_payment('$ORDER','30.00','2026-10-07T12:0${n}:00Z','concurrent-$n')->>'error'" > "$TASK_DIR/pay-$n" &
+  rpc "public.record_order_payment('$ORDER','30.00','2026-10-07T12:0${n}:00Z','concurrent-$n','cash',null,'$TENANT')->>'error'" > "$TASK_DIR/pay-$n" &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
@@ -53,7 +53,7 @@ VERSION="$(sql "select row_version::text from public.orders where id='$ORDER'")"
 rpc "public.set_order_total_amount('$ORDER','200.00','$VERSION')->>'total_amount'" >/dev/null
 pids=()
 for n in 1 2 3 4; do
-  rpc "public.record_order_payment('$ORDER','30.00','2026-10-07T12:01:00Z','same-key')->>'replayed'" > "$TASK_DIR/retry-$n" &
+  rpc "public.record_order_payment('$ORDER','30.00','2026-10-07T12:01:00Z','same-key','cash',null,'$TENANT')->>'replayed'" > "$TASK_DIR/retry-$n" &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
