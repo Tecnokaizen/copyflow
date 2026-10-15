@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { parseClientPayload } from "@/lib/clients/payload";
+import { CLIENT_ADDRESS_UNAVAILABLE, writeClient } from "@/lib/clients/write-rpc";
 import { mapClientSummary } from "@/lib/clients/types";
 import {
   clientDuplicateResponse,
@@ -52,14 +53,15 @@ export async function GET(
   const supabase = await createClient();
   const tenantId = context.tenant.id;
 
-  const { data: clientRow, error: clientError } = await supabase
-    .from("clients")
-    .select(
-      "id, customer_type_id, name, contact_name, company_name, tax_id, email, phone, notes, active, created_at, customer_type:customer_types(id, name)"
-    )
-    .eq("tenant_id", tenantId)
-    .eq("id", id)
-    .maybeSingle();
+  const columns =
+    "id, customer_type_id, name, contact_name, company_name, tax_id, email, phone, notes, active, created_at, customer_type:customer_types(id, name)";
+  const loadClient = (select: string) =>
+    supabase.from("clients").select(select).eq("tenant_id", tenantId).eq("id", id).maybeSingle();
+  let { data: clientRow, error: clientError } = await loadClient(`${columns}, address`);
+  // 42703: the address migration is not applied yet; keep the page working without it.
+  if (clientError?.code === "42703") {
+    ({ data: clientRow, error: clientError } = await loadClient(columns));
+  }
 
   if (clientError) {
     console.error("load_client", clientError.message);
@@ -124,7 +126,7 @@ export async function GET(
     status: mapOrderStatus(row.status),
   }));
 
-  const clientRecord = clientRow as Record<string, unknown>;
+  const clientRecord = clientRow as unknown as Record<string, unknown>;
 
   return NextResponse.json({
     tenant: context.tenant.slug,
@@ -186,7 +188,7 @@ export async function PATCH(
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("update_client", {
+  const { data, error } = await writeClient(supabase, "update", {
     p_client_id: id,
     p_customer_type_id: parsed.data.customer_type_id,
     p_name: parsed.data.name,
@@ -197,7 +199,7 @@ export async function PATCH(
     p_phone: parsed.data.phone,
     p_notes: parsed.data.notes,
     p_tenant_id: context.tenant.id,
-  });
+  }, parsed.data.address);
 
   if (error || !data) {
     const duplicate = clientDuplicateResponse(error);
@@ -216,7 +218,12 @@ export async function PATCH(
     });
 
     return NextResponse.json(
-      { error: "Could not update client" },
+      {
+        error:
+          error?.code === CLIENT_ADDRESS_UNAVAILABLE
+            ? "La dirección todavía no está disponible. Guarda los cambios sin modificarla o inténtalo más tarde."
+            : "Could not update client",
+      },
       { status: statusForClientRpcError(error?.code) }
     );
   }
@@ -224,6 +231,6 @@ export async function PATCH(
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
-    client: data.client,
+    client: (data as { client?: unknown }).client,
   });
 }
