@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
@@ -86,6 +87,13 @@ export function HelpSearch({ articles }: { articles: HelpNavArticle[] }) {
   );
 }
 
+export function helpSectionContains(
+  section: HelpNavSection,
+  slug: string | undefined
+) {
+  return slug !== undefined && section.articles.some((article) => article.slug === slug);
+}
+
 export function HelpSidebar({
   sections,
   currentSlug,
@@ -95,7 +103,7 @@ export function HelpSidebar({
 }) {
   const changelogActive = currentSlug === "novedades";
   return (
-    <nav aria-label="Documentación" className="grid gap-4">
+    <nav aria-label="Documentación" className="grid gap-1">
       <Link
         href="/ayuda/novedades"
         aria-current={changelogActive ? "page" : undefined}
@@ -109,11 +117,21 @@ export function HelpSidebar({
         Novedades
       </Link>
       {sections.map((section) => (
-        <div key={section.id}>
-          <p className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        // Native disclosure: the section of the current article opens on
+        // navigation; the rest stay folded until the reader opens them.
+        <details
+          key={section.id}
+          open={helpSectionContains(section, currentSlug)}
+          className="group"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             {section.title}
-          </p>
-          <ul className="mt-1 grid">
+            <ChevronDown
+              className="size-3.5 shrink-0 transition-transform group-open:rotate-180"
+              aria-hidden="true"
+            />
+          </summary>
+          <ul className="mb-2 mt-1 grid">
             {section.articles.map((article) => {
               const active = article.slug === currentSlug;
               return (
@@ -134,7 +152,7 @@ export function HelpSidebar({
               );
             })}
           </ul>
-        </div>
+        </details>
       ))}
     </nav>
   );
