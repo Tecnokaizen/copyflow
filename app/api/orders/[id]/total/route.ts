@@ -28,7 +28,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
   const version = parseExpectedVersion(record?.expected_version);
   if (!version) {
-    return operationalJson({ error: "El pedido cambió. Recarga la ficha e inténtalo de nuevo." }, { status: 409 });
+    return operationalJson({ code: "conflict", error: "El pedido cambió. Recarga la ficha e inténtalo de nuevo." }, { status: 409 });
   }
   let total: string | null;
   if (record?.total_amount == null) {
@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const payload = data as { ok?: boolean; error?: string };
   if (!payload?.ok) {
     const mapped = collectionError(payload.error);
-    return operationalJson({ error: mapped.error }, { status: mapped.status });
+    return operationalJson({ error: mapped.error, ...(payload.error === "conflict" ? { code: "conflict" } : {}) }, { status: mapped.status });
   }
   const collection = mapOrderCollection(data);
   if (!collection) {

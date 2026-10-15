@@ -18,6 +18,7 @@ on:
       - "lib/settings/quick-order-layout*"
       - "supabase/tests/pedido_v2.sql"
       - "scripts/pedido-v2-ui-smoke.mjs"
+      - "scripts/order-collection-ui-smoke.mjs"
       - "scripts/inline-client-ui-smoke.mjs"
       - ".github/workflows/pedido-v2.yml"
   workflow_dispatch:
@@ -47,6 +48,7 @@ jobs:
           npm install --prefix /tmp/pedido-v2-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
           node /tmp/pedido-v2-browser/node_modules/playwright/cli.js install --with-deps chromium
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/pedido-v2-ui-smoke.mjs
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/order-collection-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/inline-client-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/payment-receipts-ui-smoke.mjs

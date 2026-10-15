@@ -256,7 +256,7 @@ describe("API contracts (source)", () => {
     assert.ok(headCall >= 0 && capCall > headCall, "HEAD must precede capability");
   });
 
-  it("delete authorizes and reserves metadata before deleting R2", () => {
+  it("delete reserves in PostgreSQL before any R2 deletion", () => {
     const source = read(
       "app",
       "api",
@@ -270,18 +270,17 @@ describe("API contracts (source)", () => {
     assert.match(source, /createFilesCapability/);
     assert.match(source, /p_issued_at/);
     assert.match(source, /p_signature/);
+    assert.match(source, /assertStorageKeyMatchesIds/);
     assert.equal(/\.from\(\s*["']order_files["']\s*\)\s*\.update/.test(source), false);
-    assert.match(source, /deleteObject/);
-    assert.match(source, /R2_DELETE_PENDING/);
+    // The route never deletes R2 objects directly; only the leased protocol does.
+    assert.equal(/deleteObject/.test(source), false);
 
-    const r2DeleteCall = source.search(/await\s+deleteObject\s*\(/);
-    const softDeleteCall = source.search(/soft_delete_order_file/);
+    const reserveCall = source.search(/supabase\.rpc\(\s*"soft_delete_order_file"/);
+    const finalizeCall = source.search(/await\s+finalizeUserFileDeletion\s*\(/);
     assert.ok(
-      r2DeleteCall >= 0 && softDeleteCall < r2DeleteCall,
-      "Receipt protection must run before deleting the blob"
+      reserveCall >= 0 && finalizeCall > reserveCall,
+      "R2 deletion must only follow a committed reservation"
     );
-
-    assert.match(source, /status:\s*502/);
   });
 
   it("download uses GET presign with attachment disposition", () => {
@@ -339,20 +338,19 @@ describe("API contracts (source)", () => {
 });
 
 describe("expired upload cleanup", () => {
-  it("purges only expired pending metadata after R2 deletion", () => {
+  it("reserves expired uploads atomically before any R2 deletion", () => {
     const migration = read(
       "supabase",
       "migrations",
-      "20260919120000_order_files_cleanup.sql"
+      "20261014120000_files_storage_deletions_v1.sql"
     );
-    assert.match(migration, /purge_expired_order_file/);
-    assert.match(migration, /status = 'pending'/);
+    assert.match(migration, /FUNCTION public\.claim_expired_file_uploads/);
+    assert.match(migration, /FOR UPDATE SKIP LOCKED/);
     assert.match(migration, /upload_expires_at < pg_catalog\.now\(\)/);
     assert.match(
       migration,
-      /REVOKE ALL ON FUNCTION public\.purge_expired_order_file/
+      /REVOKE ALL ON FUNCTION public\.claim_expired_file_uploads\(integer\)\s+FROM PUBLIC, anon, authenticated/
     );
-    assert.match(migration, /TO service_role, postgres/);
 
     const route = read(
       "app",
@@ -364,17 +362,16 @@ describe("expired upload cleanup", () => {
     );
     assert.match(route, /CRON_SECRET/);
     assert.match(route, /createAdminClient/);
-    assert.match(route, /assertStorageKeyMatchesIds/);
-    assert.match(route, /deleteObject/);
-    assert.match(route, /purge_expired_order_file/);
-    assert.match(route, /\.eq\("status", "pending"\)/);
-    assert.match(route, /\.lt\("upload_expires_at", now\)/);
+    assert.match(route, /claim_expired_file_uploads/);
+    assert.equal(/deleteObject/.test(route), false);
+    assert.equal(/purge_expired_(order|quote)_file/.test(route), false);
+    assert.equal(/\.from\(\s*["'](order|quote)_files["']/.test(route), false);
 
-    const r2DeleteCall = route.search(/await\s+deleteObject\s*\(/);
-    const purgeCall = route.search(/supabase\.rpc\(\s*"purge_expired_order_file"/);
+    const reserveCall = route.search(/supabase\.rpc\(\s*"claim_expired_file_uploads"/);
+    const processCall = route.search(/processStorageDeletionBatch\s*\(/);
     assert.ok(
-      r2DeleteCall >= 0 && purgeCall > r2DeleteCall,
-      "cleanup must delete R2 before purging metadata"
+      reserveCall >= 0 && processCall > reserveCall,
+      "cleanup must reserve metadata before processing R2 deletions"
     );
 
     const vercel = read("vercel.json");

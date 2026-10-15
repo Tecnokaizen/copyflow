@@ -128,15 +128,19 @@ export function OrderCollection({
       });
       const body = await response.json();
       if (!response.ok) {
-        if (response.status === 409) {
+        if (url.endsWith("/total") && response.status === 409 && body.code === "conflict") {
           // Never retry a monetary write automatically: the user must verify
           // the latest total and decide whether to submit again.
+          let refreshed = false;
           try {
             setCollection(await loadLatestCollection());
+            refreshed = true;
           } catch {
             // Preserve the original conflict rather than obscuring it.
           }
-          throw new Error("El pedido ha cambiado. Hemos actualizado los importes; revisa el total y vuelve a confirmar.");
+          throw new Error(refreshed
+            ? "El pedido ha cambiado. Hemos actualizado los importes; revisa el total y vuelve a confirmar."
+            : "El pedido ha cambiado. No se pudieron actualizar los importes; cierra el diálogo y vuelve a abrirlo antes de confirmar.");
         }
         throw new Error(body.error ?? "No se pudo guardar");
       }
@@ -292,7 +296,7 @@ export function OrderCollection({
   return (
     <div className="border-t border-border/60">
       {loading ? <LoadingState label="Cargando cobro…" className="px-0 py-6" /> : null}
-      {error ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
+      {error && !paymentOpen && !totalOpen && !voiding ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
       {collection ? (
         <>
           <FactRow label="Total del pedido" emphasis>
@@ -474,6 +478,7 @@ export function OrderCollection({
             Motivo
             <textarea className="gc-field-control min-h-20" value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
         </ConfirmDialog>
       ) : null}
     </div>

@@ -31,6 +31,16 @@ export function mapOrderFileRpcError(
     };
   }
 
+  if (message.includes("official_pdf_protected")) {
+    return {
+      status: 409,
+      body: {
+        error: "Official PDF is protected",
+        code: "OFFICIAL_PDF_PROTECTED",
+      },
+    };
+  }
+
   if (message.includes("storage_quota_exceeded")) {
     return {
       status: 409,

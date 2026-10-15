@@ -5,10 +5,12 @@ import {
   filesCapabilityIssuedAtNow,
   requireFilesSigningSecret,
 } from "@/lib/files/capability";
+import { assertStorageKeyMatchesIds } from "@/lib/files/object-key";
 import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
+import { storageDeletionIdFromRpc } from "@/lib/files/storage-deletion";
+import { finalizeUserFileDeletion } from "@/lib/files/storage-deletion-server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
-import { deleteObject } from "@/lib/storage/r2";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,7 +62,7 @@ export async function DELETE(
 
   const { data: file, error: fileError } = await supabase
     .from("order_files")
-    .select("id, storage_key, deleted_at")
+    .select("id, storage_key")
     .eq("id", fileId)
     .eq("order_id", orderId)
     .eq("tenant_id", context.tenant.id)
@@ -70,8 +72,15 @@ export async function DELETE(
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  if (typeof file.storage_key !== "string" || !file.storage_key) {
-    console.error("[DELETE .../files/:fileId] storage_key missing", {
+  if (
+    typeof file.storage_key !== "string" ||
+    !assertStorageKeyMatchesIds(file.storage_key, {
+      tenantId: context.tenant.id,
+      orderId,
+      fileId,
+    })
+  ) {
+    console.error("[DELETE .../files/:fileId] storage_key invalid", {
       file_id: fileId,
     });
     return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
@@ -90,6 +99,8 @@ export async function DELETE(
     signingSecret
   );
 
+  // Reserve first: the RPC hides the file and enqueues the R2 deletion in one
+  // transaction. Nothing touches R2 unless this commits.
   const { data: deleted, error: deleteError } = await supabase.rpc(
     "soft_delete_order_file",
     {
@@ -108,17 +119,11 @@ export async function DELETE(
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
-  // Reserve deletion in PostgreSQL first. The same order lock serializes with
-  // receipt attachment, so a protected receipt can never reach R2 deletion.
-  // A failed R2 delete leaves soft-deleted metadata; replay retries the blob.
-  try {
-    await deleteObject({ key: file.storage_key });
-  } catch {
-    return NextResponse.json(
-      { error: "No se pudo eliminar el archivo. Reintenta para completar el borrado.", code: "R2_DELETE_PENDING" },
-      { status: 502 }
-    );
-  }
+  // Optimisation only; the maintenance cron completes any pending task.
+  await finalizeUserFileDeletion(
+    storageDeletionIdFromRpc(deleted),
+    "[DELETE .../files/:fileId]"
+  );
 
   return new NextResponse(null, { status: 204 });
 }
