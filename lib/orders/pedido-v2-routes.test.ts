@@ -39,6 +39,7 @@ function harness(role = "staff", tenant = tenantA) {
         eq(key: string, value: unknown) { rows = rows.filter((row) => row[key] === value); return query; },
         is(key: string, value: unknown) { rows = rows.filter((row) => row[key] === value); return query; },
         in: () => query,
+        not: () => query,
         order: () => query,
         limit: () => query,
         maybeSingle() { single = true; return query; },
