@@ -62,6 +62,9 @@ describe("public changelog", () => {
       /Supabase/i,
       /PostgreSQL/i,
       /\/(orders|quotes|settings|counter|kiosk)\b/,
+      /gestcopy\.com/i,
+      /\/ayuda\b/,
+      /Vercel/i,
     ]) {
       assert.equal(forbidden.test(text), false, String(forbidden));
     }

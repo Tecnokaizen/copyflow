@@ -70,7 +70,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     entries: [
       seguridad(
         "Plataforma",
-        "Cada versión se prueba en un entorno de pruebas real con el recorrido completo: crear cliente y pedido, buscarlo, subir y descargar un archivo y registrar un cobro parcial hasta la entrega."
+        "Nueva prueba automatizada del recorrido completo en un entorno de pruebas real: crear cliente y pedido, buscarlo, subir y descargar un archivo y registrar un cobro parcial hasta la entrega."
       ),
     ],
   },
@@ -126,9 +126,9 @@ export const CHANGELOG: ChangelogRelease[] = [
         "Pedido rápido",
         "Después de crear un pedido rápido puedes indicar el total y registrar una entrega a cuenta sin abrir la ficha."
       ),
-      nuevo(
+      mejora(
         "Presupuestos",
-        "Imprimir el presupuesto en hoja A4 desde su ficha, también cuando tiene revisiones."
+        "Un presupuesto con revisiones también se puede imprimir en hoja A4 desde su ficha."
       ),
       nuevo(
         "Pedidos",
@@ -175,7 +175,11 @@ export const CHANGELOG: ChangelogRelease[] = [
       ),
       nuevo(
         "Actividad",
-        "Cada pedido y presupuesto muestra su propio historial de cambios."
+        "La ficha del cliente muestra su historial de actividad."
+      ),
+      mejora(
+        "Actividad",
+        "El historial de pedidos, presupuestos y clientes se abre y se pliega, e indica cuántos cambios contiene."
       ),
       mejora(
         "Panel",
@@ -309,7 +313,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       ),
       nuevo(
         "Ayuda",
-        "Centro de ayuda público en app.gestcopy.com/ayuda, sin iniciar sesión y enlazado desde la cabecera."
+        "Centro de ayuda público, sin iniciar sesión y enlazado desde la cabecera."
       ),
       mejora(
         "Configuración",
@@ -447,7 +451,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     entries: [
       seguridad(
         "Plataforma",
-        "Copias de seguridad automáticas de los archivos y copias cifradas de la base de datos, con un procedimiento de recuperación probado."
+        "Copias de seguridad de los archivos y copias cifradas de la base de datos, con un procedimiento de recuperación probado."
       ),
     ],
   },
@@ -699,7 +703,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       ),
       correccion(
         "Acceso",
-        "Redirección correcta al inicio de sesión cuando la sesión ya no es válida."
+        "Si la sesión ya no es válida, las acciones muestran un aviso de error en lugar de llevarte de forma inesperada al inicio de sesión."
       ),
       seguridad(
         "Permisos",
