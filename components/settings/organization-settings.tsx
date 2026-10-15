@@ -216,9 +216,9 @@ export function OrganizationSettings() {
                   : "text-muted-foreground"
               }
             >
-              {footerChars} / {QUOTE_FOOTER_MAX_CHARS}
-              {" · "}
-              Máximo 400 caracteres visibles y 4 líneas de contenido.
+              {footerChars} / {QUOTE_FOOTER_MAX_CHARS} caracteres · {footerLines} /{" "}
+              {QUOTE_FOOTER_MAX_LINES} líneas. Las líneas en blanco entre textos
+              cuentan; las del principio y del final, no.
             </span>
           </div>
           <div className="flex flex-wrap gap-3">
