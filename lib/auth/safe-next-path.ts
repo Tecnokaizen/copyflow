@@ -56,6 +56,21 @@ export function getSafeNextPath(
   }
 }
 
+const AUTH_ENTRY = /^\/auth(?:\/|$)/;
+
+/**
+ * Path to reopen after a session expires.
+ * Auth screens are not valid destinations: returning there loops the login.
+ */
+export function sessionResumePath(pathname: string, search = "") {
+  const candidate = getSafeNextPath(`${pathname}${search}`, "/orders");
+  const pathOnly = candidate.split(/[?#]/, 1)[0] ?? candidate;
+  if (pathOnly === "/" || AUTH_ENTRY.test(pathOnly)) {
+    return "/orders";
+  }
+  return candidate;
+}
+
 export function authHrefWithNext(
   authPath: string,
   next: string | null | undefined

@@ -59,6 +59,15 @@ function harness(role = "staff", tenant = tenantA) {
       exports, console,
       require(id: string) {
         if (id === "@/lib/tenant/current-context") return { getCurrentContext: async () => role === "none" ? null : ({ tenant: { id: tenant, slug: "demo" }, user: { id: "user-a" }, membership: { role, active: true } }) };
+        if (id === "@/lib/tenant/access-response") {
+          const { NextResponse } = realRequire("next/server") as typeof import("next/server");
+          return {
+            requireCurrentAccess: async () => role === "none"
+              ? { ok: false, response: NextResponse.json({ error: "Session expired", code: "SESSION_EXPIRED" }, { status: 401 }) }
+              : { ok: true, context: { tenant: { id: tenant, name: "Demo", slug: "demo" }, user: { id: "user-a" }, membership: { role, active: true } } },
+            roleDeniedResponse: () => NextResponse.json({ error: "Unauthorized or tenant access denied", code: "TENANT_ACCESS_DENIED" }, { status: 403 }),
+          };
+        }
         if (id === "@/lib/supabase/server") return { createClient: async () => db };
         if (id === "@/lib/team/current-member") return { resolveCurrentTeamMember: async () => null };
         if (id === "@/lib/storage/r2") return { presignPut: async () => { throw new Error("Storage must not be reached for unauthorized requests"); } };
@@ -97,7 +106,8 @@ describe("Pedido V2 route integration", () => {
     assert.equal(app.inserted[0].file_status_id, null);
     for (const role of ["viewer", "none"]) {
       const denied = harness(role);
-      assert.equal((await denied.load("app/api/orders/route.ts").POST(request({ title: "Trabajo" }))).status, 403);
+      const status = (await denied.load("app/api/orders/route.ts").POST(request({ title: "Trabajo" }))).status;
+      assert.equal(status, role === "none" ? 401 : 403);
       assert.equal(denied.inserted.length, 0);
     }
   });
