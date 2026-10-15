@@ -143,6 +143,7 @@ export function CreateOrderForm({
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
   const [dueAt, setDueAt] = useState("");
+  const [dueAtInvalid, setDueAtInvalid] = useState(false);
   const [entryChannelId, setEntryChannelId] = useState("");
   const [orderContextId, setOrderContextId] = useState("");
   const [priority, setPriority] = useState<"normal" | "high" | "urgent">(
@@ -188,6 +189,7 @@ export function CreateOrderForm({
     setServiceId("");
     setDescription("");
     setDueAt("");
+    setDueAtInvalid(false);
     setEntryChannelId("");
     setOrderContextId("");
     setPriority("normal");
@@ -468,6 +470,10 @@ export function CreateOrderForm({
       return;
     }
 
+    if (dueAtInvalid) {
+      setError("Debes indicar una fecha y hora de entrega válidas para guardar el pedido.");
+      return;
+    }
     const dueAtIso = dueAt.trim() ? fromDateTimeLocalValue(dueAt) : null;
     if (dueAt.trim() && !dueAtIso) {
       setError(MISSING_LOCAL_HOUR_MESSAGE);
@@ -715,7 +721,7 @@ export function CreateOrderForm({
     return (
       <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
-        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} />
+        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} onValidityChange={setDueAtInvalid} />
       </div>
     );
   }
