@@ -19,6 +19,8 @@ export class Redactor {
     out = out.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[REDACTED_JWT]");
     out = out.replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]");
     out = out.replace(/(X-Amz-(?:Signature|Credential|Security-Token)=)[^&\s"']+/gi, "$1[REDACTED]");
+    // Any URL query (presigned or not) is dropped from free text too.
+    out = out.replace(/(https?:\/\/[^\s'"?]+)\?[^\s'"]*/g, "$1?…");
     return out;
   }
 

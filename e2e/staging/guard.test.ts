@@ -74,6 +74,10 @@ describe("e2e redactor", () => {
     const jwt = ["eyJhbGciOi", "eyJzdWIiOiIx", "c2lnbmF0dXJl"].join(".");
     assert.equal(redactor.text(`Authorization: Bearer ${jwt}`), "Authorization: Bearer [REDACTED]");
     assert.equal(redactor.url("https://acc.r2.cloudflarestorage.com/b/k?X-Amz-Signature=deadbeef"), "https://acc.r2.cloudflarestorage.com/b/k?…");
+    assert.equal(
+      redactor.text("Access to XMLHttpRequest at 'https://acc.r2.cloudflarestorage.com/b/k?X-Amz-Date=1&x-id=PutObject' from origin"),
+      "Access to XMLHttpRequest at 'https://acc.r2.cloudflarestorage.com/b/k?…' from origin",
+    );
     assert.throws(() => redactor.assertClean("log", "x super-secret-password"), /secret value/);
   });
 });

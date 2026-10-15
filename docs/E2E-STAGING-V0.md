@@ -8,9 +8,18 @@ Sin mocks de API. Production queda fuera por diseño (ver *Seguridad*).
 
 | Flujo | Pasos | Verificación |
 |---|---|---|
-| Pedidos | login → `GESTCOPY · Panel diario` → `Nuevo cliente` → `/orders?create=1` (cliente, título, entrega «Mañana») → listado `filter=all` + búsqueda → recarga | `POST /api/clients` 200, `POST /api/orders` 201, referencia `E2E-NNNN`, fila con título/referencia/cliente/`Recibido`, entrega a las 18:00, `GET /api/orders/{id}` |
+| Pedidos | login → `GESTCOPY · Panel diario` → `Nuevo cliente` → `/orders?create=1` (cliente, título, entrega «Mañana») → listado `filter=all` en vista de tarjetas + búsqueda → recarga del listado → ficha | `POST /api/clients` 200, `POST /api/orders` 201, referencia `E2E-NNNN`, la búsqueda devuelve solo ese pedido, tarjeta (hija de `Pedidos en cuadrícula` con `h2` = título) con referencia, cliente, `Recibido` y entrega a las 18:00, antes y después de recargar; `GET /api/orders/{id}` |
 | Archivos R2 | `Añadir archivos` → `.txt` de ~600 B con contenido único → recarga → `Descargar` | INIT 201 con URL presignada al bucket de Staging, PUT 200 en R2, COMPLETE 200 `status: ready` (HEAD en servidor), fila tras recarga, SHA-256 descargado = subido |
 | Cobro parcial | `Definir total` 100 € → `Registrar entrega a cuenta` 20 € → recarga → `Cambiar estado` En proceso → Listo → Entregado (`Confirmar entrega`) → recarga | `PATCH …/total` (`unpaid`), `POST …/payments` (`partial`, pendiente `80.00`), UI `100,00 €` / `20,00 €` / `80,00 €` / `Parcial` antes y después de recargar, `ready_at` y `delivered_at` fijados, el saldo parcial se mantiene tras Entregado. Nunca archiva. |
+
+Dependencias: archivos y cobro usan el pedido del flujo 1; si este falla se
+omiten. Un fallo de archivos no impide ejecutar el cobro.
+
+El listado se valida en la vista de tarjetas, que es la presentación por
+defecto (`lib/orders/list-layout.ts`; se comprueba `Cuadrícula`
+`aria-pressed=true`). La tarjeta se localiza por su título dentro del
+contenedor etiquetado, sin depender de la etiqueta HTML. La búsqueda vive en el
+estado del componente, así que se vuelve a escribir tras recargar.
 
 Reglas de negocio aplicadas tal cual existen hoy: el pago exige total previo,
 no hay grafo de transiciones (cualquier estado activo), «Entregado» (`closed`)
@@ -106,6 +115,30 @@ PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e
 Salida: `0` todo pasa, `1` fallo de flujo, `2` rechazo de configuración.
 Artefactos en `e2e-artifacts/<run-id>/` (ignorado por git) o en
 `E2E_ARTIFACTS_DIR`. `E2E_HEADED=1` abre el navegador.
+
+## Resultados contra Staging (2026-10-15)
+
+| Ejecución | Pedidos | Archivos | Cobro |
+|---|---|---|---|
+| `20261015T123845Z-f9a1` | ✖ selector `<tr>` (el listado está en tarjetas) | omitido | omitido |
+| `20261015T124911Z-8f0a` | ✔ E2E-0004 (26,5 s) | ✖ CORS de R2 | ✔ 100 € / 20 € / 80 € `Parcial`, Entregado (32,2 s) |
+
+**Bloqueo de archivos (infraestructura, no del test ni del core).** INIT
+responde 201 con URL presignada al bucket `gestcopy-files-staging`, pero el
+navegador bloquea el PUT: *No 'Access-Control-Allow-Origin' header*.
+Comprobado sin Playwright con un preflight `OPTIONS … PUT` directo a R2:
+
+| Origen | Respuesta |
+|---|---|
+| `https://demo.preview.app.gestcopy.com` | 204, `Allow-Methods: GET, PUT, HEAD`, `Allow-Headers: content-type` |
+| `https://e2e.preview.app.gestcopy.com` | 403 |
+| `https://audit.preview.app.gestcopy.com` | 403 (AUDIT tampoco puede subir) |
+
+Solución: añadir `https://e2e.preview.app.gestcopy.com` (y, si procede,
+`audit`) a la política CORS del bucket `gestcopy-files-staging` en Cloudflare,
+con los mismos métodos y cabeceras que `demo`. Cada intento fallido deja un
+`order_files` en `pending` en el tenant `e2e`, que el mecanismo de limpieza
+existente gestiona.
 
 ## Automatización futura
 

@@ -62,6 +62,16 @@ async function apiJson(response: { status(): number; json(): Promise<unknown>; u
   return body ?? {};
 }
 
+/**
+ * Pending waits are created before the action that triggers them. If a step
+ * fails first, their later rejection must not crash the process before the
+ * artifacts are written; awaiting the promise still throws.
+ */
+function observe<P extends Promise<unknown>>(promise: P): P {
+  promise.catch(() => undefined);
+  return promise;
+}
+
 /** Value cell of a FactRow (label rendered as "Label:"). */
 function fact(page: Page, label: string) {
   return page
@@ -104,7 +114,7 @@ async function flowOrders(page: Page) {
   });
 
   await h.step("dashboard", async () => {
-    const dashboard = page.waitForResponse(isApi("GET", /^\/api\/dashboard$/));
+    const dashboard = observe(page.waitForResponse(isApi("GET", /^\/api\/dashboard$/)));
     if (new URL(page.url()).pathname !== "/") await page.goto(`${target.baseUrl}/`);
     await apiJson(await dashboard, 200);
     await page.getByRole("heading", { level: 1, name: "GESTCOPY · Panel diario" }).waitFor();
@@ -117,7 +127,7 @@ async function flowOrders(page: Page) {
     await page.getByRole("button", { name: "Nuevo cliente" }).click();
     await page.getByLabel("Nombre *").fill(state.clientName);
     await page.getByLabel("Email", { exact: true }).fill(`e2e-client-${id.toLowerCase()}@example.com`);
-    const created = page.waitForResponse(isApi("POST", /^\/api\/clients$/));
+    const created = observe(page.waitForResponse(isApi("POST", /^\/api\/clients$/)));
     await page.getByRole("button", { name: "Guardar", exact: true }).click();
     const body = await apiJson(await created, 200);
     const client = body.client as { id: string; name: string };
@@ -130,7 +140,7 @@ async function flowOrders(page: Page) {
     await page.getByPlaceholder("Ej. 200 tarjetas de visita").waitFor();
     await page.getByPlaceholder("Ej. 200 tarjetas de visita").fill(state.orderTitle);
 
-    const search = page.waitForResponse(isApi("GET", /^\/api\/clients$/));
+    const search = observe(page.waitForResponse(isApi("GET", /^\/api\/clients$/)));
     await page.getByPlaceholder(/^Buscar cliente por nombre/).fill(state.clientName);
     await apiJson(await search, 200);
     await page.locator("button").filter({ hasText: state.clientName }).first().click();
@@ -139,7 +149,7 @@ async function flowOrders(page: Page) {
     // Delivery tomorrow; a date without explicit time defaults to 18:00 (PR #92).
     await page.getByRole("button", { name: "Mañana", exact: true }).click();
 
-    const created = page.waitForResponse(isApi("POST", /^\/api\/orders$/));
+    const created = observe(page.waitForResponse(isApi("POST", /^\/api\/orders$/)));
     await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
     const body = await apiJson(await created, 201);
     const order = body.order as { id: string; reference: string; title: string; client: { name: string } | null };
@@ -154,20 +164,41 @@ async function flowOrders(page: Page) {
     await page.getByText("Pedido creado. Ya puedes completar el resto en la ficha.").waitFor();
   });
 
-  await h.step("order in list", async () => {
+  await h.step("order in list (card view, reload)", async () => {
+    // Grid of cards is the default presentation (lib/orders/list-layout.ts).
+    // Cards are located by their h2 title inside the labelled grid, not by tag.
+    const findCard = async () => {
+      const searchBox = page.getByRole("searchbox", { name: "Buscar" });
+      await searchBox.waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "Cuadrícula", exact: true }).getAttribute("aria-pressed"),
+        "true",
+        "orders list must be in card view",
+      );
+      const listed = observe(page.waitForResponse((response: { url(): string; request(): { method(): string } }) =>
+        isApi("GET", /^\/api\/orders$/)(response) && new URL(response.url()).searchParams.get("q") === state.reference));
+      await searchBox.fill(state.reference!);
+      const body = await apiJson(await listed, 200);
+      const orders = body.orders as { id: string; reference: string }[];
+      assert.deepEqual(orders.map((order) => order.reference), [state.reference], "search returns exactly this order");
+
+      const grid = page.getByLabel("Pedidos en cuadrícula");
+      const card = grid.locator(":scope > *").filter({
+        has: page.getByRole("heading", { level: 2, name: state.orderTitle, exact: true }),
+      });
+      await card.waitFor();
+      assert.equal(await card.count(), 1, "exactly one card for this order");
+      await card.getByText(state.reference!, { exact: true }).waitFor();
+      await card.getByText(state.clientName, { exact: true }).waitFor();
+      await card.getByText("Recibido", { exact: true }).waitFor();
+      await card.getByText(/\d{2}\/\d{2}\/\d{4}, 18:00/).waitFor();
+    };
+
     await page.goto(`${target.baseUrl}/orders?view=list&filter=all`);
-    const searchBox = page.getByPlaceholder("Referencia, título o cliente");
-    await searchBox.waitFor();
-    const listed = page.waitForResponse((response: { url(): string; request(): { method(): string } }) =>
-      isApi("GET", /^\/api\/orders$/)(response) && new URL(response.url()).searchParams.get("q") === state.reference);
-    await searchBox.fill(state.reference!);
-    await apiJson(await listed, 200);
-    const row = page.locator("tr").filter({ has: page.locator(`a[href="/orders/${state.orderId}"]`) });
-    await row.waitFor();
-    const text = await row.innerText();
-    for (const expected of [state.orderTitle, state.reference!, state.clientName, "Recibido"]) {
-      assert.ok(text.includes(expected), `list row must show ${expected}`);
-    }
+    await findCard();
+    // The search term lives only in component state, so it is typed again after reload.
+    await page.reload();
+    await findCard();
   });
 
   await h.step("order persisted (reload + API)", async () => {
@@ -192,10 +223,33 @@ async function flowFiles(page: Page) {
     await page.getByRole("heading", { level: 2, name: "Archivos" }).waitFor();
     await page.getByRole("button", { name: "Añadir archivos" }).first().click();
 
-    const init = page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files$`)));
-    const put = page.waitForResponse((response: { url(): string; request(): { method(): string } }) =>
-      response.request().method() === "PUT" && r2BucketFromUrl(response.url()) !== null);
-    const complete = page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files/[^/]+/complete$`)));
+    const init = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files$`))));
+    const put = observe(new Promise<{ status: number; url: string } | { failure: string; url: string }>((resolve, reject) => {
+      const isR2Put = (request: { method(): string; url(): string }) =>
+        request.method() === "PUT" && r2BucketFromUrl(request.url()) !== null;
+      const cleanup = () => {
+        page.off("response", onResponse);
+        page.off("requestfailed", onFailed);
+        clearTimeout(timer);
+      };
+      const onResponse = (response: { status(): number; url(): string; request(): { method(): string; url(): string } }) => {
+        if (!isR2Put(response.request())) return;
+        cleanup();
+        resolve({ status: response.status(), url: response.url() });
+      };
+      const onFailed = (request: { method(): string; url(): string; failure(): { errorText: string } | null }) => {
+        if (!isR2Put(request)) return;
+        cleanup();
+        resolve({ failure: request.failure()?.errorText ?? "unknown", url: request.url() });
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("no R2 PUT observed within 30 s after INIT"));
+      }, 30_000);
+      page.on("response", onResponse);
+      page.on("requestfailed", onFailed);
+    }));
+    const complete = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files/[^/]+/complete$`))));
 
     await page.locator('input[type=file][aria-label="Seleccionar archivos para el pedido"]').setInputFiles({
       name: state.fileName,
@@ -209,9 +263,10 @@ async function flowFiles(page: Page) {
     assert.equal(bucket, target.r2Bucket, "presigned upload must target the Staging bucket");
     h.log(`INIT 201 file ${state.fileId} → bucket ${bucket}`);
 
-    const putResponse = await put;
-    assert.equal(r2BucketFromUrl(putResponse.url()), target.r2Bucket);
-    assert.equal(putResponse.status(), 200, `R2 PUT → HTTP ${putResponse.status()}`);
+    const putOutcome = await put;
+    assert.equal(r2BucketFromUrl(putOutcome.url), target.r2Bucket);
+    if ("failure" in putOutcome) throw new Error(`R2 PUT failed in the browser: ${putOutcome.failure}`);
+    assert.equal(putOutcome.status, 200, `R2 PUT → HTTP ${putOutcome.status}`);
     h.log("PUT 200 (R2)");
 
     const completeResponse = await complete;
@@ -234,8 +289,8 @@ async function flowFiles(page: Page) {
   });
 
   await h.step("download and verify SHA-256", async () => {
-    const download = page.waitForEvent("download");
-    const issued = page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files/${state.fileId}/download$`)));
+    const download = observe(page.waitForEvent("download"));
+    const issued = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files/${state.fileId}/download$`))));
     await page.getByRole("button", { name: `Descargar ${state.fileName}` }).click();
     const issuedBody = await apiJson(await issued, 200);
     assert.equal(r2BucketFromUrl(issuedBody.download_url as string), target.r2Bucket);
@@ -266,7 +321,7 @@ async function flowPayment(page: Page) {
     await page.getByRole("button", { name: "Definir total" }).click();
     const totalDialog = dialog("Total del pedido");
     await totalDialog.getByLabel("Importe").fill(ORDER_TOTAL.replace(".", ","));
-    const saved = page.waitForResponse(isApi("PATCH", new RegExp(`^/api/orders/${state.orderId}/total$`)));
+    const saved = observe(page.waitForResponse(isApi("PATCH", new RegExp(`^/api/orders/${state.orderId}/total$`))));
     await totalDialog.getByRole("button", { name: "Guardar total" }).click();
     const body = await apiJson(await saved, 200);
     assert.equal(body.total_amount, ORDER_TOTAL);
@@ -277,7 +332,7 @@ async function flowPayment(page: Page) {
     await page.getByRole("button", { name: "Registrar entrega a cuenta" }).click();
     const paymentDialog = dialog("Registrar entrega a cuenta");
     await paymentDialog.getByLabel("Importe").fill(PARTIAL_PAYMENT.replace(".", ","));
-    const recorded = page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/payments$`)));
+    const recorded = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/payments$`))));
     await paymentDialog.getByRole("button", { name: "Confirmar entrega" }).click();
     const body = await apiJson(await recorded, 200);
     assert.equal(body.paid_amount, PARTIAL_PAYMENT);
@@ -300,7 +355,7 @@ async function flowPayment(page: Page) {
     await page.getByRole("button", { name: "Cambiar estado" }).click();
     const statusDialog = dialog("Cambiar estado");
     await statusDialog.getByLabel("Estado").selectOption({ label: name });
-    const patched = page.waitForResponse(isApi("PATCH", new RegExp(`^/api/orders/${state.orderId}$`)));
+    const patched = observe(page.waitForResponse(isApi("PATCH", new RegExp(`^/api/orders/${state.orderId}$`))));
     await statusDialog.getByRole("button", { name: "Guardar estado" }).click();
     if (confirmTitle) {
       await dialog(confirmTitle).getByRole("button", { name: "Confirmar entrega" }).click();
@@ -337,8 +392,9 @@ async function main() {
   h.log(`run ${id} → ${target.baseUrl} (tenant e2e, bucket ${target.r2Bucket})`);
   try {
     await h.start(process.env.PLAYWRIGHT_MODULE || "playwright");
+    // files and payment both need the order from flow 1, not each other.
     for (const [name, flow] of [["orders", flowOrders], ["files", flowFiles], ["payment", flowPayment]] as const) {
-      if (results.some((result) => result.status === "failed")) {
+      if (name !== "orders" && results[0]?.status !== "passed") {
         results.push({ name, status: "skipped", ms: 0 });
         continue;
       }
