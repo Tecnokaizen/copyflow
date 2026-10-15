@@ -14,6 +14,18 @@ Implementa el [ADR](adr/2026-10-15-pro-early-access-v1.md) siguiendo la
 | `lib/nav/pro-badge.ts`, `components/pro/pro-early-access-badge.tsx`, `components/app-nav.tsx` | Etiqueta junto a la identidad de la organización: «Pro · Acceso anticipado» (≥ 640 px) o «Pro · Anticipado» (móvil). Nombre accesible completo siempre. Oculta hasta que el contexto confirma el programa. No cambia la navegación por rol ni Presupuestos. |
 | `app/pro/page.tsx`, `components/pro/early-access-info.tsx` | Página informativa en el shell actual. Sin programa (o sin sesión, tenant/membership inactivos, error) ⇒ no encontrado, sin detalles del programa. |
 | `supabase/tests/phase47_pro_early_access.sql` + `release-gate.yml` | Suite SQL nueva, incluida en el Release Gate permanente. |
+| `e2e/staging/pro-early-access.ts`, `e2e/staging/seed-viewer.ts` | Recorrido Pro de solo lectura contra Staging (mismo guard, egress y redacción que E2E V0) y alta idempotente de un viewer sintético en `e2e`. |
+
+### Estado HTTP de «no encontrado»
+
+Con Cache Components cada ruta dinámica emite primero su shell estático, así
+que `notFound()` en `/pro` es un *soft 404*: el navegador recibe la página de
+no encontrado con `<meta name="robots" content="noindex">` y HTTP 200 en el
+build de producción (en `next dev` es 404). Es el comportamiento documentado
+de Next 16 (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/not-found.md`)
+y el mismo que ya tienen `/quotes` y `/settings/billing`. La página no revela
+nada del programa. Un 404 real exigiría la comprobación en `proxy`; no se
+hace en V1.
 
 ### Contrato de `/api/context`
 
@@ -145,7 +157,7 @@ Tenants sintéticos `proa` (owner, staff, viewer) y `prob` (owner).
 | ON · owner de B en B | 200 `{"pro":false}` | 404 |
 | ON · owner de B en A, owner de A en B | 403 | 404 |
 | Sin sesión | 403 | 307 → `/auth/login?next=%2Fpro` |
-| OFF · todos | `{"pro":false}` | 404, sin texto del programa |
+| OFF · todos | `{"pro":false}` | 404 (`next dev`), sin texto del programa |
 | `ai_voice_orders` concedido por error + `quotes` ON | voz sigue `planned`; `quotes` true sin afectar al programa | 200 |
 | Membership inactiva | 403 | 404 |
 | Tenant inactivo (programa ON) | 403 | 307 → `/tenant-inactive?reason=administratively_disabled` |
@@ -156,30 +168,60 @@ horizontal; etiqueta activa en `/pro`; sin errores de consola. Pestaña
 abierta tras retirar: la etiqueta persiste hasta recargar, pero `/pro` ya
 devuelve 404 y el contexto `pro:false` (límite conocido de la auditoría).
 
-### Staging (`fmmfsbhcwxkaszrrarpw`, tenant `e2e`)
+### Staging (`fmmfsbhcwxkaszrrarpw`, tenant `e2e`, 15/10/2026)
 
-| Paso | Estado |
+Despliegue autorizado por el usuario: fast-forward de `gestcopy-staging`
+`49020c8..5d16740` (merge de esta rama; árbol idéntico al de la rama), sin
+force push. `main` sin cambios (`03fa094`). Production no se ha tocado y
+Staging no contiene datos de SUR4.
+
+| Paso | Resultado |
 | --- | --- |
-| Preflight de solo lectura | Catálogo sin ids `…0008/…0009`; tenants `audit`, `demo`, `e2e`; único override `demo.quotes`; sin suscripciones; sin datos SUR4 |
-| Migración (`supabase db push --linked`, `--dry-run` previo: solo esta) | Aplicada, versión `20261015200000` en el historial; 0 filas de plan, 0 overrides |
-| Hash de suscripciones/planes/precios/overrides/tenants | Idéntico antes y después |
-| E2E V0 (local, sin `service_role`), código actual de `gestcopy-staging` + migración | **3/3 PASS** · run `20261015T185441Z-e728`, pedido `E2E-0009`; sin egress a Production |
+| Preflight de solo lectura | Catálogo sin ids `…0008/…0009`; tenants `audit`, `demo`, `e2e`; único override `demo.quotes`; 0 suscripciones; sin datos SUR4 |
+| Migración (`supabase db push --linked`, `--dry-run` previo: solo esta) | Aplicada con versión `20261015200000`; 0 filas de plan, 0 overrides |
+| E2E V0, código anterior + migración | 3/3 PASS · `20261015T185441Z-e728` (`E2E-0009`) |
+| Despliegue del código nuevo | `/api/context` pasa a responder `private, no-store` |
+| Viewer sintético (`seed-viewer.ts`, terminal de confianza) | `e2e-viewer@example.com`, membership `viewer` en `e2e` |
+| Programa OFF (sin fila) · recorrido Pro owner + viewer | PASS · `20261015T191806Z-feea` |
+| E2E V0 con código nuevo, programa OFF | 3/3 PASS · `20261015T191533Z-a7ff` (`E2E-0010`) |
+| Concesión con el bloque de preflight (valor previo: sin fila) | `e2e.pro_early_access = true` |
+| Programa ON · recorrido Pro owner + viewer | PASS · `20261015T191917Z-168e` |
+| E2E V0 con código nuevo, programa ON | 3/3 PASS · `20261015T192108Z-4b52` (`E2E-0011`) |
+| Retirada (`false`) · recorrido Pro owner + viewer | PASS · `20261015T192243Z-fcb0` |
+| Restauración de la ausencia (solo esa fila) | 0 overrides del programa |
+| Hash de suscripciones/planes/precios/overrides ajenos/tenants | `f486ae26…` idéntico antes, durante y después |
+| Resolución final | `audit`, `demo`, `e2e`: programa `false`; `demo.quotes` sigue `true` |
 
-## Pendiente (no validado)
+Cada recorrido Pro comprueba, para owner y viewer: contrato y `no-store` de
+`/api/context`; etiqueta en `/` a 1440 px y 375 px, claro y oscuro (nombre
+accesible completo, texto corto solo en móvil, sin scroll horizontal);
+acceso directo a `/pro` (ON: página, «En preparación», bloque de voz sin
+acciones, `aria-current`; OFF: página de no encontrado con `noindex` y sin
+texto del programa); y que nunca se llama a `getUserMedia`. Todas las
+peticiones del navegador se quedaron en el host `e2e`, Supabase Staging y el
+bucket `gestcopy-files-staging`. Lo único bloqueado fue la barra de
+comentarios de `vercel.live` («foreign»), y no hubo ningún intento hacia
+Production. Los artefactos (capturas incluidas) pasan por el redactor y se
+escanean en busca de secretos.
 
-- **Desplegar el código en Staging.** El merge sobre `gestcopy-staging`
-  (árbol idéntico al de esta rama) no se publicó: el permiso para escribir en
-  esa rama compartida fue denegado en esta sesión. Sin ese despliegue no se
-  ha ejecutado en Staging: recorrido Pro ON/OFF, acceso directo, dos roles,
-  escritorio/móvil, claro/oscuro, ni E2E V0 con el código nuevo.
-- **Segundo rol en Staging.** El tenant `e2e` solo tiene un owner sintético;
-  hace falta un usuario sintético adicional (p. ej. viewer) creado desde un
-  terminal de confianza.
-- **Workflow manual `e2e-staging.yml`** en GitHub: no lanzado.
-- **Piloto SUR4 / Production:** fuera de esta entrega.
+Ejecución del recorrido (después de fijar el flag con el bloque anterior):
 
-Recorrido Staging previsto tras desplegar: E2E V0 con programa OFF; conceder
-con el bloque anterior; owner y viewer en `/`, `/pro` y `/api/context` en
-1440 px y 375 px, claro y oscuro; retirar; repetir comprobando 404 y la
-desaparición de la etiqueta tras recargar; restaurar la ausencia; comparar
-hashes.
+```bash
+set -a; source .env.e2e.local; set +a
+E2E_VIEWER_EMAIL=e2e-viewer@example.com E2E_VIEWER_PASSWORD=… npx tsx e2e/staging/seed-viewer.ts
+E2E_PRO_EXPECT=on E2E_VIEWER_EMAIL=e2e-viewer@example.com E2E_VIEWER_PASSWORD=… \
+  PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e/staging/pro-early-access.ts
+```
+
+La contraseña del viewer no se guarda en el repositorio. Para repetir el
+recorrido, basta con volver a ejecutar `seed-viewer.ts` con una nueva, que
+solo la resincroniza.
+
+## Pendiente
+
+- Workflow manual `e2e-staging.yml` en GitHub: no lanzado. Las ejecuciones
+  E2E anteriores se hicieron en local con el mismo runner y la misma
+  configuración de Staging, como en `docs/E2E-STAGING-V0.md`.
+- Pestaña abierta tras retirar el programa: comprobado solo en local (la
+  etiqueta persiste hasta recargar; el servidor deniega en la siguiente petición).
+- Piloto SUR4 / Production: fuera de esta entrega (ADR, paso 5).
