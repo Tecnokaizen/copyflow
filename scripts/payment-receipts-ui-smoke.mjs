@@ -57,7 +57,7 @@ async function setup(width=1280, theme='light', query='') {
     else if(url.pathname.endsWith('/complete')) { if(failComplete){failComplete=false;status=502;result={error:'Confirmación de archivo perdida'};} }
     else if(url.pathname.endsWith('/download')) result={download_url:`${base}/private-download`,filename:'bizum.pdf'};
     else if(url.pathname.endsWith('/void')) { payments=payments.map(p=>p.id===url.pathname.split('/').at(-2)?{...p,voided_at:'2026-10-13T12:00:00Z'}:p);result=snapshot(); }
-    else if(url.pathname.endsWith('/total')) { if(conflictTotal){conflictTotal=false;version++;status=409;result={error:'conflict'};} else {check(body.expected_version,String(version),'PR93 current row_version');result=snapshot();} }
+    else if(url.pathname.endsWith('/total')) { if(conflictTotal){conflictTotal=false;version++;status=409;result={code:'conflict',error:'El pedido cambió. Recarga la ficha e inténtalo de nuevo.'};} else {check(body.expected_version,String(version),'PR93 current row_version');result=snapshot();} }
     else throw new Error(`Unexpected request ${url.pathname}`);
     await route.fulfill({ status,contentType:'application/json',body:JSON.stringify(result) });
   });
