@@ -11,6 +11,8 @@ export type ClientSummary = {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  /** Present only when the source loaded it (client detail); undefined = unknown. */
+  address?: string | null;
 };
 
 export type ClientListItem = ClientSummary & {
@@ -66,6 +68,8 @@ export type ClientFormData = {
   email: string;
   phone: string;
   notes: string;
+  /** undefined: unknown here, so the form hides it and never sends it. */
+  address?: string;
 };
 
 export type ClientDuplicate = {
@@ -88,6 +92,7 @@ export const EMPTY_CLIENT_FORM: ClientFormData = {
   email: "",
   phone: "",
   notes: "",
+  address: "",
 };
 
 function asNullableString(value: unknown): string | null {
@@ -137,6 +142,7 @@ export function mapClientSummary(row: unknown): ClientSummary | null {
     email: asNullableString(record.email),
     phone: asNullableString(record.phone),
     notes: asNullableString(record.notes),
+    ...("address" in record ? { address: asNullableString(record.address) } : {}),
   };
 }
 
@@ -237,6 +243,7 @@ export function toClientPayload(form: ClientFormData) {
     email: form.email.trim() || null,
     phone: form.phone.trim() || null,
     notes: persistRichText(form.notes),
+    ...(form.address !== undefined ? { address: form.address.trim() || null } : {}),
   };
 }
 
@@ -255,6 +262,7 @@ export function summaryFromForm(
     email: form.email.trim() || null,
     phone: form.phone.trim() || null,
     notes: persistRichText(form.notes),
+    ...(form.address !== undefined ? { address: form.address.trim() || null } : {}),
   };
 }
 
@@ -267,6 +275,7 @@ export function clientToForm(client: {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  address?: string | null;
 }): ClientFormData {
   return {
     customer_type_id: client.customer_type_id ?? "",
@@ -277,6 +286,7 @@ export function clientToForm(client: {
     email: client.email ?? "",
     phone: client.phone ?? "",
     notes: client.notes ?? "",
+    ...(client.address !== undefined ? { address: client.address ?? "" } : {}),
   };
 }
 

@@ -126,29 +126,29 @@ begin
     'versions have no internal notes'
   );
 
-  r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-undefined');
+  r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-undefined', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'total_undefined', 'payment without total is rejected');
 
   r := public.set_order_total_amount(order_a, '200.00', (select row_version::text from public.orders where id = order_a));
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'total_amount' = '200.00' and r->>'paid_amount' = '0.00' and r->>'pending_amount' = '200.00' and r->>'collection_state' = 'unpaid', 'exact total');
   perform pg_temp.ok(jsonb_typeof(r->'total_amount') = 'string', 'total is text');
 
-  r := public.record_order_payment(order_a, '0', paid_at, 'pay-zero');
+  r := public.record_order_payment(order_a, '0', paid_at, 'pay-zero', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'invalid_amount', 'zero rejected');
-  r := public.record_order_payment(order_a, '-1.00', paid_at, 'pay-negative');
+  r := public.record_order_payment(order_a, '-1.00', paid_at, 'pay-negative', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'invalid_amount', 'negative rejected');
 
-  r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-a');
+  r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-a', 'cash', null, ta);
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'replayed' = 'false' and r->>'paid_amount' = '100.00' and r->>'pending_amount' = '100.00' and r->>'collection_state' = 'partial', 'first deposit');
-  r2 := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-a');
+  r2 := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-a', 'cash', null, ta);
   perform pg_temp.ok(r2->>'replayed' = 'true' and r2->>'payment_id' = r->>'payment_id', 'idempotent retry');
   perform pg_temp.ok((select count(*) = 1 from public.order_payments where order_id = order_a and idempotency_key = 'pay-100-a'), 'retry does not duplicate');
-  r2 := public.record_order_payment(order_a, '90.00', paid_at, 'pay-100-a');
+  r2 := public.record_order_payment(order_a, '90.00', paid_at, 'pay-100-a', 'cash', null, ta);
   perform pg_temp.ok(r2->>'error' = 'idempotency_mismatch', 'same key different amount');
 
-  r := public.record_order_payment(order_a, '50.00', paid_at + interval '1 hour', 'pay-50-a');
+  r := public.record_order_payment(order_a, '50.00', paid_at + interval '1 hour', 'pay-50-a', 'cash', null, ta);
   perform pg_temp.ok(r->>'paid_amount' = '150.00' and r->>'pending_amount' = '50.00', 'multiple payments sum');
-  r := public.record_order_payment(order_a, '50.01', paid_at, 'pay-over');
+  r := public.record_order_payment(order_a, '50.01', paid_at, 'pay-over', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'payment_exceeds_total', 'cannot exceed total');
   perform pg_temp.ok((select coalesce(sum(amount), 0) = 150 from public.order_payments where order_id = order_a and voided_at is null), 'ledger unchanged after excess');
 
@@ -188,7 +188,7 @@ begin
   perform set_config('request.jwt.claim.sub', b::text, true);
   r := public.order_collection_v1(order_a);
   perform pg_temp.ok(r->>'error' = 'not_found', 'tenant B cannot read tenant A collection');
-  r := public.record_order_payment(order_a, '10.00', paid_at, 'cross-tenant');
+  r := public.record_order_payment(order_a, '10.00', paid_at, 'cross-tenant', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'not_found', 'tenant B cannot pay tenant A order');
   perform pg_temp.ok(
     (select count(*) = 0 from public.order_payments where order_id = order_a and idempotency_key = 'cross-tenant'),
@@ -203,13 +203,13 @@ begin
   perform set_config('request.jwt.claim.sub', viewer::text, true);
   r := public.order_collection_v1(order_a);
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '100.00', 'viewer can read collection');
-  r := public.record_order_payment(order_a, '10.00', paid_at, 'viewer-pay');
+  r := public.record_order_payment(order_a, '10.00', paid_at, 'viewer-pay', 'cash', null, ta);
   perform pg_temp.ok(r->>'error' = 'forbidden', 'viewer cannot record payments');
   r := public.set_order_total_amount(order_a, '300.00', (select row_version::text from public.orders where id = order_a));
   perform pg_temp.ok(r->>'error' = 'forbidden', 'viewer cannot change total');
 
   perform set_config('request.jwt.claim.sub', staff::text, true);
-  r := public.record_order_payment(order_a, '25.00', paid_at + interval '2 hour', 'staff-pay');
+  r := public.record_order_payment(order_a, '25.00', paid_at + interval '2 hour', 'staff-pay', 'cash', null, ta);
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '125.00' and r->>'pending_amount' = '75.00', 'staff can record a payment');
 
   perform set_config('request.jwt.claim.sub', a::text, true);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { HELP_DOCS_URL, HELP_SECTIONS } from "@/lib/help/catalog";
+import { CHANGELOG, formatChangelogDate } from "@/lib/help/changelog";
 
 export const metadata: Metadata = {
   alternates: { canonical: HELP_DOCS_URL },
@@ -11,6 +12,7 @@ export default function DocsHomePage() {
   const featuredGuides =
     HELP_SECTIONS.find((section) => section.id === "guias")?.articles.slice(1, 7) ??
     [];
+  const latestRelease = CHANGELOG[0];
 
   return (
     <div>
@@ -20,6 +22,19 @@ export default function DocsHomePage() {
         Guías operativas para el día a día de la copistería: cómo crear pedidos,
         gestionar clientes, configurar la organización y dar acceso al equipo.
       </p>
+
+      <Link
+        href="/ayuda/novedades"
+        className="mt-6 flex flex-col gap-1 rounded-lg border border-border/80 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <span>
+          <span className="block font-semibold">Novedades</span>
+          <span className="block text-sm text-muted-foreground">
+            {formatChangelogDate(latestRelease.date)} · {latestRelease.title}
+          </span>
+        </span>
+        <span className="text-sm text-primary">Ver todas las novedades</span>
+      </Link>
 
       {featuredGuides.length > 0 ? (
         <section className="mt-8 rounded-lg border border-border/80 p-4">

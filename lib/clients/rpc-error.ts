@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseClientDuplicate } from "@/lib/clients/types";
+import { CLIENT_ADDRESS_UNAVAILABLE } from "@/lib/clients/write-rpc";
 
 type RpcLikeError = {
   code?: string;
@@ -20,6 +21,8 @@ export function statusForClientRpcError(code: string | undefined) {
       return 404;
     case "23505":
       return 409;
+    case CLIENT_ADDRESS_UNAVAILABLE:
+      return 503;
     default:
       return 500;
   }
