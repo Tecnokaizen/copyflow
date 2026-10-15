@@ -84,7 +84,7 @@ async function setup(width) {
     const body = req.postDataJSON();
     events.push({ pathname, method, body });
     const json = (result, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result) });
-    if (pathname === "/api/context") return json({ tenant: { id: "tenant-demo", slug: "demo", name: "Demo local" }, membership: { role: "staff" }, user: { full_name: "Personal de prueba" }, features: { quotes: true } });
+    if (pathname === "/api/context") return json({ tenant: { id: "tenant-demo", slug: "demo", name: "Demo local" }, membership: { role: "staff" }, user: { id: "user-demo", full_name: "Personal de prueba" }, features: { quotes: true } });
     if (pathname === "/api/order-statuses") return json({ statuses });
     if (pathname === "/api/orders/options") return json({ services: [], stores: [], entry_channels: [], order_contexts: [], team_members: [], max_file_bytes: 1048576 });
     if (pathname === "/api/orders/management-options") return json({ file_statuses: [], quote_statuses: [], payment_statuses: [], delivery_methods: [] });
@@ -185,6 +185,7 @@ try {
       } else {
         await page.getByRole("button", { name: "Registrar entrega a cuenta", exact: true }).click();
         await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("10");
+        await page.getByRole("dialog").getByLabel("Método de pago").selectOption({ label: "Efectivo" });
       }
       const readCount = reads(h); const writeCount = writes(h).length;
       h.setFail({ status: 409, body: { error, ...(coded ? { code } : {}) } });
@@ -195,7 +196,15 @@ try {
       check(await page.getByText(error, { exact: true }).count(), 1, "An open dialog shows the error exactly once");
       check(reads(h), readCount, "Business 409 does not refresh as a stale total");
       check(writes(h).length, writeCount + 1, "Business 409 is never retried automatically");
+      if (operation === "payment") {
+        // PR #95: a non-422 answer keeps the exact attempt locked (same key and data).
+        check(await page.getByRole("dialog").getByLabel("Importe", { exact: true }).isDisabled(), true, "Payment 409 locks the attempt");
+      }
       await page.getByRole("dialog").getByRole("button", { name: "Cancelar", exact: true }).click();
+      if (operation === "payment") {
+        // Leave the locked attempt (a new tab would not see it) before the next case.
+        await page.evaluate(() => Object.keys(sessionStorage).filter(k => k.startsWith("gestcopy.payment-pending")).forEach(k => sessionStorage.removeItem(k)));
+      }
     }
 
     // A failed read before opening total cannot open a form with an old version.
@@ -209,11 +218,13 @@ try {
     for (const amount of ["10", "15"]) {
       await page.getByRole("button", { name: "Registrar entrega a cuenta", exact: true }).click();
       await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill(amount);
+      await page.getByRole("dialog").getByLabel("Método de pago").selectOption({ label: "Efectivo" });
       await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
       await page.getByRole("dialog").waitFor({ state: "hidden" });
     }
     const payments = writes(h).filter(e => e.pathname.endsWith("/payments")).slice(-2);
-    check(Object.keys(payments[0].body).sort(), ["amount", "idempotency_key", "paid_at"], "Payments do not adopt PR #95 fields");
+    check(Object.keys(payments[0].body).sort(), ["amount", "idempotency_key", "paid_at", "payment_method", "receipt_file_id"], "Payments carry the PR #95 contract");
+    check([payments[0].body.payment_method, payments[0].body.receipt_file_id], ["cash", null], "Method chosen, no receipt");
     check(payments[0].body.idempotency_key !== payments[1].body.idempotency_key, true, "Separate payment confirmations have distinct keys");
     check(h.stored().paid_amount, "45.00", "Successive payments accumulate");
     check(h.stored().pending_amount, "85.00", "Pending amount remains correct");

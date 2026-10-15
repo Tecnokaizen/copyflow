@@ -1,3 +1,5 @@
+import { isPaymentMethod, type PaymentMethod } from "./payment-methods";
+
 export type OrderPayment = {
   id: string;
   amount: string;
@@ -7,6 +9,8 @@ export type OrderPayment = {
   actor_name: string | null;
   voided_at: string | null;
   void_reason: string | null;
+  payment_method: PaymentMethod | null;
+  receipt: { id: string; original_name: string } | null;
 };
 
 export type OrderCollection = {
@@ -22,6 +26,9 @@ const COLLECTION_ERRORS: Record<string, { status: number; error: string }> = {
   not_found: { status: 404, error: "No se encontró el pedido" },
   forbidden: { status: 403, error: "No tienes permiso para modificar el cobro" },
   conflict: { status: 409, error: "El pedido cambió. Recarga la ficha e inténtalo de nuevo." },
+  invalid_payment_method: { status: 422, error: "Selecciona un método de pago válido." },
+  invalid_receipt: { status: 422, error: "El justificante debe estar confirmado y pertenecer a este pedido." },
+  receipt_already_used: { status: 409, error: "El justificante ya pertenece a otra entrega." },
   invalid_amount: { status: 422, error: "El importe no es válido." },
   total_undefined: {
     status: 422,
@@ -42,7 +49,7 @@ const COLLECTION_ERRORS: Record<string, { status: number; error: string }> = {
   },
   idempotency_mismatch: {
     status: 409,
-    error: "Esta confirmación ya se usó con otro importe.",
+    error: "Esta confirmación ya se usó con otros datos. Revisa el historial antes de registrar otra entrega.",
   },
   order_archived: {
     status: 409,
@@ -88,6 +95,7 @@ export function mapOrderCollection(value: unknown): OrderCollection | null {
     if (!payment || typeof payment.id !== "string" || !amount || typeof payment.paid_at !== "string") {
       return null;
     }
+    const receipt = asRecord(payment.receipt);
     payments.push({
       id: payment.id,
       amount,
@@ -96,6 +104,9 @@ export function mapOrderCollection(value: unknown): OrderCollection | null {
       created_by: typeof payment.created_by === "string" ? payment.created_by : null,
       actor_name: typeof payment.actor_name === "string" ? payment.actor_name : null,
       voided_at: typeof payment.voided_at === "string" ? payment.voided_at : null,
+      payment_method: isPaymentMethod(payment.payment_method) ? payment.payment_method : null,
+      receipt: receipt && typeof receipt.id === "string" && typeof receipt.original_name === "string"
+        ? { id: receipt.id, original_name: receipt.original_name } : null,
       void_reason: typeof payment.void_reason === "string" ? payment.void_reason : null,
     });
   }

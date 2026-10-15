@@ -85,8 +85,13 @@ begin
   if v_order_description is distinct from '<p>Tarjetas <strong>mate</strong></p><p>Segunda línea</p>' then
     raise exception 'phase38: description was not preserved %', v_order_description;
   end if;
-  if v_order_notes is not null then
-    raise exception 'phase38: internal notes must not be copied %', v_order_notes;
+  -- #102 (supersedes the Rich Text V1 rule «notes are not copied»): the quote
+  -- notes are inherited only by the order's internal notes, labelled by origin,
+  -- and never by the description or the title checked above.
+  if v_order_notes is distinct from '<p><strong>Notas del presupuesto '
+      || (select reference from public.quotes where id = v_rich)
+      || '</strong></p><p>Nota <em>interna</em></p>' then
+    raise exception 'phase38: quote notes not inherited as the order internal notes %', v_order_notes;
   end if;
   if position('<' in v_order_title) > 0 then
     raise exception 'phase38: title contains HTML %', v_order_title;

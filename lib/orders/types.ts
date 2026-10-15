@@ -215,6 +215,7 @@ export type OrderOptionsResponse = {
   team_members: OrderOption[];
   stores: OrderOption[];
   actor_role?: string | null;
+  actor_id?: string | null;
   current_team_member?: OrderOption | null;
 };
 

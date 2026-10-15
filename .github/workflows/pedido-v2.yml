@@ -7,6 +7,9 @@ on:
       - "app/settings/quick-order/**"
       - "components/orders/**"
       - "scripts/quotes-draft-ui-smoke.mjs"
+      - "scripts/payment-receipts-ui-smoke.mjs"
+      - "supabase/tests/phase46_payment_receipts.sql"
+      - "supabase/tests/phase46_payment_receipts_concurrency.sh"
       - "components/clients/**"
       - "components/files/**"
       - "components/settings/quick-order-layout-settings.tsx"
@@ -48,6 +51,7 @@ jobs:
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/order-collection-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/inline-client-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/payment-receipts-ui-smoke.mjs
       - name: Start local database with all migrations
         run: |
           npx supabase@2.117.0 start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor

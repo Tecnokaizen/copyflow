@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
+import { createSessionCookieBridge } from "@/lib/supabase/session-cookies";
 import {
   PREVIEW_TENANT_COOKIE,
   PREVIEW_TENANT_QUERY,
@@ -9,15 +10,21 @@ import {
 } from "@/lib/tenant/preview-tenant";
 import { allowsUnauthenticatedPath } from "@/lib/invitations/public-path";
 
-function copyCookies(from: NextResponse, to: NextResponse) {
-  from.cookies.getAll().forEach((cookie) => {
-    to.cookies.set(cookie.name, cookie.value);
-  });
+export function requiresLoginRedirect(input: {
+  pathname: string;
+  hasUser: boolean;
+  isApiRoute: boolean;
+}) {
+  return (
+    !input.isApiRoute &&
+    !input.hasUser &&
+    !allowsUnauthenticatedPath(input.pathname)
+  );
 }
 
 function applyPreviewTenantOverride(
   request: NextRequest,
-  supabaseResponse: NextResponse
+  bridge: ReturnType<typeof createSessionCookieBridge>
 ): NextResponse | null {
   if (!isTenantOverrideAllowed()) {
     return null;
@@ -37,7 +44,7 @@ function applyPreviewTenantOverride(
   url.searchParams.delete("slug");
 
   const redirectResponse = NextResponse.redirect(url);
-  copyCookies(supabaseResponse, redirectResponse);
+  bridge.replace(redirectResponse);
   redirectResponse.cookies.set(PREVIEW_TENANT_COOKIE, slug, {
     httpOnly: true,
     sameSite: "lax",
@@ -52,14 +59,12 @@ function applyPreviewTenantOverride(
 }
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+  const bridge = createSessionCookieBridge(request);
 
   // If the env vars are not set, skip proxy check. You can remove this
   // once you setup the project.
   if (!hasEnvVars) {
-    return supabaseResponse;
+    return bridge;
   }
 
   // With Fluid compute, don't put this client in a global environment
@@ -70,18 +75,10 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll();
+          return bridge.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
+        setAll(cookiesToSet, headers) {
+          bridge.setAll(cookiesToSet, headers);
         },
       },
     },
@@ -96,12 +93,18 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
+  if (user) {
+    bridge.rememberPrivateCache();
+  }
+
   const isApiRoute = request.nextUrl.pathname.startsWith("/api/");
 
   if (
-    !isApiRoute &&
-    !user &&
-    !allowsUnauthenticatedPath(request.nextUrl.pathname)
+    requiresLoginRedirect({
+      pathname: request.nextUrl.pathname,
+      hasUser: Boolean(user),
+      isApiRoute,
+    })
   ) {
     // no user, potentially respond by redirecting the user to the login page
     // API routes are excluded: handlers return their own 401/403 JSON.
@@ -112,13 +115,13 @@ export async function updateSession(request: NextRequest) {
     url.search = "";
     url.searchParams.set("next", returnTo);
     const redirectResponse = NextResponse.redirect(url);
-    copyCookies(supabaseResponse, redirectResponse);
-    return redirectResponse;
+    bridge.replace(redirectResponse);
+    return bridge;
   }
 
-  const previewOverride = applyPreviewTenantOverride(request, supabaseResponse);
+  const previewOverride = applyPreviewTenantOverride(request, bridge);
   if (previewOverride) {
-    return previewOverride;
+    return bridge;
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
@@ -134,5 +137,5 @@ export async function updateSession(request: NextRequest) {
   // If this is not done, you may be causing the browser and server to go out
   // of sync and terminate the user's session prematurely!
 
-  return supabaseResponse;
+  return bridge;
 }
