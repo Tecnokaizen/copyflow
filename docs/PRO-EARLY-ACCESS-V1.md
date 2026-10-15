@@ -217,11 +217,37 @@ La contraseña del viewer no se guarda en el repositorio. Para repetir el
 recorrido, basta con volver a ejecutar `seed-viewer.ts` con una nueva, que
 solo la resincroniza.
 
+### Cierre (15/10/2026)
+
+- CI de la PR en el head `1efe301`: 6/6 en verde (Release gate App y
+  Database, kiosk-database, validate, Vercel).
+- Staging ejecuta el mismo código de aplicación que la PR: el diff entre
+  `gestcopy-staging` (`5d16740`) y la rama solo contiene `docs/` y los dos
+  scripts de `e2e/staging/`.
+- E2E desde GitHub Actions: workflow `E2E staging`, run `38796720614`
+  (`workflow_dispatch` sobre `main`, única rama permitida por el entorno
+  protegido `staging`) contra el despliegue de Staging con esta PR: **3/3
+  PASS**, pedido `E2E-0012`. Artefactos revisados: 483 peticiones, 0 respuestas
+  HTTP ≥ 400; 27 `ERR_ABORTED` por navegación y 12 bloqueos «foreign» de
+  `vercel.live`; ninguno hacia Production.
+
+### Integración controlada (cuando se autorice)
+
+1. Fusionar la PR en `main` (despliegue compartido de todos los tenants). Con
+   el código nuevo y sin la migración, el programa resuelve `false` para
+   todos: no hay ventana de riesgo.
+2. Production: `supabase db push --linked --dry-run` sobre el proyecto de
+   Production debe listar solo `20261015200000_pro_early_access_features_v1.sql`;
+   después, `db push`. Comprobar 0 filas de plan y 0 overrides.
+3. Verificar `/api/context` con un usuario cualquiera: `{"pro": false}`.
+4. Ningún tenant queda enrolado. El piloto SUR4 es otra operación, con
+   autorización expresa y el bloque de preflight usando su id real.
+
+Rollback: revertir el merge deja el catálogo inofensivo (sin consumidores ni
+concesiones). No borrar las filas del catálogo si ya hubo concesiones.
+
 ## Pendiente
 
-- Workflow manual `e2e-staging.yml` en GitHub: no lanzado. Las ejecuciones
-  E2E anteriores se hicieron en local con el mismo runner y la misma
-  configuración de Staging, como en `docs/E2E-STAGING-V0.md`.
 - Pestaña abierta tras retirar el programa: comprobado solo en local (la
   etiqueta persiste hasta recargar; el servidor deniega en la siguiente petición).
 - Piloto SUR4 / Production: fuera de esta entrega (ADR, paso 5).
