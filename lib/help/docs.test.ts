@@ -20,7 +20,11 @@ import {
 } from "@/lib/help/content";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HelpArticleBody } from "@/components/help/help-center";
+import {
+  HelpArticleBody,
+  HelpSidebar,
+  helpSectionContains,
+} from "@/components/help/help-center";
 import { parseHelpInline, parseHelpMarkdown } from "@/lib/help/markdown";
 import { searchHelpArticles } from "@/lib/help/search";
 import { allowsUnauthenticatedPath } from "@/lib/invitations/public-path";
@@ -284,5 +288,41 @@ describe("public help center", () => {
     const guide = loadHelpDocument("guias/equipo-vs-usuarios");
     assert.match(guide?.body ?? "", /no abre la aplicación/i);
     assert.match(guide?.body ?? "", /Usuarios y permisos/i);
+  });
+});
+
+describe("help sidebar sections", () => {
+  const sections = HELP_SECTIONS.map((section) => ({
+    id: section.id,
+    title: section.title,
+    articles: section.articles.map(({ slug, title }) => ({ slug, title })),
+  }));
+
+  function openSections(currentSlug?: string) {
+    const html = renderToStaticMarkup(
+      createElement(HelpSidebar, { sections, currentSlug })
+    );
+    return [...html.matchAll(/<details([^>]*)>\s*<summary[^>]*>([^<]+)</g)]
+      .filter(([, attributes]) => /\bopen\b/.test(attributes))
+      .map(([, , title]) => title.trim());
+  }
+
+  it("renders every section heading as a collapsible disclosure", () => {
+    const html = renderToStaticMarkup(
+      createElement(HelpSidebar, { sections })
+    );
+    assert.equal(html.match(/<details/g)?.length, sections.length);
+    assert.equal(html.match(/<summary/g)?.length, sections.length);
+  });
+
+  it("opens only the section of the current article", () => {
+    assert.deepEqual(openSections(), []);
+    assert.deepEqual(openSections("novedades"), []);
+    const clientes = HELP_SECTIONS.find((section) =>
+      section.articles.some((article) => article.slug === "clientes")
+    );
+    assert.ok(clientes);
+    assert.deepEqual(openSections("clientes"), [clientes.title]);
+    assert.equal(helpSectionContains(sections[0], undefined), false);
   });
 });

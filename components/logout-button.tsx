@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { clearOrderDraft } from "@/lib/orders/session-draft";
 import { Button, type ButtonProps } from "@/components/ui/button";
 
 export function LogoutButton({
@@ -33,6 +34,7 @@ export function LogoutButton({
       return;
     }
 
+    clearOrderDraft(window.sessionStorage);
     router.push("/auth/login");
     router.refresh();
   }

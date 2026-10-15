@@ -13,7 +13,10 @@ import {
 } from "@/lib/orders/list-search";
 import { normalizePlainTitle } from "@/lib/orders/create";
 import { persistRichText } from "@/lib/rich-text/html";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import {
+  requireCurrentAccess,
+  roleDeniedResponse,
+} from "@/lib/tenant/access-response";
 import {
   OPERATIVE_ROLES,
   hasMembershipRole,
@@ -550,13 +553,16 @@ async function countAllOrders(
 
 
 export async function GET(request: NextRequest) {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/orders");
 
-  if (!context || !canReadOperationalOverview(context.membership.role)) {
-    return operationalJson(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
+  }
+
+  const context = access.context;
+
+  if (!canReadOperationalOverview(context.membership.role)) {
+    return roleDeniedResponse("GET /api/orders", context.tenant.slug);
   }
 
   const { searchParams } = new URL(request.url);
@@ -1086,20 +1092,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("POST /api/orders");
 
-  if (!context) {
-    return operationalJson(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
 
+  const context = access.context;
+
   if (!hasMembershipRole(context.membership.role, OPERATIVE_ROLES)) {
-    return operationalJson(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+    return roleDeniedResponse("POST /api/orders", context.tenant.slug);
   }
 
   let body: unknown;

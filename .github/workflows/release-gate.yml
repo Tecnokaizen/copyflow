@@ -86,6 +86,7 @@ jobs:
             phase17_order_files \
             phase18_external_folder_url \
             phase34_quotes_operational_access \
+            phase47_pro_early_access \
             phase35_quote_files \
             phase44_quote_creation \
             phase44_quote_client_recovery \
