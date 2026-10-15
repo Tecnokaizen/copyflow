@@ -1,8 +1,9 @@
 /**
  * Release gate: CI and repository must never be able to reach Production.
  *
- * - Workflows: read-only token, no secrets, no pull_request_target, no
- *   deploy / remote-migration commands, databases only on localhost.
+ * - Workflows: read-only token, no secrets (single exception: the manual
+ *   Staging E2E workflow, see STAGING_E2E_WORKFLOW), no pull_request_target,
+ *   no deploy / remote-migration commands, databases only on localhost.
  * - Repository: Supabase project refs only in docs, no committed env files
  *   (except the placeholder .env.example), no live-looking credentials.
  */
@@ -24,11 +25,40 @@ const FORBIDDEN_WORKFLOW_PATTERNS: { pattern: RegExp; message: string }[] = [
 
 const POSTGRES_URL = /postgres(?:ql)?:\/\/[^\s"'`]*@([^:/\s"'`]+)/g;
 
+/**
+ * The only workflow allowed to read secrets: manual Staging E2E
+ * (docs/E2E-STAGING-V0.md). It may read just these names, only on
+ * workflow_dispatch, only through the GitHub `staging` environment.
+ */
+export const STAGING_E2E_WORKFLOW = ".github/workflows/e2e-staging.yml";
+const STAGING_E2E_SECRETS = new Set(["E2E_USER_PASSWORD", "VERCEL_AUTOMATION_BYPASS_SECRET"]);
+const AUTOMATIC_TRIGGER =
+  /^\s{2}(push|pull_request|pull_request_target|pull_request_review|schedule|workflow_run|workflow_call|repository_dispatch|issue_comment|release|deployment_status|merge_group)\s*:/m;
+
+function checkStagingE2eWorkflow(file: string, content: string): SafetyFinding[] {
+  const findings: SafetyFinding[] = [];
+  if (AUTOMATIC_TRIGGER.test(content) || !/^on:\s*\n\s{2}workflow_dispatch\s*:/m.test(content)) {
+    findings.push({ file, message: "staging E2E must run on workflow_dispatch only" });
+  }
+  if (!/^\s+environment:\s*staging\s*$/m.test(content)) {
+    findings.push({ file, message: "staging E2E must use the `staging` GitHub environment" });
+  }
+  for (const match of content.matchAll(/\$\{\{\s*secrets\.([A-Za-z0-9_]+)/g)) {
+    if (!STAGING_E2E_SECRETS.has(match[1])) {
+      findings.push({ file, message: `staging E2E may not read secret ${match[1]}` });
+    }
+  }
+  return findings;
+}
+
 export function checkWorkflow(file: string, content: string): SafetyFinding[] {
   const findings: SafetyFinding[] = [];
+  const stagingE2e = file === STAGING_E2E_WORKFLOW;
   for (const { pattern, message } of FORBIDDEN_WORKFLOW_PATTERNS) {
+    if (stagingE2e && message.startsWith("workflows must not consume secrets")) continue;
     if (pattern.test(content)) findings.push({ file, message });
   }
+  if (stagingE2e) findings.push(...checkStagingE2eWorkflow(file, content));
   if (!/^permissions:\s*\n\s+contents:\s*read\s*$/m.test(content)) {
     findings.push({ file, message: "top-level `permissions: contents: read` is required" });
   }
