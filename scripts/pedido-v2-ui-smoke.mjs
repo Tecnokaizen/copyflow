@@ -51,7 +51,7 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const results = [];
 try {
-  for (const width of [390, 1280]) {
+  for (const width of [390, 820, 1280]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });
     const errors = [];
     page.on("pageerror", (error) => { errors.push(error.message); console.error(error.message); });
@@ -64,6 +64,9 @@ try {
     };
     const events = [];
     let body;
+    let collection = { total_amount: null, paid_amount: "0.00", pending_amount: null, collection_state: "undefined", row_version: "1", payments: [] };
+    const moneyRequests = [];
+    let rejectPayment = true;
     let completeCalls = 0;
     const file = { id: "file-1", original_name: "arte.pdf", status: "ready", content_type: "application/pdf", size_bytes: 8, created_at: "2026-09-23T10:00:00Z", completed_at: null };
     await page.route("**/api/**", async (route) => {
@@ -75,8 +78,10 @@ try {
         return json({ layout, revision: "2026-09-23T10:00:00Z" });
       }
       if (pathname === "/api/orders/options") return json({
-        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }], stores: [],
-        entry_channels: [], order_contexts: [], team_members: [], actor_role: "staff",
+        tenant: "demo", services: [{ id: "service-a", name: "Impresión" }],
+        stores: [{ id: "store-a", name: "Tienda centro" }],
+        entry_channels: [], order_contexts: [],
+        team_members: [{ id: "member-a", name: "Natalia" }], actor_role: "staff",
         file_statuses: [{ id: "state-a", name: "Pendiente", code: "pending" }],
         quick_order_layout: layout, max_file_bytes: 1048576,
       });
@@ -84,6 +89,18 @@ try {
       if (pathname === "/api/clients") {
         if (req.method() === "POST") return json({ client: { id: "client-a", name: "Cliente inline" } }, 201);
         return json({ clients: [] });
+      }
+      if (pathname === "/api/orders/saved-order/payments") {
+        if (req.method() === "GET") return json(collection);
+        const payment = req.postDataJSON(); moneyRequests.push(payment);
+        if (rejectPayment) { rejectPayment = false; return json({ error: "No se pudo confirmar el cobro. Reintenta." }, 500); }
+        collection = { ...collection, paid_amount: "30.00", pending_amount: "55.00", collection_state: "partial", row_version: "3", payments: [{ id: "payment-1", amount: "30.00", paid_at: payment.paid_at, created_at: payment.paid_at, actor_name: "Personal", voided_at: null }] };
+        return json(collection);
+      }
+      if (pathname === "/api/orders/saved-order/total") {
+        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.equal(payload.total_amount, "85");
+        collection = { ...collection, total_amount: "85.00", pending_amount: "85.00", collection_state: "unpaid", row_version: "2" };
+        return json(collection);
       }
       if (pathname === "/api/orders") {
         events.push("create"); body = req.postDataJSON();
@@ -110,9 +127,16 @@ try {
     await page.goto(url);
     await page.getByRole("button", { name: "Crear pedido", exact: true }).waitFor();
     assert.equal(await page.getByLabel("Notas internas", { exact: true }).count(), 0);
-    assert.equal(await page.getByLabel("Nombre del pedido", { exact: false }).isVisible(), false);
-    await page.getByText("Más opciones", { exact: true }).click();
-    await page.getByLabel("Nombre del pedido", { exact: false }).fill("Pedido con archivos");
+    assert.equal(await page.getByRole("textbox", { name: "Nombre del pedido" }).count(), 0);
+    const title = page.getByRole("textbox", { name: "Título del pedido" });
+    const clientSearch = page.getByPlaceholder(/Buscar cliente/);
+    await title.waitFor();
+    await page.getByPlaceholder("Ej. 200 tarjetas de visita", { exact: true }).waitFor();
+    const titleBox = await title.boundingBox();
+    const clientBox = await clientSearch.boundingBox();
+    assert.ok(titleBox && clientBox && titleBox.y < clientBox.y);
+    await title.fill("Pedido con archivos");
+    assert.equal(await title.inputValue(), "Pedido con archivos");
     await page.getByLabel("Estado de archivos", { exact: false }).selectOption("state-a");
     await page.getByRole("button", { name: /Crear nuevo cliente/ }).click();
     await page.getByLabel("Nombre *", { exact: true }).fill("Cliente inline");
@@ -127,6 +151,7 @@ try {
     assert.deepEqual(events, ["create", "init", "put", "complete"]);
     assert.equal(body.file_status_id, "state-a");
     assert.equal(body.client_id, "client-a");
+    assert.equal(body.title, "Pedido con archivos");
     await page.getByRole("button", { name: "Reintentar archivos pendientes" }).click();
     const download = width < 640 ? page.getByRole("menuitem", { name: "Descargar", exact: true }) : page.getByRole("button", { name: /Descargar/ }).first();
     if (width < 640) await page.getByRole("button", { name: "Acciones de arte.pdf" }).click();
@@ -135,10 +160,34 @@ try {
     const [downloaded] = await Promise.all([page.waitForEvent("download"), download.click()]);
     assert.equal(downloaded.suggestedFilename(), "arte.pdf");
     assert.ok(events.includes("download"));
-    await page.waitForFunction(() => document.querySelector('a[href="/orders/saved-order"]'));
+    await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Definir total", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Crear otro' && button.disabled));
+    assert.equal(await page.getByRole("button", { name: "Crear otro", exact: true }).isEnabled(), false);
+    await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("85");
+    await page.getByRole("button", { name: "Guardar total", exact: true }).click();
+    await page.getByRole("button", { name: "Modificar total", exact: true }).waitFor();
+    assert.equal(await page.getByText("85,00 €", { exact: true }).count(), 2);
+    await page.getByRole("button", { name: "Registrar entrega a cuenta", exact: true }).click();
+    await page.getByRole("dialog").getByLabel("Importe", { exact: true }).fill("30");
+    await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
+    await page.getByText("No se pudo confirmar el cobro. Reintenta.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Confirmar entrega", exact: true }).click();
+    await page.getByText("55,00 €", { exact: true }).waitFor();
+    assert.equal(moneyRequests.length, 2);
+    assert.equal(moneyRequests[0].idempotency_key, moneyRequests[1].idempotency_key);
+    assert.equal(events.filter(event => event === "create").length, 1);
+    assert.equal(await page.getByRole("button", { name: "Crear otro", exact: true }).isEnabled(), true);
     await page.screenshot({ path: path.join(out, `saved-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: "Crear otro", exact: true }).click();
     assert.equal(await page.getByText("arte.pdf", { exact: true }).count(), 0);
+    const resetTitle = page.getByRole("textbox", { name: /Si lo dejas vacío se usará «Pedido»/ });
+    await resetTitle.waitFor();
+    assert.equal(await resetTitle.inputValue(), "");
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.getByRole("heading", { name: "Pedido creado", exact: true }).waitFor();
+    assert.equal(body.title, "Pedido");
+    await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
 
     await page.goto(`${url}/?mode=settings`);
     await page.getByLabel("Notas internas", { exact: true }).selectOption("primary");
@@ -151,12 +200,50 @@ try {
     await page.goto(url);
     await page.getByLabel("Notas internas", { exact: true }).waitFor();
     assert.equal(await page.getByPlaceholder(/Buscar cliente/).count(), 0);
+    await page.getByRole("textbox", { name: "Título del pedido" }).waitFor();
     await page.goto(`${url}/?mode=full`);
-    await page.getByPlaceholder(/Buscar cliente/).waitFor();
+    const fullTitle = page.getByRole("textbox", { name: "Título del pedido" });
+    const fullClient = page.getByPlaceholder(/Buscar cliente/);
+    await fullTitle.waitFor();
+    await fullClient.waitFor();
+    const fullTitleBox = await fullTitle.boundingBox();
+    const fullClientBox = await fullClient.boundingBox();
+    assert.ok(fullTitleBox && fullClientBox && fullTitleBox.y < fullClientBox.y);
+    await fullTitle.fill("Carteles feria");
+    assert.equal(await fullTitle.inputValue(), "Carteles feria");
     await page.getByText("Más opciones", { exact: true }).click();
     assert.equal(await page.getByLabel("Notas internas", { exact: true }).isVisible(), true);
+    assert.equal(await fullTitle.isVisible(), true);
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.getByRole("heading", { name: "Pedido creado", exact: true }).waitFor();
+    assert.equal(body.title, "Carteles feria");
+    await page.getByRole("link", { name: "Abrir pedido", exact: true }).waitFor();
+    // Croquis: three compact columns on desktop; stacked fields on mobile.
+    layout = {
+      ...layout, client: "primary", store: "primary", due_at: "primary",
+      assigned_team_member: "primary", priority: "primary",
+      description: "primary", service: "primary",
+    };
+    await page.goto(url);
+    const identification = page.getByTestId("quick-primary-identification");
+    const assignment = page.getByTestId("quick-primary-assignment");
+    const description = page.getByTestId("quick-primary-description");
+    await description.waitFor();
+    assert.equal(await identification.locator(":scope > div").count(), 3);
+    assert.equal(await assignment.locator(":scope > div").count(), 3);
+    assert.equal(await assignment.locator('select option[value="urgent"]').count(), 1);
+    const countColumns = (testId) => page.getByTestId(testId).evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length);
+    assert.equal(await countColumns("quick-primary-identification"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
+    assert.equal(await countColumns("quick-primary-assignment"), width >= 1280 ? 3 : width >= 768 ? 2 : 1);
+    const firstRow = await identification.boundingBox();
+    const secondRow = await assignment.boundingBox();
+    const descriptionRow = await description.boundingBox();
+    assert.ok(firstRow && secondRow && descriptionRow && firstRow.y < secondRow.y && secondRow.y < descriptionRow.y);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(out, `croquis-${width}.png`), fullPage: true });
     assert.deepEqual(errors, []);
-    results.push({ width, passed: true, checks: "layout/hidden/more, inline client, save-before-upload, double submit, COMPLETE retry, list/download, reset, Settings, full form, overflow" });
+    results.push({ width, passed: true, checks: "croquis columns desktop/mobile, primary tenant settings, title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
     await page.close();
   }
   await writeFile(path.join(out, "results.json"), JSON.stringify(results, null, 2));

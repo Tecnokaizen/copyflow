@@ -1,8 +1,11 @@
 import { OPEN_QUOTE_STATUS_CODES } from "@/lib/dashboard/quotes";
+import { canReadOperationalOverview, canReadDashboardQuoteCounts } from "@/lib/orders/operational-access";
 import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
+import { NEEDS_ATTENTION_INCLUDES } from "@/lib/orders/review";
+import { loadOperationalReviewOrders } from "@/lib/orders/review-load";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
@@ -88,7 +91,7 @@ function asPreviewOrder(row: unknown): DashboardUpcomingOrder | null {
 export async function GET() {
   const context = await getCurrentContext();
 
-  if (!context) {
+  if (!context || !canReadOperationalOverview(context.membership.role)) {
     return operationalJson(
       { error: "Unauthorized or tenant access denied" },
       { status: 403 }
@@ -119,9 +122,8 @@ export async function GET() {
     overdueResult,
     dueTodayResult,
     upcomingCountResult,
-    needsAttentionResult,
     upcomingListResult,
-    attentionListResult,
+    reviewResult,
     teamResult,
   ] = await Promise.all([
     activeOrdersQuery(supabase, tenantId),
@@ -133,7 +135,6 @@ export async function GET() {
       .gte("due_at", dayStartIso)
       .lt("due_at", dayEndIso),
     activeOrdersQuery(supabase, tenantId).gte("due_at", dayEndIso),
-    activeOrdersQuery(supabase, tenantId).eq("status.is_ready", true),
     activeOrdersQuery(supabase, tenantId, {
       head: false,
       select: ORDER_PREVIEW_SELECT,
@@ -142,14 +143,17 @@ export async function GET() {
       .order("due_at", { ascending: true })
       .order("id", { ascending: true })
       .range(0, UPCOMING_LIMIT - 1),
-    activeOrdersQuery(supabase, tenantId, {
-      head: false,
-      select: ORDER_PREVIEW_SELECT,
-    })
-      .eq("status.is_ready", true)
-      .order("due_at", { ascending: true, nullsFirst: false })
-      .order("id", { ascending: true })
-      .range(0, ATTENTION_LIMIT - 1),
+    loadOperationalReviewOrders(
+      supabase,
+      tenantId,
+      {
+        timezone,
+        localDate: day.date,
+        dayStart: day.start,
+        dayEnd: day.end,
+      },
+      now
+    ),
     supabase.rpc("list_team_members", {
       p_tenant_id: tenantId,
       p_query: null,
@@ -163,7 +167,6 @@ export async function GET() {
     overdueResult,
     dueTodayResult,
     upcomingCountResult,
-    needsAttentionResult,
   ];
 
   const failedCount = countResults.find((result) => result.error);
@@ -192,10 +195,10 @@ export async function GET() {
     );
   }
 
-  if (attentionListResult.error) {
-    console.error("[GET /api/dashboard] Could not load attention orders", {
+  if (reviewResult.error) {
+    console.error("[GET /api/dashboard] Could not load review orders", {
       tenantId,
-      error: attentionListResult.error,
+      error: reviewResult.error,
     });
 
     return operationalJson(
@@ -203,6 +206,54 @@ export async function GET() {
       { status: 500 }
     );
   }
+
+  const reviewPreviewIds = reviewResult.orders
+    .slice(0, ATTENTION_LIMIT)
+    .map((row) => row.id);
+  let reviewPreviewRows: unknown[] = [];
+
+  if (reviewPreviewIds.length > 0) {
+    const reviewPreviewResult = await activeOrdersQuery(supabase, tenantId, {
+      head: false,
+      select: ORDER_PREVIEW_SELECT,
+    }).in("id", reviewPreviewIds);
+
+    if (reviewPreviewResult.error) {
+      console.error("[GET /api/dashboard] Could not load review orders", {
+        tenantId,
+        error: reviewPreviewResult.error,
+      });
+
+      return operationalJson(
+        { error: "Could not load dashboard" },
+        { status: 500 }
+      );
+    }
+
+    reviewPreviewRows = reviewPreviewResult.data ?? [];
+  }
+
+  const reasonById = new Map(
+    reviewResult.orders.map((row) => [row.id, row.reasons])
+  );
+  const previewById = new Map(
+    reviewPreviewRows
+      .map((row) => asPreviewOrder(row))
+      .filter((row): row is DashboardUpcomingOrder => row !== null)
+      .map((row) => [row.id, row] as const)
+  );
+  const attentionOrders: DashboardAttentionOrder[] = reviewPreviewIds.flatMap(
+    (id) => {
+      const preview = previewById.get(id);
+      const reasons = reasonById.get(id);
+      if (!preview || !reasons) {
+        return [];
+      }
+
+      return [{ ...preview, review_reasons: reasons }];
+    }
+  );
+  const needsAttentionCount = reviewResult.orders.length;
 
   if (teamResult.error || !teamResult.data) {
     console.error(
@@ -237,7 +288,7 @@ export async function GET() {
       return a.name.localeCompare(b.name, "es");
     });
 
-  const quotesEnabled = canAccessQuotesModule(
+  const quotesEnabled = canReadDashboardQuoteCounts(context.membership.role) && canAccessQuotesModule(
     context.membership.role,
     await tenantHasFeature(supabase, tenantId, QUOTES_FEATURE_CODE)
   );
@@ -288,10 +339,6 @@ export async function GET() {
     .map((row) => asPreviewOrder(row))
     .filter((row): row is DashboardUpcomingOrder => row !== null);
 
-  const attentionOrders = (attentionListResult.data ?? [])
-    .map((row) => asPreviewOrder(row))
-    .filter((row): row is DashboardAttentionOrder => row !== null);
-
   return operationalJson({
     tenant: context.tenant.slug,
     timezone,
@@ -302,14 +349,9 @@ export async function GET() {
       overdue: overdueResult.count ?? 0,
       due_today: dueTodayResult.count ?? 0,
       upcoming: upcomingCountResult.count ?? 0,
-      needs_attention: needsAttentionResult.count ?? 0,
+      needs_attention: needsAttentionCount,
     },
-    needs_attention_includes: {
-      ready: true,
-      incomplete_files: false,
-      pending_quote: false,
-      blocked: false,
-    },
+    needs_attention_includes: NEEDS_ATTENTION_INCLUDES,
     upcoming_orders: upcomingOrders,
     attention_orders: attentionOrders,
     workload: {

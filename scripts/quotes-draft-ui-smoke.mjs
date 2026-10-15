@@ -124,7 +124,10 @@ try {
     check(await page.getByRole("button", { name: "Generar PDF", exact: true }).count(), 0, "Draft has no PDF CTA");
     await page.screenshot({ path: path.join(out, `editor-${width}-${theme}.png`), fullPage: true });
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "No page horizontal overflow");
+    await page.getByRole("link", { name: "Imprimir presupuesto", exact: true }).waitFor();
+    check(await page.getByRole("link", { name: "Imprimir presupuesto", exact: true }).getAttribute("href"), "/quotes/quote-1/print", "Draft version can print saved operational sheet");
     await page.getByLabel("Título / trabajo").fill("Trabajo editado");
+    check(await page.getByRole("button", { name: "Imprimir presupuesto", exact: true }).isEnabled(), false, "Unsaved changes cannot print stale data");
     await page.getByLabel("Persona de contacto").fill("Contacto editado");
     await page.getByLabel("Nombre / razón social").fill("Nueva razón social");
     await page.getByRole("button", { name: "Añadir línea", exact: true }).click();
@@ -150,6 +153,7 @@ try {
     check(await page.getByLabel("Título / trabajo").inputValue(), "Trabajo editado", "Cancel conflict preserves input");
     await page.getByRole("button", { name: "Guardar borrador", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "Borrador guardado" }).waitFor();
+    await page.getByRole("link", { name: "Imprimir presupuesto", exact: true }).waitFor();
     check(await page.getByTestId("quote-totals").innerText().then(t => t.includes("987,65")), true, "Authoritative server total");
     check(await page.getByText("Cambios sin guardar. Los importes se actualizarán al guardar.", { exact: true }).count(), 0, "Busy transition does not emit a false text edit");
     const saveEvent = events.filter(e => e.method === "PUT").at(-1);
@@ -201,10 +205,9 @@ try {
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
-    await page.getByRole("button", { name: "Editar gestión", exact: true }).click();
+    await page.locator('select[aria-label="Servicio"] option[value="service-1"]').waitFor({ state: "attached" });
     await page.getByLabel("Servicio", { exact: true }).selectOption("service-1");
-    await page.getByRole("button", { name: "Guardar gestión", exact: true }).click();
-    await page.getByRole("status").filter({ hasText: "Gestión operativa guardada" }).waitFor();
+    await page.getByRole("status").filter({ hasText: "Servicio actualizado" }).waitFor();
     check(events.some(e => /\/(send|status|convert|accept|reject)$/.test(e.pathname)), false, "No excluded workflow requests");
     check(h.errors, [], "No browser errors");
     await page.close();

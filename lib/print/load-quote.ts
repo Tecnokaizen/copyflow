@@ -5,6 +5,7 @@ import { printBranding } from "@/lib/print/order-document";
 import { quotePrintModel, type QuotePrintClient } from "@/lib/print/quote-document";
 import type { QuotePrintModel } from "@/lib/print/types";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
+import { commercialStatus } from "@/lib/quotes/creation";
 import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
 import { publicOrganizationIdentity } from "@/lib/tenant/branding";
 import { resolveTimeZone } from "@/lib/time/zoned-day";
@@ -86,7 +87,7 @@ export const loadQuotePrint = cache(async function loadQuotePrint(
         notes: quote.notes,
         valid_until: quote.valid_until,
         created_at: quote.created_at,
-        statusName: quote.status?.name ?? null,
+        statusName: commercialStatus(quote).name,
         serviceName: quote.service?.name ?? null,
         assigneeName: quote.assignee?.name ?? null,
         convertedOrderReference: quote.converted_order?.reference ?? null,

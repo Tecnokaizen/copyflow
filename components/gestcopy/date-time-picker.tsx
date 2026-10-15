@@ -1,27 +1,26 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useState } from "react";
 import { DatePicker } from "@/components/gestcopy/date-picker";
 import {
   addLocalCivilDays,
   combineDateTimeLocal,
   isClockTime,
-  quarterHourOptions,
   splitDateTimeLocal,
+  withDefaultDeliveryHour,
 } from "@/lib/gestcopy/date-value";
 import {
   fromDateTimeLocalValue,
   MISSING_LOCAL_HOUR_MESSAGE,
 } from "@/lib/orders/format";
-import { cn } from "@/lib/utils";
-
-const HOURS = quarterHourOptions();
+import { TimePicker } from "@/components/gestcopy/time-picker";
 
 type DateTimePickerProps = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   id?: string;
+  onValidityChange?: (invalid: boolean) => void;
 };
 
 export function DateTimePicker({
@@ -29,8 +28,8 @@ export function DateTimePicker({
   onChange,
   disabled = false,
   id,
+  onValidityChange,
 }: DateTimePickerProps) {
-  const listId = useId();
   const parsed = splitDateTimeLocal(value);
   const [draft, setDraft] = useState<{ date: string; time: string } | null>(
     null
@@ -38,7 +37,8 @@ export function DateTimePicker({
   const draftValue = draft ? combineDateTimeLocal(draft.date, draft.time) : null;
   const showDraft =
     draft !== null &&
-    (draftValue === value || (value === "" && draftValue === ""));
+    (draftValue === value || (value === "" && draftValue === "") ||
+      (draftValue !== null && draftValue !== "" && !fromDateTimeLocalValue(draftValue)));
   const date = showDraft && draft ? draft.date : parsed.date;
   const time = showDraft && draft ? draft.time : parsed.time;
   const timeInvalid = time !== "" && !isClockTime(time);
@@ -48,11 +48,27 @@ export function DateTimePicker({
 
   function publish(nextDate: string, nextTime: string) {
     setDraft({ date: nextDate, time: nextTime });
-    onChange(combineDateTimeLocal(nextDate, nextTime));
+    const complete = combineDateTimeLocal(nextDate, nextTime);
+    // A partial selection must never be treated as "Quitar fecha".
+    // Clearing the stored date is only possible through the explicit button.
+    if (!complete) {
+      onValidityChange?.(Boolean(nextDate || nextTime));
+      return;
+    }
+    if (!fromDateTimeLocalValue(complete)) {
+      // Keep the impossible local hour in the parent so save and conversion
+      // reject it. Leaving the previous valid hour would submit 18:00 instead.
+      onValidityChange?.(true);
+      onChange(complete);
+      return;
+    }
+    onValidityChange?.(false);
+    onChange(complete);
   }
 
   function updateDate(nextDate: string) {
-    publish(nextDate, time);
+    // Use a default hour for a newly selected date; preserve any existing hour.
+    publish(nextDate, withDefaultDeliveryHour(nextDate, time));
   }
 
   function updateTime(nextTime: string) {
@@ -61,6 +77,7 @@ export function DateTimePicker({
 
   function clear() {
     setDraft(null);
+    onValidityChange?.(false);
     onChange("");
   }
 
@@ -77,29 +94,10 @@ export function DateTimePicker({
             showShortcuts={false}
           />
         </div>
-        <label className="gc-field sm:w-36">
+        <div className="gc-field sm:w-40">
           <span className="gc-field-label">Hora</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            list={listId}
-            placeholder="HH:MM"
-            aria-label="Hora"
-            aria-invalid={timeInvalid || missingHour}
-            disabled={disabled}
-            value={time}
-            onChange={(event) => updateTime(event.target.value)}
-            className={cn(
-              "gc-field-control min-h-11",
-              timeInvalid && "border-destructive"
-            )}
-          />
-          <datalist id={listId}>
-            {HOURS.map((hour) => (
-              <option key={hour} value={hour} />
-            ))}
-          </datalist>
-        </label>
+          <TimePicker value={time} onChange={updateTime} disabled={disabled} invalid={timeInvalid || missingHour} />
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <button

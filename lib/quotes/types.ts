@@ -105,6 +105,7 @@ export type QuoteRecord = QuoteCommercialSummary & {
   title: string | null;
   description: string;
   notes: string | null;
+  internal_notes: string | null;
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -207,6 +208,7 @@ export const QUOTE_SELECT = `
   title,
   description,
   notes,
+  internal_notes,
   valid_until,
   contact_name,
   contact_email,
@@ -373,6 +375,7 @@ export function mapQuote(value: unknown): QuoteRecord | null {
     title: asString(row.title),
     description,
     notes: asString(row.notes),
+    internal_notes: asString(row.internal_notes),
     contact_name: asString(row.contact_name),
     contact_email: asString(row.contact_email),
     contact_phone: asString(row.contact_phone),

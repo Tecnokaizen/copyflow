@@ -17,7 +17,7 @@ declare
  ta uuid:='e4100000-0000-4000-8000-000000000011'; tb uuid:='e4100000-0000-4000-8000-000000000012';
  q uuid; qb uuid; v uuid; vb uuid; v2 uuid; draft uuid; expired uuid:=gen_random_uuid(); file uuid:=gen_random_uuid(); other uuid:=gen_random_uuid();
  plan uuid:=gen_random_uuid();
- r jsonb; r2 jsonb; issued bigint:=extract(epoch from now())::bigint; sig text; oldversion jsonb; oldq bigint; n int;
+ r jsonb; r2 jsonb; issued bigint:=extract(epoch from now())::bigint; sig text; oldversion jsonb; oldq bigint; n int; snapshot jsonb; lines jsonb; test_role text;
 begin
  if exists(select 1 from vault.secrets where name='files_signing_secret') then
   perform vault.update_secret((select id from vault.secrets where name='files_signing_secret' limit 1),'phase41-pdf-files-secret-32-characters');
@@ -169,6 +169,20 @@ begin
  reset role;update public.team_members set active=true where id=other;set local role authenticated;
  perform pg_temp.pdf_error(format('select public.convert_quote_to_order(%L)',q),'42501');
  select row_version into oldq from public.quotes where id=q;
+ select to_jsonb(x) into snapshot from public.quote_versions x where id=draft;
+ select jsonb_agg(to_jsonb(x) order by position) into lines from public.quote_items x where quote_version_id=draft;
+ r:=public.convert_quote_to_order(q,other,other,other,'high',null,oldq-1);
+ perform pg_temp.assert_pdf(r->>'error'='conflict','stale conversion token rejected before insert');
+ perform pg_temp.assert_pdf(not exists(select 1 from public.orders where tenant_id=ta),'conflict creates no order');
+ reset role;
+ update public.order_statuses set is_initial=false where tenant_id=ta;
+ set local role authenticated;
+ r:=public.convert_quote_to_order(q,null,null,null,'normal',null,oldq);
+ perform pg_temp.assert_pdf(r->>'error'='no_initial_status','missing active initial state blocks conversion');
+ perform pg_temp.assert_pdf((select converted_order_id is null from public.quotes where id=q),'invalid initial state preserves original quote');
+ reset role;
+ update public.order_statuses set is_initial=true where tenant_id=ta;
+ set local role authenticated;
  r:=public.convert_quote_to_order(q,other,other,other,'high','2026-12-10T10:30:00Z',oldq);
  perform pg_temp.assert_pdf(r->>'ok'='true' and r->>'replayed'='false','accepted conversion');
  r2:=public.convert_quote_to_order(q,other,other,other,'high','2026-12-10T10:30:00Z',oldq);
@@ -177,6 +191,9 @@ begin
  perform pg_temp.assert_pdf((select count(*)=1 from public.orders where tenant_id=ta),'one order');
  perform pg_temp.assert_pdf((select priority='high' and service_id=other and store_id=other and assigned_team_member_id=other and due_at='2026-12-10T10:30:00Z'::timestamptz and notes is null and metadata->>'quote_version_id'=draft::text from public.orders where id=(r->>'order_id')::uuid),'explicit operational fields and accepted origin');
  perform pg_temp.assert_pdf((select count(*)=1 from public.activity_log where entity_id=q and action='quote.converted'),'one conversion activity');
+ perform pg_temp.assert_pdf((select to_jsonb(x)=snapshot from public.quote_versions x where id=draft),'conversion preserves accepted document byte for byte');
+ perform pg_temp.assert_pdf((select jsonb_agg(to_jsonb(x) order by position)=lines from public.quote_items x where quote_version_id=draft),'conversion preserves all accepted lines');
+ perform pg_temp.assert_pdf((select metadata->>'quote_id'=q::text and metadata->>'quote_reference'=(select reference from public.quotes where id=q) from public.orders where id=(r->>'order_id')::uuid),'order origin points back to retained quote');
  perform pg_temp.assert_pdf(not exists(select 1 from public.order_files where order_id=(r->>'order_id')::uuid),'no duplicated PDF file');
  reset role;
  perform pg_temp.pdf_error(format('update public.quotes set converted_order_id=null where id=%L',q),'55000');
@@ -187,6 +204,19 @@ begin
  r2:=public.convert_quote_to_order(qb,null,null,null,'normal',null,0);
  perform pg_temp.assert_pdf(r2->>'error'='not_found','convert foreign tenant invisible');
  reset role;
+ foreach test_role in array array['admin','manager','staff'] loop
+   update public.memberships set role=test_role where tenant_id=ta and user_id=a;
+   set local role authenticated;
+   r2:=public.convert_quote_to_order(q,null,null,null,'normal',null,oldq);
+   perform pg_temp.assert_pdf(r2->>'replayed'='true' and r2->>'order_id'=r->>'order_id','operative role replays existing order');
+   reset role;
+ end loop;
+ update public.memberships set active=false where tenant_id=ta and user_id=a;
+ set local role authenticated;
+ r2:=public.convert_quote_to_order(q,null,null,null,'normal',null,oldq);
+ perform pg_temp.assert_pdf(r2->>'error'='not_found','inactive membership denied before replay');
+ reset role;
+ update public.memberships set active=true where tenant_id=ta and user_id=a;
  update public.memberships set role='viewer' where tenant_id=ta and user_id=a;set local role authenticated;
  r2:=public.convert_quote_to_order(q,null,null,null,'normal',null,oldq);
  perform pg_temp.assert_pdf(r2->>'error'='not_found','convert viewer denied before replay');
@@ -195,6 +225,9 @@ begin
  perform public.set_tenant_feature('phase41a','quotes',false,null);set local role authenticated;
  r2:=public.convert_quote_to_order(q,null,null,null,'normal',null,oldq);
  perform pg_temp.assert_pdf(r2->>'error'='not_found','convert feature off before replay');
+ reset role;
+ set local role anon;
+ perform pg_temp.pdf_error(format('select public.convert_quote_to_order(%L,null,null,null,''normal'',null,%s)',q,oldq),'42501');
  reset role;
  raise notice 'PASS phase43 accepted conversion';
 end $$;

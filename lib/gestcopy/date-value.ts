@@ -70,6 +70,11 @@ export function quarterHourOptions() {
   return options;
 }
 
+/** Set the operational default only when a date is selected without a time. */
+export function withDefaultDeliveryHour(date: string, time: string, defaultTime = "18:00") {
+  return date && !time ? defaultTime : time;
+}
+
 export function splitDateTimeLocal(value: string) {
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(value);
   if (!match || !civilDateToLocalDate(match[1]) || !isClockTime(match[2])) {

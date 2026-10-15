@@ -1,5 +1,11 @@
+import { looksLikeHtml, normalizeRichText } from "@/lib/rich-text/html";
+import { richTextLineStats } from "@/lib/rich-text/lines";
+
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const BUSINESS_NAME_MAX_LENGTH = 120;
+export const QUOTE_FOOTER_MAX_CHARS = 400;
+export const QUOTE_FOOTER_MAX_LINES = 4;
+export const QUOTE_FOOTER_MAX_HTML_CHARS = 8_000;
 export const TENANT_LOGO_PATH = "/api/tenant/logo";
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -54,6 +60,45 @@ export function parseBrandColor(value: unknown): PublicBrandColor | undefined {
   return trimmed.toLowerCase();
 }
 
+export function parseQuoteFooter(
+  value: unknown
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value == null) return { ok: true, value: null };
+  if (typeof value !== "string") {
+    return { ok: false, error: "El pie de presupuestos debe ser texto." };
+  }
+  if (value.length > QUOTE_FOOTER_MAX_HTML_CHARS) {
+    return { ok: false, error: "El pie de presupuestos contiene demasiado formato." };
+  }
+  const legacy = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const normalized = normalizeRichText(legacy);
+  if (!normalized) return { ok: true, value: null };
+  const stats = richTextLineStats(normalized);
+  if (stats.chars > QUOTE_FOOTER_MAX_CHARS) {
+    return {
+      ok: false,
+      error: "El pie de presupuestos admite como máximo 400 caracteres.",
+    };
+  }
+  if (stats.lines > QUOTE_FOOTER_MAX_LINES) {
+    return {
+      ok: false,
+      error: "El pie de presupuestos admite como máximo 4 líneas.",
+    };
+  }
+  return { ok: true, value: looksLikeHtml(legacy) ? normalized : legacy };
+}
+
+export function quoteFooterFromBranding(branding: unknown): string {
+  if (!branding || typeof branding !== "object" || Array.isArray(branding)) {
+    return "";
+  }
+  const raw = (branding as Record<string, unknown>).quote_footer;
+  if (raw == null) return "";
+  const parsed = parseQuoteFooter(raw);
+  return parsed.ok ? parsed.value ?? "" : "";
+}
+
 export function brandColorFromBranding(branding: unknown): PublicBrandColor {
   if (!branding || typeof branding !== "object" || Array.isArray(branding)) {
     return null;
@@ -99,6 +144,18 @@ export function publicOrganizationIdentity(input: {
   };
 }
 
+/** Settings-only identity. Public context and print keep the smaller identity. */
+export function settingsOrganizationIdentity(input: {
+  businessName?: string | null;
+  tenantName?: string | null;
+  branding: unknown;
+}) {
+  return {
+    ...publicOrganizationIdentity(input),
+    quote_footer: quoteFooterFromBranding(input.branding),
+  };
+}
+
 export function identityPayloadExposesSecrets(value: unknown): boolean {
   const text = JSON.stringify(value);
   return (
@@ -119,7 +176,11 @@ export function logoKeyBelongsToTenant(storageKey: string, tenantId: string) {
 
 export function mergeBranding(
   current: unknown,
-  patch: { brandColor?: PublicBrandColor; logo?: StoredLogo | null }
+  patch: {
+    brandColor?: PublicBrandColor;
+    logo?: StoredLogo | null;
+    quoteFooter?: string | null;
+  }
 ): Record<string, unknown> {
   const base =
     current && typeof current === "object" && !Array.isArray(current)
@@ -138,6 +199,10 @@ export function mergeBranding(
     } else {
       delete base.logo;
     }
+  }
+  if (patch.quoteFooter !== undefined) {
+    if (patch.quoteFooter) base.quote_footer = patch.quoteFooter;
+    else delete base.quote_footer;
   }
   return base;
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ContextualActivity } from "@/components/gestcopy/contextual-activity";
 import { LoadingState } from "@/components/gestcopy/loading-state";
-import { SectionCard } from "@/components/gestcopy/section-card";
 import { formatActivityEvent } from "@/lib/activity/format";
 import { mapActivityEvent, type ActivityEvent } from "@/lib/activity/types";
 import { formatActivityDate } from "@/lib/orders/format";
@@ -54,7 +54,7 @@ export function QuoteActivity({
   }, [quoteId, reloadKey]);
 
   return (
-    <SectionCard title="Actividad" bodyClassName="px-5 py-2 sm:px-6">
+    <ContextualActivity count={events.length} loading={loading}>
       {loading ? (
         <LoadingState label="Cargando historial…" className="px-0 py-6" />
       ) : events.length === 0 ? (
@@ -102,6 +102,6 @@ export function QuoteActivity({
           })}
         </ul>
       )}
-    </SectionCard>
+    </ContextualActivity>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
+import { withOrderNavigation } from "@/lib/activity/filters";
 import { canViewActivity, mapActivityEvent, unwrapRpcPayload } from "@/lib/activity/types";
 import { statusForActivityRpcError } from "@/lib/activity/rpc-error";
 
@@ -49,6 +50,38 @@ function parseUuid(raw: string | null): { ok: true; value: string | null } | { o
   }
 
   return { ok: true, value };
+}
+
+async function visibleOrderIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  events: { entity_type: string; entity_id: string | null }[]
+) {
+  const orderIds = [
+    ...new Set(
+      events.flatMap((event) =>
+        event.entity_type === "order" && event.entity_id ? [event.entity_id] : []
+      )
+    ),
+  ];
+
+  if (orderIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .in("id", orderIds);
+
+  if (error || !data) {
+    return new Set<string>();
+  }
+
+  return new Set(
+    data.flatMap((row) => (typeof row.id === "string" ? [row.id] : []))
+  );
 }
 
 function parseTimestamp(
@@ -123,10 +156,14 @@ export async function GET(request: NextRequest) {
   const events = rawEvents
     .map((row) => mapActivityEvent(row))
     .filter((row): row is NonNullable<typeof row> => row !== null);
+  const visibleEvents = withOrderNavigation(
+    events,
+    await visibleOrderIds(supabase, context.tenant.id, events)
+  );
 
   return NextResponse.json({
     tenant: context.tenant.slug,
-    events,
+    events: visibleEvents,
     total: Number(record.total ?? events.length) || 0,
     page: Number(record.page ?? 1) || 1,
     page_size: Number(record.page_size ?? 25) || 25,

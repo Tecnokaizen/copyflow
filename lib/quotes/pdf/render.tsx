@@ -2,13 +2,16 @@
 import React from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { join } from "node:path";
-import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Font, Image, Link, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { richTextToPlainText } from "@/lib/rich-text/html";
+import { richTextLines, type RichTextRun } from "@/lib/rich-text/lines";
 import { documentDate, documentMoney, documentUnitPrice, documentNumber, type DocumentParty, type QuoteDocumentModel } from "./model";
 
 Font.register({ family: "Noto Sans", fonts: [
   { src: join(process.cwd(), "assets/fonts/noto-sans-latin-400-normal.woff"), fontWeight: 400 },
   { src: join(process.cwd(), "assets/fonts/noto-sans-latin-700-normal.woff"), fontWeight: 700 },
+  { src: join(process.cwd(), "assets/fonts/noto-sans-latin-400-italic.woff"), fontWeight: 400, fontStyle: "italic" },
+  { src: join(process.cwd(), "assets/fonts/noto-sans-latin-700-italic.woff"), fontWeight: 700, fontStyle: "italic" },
 ] });
 Font.registerHyphenationCallback((word) => [word]);
 const s = StyleSheet.create({
@@ -31,7 +34,49 @@ const s = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
   grand: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, paddingTop: 9, fontSize: 13, fontWeight: 700 },
   terms: { marginTop: 22 }, footer: { position: "absolute", bottom: 25, left: 40, right: 40, fontSize: 8, color: "#62717d", flexDirection: "row", justifyContent: "space-between" },
+  quoteFooter: { position: "absolute", left: 40, right: 40, fontSize: 8, color: "#62717d", lineHeight: 1.35 },
+  quoteFooterLine: { fontSize: 8, color: "#62717d" },
 });
+
+// Conservative width also fits the widest bold glyphs. Reserve every wrapped line.
+const FOOTER_WRAP_CHARS = 60;
+function wrapFooterLine(runs: RichTextRun[]): RichTextRun[][] {
+  const line = runs.map((run) => run.text).join("");
+  if (!line) return [[{ text: " " }]];
+  if (line.length <= FOOTER_WRAP_CHARS) return [runs];
+  const wrapped: string[] = [];
+  let rest = line;
+  while (rest.length > FOOTER_WRAP_CHARS) {
+    const space = rest.lastIndexOf(" ", FOOTER_WRAP_CHARS);
+    const cut = space > 0 ? space : FOOTER_WRAP_CHARS;
+    wrapped.push(rest.slice(0, cut));
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) wrapped.push(rest);
+  let cursor = 0;
+  return wrapped.map((part) => {
+    const start = line.indexOf(part, cursor), end = start + part.length;
+    cursor = end;
+    let offset = 0;
+    return runs.flatMap((run) => {
+      const from = Math.max(start - offset, 0), to = Math.min(end - offset, run.text.length);
+      offset += run.text.length;
+      return to > from ? [{ ...run, text: run.text.slice(from, to) }] : [];
+    });
+  });
+}
+
+function FooterRun({ run }: { run: RichTextRun }) {
+  const style = {
+    fontWeight: run.bold ? 700 : 400,
+    fontStyle: run.italic ? "italic" as const : "normal" as const,
+    textDecoration: run.strike && (run.underline || run.href) ? "underline line-through" as const
+      : run.strike ? "line-through" as const : run.underline || run.href ? "underline" as const : "none" as const,
+    color: run.href ? "#2459a6" : "#62717d",
+  };
+  return run.href ? <Link src={run.href} style={style}>{run.text}</Link>
+    : <Text style={style}>{run.text}</Text>;
+}
 function Party({ label, party }: { label: string; party: DocumentParty }) {
   return <View style={s.party}><Text style={s.label}>{label}</Text><Text style={s.bold}>{party.name}</Text>
     {[party.contact, party.taxId && `NIF: ${party.taxId}`, party.address, party.email, party.phone].filter(Boolean).map((value, i) => <Text key={i}>{value}</Text>)}
@@ -41,11 +86,18 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
   const { version: v } = model;
   const revision = v.version_number > 1 ? ` · Revisión ${v.version_number}` : "";
   const money = (value: string) => documentMoney(value, v.currency);
+  const footerLines = model.footer
+    ? richTextLines(model.footer).flatMap(wrapFooterLine)
+    : [];
+  const footerHeight = footerLines.length * 12;
+  const pageStyle = footerHeight
+    ? [s.page, { paddingBottom: 58 + footerHeight }]
+    : s.page;
   // PDF metadata derives from locked_at, never wall clock, so retries are byte-identical.
   const date = new Date(v.locked_at!);
   const buffer = await renderToBuffer(<Document title={`Presupuesto ${model.reference}${revision}`} author={model.seller.name}
     creator="Gestcopy" producer="Gestcopy commercial-v1" creationDate={date} modificationDate={date}>
-    <Page size="A4" style={s.page} wrap>
+    <Page size="A4" style={pageStyle} wrap>
       <View fixed style={[s.header, { borderBottomColor: model.brandColor }]}>
         {logo ? <Image src={logo} style={s.logo} /> : <Text style={[s.sellerName, { color: model.brandColor }]}>{model.seller.name}</Text>}
         <View style={s.ref}><Text style={s.bold}>PRESUPUESTO</Text><Text>{model.reference}{revision}</Text>
@@ -69,6 +121,15 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
         <View style={[s.grand, { borderTopColor: model.brandColor }]}><Text>Total</Text><Text>{money(v.total)}</Text></View>
       </View>
       {model.terms ? <View style={s.terms}><Text style={s.label}>CONDICIONES</Text><Text>{model.terms}</Text></View> : null}
+      {footerLines.length ? (
+        <View fixed style={[s.quoteFooter, { bottom: 40 }]}>
+          {footerLines.map((line, index) => (
+            <Text key={index} style={[s.quoteFooterLine, { width: 515 }]}>
+              {line.map((run, runIndex) => <FooterRun key={runIndex} run={run} />)}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       <Text fixed style={{ position: "absolute", bottom: 25, left: 40, width: 400, fontSize: 8, color: "#62717d" }}>{model.reference}{revision} · {v.currency}</Text>
     </Page>
   </Document>);

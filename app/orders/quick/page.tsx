@@ -57,7 +57,7 @@ function QuickOrderContent() {
       <AppNav />
       <PageHeader
         title="Pedido rápido"
-        description="Alta corta para el mostrador. El resto se completa en la ficha."
+        description="Alta corta para el mostrador."
         className="mb-5 sm:mb-6"
       />
       <CreateOrderForm

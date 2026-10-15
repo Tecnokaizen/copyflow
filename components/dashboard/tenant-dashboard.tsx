@@ -14,6 +14,7 @@ import type {
   DashboardUpcomingOrder,
   DashboardWorkloadMember,
 } from "@/lib/dashboard/types";
+import { formatReviewDueLine } from "@/lib/orders/review";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
 import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
 import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
@@ -40,18 +41,24 @@ function formatOperativeDate(localDate: string) {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-function formatDueTime(value: string | null) {
+function formatDueTime(value: string | null, timeZone: string) {
   if (!value) {
     return "—";
   }
 
+  const due = new Date(value);
+  if (Number.isNaN(due.getTime())) {
+    return "—";
+  }
+
   return new Intl.DateTimeFormat("es-ES", {
+    timeZone,
     weekday: "short",
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(due);
 }
 
 function priorityTone(
@@ -115,12 +122,18 @@ function KpiLink({
   );
 }
 
-function UpcomingRow({ order }: { order: DashboardUpcomingOrder }) {
+function UpcomingRow({
+  order,
+  timeZone,
+}: {
+  order: DashboardUpcomingOrder;
+  timeZone: string;
+}) {
   return (
     <Link href={`/orders/${order.id}`} className="gc-list-row">
       <div className="flex items-start gap-3.5">
-        <div className="w-[6.25rem] shrink-0 text-[0.9375rem] font-bold tabular-nums leading-snug text-foreground">
-          {formatDueTime(order.due_at)}
+        <div className="w-[7.5rem] shrink-0 text-sm font-semibold tabular-nums leading-snug text-foreground">
+          {formatDueTime(order.due_at, timeZone)}
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[0.975rem] font-semibold text-foreground">
@@ -148,31 +161,38 @@ function UpcomingRow({ order }: { order: DashboardUpcomingOrder }) {
   );
 }
 
-function AttentionRow({ order }: { order: DashboardAttentionOrder }) {
+function AttentionRow({
+  order,
+  timeZone,
+  localDate,
+}: {
+  order: DashboardAttentionOrder;
+  timeZone: string;
+  localDate: string;
+}) {
+  const dueLabel = formatReviewDueLine(order.due_at, timeZone, localDate);
+  const assignee = order.assigned_team_member?.name ?? "Sin asignar";
+
   return (
     <Link href={`/orders/${order.id}`} className="gc-list-row">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[0.8125rem] font-medium text-muted-foreground">
-            {order.reference}
-          </p>
-          <p className="mt-1 truncate text-[0.975rem] font-semibold text-foreground">
-            {order.title}
-          </p>
-          <p className="mt-1 truncate text-[0.8125rem] text-muted-foreground">
-            {order.assigned_team_member?.name ?? "Sin asignar"}
-            {order.due_at ? ` · ${formatDueTime(order.due_at)}` : ""}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          {order.priority !== "normal" ? (
-            <StatusBadge tone={priorityTone(order.priority)}>
-              {priorityLabel(order.priority)}
+      <div className="min-w-0">
+        <p className="text-[0.8125rem] font-medium text-muted-foreground">
+          {order.reference}
+        </p>
+        <p className="mt-1 break-words text-[0.975rem] font-semibold text-foreground">
+          {order.title}
+        </p>
+        <p className="mt-1 break-words text-[0.8125rem] text-muted-foreground">
+          {assignee}
+          {dueLabel ? ` · ${dueLabel}` : ""}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {order.review_reasons.map((reason) => (
+            <StatusBadge key={reason.code} tone={reason.tone}>
+              {reason.label}
             </StatusBadge>
-          ) : null}
-          {order.status?.name ? (
-            <StatusBadge status={order.status} />
-          ) : null}
+          ))}
+          {order.status?.name ? <StatusBadge status={order.status} /> : null}
         </div>
       </div>
     </Link>
@@ -321,9 +341,10 @@ export function TenantDashboard() {
       <PageHeader
         title="GESTCOPY · Panel diario"
         description={dateLabel || undefined}
-        className="mb-7 sm:mb-8"
+        className="mb-6 sm:mb-7"
       />
 
+      <div className="space-y-6 sm:space-y-7">
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiLink
           label="Pedidos activos"
@@ -353,7 +374,6 @@ export function TenantDashboard() {
       {data?.quotes ? (
         <SectionCard
           title="Presupuestos"
-          className="mt-4"
           actions={
             <Link
               href="/quotes"
@@ -389,27 +409,33 @@ export function TenantDashboard() {
         </SectionCard>
       ) : null}
 
-      <div className="mt-7 grid gap-4 sm:mt-8 lg:grid-cols-3 lg:gap-5">
-        <SectionCard
-          title="Próximas entregas"
-          description="Entregas posteriores a hoy."
-          bodyClassName="space-y-2.5 p-4 sm:p-5"
-        >
-          {upcoming.length === 0 ? (
-            <EmptyState
-              title="No hay entregas próximas."
-              className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
-            />
-          ) : (
-            upcoming.map((order) => (
-              <UpcomingRow key={order.id} order={order} />
-            ))
-          )}
-        </SectionCard>
+      <SectionCard
+        title="Carga del equipo"
+        description="Pedidos activos por persona"
+        bodyClassName="p-4 sm:p-5"
+      >
+        {members.length === 0 ? (
+          <EmptyState
+            title="No hay miembros activos."
+            className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {members.map((member) => (
+              <WorkloadRow
+                key={member.id}
+                member={member}
+                maxCount={workloadMax}
+              />
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-5">
         <SectionCard
-          title="Necesitan atención"
-          description="Trabajos listos pendientes de completar."
+          title="Requieren revisión"
+          description="Pedidos que requieren una acción antes de continuar."
           actions={
             attentionCount > attentionOrders.length ? (
               <Link
@@ -422,38 +448,44 @@ export function TenantDashboard() {
           }
           bodyClassName="space-y-2.5 p-4 sm:p-5"
         >
-          {attentionCount === 0 ? (
+          {attentionOrders.length === 0 ? (
             <EmptyState
-              title="No hay pedidos pendientes de atención."
+              title="No hay pedidos que requieran revisión."
               className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
             />
           ) : (
             attentionOrders.map((order) => (
-              <AttentionRow key={order.id} order={order} />
+              <AttentionRow
+                key={order.id}
+                order={order}
+                timeZone={data?.timezone ?? "Europe/Madrid"}
+                localDate={data?.local_date ?? ""}
+              />
             ))
           )}
         </SectionCard>
 
         <SectionCard
-          title="Carga del equipo"
-          description="Pedidos activos por persona"
+          title="Próximas entregas"
+          description="Entregas posteriores a hoy."
           bodyClassName="space-y-2.5 p-4 sm:p-5"
         >
-          {members.length === 0 ? (
+          {upcoming.length === 0 ? (
             <EmptyState
-              title="No hay miembros activos."
+              title="No hay entregas próximas."
               className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
             />
           ) : (
-            members.map((member) => (
-              <WorkloadRow
-                key={member.id}
-                member={member}
-                maxCount={workloadMax}
+            upcoming.map((order) => (
+              <UpcomingRow
+                key={order.id}
+                order={order}
+                timeZone={data?.timezone ?? "Europe/Madrid"}
               />
             ))
           )}
         </SectionCard>
+      </div>
       </div>
     </DashboardShell>
   );

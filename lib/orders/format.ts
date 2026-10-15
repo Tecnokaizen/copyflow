@@ -1,5 +1,12 @@
 import { richTextToPlainText } from "@/lib/rich-text/html";
+import { formatOrderMoney } from "@/lib/orders/money";
 import type { ActivityItem } from "@/lib/orders/types";
+
+function activityMoney(value: string | null | undefined) {
+  if (!value) return "Sin definir";
+  const formatted = formatOrderMoney(value);
+  return formatted === "—" ? value : formatted;
+}
 
 export function formatDate(value: string | null) {
   if (!value) return "—";
@@ -229,6 +236,22 @@ export function formatActivityText(item: ActivityItem) {
   if (item.action === "order.file_uploaded") {
     const filename = activityFileName(item.metadata);
     return filename ? `Archivo subido: ${filename}` : "Archivo subido";
+  }
+
+  if (item.action === "order.total_changed") {
+    const from = activityMoney(item.previous_values?.total_amount);
+    const to = activityMoney(item.new_values?.total_amount);
+    return `Total: ${from} → ${to}`;
+  }
+
+  if (item.action === "order.payment_recorded") {
+    const amount = formatOrderMoney(item.new_values?.amount);
+    return amount === "—" ? "Entrega a cuenta" : `Entrega a cuenta: ${amount}`;
+  }
+
+  if (item.action === "order.payment_voided") {
+    const amount = formatOrderMoney(item.previous_values?.amount);
+    return amount === "—" ? "Entrega anulada" : `Entrega anulada: ${amount}`;
   }
 
   if (item.action === "order.file_deleted") {

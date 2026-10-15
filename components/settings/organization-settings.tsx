@@ -5,20 +5,28 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { TenantBrand } from "@/components/tenant-brand";
+import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { richTextLineStats } from "@/lib/rich-text/lines";
 import { Button } from "@/components/ui/button";
-import { parseBrandColor } from "@/lib/tenant/branding";
+import {
+  parseBrandColor,
+  parseQuoteFooter,
+  QUOTE_FOOTER_MAX_CHARS,
+  QUOTE_FOOTER_MAX_LINES,
+} from "@/lib/tenant/branding";
 import {
   notifyOrganizationIdentityChanged,
   versionedLogoUrl,
   type OrganizationIdentity,
 } from "@/lib/tenant/identity-events";
 
-type Identity = OrganizationIdentity;
+type Identity = OrganizationIdentity & { quote_footer: string };
 
 export function OrganizationSettings() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState("");
+  const [footer, setFooter] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +46,7 @@ export function OrganizationSettings() {
         setIdentity(body);
         setName(body.business_name ?? "");
         setColor(body.branding.brand_color ?? "");
+        setFooter(body.quote_footer ?? "");
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -64,6 +73,7 @@ export function OrganizationSettings() {
         setIdentity(body);
         setName(body.business_name ?? "");
         setColor(body.branding.brand_color ?? "");
+        setFooter(body.quote_footer ?? "");
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -75,6 +85,8 @@ export function OrganizationSettings() {
   }
 
   const draftColor = parseBrandColor(color);
+  const { chars: footerChars, lines: footerLines } = richTextLineStats(footer);
+  const footerValid = parseQuoteFooter(footer).ok;
   const previewColor = draftColor === undefined ? identity?.branding.brand_color ?? null : draftColor;
   const logoUrl = versionedLogoUrl(identity?.logo_url ?? null, logoVersion);
 
@@ -82,6 +94,11 @@ export function OrganizationSettings() {
     event.preventDefault();
     if (draftColor === undefined) {
       setError("El color debe ser un hexadecimal de 6 dígitos, por ejemplo #1D4ED8.");
+      return;
+    }
+    const draftFooter = parseQuoteFooter(footer);
+    if (!draftFooter.ok) {
+      setError(draftFooter.error);
       return;
     }
     setSaving(true);
@@ -93,6 +110,7 @@ export function OrganizationSettings() {
         body: JSON.stringify({
           business_name: name,
           brand_color: draftColor,
+          quote_footer: footer,
         }),
       });
       const body = (await response.json()) as Identity & { error?: string };
@@ -100,6 +118,7 @@ export function OrganizationSettings() {
       setIdentity(body);
       setName(body.business_name ?? "");
       setColor(body.branding.brand_color ?? "");
+      setFooter(body.quote_footer ?? "");
       setLogoVersion(notifyOrganizationIdentityChanged(body));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se ha podido guardar.");
@@ -188,6 +207,32 @@ export function OrganizationSettings() {
               onChange={(event) => setColor(event.target.value)}
             />
           </label>
+          <div className="grid gap-1.5 text-sm">
+            <span>Pie de presupuestos</span>
+            <RichTextEditor
+              ariaLabel="Pie de presupuestos"
+              value={footer}
+              onChange={setFooter}
+              disabled={saving}
+              invalid={!footerValid}
+            />
+            <span className="text-muted-foreground">
+              Este texto aparecerá en el pie de los nuevos presupuestos preparados.
+              Los presupuestos ya preparados conservarán el pie que tenían en ese momento.
+            </span>
+            <span
+              className={
+                footerChars > QUOTE_FOOTER_MAX_CHARS ||
+                footerLines > QUOTE_FOOTER_MAX_LINES
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
+              {footerChars} / {QUOTE_FOOTER_MAX_CHARS}
+              {" · "}
+              Máximo 400 caracteres visibles y 4 líneas de contenido.
+            </span>
+          </div>
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={saving || logoBusy}>
               Guardar identidad

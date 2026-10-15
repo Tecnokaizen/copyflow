@@ -53,7 +53,7 @@ export type Order = {
   status_id: string | null;
 
   client: OrderClient | null;
-  service: OrderNamedRef | null;
+  service: (OrderNamedRef & { requires_quote?: boolean | null }) | null;
   service_id: string | null;
   entry_channel_id: string | null;
   assigned_team_member_id: string | null;
@@ -86,6 +86,8 @@ export type SourceQuote = {id:string;reference:string;total:string;currency:stri
 
 export type OrderResponse = {
   source_quote?: SourceQuote | null;
+  /** True when the order comes from a quote the current user cannot read. */
+  source_quote_restricted?: boolean;
   tenant: string;
   order: Order;
 };
@@ -113,6 +115,8 @@ export type ActivityItem = {
     value_name?: string | null;
     client_id?: string | null;
     client_name?: string | null;
+    total_amount?: string | null;
+    amount?: string | null;
   } | null;
   new_values: {
     status_id?: string | null;
@@ -130,6 +134,8 @@ export type ActivityItem = {
     value_name?: string | null;
     client_id?: string | null;
     client_name?: string | null;
+    total_amount?: string | null;
+    amount?: string | null;
   } | null;
   metadata: {
     reference?: string;

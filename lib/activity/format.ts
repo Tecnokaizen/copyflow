@@ -1,5 +1,6 @@
 import { formatLeadTimeMinutes } from "@/lib/services/types";
 import { richTextToPlainText } from "@/lib/rich-text/html";
+import { assigneeActivityOption } from "@/lib/activity/filters";
 import {
   ACTION_OPTIONS,
   type ActivityEvent,
@@ -338,7 +339,10 @@ function entityHref(event: ActivityEvent) {
 
   switch (event.entity_type) {
     case "order":
-      return id ? `/orders/${id}` : "/orders";
+      if (!id || event.navigable === false) {
+        return null;
+      }
+      return `/orders/${id}`;
     case "quote":
       return id ? `/quotes/${id}` : "/quotes";
     case "client":
@@ -426,7 +430,21 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
       );
 
     case "order.archived":
+    case "quote.internal_notes_updated":
       return [];
+
+    case "order.total_changed":
+      return singleChange(
+        "Total",
+        asString(prev.total_amount) || "Sin definir",
+        asString(next.total_amount) || "Sin definir"
+      );
+
+    case "order.payment_recorded":
+      return singleChange("Entrega", "—", asString(next.amount) || "—");
+
+    case "order.payment_voided":
+      return singleChange("Entrega anulada", asString(prev.amount) || "—", "Anulada");
 
     case "order.client_changed":
       return singleChange(
@@ -517,6 +535,14 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return `Actualizó el presupuesto ${entity}`;
     case "quote.status_changed":
       return `Cambió el estado de ${entity}`;
+    case "quote.internal_notes_updated":
+      return "Actualizó las notas internas";
+    case "order.total_changed":
+      return `Actualizó el total de ${entity}`;
+    case "order.payment_recorded":
+      return `Registró una entrega a cuenta en ${entity}`;
+    case "order.payment_voided":
+      return `Anuló una entrega a cuenta de ${entity}`;
     case "quote.converted": {
       const orderReference =
         asString(asRecord(event.new_values).order_reference) ??
@@ -665,6 +691,10 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "quote.pdf_generated",
     "quote.file_uploaded",
     "quote.file_deleted",
+    "quote.internal_notes_updated",
+    "order.total_changed",
+    "order.payment_recorded",
+    "order.payment_voided",
   ].includes(event.action);
 
   const changes = extractChanges(event);
@@ -682,11 +712,26 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
   };
 }
 
-export function actionsForEntity(entityType: string) {
+export function actionsForEntity(
+  entityType: string
+): { value: string; label: string }[] {
   if (!entityType) {
     return ACTION_OPTIONS;
   }
 
   const prefix = `${entityType}.`;
-  return ACTION_OPTIONS.filter((option) => option.value.startsWith(prefix));
+  const options: { value: string; label: string }[] = ACTION_OPTIONS.filter(
+    (option) => option.value.startsWith(prefix)
+  );
+
+  if (entityType !== "order") {
+    return options;
+  }
+
+  const statusIndex = options.findIndex(
+    (option) => option.value === "order.status_changed"
+  );
+  const withAssignee = options.slice();
+  withAssignee.splice(statusIndex + 1, 0, assigneeActivityOption);
+  return withAssignee;
 }

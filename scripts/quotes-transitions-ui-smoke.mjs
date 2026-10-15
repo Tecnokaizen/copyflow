@@ -212,10 +212,9 @@ try {
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
-    await page.getByRole("button", { name: "Editar gestión", exact: true }).click();
+    await page.locator('select[aria-label="Servicio"] option[value="service-1"]').waitFor({ state: "attached" });
     await page.getByLabel("Servicio", { exact: true }).selectOption("service-1");
-    await page.getByRole("button", { name: "Guardar gestión", exact: true }).click();
-    await page.getByRole("status").filter({ hasText: "Gestión operativa guardada" }).waitFor();
+    await page.getByRole("status").filter({ hasText: "Servicio actualizado" }).waitFor();
     check(events.some(e => /\/(send|status|convert|accept|reject)$/.test(e.pathname)), false, "No excluded workflow requests");
     check(h.errors, [], "No browser errors");
     await page.close();

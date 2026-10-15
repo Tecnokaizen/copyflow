@@ -28,6 +28,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   },
   allowProtocolRelative: false,
   disallowedTagsMode: "discard",
+  exclusiveFilter: (frame) => frame.tag === "a" && !isSafeLinkHref(frame.attribs.href) ? "excludeTag" : false,
   transformTags: {
     b: "strong",
     i: "em",
@@ -35,7 +36,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     del: "s",
     a: (tagName, attribs): sanitizeHtml.Tag => {
       if (!isSafeLinkHref(attribs.href)) {
-        return { tagName: "span", attribs: {} };
+        return { tagName, attribs: {} };
       }
       return { tagName, attribs: { href: attribs.href.trim() } };
     },
@@ -110,7 +111,9 @@ function withSafeLinkRel(html: string) {
     if (!isSafeLinkHref(href)) {
       return "<a>";
     }
-    return `<a href="${escapeText(href)}" rel="noopener noreferrer">`;
+    // sanitize-html already escaped this attribute. Escaping again changes query
+    // strings on each save/read cycle and makes the canonical value unstable.
+    return `<a href="${href}" rel="noopener noreferrer">`;
   });
 }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { OrderCollection } from "@/components/orders/detail/order-collection";
 import { CreateOrderFiles } from "@/components/files/create-order-files";
 import { OrderFilesSection } from "@/components/files/order-files-section";
 import { type ClientUploadItem, MAX_ORDER_FILE_BYTES } from "@/lib/files/client";
@@ -37,6 +39,7 @@ import {
 } from "@/lib/orders/create-form";
 import {
   defaultSingleCatalogId,
+  groupQuickOrderPrimaryFields,
   isQuickCreateMode,
   quickFieldIsAvailable,
   shouldStayOnCreateForm,
@@ -90,6 +93,8 @@ export function CreateOrderForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOrder | null>(null);
+  const [collectionActive, setCollectionActive] = useState(false);
+  const [collectionMessage, setCollectionMessage] = useState<string | null>(null);
 
   const submitLock = useRef(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
@@ -125,6 +130,7 @@ export function CreateOrderForm({
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
   const [dueAt, setDueAt] = useState("");
+  const [dueAtInvalid, setDueAtInvalid] = useState(false);
   const [entryChannelId, setEntryChannelId] = useState("");
   const [orderContextId, setOrderContextId] = useState("");
   const [priority, setPriority] = useState<"normal" | "high" | "urgent">(
@@ -170,6 +176,7 @@ export function CreateOrderForm({
     setServiceId("");
     setDescription("");
     setDueAt("");
+    setDueAtInvalid(false);
     setEntryChannelId("");
     setOrderContextId("");
     setPriority("normal");
@@ -178,6 +185,8 @@ export function CreateOrderForm({
     setNotes("");
     setError(null);
     setCreated(null);
+    setCollectionActive(false);
+    setCollectionMessage(null);
     setSubmitting(false);
     if (nextOptions) {
       applyCatalogDefaults(nextOptions);
@@ -250,10 +259,15 @@ export function CreateOrderForm({
   const quickPrimaryFields = fieldsForPlacement(
     quickLayout,
     "primary"
-  ).filter((field) => quickFieldIsAvailable(field, quickCatalogCounts));
-  const quickMoreFields = fieldsForPlacement(quickLayout, "more").filter(
-    (field) => quickFieldIsAvailable(field, quickCatalogCounts)
+  ).filter(
+    (field) =>
+      field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
+  const quickMoreFields = fieldsForPlacement(quickLayout, "more").filter(
+    (field) =>
+      field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
+  );
+  const quickGroups = groupQuickOrderPrimaryFields(quickPrimaryFields);
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -344,6 +358,10 @@ export function CreateOrderForm({
       return;
     }
 
+    if (dueAtInvalid) {
+      setError("Debes indicar una fecha y hora de entrega válidas para guardar el pedido.");
+      return;
+    }
     const dueAtIso = dueAt.trim() ? fromDateTimeLocalValue(dueAt) : null;
     if (dueAt.trim() && !dueAtIso) {
       setError(MISSING_LOCAL_HOUR_MESSAGE);
@@ -514,8 +532,8 @@ export function CreateOrderForm({
 
   function renderClientField() {
     return (
-      <label className="grid gap-2 text-sm font-medium text-foreground">
-        Cliente
+      <div className="grid gap-2 text-sm font-medium text-foreground">
+        <span>Cliente</span>
         <ClientSelector
           value={selectedClient}
           disabled={submitting}
@@ -526,7 +544,7 @@ export function CreateOrderForm({
         <span className="text-xs font-normal text-muted-foreground">
           Busca por nombre, empresa o teléfono, o créalo sin salir.
         </span>
-      </label>
+      </div>
     );
   }
 
@@ -583,7 +601,7 @@ export function CreateOrderForm({
     return (
       <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
-        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} />
+        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} onValidityChange={setDueAtInvalid} />
       </div>
     );
   }
@@ -632,18 +650,19 @@ export function CreateOrderForm({
   function renderTitleField() {
     return (
       <label className="grid gap-2 text-sm font-medium text-foreground">
-        Nombre del pedido
+        Título del pedido
         <DraftInput
           value={title}
           disabled={submitting}
+          placeholder="Ej. 200 tarjetas de visita"
           className="max-w-none text-base"
           onChange={setTitle}
         />
-        <span className="text-xs font-normal text-muted-foreground">
-          {title.trim()
-            ? "Este nombre es el que verás en la ficha y en la lista."
-            : `Si lo dejas vacío se usará «${derivedTitle}».`}
-        </span>
+        {title.trim() ? null : (
+          <span className="text-xs font-normal text-muted-foreground">
+            {`Si lo dejas vacío se usará «${derivedTitle}».`}
+          </span>
+        )}
       </label>
     );
   }
@@ -759,6 +778,19 @@ export function CreateOrderForm({
           ) : null}
           {pendingUploads && !submitting ? <p className="text-sm text-muted-foreground">Los archivos pendientes siguen en esta pantalla. Si sales, tendrás que seleccionarlos de nuevo en la ficha.</p> : null}
         </div>
+        {isQuick && !submitting ? <div className="mb-5">
+          <h2 className="font-semibold">Importe y entrega a cuenta</h2>
+          <p className="mt-1 mb-3 text-sm text-muted-foreground">Define el importe total y registra lo entregado a cuenta en este pedido. El pendiente se calcula automáticamente.</p>
+          <OrderCollection
+            key={created.id}
+            orderId={created.id}
+            canWrite={canWriteOrders(options?.actor_role)}
+            archived={false}
+            onChanged={() => setCollectionMessage("Cobro actualizado en el pedido.")}
+            onInteractionChange={setCollectionActive}
+          />
+          {collectionMessage ? <p role="status" className="mt-2 text-sm text-muted-foreground">{collectionMessage}</p> : null}
+        </div> : null}
         {!submitting ? <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Link
             href={`/orders/${created.id}`}
@@ -768,7 +800,7 @@ export function CreateOrderForm({
           </Link>
           <button
             type="button"
-            disabled={pendingUploads}
+            disabled={pendingUploads || collectionActive}
             onClick={() => resetQuickForm(options)}
             className="gc-action min-h-11 w-full sm:w-auto"
           >
@@ -792,8 +824,8 @@ export function CreateOrderForm({
       title={isQuick ? "Pedido rápido" : "Nuevo pedido"}
       description={
         isQuick
-          ? "Cliente, servicio y lo imprescindible para dejarlo apuntado."
-          : "Datos mínimos para registrar el trabajo. El resto se puede completar en la ficha."
+          ? "Registra el pedido con su título y los datos imprescindibles."
+          : "Registra un nuevo pedido y completa los datos necesarios para su gestión."
       }
       className="mb-6"
       bodyClassName="px-5 py-5 sm:px-6"
@@ -814,9 +846,46 @@ export function CreateOrderForm({
         <form onSubmit={handleSubmit} className="grid gap-5">
           {isQuick ? (
             <>
-              {quickPrimaryFields.map((field) => (
-                <Fragment key={field}>{renderQuickField(field)}</Fragment>
-              ))}
+              <div
+                data-testid="quick-primary-identification"
+                className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3"
+              >
+                <div className="min-w-0">{renderTitleField()}</div>
+                {quickGroups.identification.map((field) => (
+                  <div key={field} className="min-w-0">{renderQuickField(field)}</div>
+                ))}
+              </div>
+              {quickGroups.assignment.length > 0 ? (
+                <div
+                  data-testid="quick-primary-assignment"
+                  className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3"
+                >
+                  {quickGroups.assignment.map((field) => (
+                    <div key={field} className="min-w-0">{renderQuickField(field)}</div>
+                  ))}
+                </div>
+              ) : null}
+              {quickGroups.description ? (
+                <div data-testid="quick-primary-description" className="min-w-0">
+                  {renderQuickDescriptionField()}
+                </div>
+              ) : null}
+              {quickGroups.additional.length > 0 ? (
+                <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {quickGroups.additional.map((field) => (
+                    <div
+                      key={field}
+                      className={
+                        field === "files" || field === "notes"
+                          ? "min-w-0 md:col-span-2 xl:col-span-3"
+                          : "min-w-0"
+                      }
+                    >
+                      {renderQuickField(field)}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {quickMoreFields.length > 0 ? (
                 <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                   <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
@@ -834,6 +903,7 @@ export function CreateOrderForm({
             </>
           ) : (
             <>
+              {renderTitleField()}
               {renderClientField()}
               {renderStoreField()}
               {renderServiceField()}
@@ -849,7 +919,6 @@ export function CreateOrderForm({
                   Más opciones
                 </summary>
                 <div className="mt-4 grid gap-5">
-                  {renderTitleField()}
                   {renderContextField()}
                   {renderNotesField()}
                 </div>

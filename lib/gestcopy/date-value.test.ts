@@ -9,6 +9,7 @@ import {
   isClockTime,
   quarterHourOptions,
   splitDateTimeLocal,
+  withDefaultDeliveryHour,
 } from "./date-value";
 
 describe("civil dates", () => {
@@ -35,6 +36,13 @@ describe("civil dates", () => {
 });
 
 describe("date and time", () => {
+  it("defaults a newly chosen date to 18:00 without changing an existing hour", () => {
+    assert.equal(withDefaultDeliveryHour("2026-10-13", ""), "18:00");
+    assert.equal(withDefaultDeliveryHour("2026-10-13", "11:45"), "11:45");
+    assert.equal(withDefaultDeliveryHour("", ""), "");
+    assert.equal(combineDateTimeLocal("2026-10-13", withDefaultDeliveryHour("2026-10-13", "")), "2026-10-13T18:00");
+  });
+
   it("keeps a complete local value and rejects a partial or invalid hour", () => {
     assert.equal(combineDateTimeLocal("2026-09-23", "10:30"), "2026-09-23T10:30");
     assert.equal(combineDateTimeLocal("2026-09-23", "10:07"), "2026-09-23T10:07");
@@ -70,6 +78,10 @@ describe("operational date surfaces", () => {
       new URL("../../components/orders/create-order-form.tsx", import.meta.url),
       "utf8"
     );
+    const collection = readFileSync(
+      new URL("../../components/orders/detail/order-collection.tsx", import.meta.url),
+      "utf8"
+    );
     const production = readFileSync(
       new URL("../../components/orders/detail/order-production.tsx", import.meta.url),
       "utf8"
@@ -83,8 +95,22 @@ describe("operational date surfaces", () => {
       "utf8"
     );
 
-    assert.match(orderForm, /DateTimePicker/);
-    assert.match(production, /DateTimePicker/);
+    const picker = readFileSync(
+      new URL("../../components/gestcopy/date-time-picker.tsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(picker, /withDefaultDeliveryHour/);
+    assert.match(picker, /onValidityChange/);
+    assert.match(picker, /function clear\(\)/);
+    assert.match(
+      picker,
+      /if \(!fromDateTimeLocalValue\(complete\)\) \{[\s\S]*?onChange\(complete\);/
+    );
+    assert.match(orderForm, /onValidityChange=\{setDueAtInvalid\}/);
+    assert.match(orderForm, /if \(dueAtInvalid\)/);
+    assert.match(production, /onValidityChange=/);
+    assert.match(collection, /DateTimePicker/);
+    assert.equal(collection.includes('type="datetime-local"'), false);
     assert.match(quoteForm, /DatePicker/);
     assert.equal(orderForm.includes('type="datetime-local"'), false);
     assert.equal(production.includes('type="datetime-local"'), false);
