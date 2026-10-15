@@ -89,6 +89,7 @@ jobs:
             phase47_pro_early_access \
             phase35_quote_files \
             phase44_quote_creation \
+            phase49_quote_conversion_notes \
             phase44_quote_client_recovery \
             phase48_clients_address \
             phase46_files_storage_deletion \
