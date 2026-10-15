@@ -103,6 +103,11 @@ Capturas y resultados de navegador se guardan localmente en `output/payment-rece
 
 ## Validación DEMO y paso a producción
 
+> Plan inicial, anterior al despliegue expand/contract. Lo sustituyen la
+> validación en Staging y el gate final de integración (más abajo): la expand
+> mantiene la firma de cuatro argumentos, así que no hace falta una ventana sin
+> escrituras de cobros.
+
 No se ha aplicado la migración al Supabase remoto ni hecho merge/deploy de producción. Una Preview automática de Vercel conserva el mismo proyecto y no activa por sí sola la migración.
 
 **La BD es compartida: una migración no se aplica únicamente al tenant DEMO.** Retirar la firma antigua deja sin capacidad de registrar nuevas entregas a los clientes antiguos. Por ello, la aplicación de esta migración requiere coordinar una ventana sin escrituras de cobros en el entorno compartido, tener preparada la Preview y mantener esta PR en borrador hasta validar DEMO. No aplicar el SQL remoto como una operación aislada en horario operativo. Si no existe esa ventana, preparar una transición de contrato compatible antes de aplicar; no aceptar silenciosamente pagos sin método.
@@ -154,3 +159,58 @@ dos migraciones (dry-run previo), 2) merge y despliegue, 3) contract en otra PR
 cuando no queden clientes antiguos. Hasta el merge, el workflow `E2E staging`
 lanzado desde `main` no elige método y fallaría contra un Staging con esta PR;
 el runner de esta rama ya lo hace.
+
+## Gate final de integración — 16 de octubre de 2026
+
+Rama actualizada con `main` `8e5dfe1` (#106, #99, #105 y #94) en `e9363b8`, sin
+conflictos.
+
+| Comprobación | Resultado |
+| --- | --- |
+| tsc · lint · build | OK (lint: 0 errores; 4 avisos ya existentes en `main`) |
+| Unitarias | 1153/1153 |
+| Guarda de migraciones | PASS: 2 migraciones, posteriores a la última de `main` |
+| Smokes de navegador | Justificantes (85 aserciones), cobro (234), alta de pedidos (3/3 anchos), cliente en línea (8/8), borrador de presupuestos (290) |
+| SQL de esta rama desde cero (`main` + #95) | 54/54, concurrencias incluidas |
+| **App actual de Production sobre la expand** | Las 51 suites SQL de `main` (`8e5dfe1`) sobre `main` + #95: 51/51. Por PostgREST, con las llamadas exactas de la app actual: total, cobro con 4 argumentos (método `NULL`), reintento idempotente y `total_below_paid`; lectura de `order_payments` con las columnas nuevas. La llamada nueva de 7 argumentos también funciona. El código de cobros, total, archivos y ficha no ha cambiado desde `03fa094`, la versión con la que pasó `E2E-0013` en Staging |
+| Production, solo lectura | Historial = `main` (67); `order_collection_snapshot`, `record_order_payment` (4 argumentos), `set_order_total_amount` y `soft_delete_order_file` con el mismo md5 que `main`; sin columnas, restricciones ni triggers de #95; 20 cobros, 141 archivos, 291 pedidos; ningún pedido con total inferior a lo cobrado |
+| Dry-run en Production | Solo `20261016090000` y `20261016091000` |
+| Preview de `e9363b8` | Comprobación sin sesión de #94: 25/25 |
+| Reversión | `supabase/rollbacks/20261016091000_order_payment_methods_receipts_expand.sql`: probada; deja funciones, permisos, columnas, restricciones, triggers y comentarios iguales que `main`, y se niega a ejecutarse si ya hay cobros con método o justificante |
+
+### Procedimiento (migraciones antes del merge; requiere autorización)
+
+1. Revalidar la PR: head, todos los checks en verde, `CLEAN` y `main` sin
+   cambios.
+2. Foto de Production en solo lectura justo antes de migrar: historial, huellas
+   del libro de cobros, de los totales y de los archivos, y md5 de las funciones.
+3. `db push --dry-run --linked` desde un directorio con exactamente las
+   migraciones del head: debe listar solo las dos. Si lista otra cosa, parar.
+   Después, `db push --linked`.
+4. Comprobación inmediata: 69 migraciones; huellas del libro, totales y archivos
+   idénticas a la foto; ningún cobro con método ni justificante; funciones con el
+   md5 esperado y la firma de 4 argumentos intacta; restricciones y triggers
+   nuevos presentes; comprobación HTTP sin sesión en verde. La app actual sigue
+   funcionando sobre la expand.
+5. Squash merge con `--match-head-commit`. Esperar el Release Gate de `main` y el
+   deployment de Production; repetir la comprobación HTTP.
+6. Lanzar el workflow `E2E staging` desde `main`: con #95 integrada elige método
+   y debe pasar 3/3 contra Staging.
+7. Cerrar #91 como sustituida (con autorización).
+8. Contract en otra PR cuando no quede ningún cliente con la versión anterior
+   (al menos 24 h después), con su propia autorización.
+
+### Recuperación
+
+- **Falla una migración**: `20261016091000` va en una transacción (`begin`/
+  `commit`); `20261016090000` es una sola redefinición. Si falla la segunda, la
+  primera sola es compatible con la app actual. Parar y revisar.
+- **La app actual falla tras migrar, antes del merge**: aplicar
+  `supabase/rollbacks/20261016091000_order_payment_methods_receipts_expand.sql`
+  y `supabase migration repair --status reverted 20261016091000 20261016090000`.
+  Solo es posible mientras no haya cobros con método o justificante.
+- **Falla la app nueva tras el merge**: revertir el código (PR de revert, o
+  restaurar en Vercel el deployment anterior mientras tanto). La base de datos
+  se queda: la expand es compatible con la app anterior. Con cobros con método
+  ya registrados, la recuperación es siempre hacia delante y conserva el libro.
+
