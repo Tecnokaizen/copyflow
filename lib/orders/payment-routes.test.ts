@@ -32,7 +32,7 @@ function harness({ authenticated = true, ownOrder = true, rpcError = null as nul
           }
           assert.equal(filters.tenant_id, tenant);
           assert.equal(filters.order_id, order);
-          return { data: { id: file, storage_key: "private/key", original_name: "bizum.pdf", content_type: "application/pdf", status: fileReady ? "ready" : "pending", deleted_at: null }, error: null };
+          return { data: { id: file, storage_key: `orders/${tenant}/${order}/${file}`, original_name: "bizum.pdf", content_type: "application/pdf", status: fileReady ? "ready" : "pending", deleted_at: null }, error: null };
         },
       };
       return query;
@@ -41,7 +41,7 @@ function harness({ authenticated = true, ownOrder = true, rpcError = null as nul
       calls.push({ name, args });
       if (name === "soft_delete_order_file") return rpcError
         ? { data: null, error: { code: "55000", message: rpcError } }
-        : { data: { id: file }, error: null };
+        : { data: { id: file, storage_deletion_id: "deletion-1" }, error: null };
       return { data: rpcError ? { ok: false, error: rpcError } : snapshot, error: null };
     },
   };
@@ -55,6 +55,13 @@ function harness({ authenticated = true, ownOrder = true, rpcError = null as nul
       if (id === "@/lib/supabase/server") return { createClient: async () => db };
       if (id === "@/lib/orders/profile-names") return { loadProfileNames: async () => [] };
       if (id === "@/lib/files/capability") return { requireFilesSigningSecret: () => "test-only", filesCapabilityIssuedAtNow: () => 1, createFilesCapability: () => ({ issuedAt: 1, signature: "test-signature" }) };
+      // Outbox (#96): the route only asks for an inline attempt; failures stay queued for the cron.
+      if (id === "@/lib/files/storage-deletion-server") return {
+        finalizeUserFileDeletion: async (deletionId: string | null) => {
+          calls.push({ name: "R2_FINALIZE", args: { deletionId } });
+          if (blobFails) return; // logged and left pending; never surfaced as a failed delete
+        },
+      };
       if (id === "@/lib/storage/r2") return {
         deleteObject: async () => { calls.push({ name: "R2_DELETE" }); if (blobFails) throw new Error("blob down"); },
         presignGet: async () => { calls.push({ name: "R2_DOWNLOAD" }); return "https://r2.example/short-lived"; },
@@ -112,15 +119,15 @@ describe("payment methods and real API handlers", () => {
     assert.equal(toPublicOrderFileDto({ id: file, payment_receipts: { id: "payment" } }).protected_document, true);
     assert.equal(toPublicOrderFileDto({ id: file, payment_receipts: null }).protected_document, undefined);
   });
-  it("protects receipt before any blob delete; permits retry after an R2 failure", async () => {
+  it("protects a receipt before any storage deletion; R2 failures stay queued (outbox)", async () => {
     const protectedFile = harness({ rpcError: "payment_receipt_protected" });
     assert.equal((await protectedFile.load(deleteRoute).DELETE(request({}), context)).status, 409);
     assert.deepEqual(protectedFile.calls.map(call => call.name), ["soft_delete_order_file"]);
     const failedBlob = harness({ blobFails: true });
-    assert.equal((await failedBlob.load(deleteRoute).DELETE(request({}), context)).status, 502);
-    assert.deepEqual(failedBlob.calls.map(call => call.name), ["soft_delete_order_file", "R2_DELETE"]);
-    assert.equal((await failedBlob.load(deleteRoute).DELETE(request({}), context)).status, 502);
-    assert.equal(failedBlob.calls.length, 4);
+    assert.equal((await failedBlob.load(deleteRoute).DELETE(request({}), context)).status, 204);
+    assert.deepEqual(failedBlob.calls.map(call => call.name), ["soft_delete_order_file", "R2_FINALIZE"]);
+    assert.deepEqual(failedBlob.calls[1].args, { deletionId: "deletion-1" });
+    assert.equal(failedBlob.calls.some(call => call.name === "R2_DELETE"), false, "the route never deletes R2 directly");
   });
   it("secure download checks current tenant/order and ready file before signing", async () => {
     const relative = "app/api/orders/[id]/files/[fileId]/download/route.ts";

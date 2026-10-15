@@ -93,8 +93,14 @@ begin
     'zero collected allows a 100 total'
   );
 
-  r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-old');
-  perform pg_temp.ok(r->>'error' = 'invalid_payment_method', 'retired contract cannot record the deposit');
+  -- EXPAND: the previous 4-argument contract still records; checked and rolled back.
+  begin
+    r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-old');
+    perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '100.00', 'expand keeps the previous contract');
+    raise exception 'phase46_expand_rollback';
+  exception when others then
+    if sqlerrm <> 'phase46_expand_rollback' then raise; end if;
+  end;
   r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-p1', 'cash', null, ta);
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '100.00', 'real deposit is recorded');
   r := public.record_order_payment(order_a, '100.00', paid_at, 'pay-100-p1');

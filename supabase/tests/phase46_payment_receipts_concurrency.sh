@@ -35,7 +35,7 @@ sql "begin;select set_config('request.jwt.claim.sub','$ACTOR',true);select set_c
 VERSION="$(sql "select row_version::text from public.orders where id='$ORDER'")"
 rpc "public.set_order_total_amount('$ORDER','100.00','$VERSION')" >/dev/null
 sql "insert into public.order_files(id,tenant_id,order_id,original_name,content_type,size_bytes,storage_key,status,etag,completed_at,upload_expires_at,uploaded_by)
-select id::uuid,'$TENANT','$ORDER','receipt.pdf','application/pdf',12,'tenant/$TENANT/order/$ORDER/'||id,'ready','test-etag',now(),now()+interval '5 minutes','$ACTOR'
+select id::uuid,'$TENANT','$ORDER','receipt.pdf','application/pdf',12,'orders/$TENANT/$ORDER/'||id,'ready','test-etag',now(),now()+interval '5 minutes','$ACTOR'
 from unnest(array['$RECEIPT','$RETRY_FILE','$RACE_FILE']) id;" >/dev/null
 pids=()
 for n in 1 2; do

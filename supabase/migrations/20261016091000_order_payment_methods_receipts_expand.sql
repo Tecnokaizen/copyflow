@@ -1,6 +1,19 @@
--- P1 payment methods and private receipts. Forward-only: historical NULL means
--- "Sin especificar (histórico)"; never infer a method for existing money movements.
--- Normal tenant access uses authenticated JWT/memberships/RLS; no service role.
+-- P1 payment methods and private receipts — EXPAND step (PR #95).
+-- Forward-only: historical NULL means "Sin especificar (histórico)"; never infer a
+-- method for existing money movements. Normal tenant access uses authenticated
+-- JWT/memberships/RLS; no service role.
+--
+-- Expand/contract rollout on the shared database:
+--   1. This migration (before the new app): adds columns, constraints, receipt
+--      guards and the 7-argument record_order_payment. The 4-argument contract
+--      used by the current app keeps working unchanged (method NULL, shown as
+--      "Sin especificar"), so no tenant loses the ability to record payments.
+--   2. Deploy the app that always sends a method through the 7-argument RPC.
+--   3. CONTRACT, separate migration once no client uses the old contract:
+--      reject NULL methods on insert and retire the 4-argument signature
+--      (docs/P1-PAYMENT-METHODS-RECEIPTS.md).
+-- Builds soft_delete_order_file on top of 20261014120000 (storage deletion
+-- outbox, #96); it does not revert that behaviour.
 begin;
 
 alter table public.order_files
@@ -31,9 +44,8 @@ begin
     -- voided_at, voided_by and void_reason, and must remain possible.
     return new;
   end if;
-  if tg_op = 'INSERT' and new.payment_method is null then
-    raise exception 'invalid_payment_method' using errcode = '23514';
-  end if;
+  -- EXPAND: NULL is still accepted on insert for the 4-argument contract that
+  -- the previous app version uses. The contract migration rejects it here.
   if new.receipt_file_id is not null then
     perform 1 from public.order_files
     where id = new.receipt_file_id and tenant_id = new.tenant_id
@@ -77,74 +89,8 @@ create trigger trg_order_file_receipt_guard before update or delete on public.or
   for each row execute function public.tg_order_file_receipt_guard();
 revoke all on function public.tg_order_file_receipt_guard() from public, anon, authenticated, service_role;
 
--- Retire the old contract. An in-flight tab may retry a payment that was
--- already stored; that retry replays and does not insert. A new call cannot
--- create money without a method.
-create or replace function public.record_order_payment(
-  p_order_id uuid, p_amount text, p_paid_at timestamptz, p_idempotency_key text
-) returns jsonb
-  language plpgsql
-  security definer
-  set search_path to ''
-as $function$
-declare
-  v_order public.orders%rowtype;
-  v_amount numeric(20,2);
-  v_existing public.order_payments%rowtype;
-begin
-  if auth.uid() is null or p_order_id is null then
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'not_found');
-  end if;
+-- The 4-argument record_order_payment is intentionally NOT redefined here (expand).
 
-  select *
-    into v_order
-  from public.orders
-  where id = p_order_id
-  for update;
-
-  if not found or not public.is_tenant_member(v_order.tenant_id) then
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'not_found');
-  end if;
-
-  if not public.has_tenant_role(
-    v_order.tenant_id,
-    array['owner', 'admin', 'manager', 'staff']::text[]
-  ) then
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'forbidden');
-  end if;
-
-  if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9:_-]{8,80}$' then
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_idempotency_key');
-  end if;
-
-  v_amount := null;
-  if p_amount is not null and p_amount ~ '^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,2})?$' then
-    v_amount := p_amount::numeric(20,2);
-  end if;
-
-  select *
-    into v_existing
-  from public.order_payments
-  where tenant_id = v_order.tenant_id
-    and order_id = v_order.id
-    and idempotency_key = p_idempotency_key;
-
-  if found then
-    if v_amount is not null and v_existing.amount = v_amount and v_existing.paid_at = p_paid_at then
-      return pg_catalog.jsonb_build_object(
-        'ok', true,
-        'replayed', true,
-        'payment_id', v_existing.id
-      ) || public.order_collection_snapshot(v_order);
-    end if;
-    return pg_catalog.jsonb_build_object('ok', false, 'error', 'idempotency_mismatch');
-  end if;
-
-  return pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_payment_method');
-end;
-$function$;
-revoke all on function public.record_order_payment(uuid, text, timestamptz, text) from public, anon, service_role;
-grant execute on function public.record_order_payment(uuid, text, timestamptz, text) to authenticated;
 
 create or replace function public.order_collection_snapshot(p_order public.orders)
   returns jsonb
@@ -425,6 +371,8 @@ DECLARE
   v_order public.orders%ROWTYPE;
   v_file public.order_files%ROWTYPE;
   v_updated public.order_files%ROWTYPE;
+  v_not_before timestamptz;
+  v_deletion_id uuid;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'not authenticated'
@@ -490,14 +438,29 @@ BEGIN
       USING ERRCODE = 'P0002';
   END IF;
 
+  -- A pending upload may still receive a PUT until its presign expires.
+  v_not_before := CASE
+    WHEN v_file.status = 'pending'
+      THEN v_file.upload_expires_at + interval '5 minutes'
+    ELSE pg_catalog.now()
+  END;
+
   IF v_file.deleted_at IS NOT NULL THEN
+    v_deletion_id := files_private.enqueue_storage_deletion(
+      'order', v_file.tenant_id, v_file.order_id, v_file.id,
+      v_file.storage_key, 'user_delete', v_file.deleted_by, v_not_before
+    );
+
     RETURN pg_catalog.jsonb_build_object(
       'id', v_file.id,
       'storage_key', v_file.storage_key,
-      'replay', true
+      'replay', true,
+      'storage_deletion_id', v_deletion_id
     );
   END IF;
 
+  -- Same lock order as record_order_payment (order, then file): a payment
+  -- receipt, even of a voided payment, never reaches deletion.
   IF EXISTS (SELECT 1 FROM public.order_payments
     WHERE tenant_id = v_order.tenant_id AND receipt_file_id = p_file_id) THEN
     RAISE EXCEPTION 'payment_receipt_protected' USING ERRCODE = '55000';
@@ -515,22 +478,23 @@ BEGIN
   RETURNING * INTO v_updated;
 
   IF NOT FOUND THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'id', v_file.id,
-      'storage_key', v_file.storage_key,
-      'replay', true
-    );
+    RAISE EXCEPTION 'could not delete file'
+      USING ERRCODE = 'P0001';
   END IF;
+
+  v_deletion_id := files_private.enqueue_storage_deletion(
+    'order', v_updated.tenant_id, v_updated.order_id, v_updated.id,
+    v_updated.storage_key, 'user_delete', v_user_id, v_not_before
+  );
 
   RETURN pg_catalog.jsonb_build_object(
     'id', v_updated.id,
     'storage_key', v_updated.storage_key,
-    'replay', false
+    'replay', false,
+    'storage_deletion_id', v_deletion_id
   );
 END;
 $function$;
--- Metadata deletion is committed before deleting the blob in R2. Replay allows
--- a failed R2 deletion to be retried while attachment to a payment is blocked.
 comment on function public.soft_delete_order_file(uuid, uuid, bigint, text) is
-  'Order/file locks serialize with payment insertion. Receipts protected even when voided. API deletes metadata before R2.';
+  'Soft-deletes an order file and enqueues its R2 deletion (outbox, 20261014120000). Order/file locks serialize with payment insertion; payment receipts are protected even when the payment is voided.';
 commit;

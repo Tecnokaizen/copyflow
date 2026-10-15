@@ -8,12 +8,24 @@ Arquitectura: el mismo repositorio Next.js, proyecto Vercel y Supabase PostgreSQ
 
 ## Contrato y flujo
 
-Migración hacia adelante: `20261013150000_order_payment_methods_receipts.sql`.
+Migraciones (renombradas el 15/10/2026 para ordenarse después de `main`; no se
+habían aplicado en Staging ni en Production):
+
+- `20261016090000_order_total_validation_p1.sql`: corrección de #91,
+  `set_order_total_amount` solo traduce su propio `total_below_paid`. Sustituye a
+  la PR #91, cuya parte de aplicación ya cubrió #93.
+- `20261016091000_order_payment_methods_receipts_expand.sql`: paso **expand**
+  descrito abajo.
 
 - `order_payments.payment_method`: `cash`, `card`, `bizum`, `transfer`, `other`; obligatorio en nuevas inserciones, nullable para históricos.
 - `receipt_file_id`: opcional, FK compuesta `(tenant_id, order_id, receipt_file_id)` a `order_files`; un justificante corresponde a un movimiento.
 - RPC ampliada: `record_order_payment(uuid, text, timestamptz, text, text, uuid, uuid)`. El último argumento es el tenant resuelto por la API, nunca el tenant de un payload.
-- La firma antigua de cuatro argumentos devuelve `invalid_payment_method` sin registrar dinero; así no existe una vía de inserción nueva sin método.
+- **Expand/contract.** La firma antigua de cuatro argumentos sigue funcionando
+  igual que en `main` durante el despliegue (método `NULL`, «Sin especificar»),
+  para que la versión de la app en curso, Production incluida, no pierda la
+  posibilidad de registrar entregas a cuenta. El trigger acepta `NULL` en
+  inserciones en esta fase. La app nueva siempre envía método por la firma de
+  siete argumentos. El paso **contract** (abajo) retira la vía antigua.
 - El método y el vínculo son inmutables. Anular conserva ambos y el justificante.
 - Las respuestas de colección incluyen exclusivamente ID/nombre del justificante, sin claves R2 ni URLs persistentes. La descarga solicita una URL temporal mediante la autorización existente del pedido/tenant y estado ready.
 
@@ -28,6 +40,43 @@ Antes del POST monetario se guarda el payload exacto y la clave en sessionStorag
 Registro y soft-delete bloquean primero el pedido, después el archivo. El API de borrado ejecuta la autorización/reserva de borrado SQL antes de eliminar R2. Un justificante asociado, incluso a una entrega anulada, no alcanza el borrado del blob. El guard y la FK también protegen sus metadatos.
 
 Si falla R2 después de reservar el borrado, se devuelve 502 `R2_DELETE_PENDING`. Los metadatos quedan soft-deleted y no pueden asociarse a un pago; repetir DELETE con los mismos IDs completa el borrado. El diálogo conserva el error para reintentar. No debe interpretarse el error como borrado físico confirmado; el registro soft-deleted permite identificar el objeto para su recuperación operativa. No se ejecuta limpieza de R2 para un justificante del ledger.
+
+## Despliegue expand/contract
+
+1. **Expand** (migración `20261016091000`): aplicar antes que la app. Es
+   compatible con la app anterior: columnas nuevas nulas, snapshot de cobros
+   con campos añadidos y la firma de cuatro argumentos intacta.
+2. **App**: desplegar el código de esta PR. Si la app llega antes que la
+   migración (p. ej. una Preview contra una base sin aplicar), listar archivos
+   sigue funcionando sin marcas de justificante: `receiptSchemaUnavailable`
+   reconoce tanto el error de caché de esquema de PostgREST como el 42703
+   («column … does not exist»). Ese 42703 era la causa del «Could not list
+   files». Registrar cobros con método exige la migración.
+3. **Contract** (PR posterior, cuando no quede ningún cliente con la versión
+   anterior, p. ej. 24 h tras el despliegue): una migración nueva que
+   - en `tg_order_payment_details_guard` vuelve a rechazar
+     `tg_op = 'INSERT' and new.payment_method is null` con
+     `invalid_payment_method` (23514);
+   - redefine `record_order_payment(uuid, text, timestamptz, text)` para que
+     solo repita movimientos ya guardados y devuelva `invalid_payment_method`
+     en cualquier inserción nueva (cuerpo ya escrito en la versión original de
+     esta PR, commit `94fb2a4`).
+   No se borran columnas ni filas: los cobros `NULL` registrados durante el
+   expand quedan como «Sin especificar».
+
+Rollback: la expand es compatible con la app anterior, así que volver atrás es
+solo revertir el código. No se revierte la base de datos tras registrar cobros.
+
+### Corrección respecto a #96
+
+La versión original redefinía `soft_delete_order_file` a partir de la anterior
+a #96 (cola transaccional de borrado en R2, `20261014120000`). Aplicada
+después de #96, habría eliminado el encolado del borrado: con esa función,
+`phase46_files_storage_deletion` falla («delete returns task id»). Ahora se
+parte de la versión de #96 y se añaden solo el bloqueo `FOR UPDATE` del
+pedido y la protección del justificante. El borrado HTTP es el de `main`: la
+API nunca borra en R2 directamente y un fallo de R2 queda pendiente para el
+cron (204), en lugar del 502 `R2_DELETE_PENDING` anterior.
 
 ## Dependencias
 

@@ -20,7 +20,12 @@ describe("receipt link lookup", () => {
       ),
       true,
     );
+    assert.equal(
+      receiptSchemaUnavailable("column order_payments.receipt_file_id does not exist"),
+      true,
+    );
     assert.equal(receiptSchemaUnavailable("permission denied"), false);
+    assert.equal(receiptSchemaUnavailable("relation \"order_files\" does not exist"), false);
   });
 
   it("marks only the files returned as linked", () => {

@@ -29,9 +29,12 @@ begin
   insert into public.orders(id,tenant_id,title,status_id) select ob,tb,'Otro tenant',id from public.order_statuses where tenant_id=tb;
   perform set_config('request.jwt.claim.sub',staff::text,true);
   perform pg_temp.ok((select count(*)=1 from public.orders where id=oa),'staff reads own Sunday order');
+  -- EXPAND: the previous app's 4-argument contract still records (method
+  -- unspecified) until the contract migration. Checked and rolled back here.
+  -- Without a total, the still-active previous contract reaches business validation.
   r := public.record_order_payment(oa,'30',now(),'tamara-payment-old');
-  perform pg_temp.ok(r->>'error'='invalid_payment_method','retired contract cannot create a payment');
-  perform pg_temp.ok((select count(*)=0 from public.order_payments where order_id=oa),'retired contract wrote no money');
+  perform pg_temp.ok(r->>'error'='total_undefined','expand keeps the previous contract (not retired)');
+  perform pg_temp.ok((select count(*)=0 from public.order_payments where order_id=oa),'no money without a total');
   r := public.record_order_payment(oa,'30',now(),'tamara-payment-first','cash',null,ta);
   perform pg_temp.ok(r->>'error'='total_undefined','cannot record payment before total');
   select row_version::text into version from public.orders where id=oa;

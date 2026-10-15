@@ -8,7 +8,8 @@
  * One synthetic order per run, three flows in sequence:
  *   1. orders   login → dashboard → new client → new order → list → reload
  *   2. files    INIT → PUT (R2) → COMPLETE → listed → download → SHA-256
- *   3. payment  total → partial "entrega a cuenta" → reload → status changes
+ *   3. payment  total → partial "entrega a cuenta" (method + private receipt in R2)
+ *               → reload → receipt download + SHA-256 → status changes
  * No page.route fulfilment, no API doubles: only real HTTP is observed.
  * Nothing is deleted; every run creates uniquely named records in tenant e2e.
  */
@@ -107,10 +108,13 @@ const state: {
   fileName: string;
   fileSha256?: string;
   fileId?: string;
+  receiptName: string;
+  receiptId?: string;
 } = {
   clientName: `E2E Cliente ${id}`,
   orderTitle: `E2E Pedido ${id}`,
   fileName: `e2e-${id}.txt`,
+  receiptName: `e2e-justificante-${id}.txt`,
 };
 
 async function flowOrders(page: Page) {
@@ -344,16 +348,37 @@ async function flowPayment(page: Page) {
     assert.equal(body.collection_state, "unpaid");
   });
 
-  await h.step("register partial payment (entrega a cuenta)", async () => {
+  const receiptContent = Buffer.from(`Gestcopy E2E V0 justificante\nrun=${id}\n`, "utf8");
+  const receiptSha256 = createHash("sha256").update(receiptContent).digest("hex");
+  type RecordedPayment = { id: string; payment_method: string | null; receipt: { id: string; original_name: string } | null };
+
+  await h.step("register partial payment (entrega a cuenta, método y justificante)", async () => {
     await page.getByRole("button", { name: "Registrar entrega a cuenta" }).click();
     const paymentDialog = dialog("Registrar entrega a cuenta");
     await paymentDialog.getByLabel("Importe").fill(PARTIAL_PAYMENT.replace(".", ","));
-    const recorded = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/payments$`))));
+    await paymentDialog.getByLabel("Método de pago").selectOption({ label: "Bizum" });
+    await paymentDialog.locator("#payment-receipt-file").setInputFiles({
+      name: state.receiptName,
+      mimeType: "text/plain",
+      buffer: receiptContent,
+    });
+    await paymentDialog.getByText(state.receiptName, { exact: true }).waitFor();
+    // The receipt goes INIT → PUT (R2) → COMPLETE before the monetary POST.
+    const recorded = observe(page.waitForResponse(
+      isApi("POST", new RegExp(`^/api/orders/${state.orderId}/payments$`)),
+      { timeout: 60_000 },
+    ));
     await paymentDialog.getByRole("button", { name: "Confirmar entrega" }).click();
     const body = await apiJson(await recorded, 200);
     assert.equal(body.paid_amount, PARTIAL_PAYMENT);
     assert.equal(body.pending_amount, pending);
     assert.equal(body.collection_state, "partial");
+    const payment = (body.payments as RecordedPayment[]).find((row) => row.id === body.payment_id);
+    assert.ok(payment, "the recorded payment is returned");
+    assert.equal(payment.payment_method, "bizum");
+    assert.equal(payment.receipt?.original_name, state.receiptName);
+    assert.equal(JSON.stringify(body).includes("storage_key"), false, "no storage keys in the payment DTO");
+    state.receiptId = payment.receipt?.id;
     await expectCollection(PARTIAL_PAYMENT, pending, "Parcial");
   });
 
@@ -364,7 +389,24 @@ async function flowPayment(page: Page) {
     assert.equal(body.total_amount, ORDER_TOTAL);
     assert.equal(body.paid_amount, PARTIAL_PAYMENT);
     assert.equal(body.pending_amount, pending);
-    assert.equal((body.payments as unknown[]).length, 1);
+    const payments = body.payments as RecordedPayment[];
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].payment_method, "bizum");
+    assert.equal(payments[0].receipt?.id, state.receiptId);
+    await page.getByText(/^Bizum ·/).first().waitFor();
+  });
+
+  await h.step("download the private receipt and verify SHA-256", async () => {
+    const download = observe(page.waitForEvent("download"));
+    const issued = observe(page.waitForResponse(isApi("POST", new RegExp(`^/api/orders/${state.orderId}/files/${state.receiptId}/download$`))));
+    await page.getByRole("button", { name: `Justificante: ${state.receiptName}` }).click();
+    const issuedBody = await apiJson(await issued, 200);
+    assert.equal(r2BucketFromUrl(issuedBody.download_url as string), target.r2Bucket);
+    const file = await download;
+    const saved = await within<string | null>(file.path(), 30_000, "receipt download");
+    assert.ok(saved, "receipt download failed");
+    const digest = createHash("sha256").update(await readFile(saved)).digest("hex");
+    assert.equal(digest, receiptSha256, "downloaded receipt must match the uploaded bytes");
   });
 
   const changeStatus = async (name: string, code: string, confirmTitle?: string) => {
@@ -434,6 +476,7 @@ async function main() {
       target: { baseUrl: target.baseUrl, bucket: target.r2Bucket },
       order: { id: state.orderId, reference: state.reference, title: state.orderTitle, client: state.clientName },
       file: { id: state.fileId, name: state.fileName, sha256: state.fileSha256 },
+      receipt: { id: state.receiptId, name: state.receiptName },
       results,
       blockedRequests: h.blocked.length,
       apiErrors: h.network.filter((entry) => entry.status === null || entry.status >= 400),

@@ -125,13 +125,20 @@ begin
 
   r := public.set_order_total_amount(order_a, '200.00', (select row_version::text from public.orders where id = order_a));
   perform pg_temp.ok(r->>'ok' = 'true', 'define total');
+  -- EXPAND: the 4-argument contract of the previous app keeps recording money
+  -- (method NULL = "Sin especificar") until the contract migration retires it.
   r := public.record_order_payment(order_a, '10.00', paid_at, 'no-method-old');
-  perform pg_temp.ok(r->>'error' = 'invalid_payment_method', 'retired contract cannot create unspecified money');
+  perform pg_temp.ok(r->>'ok' = 'true' and r->>'replayed' = 'false', 'expand keeps the previous 4-argument contract');
+  perform pg_temp.ok((select payment_method is null and receipt_file_id is null from public.order_payments where id = (r->>'payment_id')::uuid), 'legacy payment stays unspecified, without receipt');
+  r2 := public.record_order_payment(order_a, '10.00', paid_at, 'no-method-old');
+  perform pg_temp.ok(r2->>'replayed' = 'true' and r2->>'payment_id' = r->>'payment_id', 'legacy replay does not duplicate money');
+  r2 := public.void_order_payment((r->>'payment_id')::uuid, 'phase46 legacy cleanup');
+  perform pg_temp.ok(r2->>'ok' = 'true' and r2->>'paid_amount' = '0.00', 'legacy payment voids normally');
   r := public.record_order_payment(order_a, '10.00', paid_at, 'no-method-new', null, null, ta);
   perform pg_temp.ok(r->>'error' = 'invalid_payment_method', 'method mandatory');
   r := public.record_order_payment(order_a, '10.00', paid_at, 'bad-method', 'crypto', null, ta);
   perform pg_temp.ok(r->>'error' = 'invalid_payment_method', 'unknown method rejected');
-  perform pg_temp.ok((select count(*) = 0 from public.order_payments where order_id = order_a), 'invalid calls did not post money');
+  perform pg_temp.ok((select count(*) = 0 from public.order_payments where order_id = order_a and idempotency_key in ('no-method-new', 'bad-method')), 'invalid calls did not post money');
 
   reset role;
   alter table public.order_payments add constraint order_payments_phase46_unrelated check (amount <> 7.77);
@@ -154,11 +161,11 @@ begin
   perform set_config('request.jwt.claim.sub','',true);
   insert into public.order_files(id,tenant_id,order_id,original_name,content_type,size_bytes,storage_key,status,etag,completed_at,upload_expires_at,uploaded_by)
   values
-    (receipt,ta,order_a,'bizum.pdf','application/pdf',12,'receipt/one','ready','etag',now(),now()+interval '5 minutes',a),
-    (pending,ta,order_a,'pending.pdf','application/pdf',12,'receipt/pending','pending',null,null,now()+interval '5 minutes',a),
-    (foreign_file,tb,order_b,'foreign.pdf','application/pdf',12,'receipt/foreign','ready','etag',now(),now()+interval '5 minutes',b),
-    (wrong_order,ta,second_order,'wrong.pdf','application/pdf',12,'receipt/wrong','ready','etag',now(),now()+interval '5 minutes',a),
-    (deletable,ta,order_a,'delete.pdf','application/pdf',12,'receipt/delete','ready','etag',now(),now()+interval '5 minutes',a);
+    (receipt,ta,order_a,'bizum.pdf','application/pdf',12,format('orders/%s/%s/%s',ta,order_a,receipt),'ready','etag',now(),now()+interval '5 minutes',a),
+    (pending,ta,order_a,'pending.pdf','application/pdf',12,format('orders/%s/%s/%s',ta,order_a,pending),'pending',null,null,now()+interval '5 minutes',a),
+    (foreign_file,tb,order_b,'foreign.pdf','application/pdf',12,format('orders/%s/%s/%s',tb,order_b,foreign_file),'ready','etag',now(),now()+interval '5 minutes',b),
+    (wrong_order,ta,second_order,'wrong.pdf','application/pdf',12,format('orders/%s/%s/%s',ta,second_order,wrong_order),'ready','etag',now(),now()+interval '5 minutes',a),
+    (deletable,ta,order_a,'delete.pdf','application/pdf',12,format('orders/%s/%s/%s',ta,order_a,deletable),'ready','etag',now(),now()+interval '5 minutes',a);
   -- Simulate a pre-migration row: only fixture insertion bypasses the new-method
   -- guard. Enable it again before any business operations; everything rolls back.
   alter table public.order_payments disable trigger trg_order_payment_details_guard;
@@ -178,7 +185,17 @@ begin
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'paid_amount' = '1.00', 'historical null method voids after the guard is applied');
   perform pg_temp.ok((select payment_method is null and voided_at is not null from public.order_payments where id = historical_void), 'void keeps the unspecified historical method');
   reset role;
-  perform pg_temp.boom(format('insert into public.order_payments(tenant_id,order_id,amount,paid_at,created_by,idempotency_key) values(%L,%L,1,%L,%L,''new-null-method'')', ta, order_a, paid_at, a), '23514');
+  -- EXPAND: the guard still accepts NULL on insert (legacy path); the contract
+  -- migration adds the rejection. Checked in a rolled-back subtransaction.
+  begin
+    insert into public.order_payments(tenant_id,order_id,amount,paid_at,created_by,idempotency_key)
+      values (ta, order_a, 1, paid_at, a, 'new-null-method');
+    raise exception 'phase46_expand_rollback';
+  exception when others then
+    if sqlerrm <> 'phase46_expand_rollback' then
+      raise exception 'phase46: expand rejected a NULL-method insert: %', sqlerrm;
+    end if;
+  end;
   set local role authenticated;
 
   r := public.order_collection_v1(order_a);
@@ -195,7 +212,7 @@ begin
   perform pg_temp.ok(r->>'error'='invalid_receipt','same tenant different order rejected');
   r := public.record_order_payment(order_a,'10.00',paid_at,'wrong-context','bizum',null,tb);
   perform pg_temp.ok(r->>'error'='not_found','resolved context is mandatory');
-  perform pg_temp.ok((select count(*)=7 from public.order_payments where order_id=order_a),'no payment from invalid receipts');
+  perform pg_temp.ok((select count(*)=7 from public.order_payments where order_id=order_a and idempotency_key <> 'no-method-old'),'no payment from invalid receipts');
 
   r := public.record_order_payment(order_a,'10.00',paid_at,'receipt-key','bizum',receipt,ta);
   perform pg_temp.ok(r->>'ok'='true' and r->>'paid_amount'='16.00','payment with receipt');

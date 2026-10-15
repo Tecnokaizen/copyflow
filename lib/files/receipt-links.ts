@@ -1,6 +1,14 @@
-/** True when Preview is ahead of the payment migration and PostgREST has no receipt link yet. */
+/**
+ * True when the app is ahead of the payment migration (expand step not applied
+ * yet): PostgREST reports the receipt column/relationship as missing, either
+ * from its schema cache or as PostgreSQL 42703 "column … does not exist".
+ * Listing files must keep working then, with no receipt markers.
+ */
 export function receiptSchemaUnavailable(message: string): boolean {
-  return /schema cache/i.test(message) && /order_payments|receipt_file_id/i.test(message);
+  return (
+    /schema cache|does not exist/i.test(message) &&
+    /order_payments|receipt_file_id/i.test(message)
+  );
 }
 
 export function receiptIdsFromRows(
