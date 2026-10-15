@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { ChevronDown, CircleHelp, Menu, X } from "lucide-react";
 
+import { ProEarlyAccessBadge } from "@/components/pro/pro-early-access-badge";
 import { SessionIdentity } from "@/components/session-identity";
 import { TenantBrand } from "@/components/tenant-brand";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -28,6 +29,11 @@ import {
   type AppNavItem,
   type NavLocation,
 } from "@/lib/nav/items";
+import {
+  proEarlyAccessBadge,
+  proEarlyAccessBadgeIsActive,
+} from "@/lib/nav/pro-badge";
+import { proEarlyAccessFromContext } from "@/lib/features/early-access";
 import { activeNavAccent } from "@/lib/tenant/branding";
 import { helpDocsUrl } from "@/lib/help/catalog";
 import { cn } from "@/lib/utils";
@@ -262,6 +268,7 @@ function AppNavFrame({
   identity,
   ready,
   quotesEnabled,
+  proEarlyAccess,
 }: {
   pathname: string;
   searchParams: URLSearchParams;
@@ -270,21 +277,31 @@ function AppNavFrame({
   identity: HeaderIdentity | null;
   ready: boolean;
   quotesEnabled: boolean;
+  proEarlyAccess: boolean;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location: NavLocation = { pathname, searchParams };
   const entries = navStructureForRole(ready ? role : null, {
     quotes: quotesEnabled,
   });
+  const proBadge = proEarlyAccessBadge({ ready, proEarlyAccess });
 
   return (
     <header className="mb-6 -mx-6 dark:bg-secondary md:-mx-8 lg:-mx-10">
       <div className="flex items-center justify-between gap-3 border-b border-border/80 px-6 py-3 md:px-8 lg:px-10">
-        <TenantBrand
-          displayName={tenant?.displayName ?? ""}
-          logoUrl={tenant?.logoUrl}
-          brandColor={tenant?.brandColor}
-        />
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <TenantBrand
+            displayName={tenant?.displayName ?? ""}
+            logoUrl={tenant?.logoUrl}
+            brandColor={tenant?.brandColor}
+          />
+          {proBadge ? (
+            <ProEarlyAccessBadge
+              badge={proBadge}
+              active={proEarlyAccessBadgeIsActive(pathname)}
+            />
+          ) : null}
+        </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <HelpLink className="hidden md:inline-flex" />
           <ThemeSwitcher />
@@ -317,6 +334,7 @@ function AppNavContent() {
   const [tenant, setTenant] = useState<TenantLabel | null>(null);
   const [identity, setIdentity] = useState<HeaderIdentity | null>(null);
   const [quotesEnabled, setQuotesEnabled] = useState(false);
+  const [proEarlyAccess, setProEarlyAccess] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -327,6 +345,7 @@ function AppNavContent() {
           const context = await response.json();
           setRole(context?.membership?.role ?? null);
           setQuotesEnabled(context?.features?.quotes === true);
+          setProEarlyAccess(proEarlyAccessFromContext(context));
           setIdentity(headerIdentityFromContext(context));
           const tenantRecord = context?.tenant;
           const displayName =
@@ -369,6 +388,7 @@ function AppNavContent() {
         identity={identity}
         ready={ready}
         quotesEnabled={quotesEnabled}
+        proEarlyAccess={proEarlyAccess}
       />
   );
 }
@@ -385,6 +405,7 @@ export function AppNav() {
           identity={null}
           ready={false}
           quotesEnabled={false}
+          proEarlyAccess={false}
         />
       }
     >
