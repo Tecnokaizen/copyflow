@@ -1,21 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { brandMarkUsesFill, monogramFromName } from "@/lib/tenant/branding";
 import { cn } from "@/lib/utils";
 
-export function TenantBrand({
-  displayName,
-  logoUrl,
-  brandColor,
-}: {
+type TenantBrandProps = {
   displayName: string;
   logoUrl?: string | null;
   brandColor?: string | null;
-}) {
+};
+
+export function TenantBrand(props: TenantBrandProps) {
+  // A replacement must get a fresh load state, even after the previous logo failed.
+  return <TenantBrandContent key={props.logoUrl ?? ""} {...props} />;
+}
+
+function TenantBrandContent({
+  displayName,
+  logoUrl,
+  brandColor,
+}: TenantBrandProps) {
   const [logoFailed, setLogoFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!logoFailed || attempt >= 2) return;
+    const timer = window.setTimeout(() => {
+      setAttempt((current) => current + 1);
+      setLogoFailed(false);
+    }, 500 * (attempt + 1));
+    return () => window.clearTimeout(timer);
+  }, [logoFailed, attempt]);
+
   const name = displayName.trim();
   const showLogo = Boolean(logoUrl) && !logoFailed;
+  const imageUrl = logoUrl && attempt > 0
+    ? `${logoUrl}${logoUrl.includes("?") ? "&" : "?"}retry=${attempt}`
+    : logoUrl;
   const filled = brandMarkUsesFill(brandColor ?? null);
   const markStyle = brandColor
     ? filled
@@ -28,11 +48,11 @@ export function TenantBrand({
       {showLogo ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={logoUrl ?? undefined}
+          src={imageUrl ?? undefined}
           alt=""
-          width={40}
-          height={40}
-          className="size-9 shrink-0 rounded-md border border-border/80 bg-card object-contain sm:size-10"
+          // min-w-0: in a narrow header (e.g. 320 px with the Pro badge) the logo
+          // shrinks proportionally instead of overflowing under its neighbour.
+          className="h-auto w-auto min-w-0 max-h-9 max-w-28 rounded-md border border-border/80 bg-card object-contain sm:max-h-10 sm:max-w-40"
           style={brandColor ? { borderColor: brandColor } : undefined}
           onError={() => setLogoFailed(true)}
         />
@@ -49,7 +69,8 @@ export function TenantBrand({
         </span>
       )}
       <div
-        className={cn("min-w-0", brandColor && "border-l-2 pl-2.5")}
+        // The (truncated) name gives up space before the logo does.
+        className={cn("min-w-0 shrink-[999]", brandColor && "border-l-2 pl-2.5")}
         style={brandColor ? { borderLeftColor: brandColor } : undefined}
       >
         {name ? (

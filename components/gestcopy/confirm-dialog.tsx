@@ -33,7 +33,7 @@ export function ConfirmDialog({
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-md rounded-[var(--radius)] border border-border bg-card p-5 shadow-lg"
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[var(--radius)] border border-border bg-card p-5 shadow-lg"
       >
         <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
         {description ? (

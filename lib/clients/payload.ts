@@ -12,7 +12,25 @@ export type ClientPayload = {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  /** undefined: not sent (keep the stored address); null: none/clear. */
+  address?: string | null;
 };
+
+export const CLIENT_ADDRESS_MAX_CHARS = 500;
+
+function normalizeAddress(
+  payload: Record<string, unknown>
+): { ok: true; value: string | null | undefined } | { ok: false } {
+  if (!Object.prototype.hasOwnProperty.call(payload, "address")) {
+    return { ok: true, value: undefined };
+  }
+  const address = normalizeOptionalText(payload.address);
+  if (!address.ok) return { ok: false };
+  if (address.value && address.value.length > CLIENT_ADDRESS_MAX_CHARS) {
+    return { ok: false };
+  }
+  return address;
+}
 
 function normalizeOptionalText(
   value: unknown
@@ -71,7 +89,8 @@ export function parseClientPayload(
   const email = normalizeOptionalText(payload.email);
   const phone = normalizeOptionalText(payload.phone);
   const notes = normalizeOptionalText(payload.notes);
-  if (!notes.ok) {
+  const address = normalizeAddress(payload);
+  if (!notes.ok || !address.ok) {
     return { ok: false };
   }
   const safeNotes = persistRichText(notes.value);
@@ -99,6 +118,7 @@ export function parseClientPayload(
       email: email.value,
       phone: phone.value,
       notes: safeNotes,
+      ...(address.value !== undefined ? { address: address.value } : {}),
     },
   };
 }
