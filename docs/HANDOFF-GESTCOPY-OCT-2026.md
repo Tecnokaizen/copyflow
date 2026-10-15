@@ -1,12 +1,12 @@
 # Handoff Gestcopy — octubre 2026
 
 Documento de continuidad para seguir sin repetir auditorías. Estado al 16/10/2026,
-01:05 (hora de Madrid). Detalle por funcionalidad en
+01:30 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`81aa3de`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`) y #107 (`81aa3de`)
+`1e50228`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`), #107 (`81aa3de`) y #108 (`1e50228`)
 integradas el 15/10 con autorización expresa, con CI y Production verificados. La migración de
 #105 está aplicada en Production y ningún tenant tiene Pro activado. Nada más se
 ha fusionado.
@@ -27,7 +27,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | #95 Cobros y justificantes | **Integrada** (`6e3fc12`), migraciones aplicadas | PR de contract pasadas 24 h |
 | #106 Pie (#100) | **Integrada** (`f120dbc`) | — |
 | #107 Dirección (#101) | **Integrada** (`81aa3de`), migración aplicada | — |
-| #108 Notas (#102) | Lista | Migración y merge |
+| #108 Notas (#102) | **Integrada** (`1e50228`), migración aplicada | — |
 | #94 Sesión | **Integrada** (`8e5dfe1`) | — |
 | #58 Logos | Lista (validada en Staging) | Merge |
 | #91 Total | Sustituida por #95 (integrada) | Cerrar, con autorización |
@@ -37,10 +37,9 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 ## 4. Completado
 
 - **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades, pie de
-  presupuestos, resiliencia de sesión, cobros con método y justificante (expand) y
-  dirección opcional de clientes.
-- **Validado en Staging, sin fusionar**: notas de presupuesto en pedidos y logos
-  del tenant.
+  presupuestos, resiliencia de sesión, cobros con método y justificante (expand),
+  dirección opcional de clientes y notas de presupuesto en pedidos.
+- **Validado en Staging, sin fusionar**: logos del tenant.
 
 ## 5. Pendiente
 
@@ -57,7 +56,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | `20261015200000` Pro | Sí (15/10, 21:44 UTC) | Sí |
 | `20261016090000` total, `20261016091000` cobros (expand) | Sí (15/10, 22:32 UTC) | Sí |
 | `20261016100000` dirección | Sí (15/10, 22:57 UTC) | Sí |
-| `20261016110000` notas | No | Sí |
+| `20261016110000` notas | Sí (15/10, 23:23 UTC) | Sí |
 
 Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor de
 `orders.notes` en conversiones nuevas.
@@ -87,8 +86,8 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
   `phase49`, `phase46_order_total_validation` y `phase46_payment_receipts`.
 - En el árbol integrado: 1157 unitarias y 56 suites SQL (concurrencia incluida) en
   verde.
-- `E2E staging` (manual): run `38820759045` 3/3 sobre `main` `81aa3de` (pedido
-  `E2E-0020`); con #95 elige método Bizum y adjunta justificante.
+- `E2E staging` (manual): run `38823386750` 3/3 sobre `main` `1e50228` (pedido
+  `E2E-0021`); con #95 elige método Bizum y adjunta justificante.
 - Scripts nuevos en #105: `e2e/staging/pro-early-access.ts` (recorrido Pro ON/OFF)
   y `seed-viewer.ts`.
 
@@ -107,7 +106,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
 3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
 4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91.
-5. ~~#107~~ (hecho el 15/10, 22:58 UTC). Después #108, con su migración.
+5. ~~#107~~ (hecho el 15/10, 22:58 UTC) y ~~#108~~ (hecho el 15/10, 23:23 UTC).
 6. Merge de #58.
 7. Decisiones de #104.
 8. Alinear #90 y pasar sus gates.

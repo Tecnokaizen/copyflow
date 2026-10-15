@@ -66,8 +66,12 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 export const CHANGELOG: ChangelogRelease[] = [
   {
     date: "2026-10-16",
-    title: "Métodos de pago, justificantes, dirección de clientes y pedidos a salvo si la sesión caduca",
+    title: "Métodos de pago, justificantes, dirección de clientes y notas de presupuesto en pedidos",
     entries: [
+      mejora(
+        "Presupuestos",
+        "Al convertir un presupuesto aceptado en pedido, sus condiciones y sus notas internas pasan a las notas internas del pedido, cada bloque con el número del presupuesto. Nada se copia a los campos que ve el cliente, y los pedidos ya convertidos no cambian."
+      ),
       nuevo(
         "Clientes",
         "Dirección postal opcional al dar de alta un cliente (también desde un pedido o un presupuesto) y al editarlo desde su ficha, donde se muestra. Los clientes existentes no cambian."
