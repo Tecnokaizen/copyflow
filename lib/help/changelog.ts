@@ -66,8 +66,12 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 export const CHANGELOG: ChangelogRelease[] = [
   {
     date: "2026-10-16",
-    title: "Métodos de pago, justificantes y pedidos a salvo si la sesión caduca",
+    title: "Métodos de pago, justificantes, dirección de clientes y pedidos a salvo si la sesión caduca",
     entries: [
+      nuevo(
+        "Clientes",
+        "Dirección postal opcional al dar de alta un cliente (también desde un pedido o un presupuesto) y al editarlo desde su ficha, donde se muestra. Los clientes existentes no cambian."
+      ),
       nuevo(
         "Cobros",
         "Al registrar una entrega a cuenta eliges el método de pago (efectivo, tarjeta, Bizum, transferencia u otro) y puedes adjuntar un justificante. El justificante queda guardado de forma privada y no se puede borrar, ni siquiera si anulas la entrega."
