@@ -65,6 +65,20 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-16",
+    title: "Pedidos a salvo si la sesión caduca",
+    entries: [
+      mejora(
+        "Pedidos",
+        "Si la sesión caduca mientras creas un pedido, Gestcopy guarda lo que llevas escrito y lo recupera cuando vuelves a iniciar sesión. Los archivos adjuntos hay que seleccionarlos de nuevo."
+      ),
+      correccion(
+        "Pedidos",
+        "Al crear un pedido, un fallo momentáneo al comprobar la sesión ya no aparece como falta de permisos: Gestcopy te pide que vuelvas a intentarlo."
+      ),
+    ],
+  },
+  {
     date: "2026-10-15",
     title: "Novedades en la ayuda, pie de presupuestos y pruebas de principio a fin",
     entries: [

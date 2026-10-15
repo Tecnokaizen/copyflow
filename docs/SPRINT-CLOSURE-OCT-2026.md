@@ -1,8 +1,9 @@
 # Sprint de consolidación — 15 a 18 de octubre de 2026
 
-Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `725deff`.
+Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `8e5dfe1`.
 Staging integrado: `gestcopy-staging` `4570ea5`. Con autorización expresa se
-han integrado **#106**, **#99** (sin migraciones) y **#105** (con su migración).
+han integrado **#106**, **#99**, **#105** (con su migración) y **#94** (sin
+migraciones).
 El resto sigue sin fusionar. Production solo ha recibido la migración de #105:
 dos filas de catálogo, sin concesiones. Ningún tenant tiene Pro activado. Por
 lo demás, Production solo se ha consultado en modo lectura.
@@ -24,7 +25,7 @@ infraestructura por tenant. No hay código específico de SUR4.
 | Dirección opcional de clientes | #101 | #107 · `5f34d1f` | `20261016100000_clients_address_v1` | SQL `phase48` (en el gate); 1080/1080 | Alta con y sin dirección, edición, conservación, borrado, viewer 403, escritorio/móvil | Lista |
 | Notas del presupuesto → pedido | #102 | #108 · `53d3e3a` | `20261016110000_quote_conversion_notes_v1` | SQL `phase49` (en el gate); `phase34` y `phase38` actualizadas | `phase49` completa contra la BD de Staging, sin dejar datos | Lista; cambio de comportamiento deliberado (ver la PR) |
 | Modificación de líneas de pedido | #104 | — | — | — | — | **No implementado**: los pedidos no tienen modelo de líneas. Diseño en `docs/adr/2026-10-15-order-lines-v1.md` |
-| Resiliencia de sesión | — | #94 · `9a91fb6` | — | 1106/1106; 4 smokes de navegador | Sesión caducada → 401 y el borrador se recupera; viewer 403; contexto anónimo 401 | Lista; conflicto con #105 resuelto en Staging (`3d1f386`) |
+| Resiliencia de sesión | — | #94 · `b6427a6` | — | 1141/1141 con `main` `725deff`; 4 smokes de navegador | Sesión caducada → 401 y el borrador se recupera; viewer 403; contexto anónimo 401 | **Integrada**: `main` `8e5dfe1`, con la resolución de `3d1f386` |
 | Logos del tenant | — | #58 · `cf569be` | — | 1076/1076; CI verde | Logos 3:1 y 1:3 proporcionados, sustitución sin recarga, quitar → monograma, escritorio/móvil, claro/oscuro | Lista |
 | Gestcopy AI — Pedidos por voz | #76, #78–#82 | #90 · `bf18b26` (borrador, en conflicto) | `20261012120000_ai_voice_orders_foundation_v1` (sin aplicar) | — | — | No integrar; plan en `docs/AI-VOICE-ORDERS-PLAN.md` |
 | Corrección de total (#91) | — | #91 · `dd3c90c` (en conflicto) | Su migración viaja en #95 con nueva versión | — | — | Cerrar como sustituida al integrar #95 (no se ha cerrado) |
@@ -58,10 +59,7 @@ Production (solo la esperada) y después `db push`.
 1. ~~**#106**~~: integrada (`f120dbc`).
 2. ~~**#99**~~: integrada (`53deec7`).
 3. ~~**#105**~~: integrada (`725deff`) y migración aplicada en Production.
-4. **#94**: antes del merge, `main` a la rama. El conflicto en
-   `app/api/context/route.ts` se resuelve igual que en `gestcopy-staging`
-   `3d1f386` (guarda `requireCurrentAccess`, respuesta 200 de #105, prueba HTTP
-   de #105 con la guarda nueva).
+4. ~~**#94**~~: integrada (`8e5dfe1`) con la resolución de `3d1f386`.
 5. **#95**: aplicar **antes** las dos migraciones en Production (expand compatible
    con la app actual), después el merge. Cerrar #91. Pasadas 24 h, PR de contract.
 6. **#107**: migración, después el merge (el código también funciona sin ella).
@@ -74,19 +72,20 @@ pago. El runner de la rama de #95 sí lo hace.
 
 ## Integraciones en `main` (15/10/2026)
 
-Autorizadas #106 y #99, en ese orden, y después #105 con su migración. Antes
+Autorizadas #106 y #99, en ese orden, después #105 con su migración y después #94. Antes
 de cada una se revalidaron el head, los checks y el estado `CLEAN`. Squash
-merge, sin borrar la rama. #99 y #105 se fusionaron con `--match-head-commit`.
+merge, sin borrar la rama. #99, #105 y #94 se fusionaron con `--match-head-commit`.
 
 | Orden | PR | Commit en `main` | Antes del merge | CI en `main` (push) | Production | Verificación |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | #106 | `f120dbc` (21:10 UTC) | head `5b28738`, 4/4 checks, `CLEAN` | Release Gate App y Database: success | Deployment `7104463058`: success | Salud pública: `/ayuda` y `/auth/login` 200, `/api/context` anónimo 403. El pie solo se ve con sesión en un tenant: no se probó en Production para no usar cuentas reales. Validado sobre el mismo código en Staging |
 | 2 | #99 | `53deec7` (21:14 UTC) | head `3e77e93`, 4/4 checks, `CLEAN`; con `main` + #106: tsc OK y 1085/1085 | Release Gate App y Database: success | Deployment `7104551268`: success | `/ayuda/novedades` anónima en Production: título, canonical, 28 versiones y 153 entradas con el texto corregido, filtros con ratón y teclado, 10 secciones plegadas, 60 enlaces con 200, escritorio/móvil, claro/oscuro sin scroll horizontal. Login de `app`, `demo` y `sur4` 200 |
 | 3 | #105 | `725deff` (21:41 UTC) | head `f3afff4` (`main` `53deec7` fusionado en `a026d57`), 6/6 checks, `CLEAN`; árbol de `main` idéntico al head validado | Release Gate App y Database: success (run `38811797782`) | Deployment `7105095845`: success (21:42 UTC). Migración `20261015200000` aplicada a las 21:44 UTC, después del Release Gate | Antes del merge: código nuevo contra una BD con solo las migraciones de `main` → `{"pro": false}` y `/pro` denegado para owner, viewer y ajeno; huella de Production igual a la BD probada; dry-run solo con esta migración. Después: `/api/context` anónimo 403 con `private, no-store` (marcador del código nuevo), `/pro` → login, `/auth/login` de `app`, `demo` y `sur4` 200; 67 migraciones, catálogo con los dos códigos, 0 filas de plan, 0 overrides, ningún tenant con Pro ni voz, `quotes` sin cambios |
+| 4 | #94 | `8e5dfe1` (22:04 UTC) | head `b6427a6` (`main` `725deff` fusionado con la resolución de `3d1f386`), todos los checks en verde | Release Gate App y Database: success (run `38814595799`) | Deployment `7105518325`: success (22:05 UTC). Sin migraciones | Sin sesión, `/api/context`, `/api/clients`, `/api/orders` y `/api/orders/options` → 401 `SESSION_EXPIRED` con caché privada e id de correlación (antes 403); `/pro` y `/orders` → login; `/auth/login`, `/ayuda` y `/ayuda/novedades` → 200 (25/25). El flujo con sesión se validó en Staging, no en Production |
 
 Sin regresiones: no ha hecho falta el procedimiento de recuperación. Changelog
-actualizado con #106 y #99 en esta PR (#109), pendiente de autorización para
-integrarla. #105 no tiene entrada en Novedades: no cambia nada visible para
+actualizado en esta PR (#109) con #106 y #99 y, en una versión del 16/10 (hora de
+Madrid), con #94. Pendiente de autorización para integrarla. #105 no tiene entrada en Novedades: no cambia nada visible para
 ningún tenant mientras no haya una concesión. El uso real con sesión en
 Production no se ha observado todavía: no hubo tráfico autenticado entre el
 despliegue y el cierre de la integración.
@@ -143,6 +142,6 @@ despliegue y el cierre de la integración.
 
 ## Próximo paso concreto
 
-#106, #99 y #105 ya están integradas. Lo siguiente, cuando lo autorices tras tu
-revisión, es #94: fusionar `main` en su rama con la resolución de `3d1f386`.
-Después, el resto del orden anterior.
+#106, #99, #105 y #94 ya están integradas. Lo siguiente, cuando lo autorices
+tras tu revisión, es #95: aplicar antes sus dos migraciones en Production y
+después el merge. Después, el resto del orden anterior.

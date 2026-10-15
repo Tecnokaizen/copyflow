@@ -1,13 +1,13 @@
 # Handoff Gestcopy — octubre 2026
 
-Documento de continuidad para seguir sin repetir auditorías. Estado al 15/10/2026,
-23:50 (hora de Madrid). Detalle por funcionalidad en
+Documento de continuidad para seguir sin repetir auditorías. Estado al 16/10/2026,
+00:10 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`725deff`: #106 (`f120dbc`), #99 (`53deec7`) y #105 (`725deff`) integradas el
-15/10 con autorización expresa, con CI y Production verificados. La migración de
+`8e5dfe1`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`) y #94 (`8e5dfe1`)
+integradas el 15/10 con autorización expresa, con CI y Production verificados. La migración de
 #105 está aplicada en Production y ningún tenant tiene Pro activado. Nada más se
 ha fusionado.
 
@@ -28,7 +28,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | #106 Pie (#100) | **Integrada** (`f120dbc`) | — |
 | #107 Dirección (#101) | Lista | Migración y merge |
 | #108 Notas (#102) | Lista | Migración y merge |
-| #94 Sesión | Lista | Fusionar `main` en la rama con la resolución de `3d1f386`, después merge |
+| #94 Sesión | **Integrada** (`8e5dfe1`) | — |
 | #58 Logos | Lista (validada en Staging) | Merge |
 | #91 Total | Sustituida por #95 | Cerrar al integrar #95 |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
@@ -36,11 +36,11 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 
 ## 4. Completado
 
-- **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades y pie de
-  presupuestos.
+- **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades, pie de
+  presupuestos y resiliencia de sesión.
 - **Validado en Staging, sin fusionar**: cobros con método y justificante (con
-  expand), dirección de clientes, notas de presupuesto en pedidos, resiliencia de
-  sesión y logos del tenant.
+  expand), dirección de clientes, notas de presupuesto en pedidos y logos del
+  tenant.
 
 ## 5. Pendiente
 
@@ -102,7 +102,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 
 1. ~~Merge de #106 y #99~~ (hecho el 15/10).
 2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
-3. Merge de #94 con la resolución conocida.
+3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
 4. Migraciones de #95 en Production, después merge de #95 y cierre de #91.
 5. #107 y después #108, con sus migraciones.
 6. Merge de #58.
@@ -161,8 +161,7 @@ git merge-tree --write-tree origin/gestcopy-staging origin/<rama>
 
 - **Orden de las migraciones de #95**: si el código se despliega antes, el
   registro de cobros falla. Hay que aplicar la expand primero.
-- **Conflicto #94/#105** en `/api/context`: ahora aparece al fusionar `main` en
-  #94. Aplicar la resolución probada en `3d1f386`.
+- **Conflicto #94/#105** en `/api/context`: resuelto al integrar #94.
 - **Integrar sin seguir el orden de versión de las migraciones** bloquea la
   guarda de migraciones.
 - **Stripe Live**: no está configurado y no se ha tocado en el sprint. Basic sigue en 39 €/mes.
