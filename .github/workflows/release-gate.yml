@@ -91,6 +91,8 @@ jobs:
             phase44_quote_creation \
             phase44_quote_client_recovery \
             phase46_files_storage_deletion \
+            phase46_order_total_validation \
+            phase46_payment_receipts \
             phase13_order_lifecycle \
             phase14_order_archived_immutability \
             phase15_order_concurrency \
