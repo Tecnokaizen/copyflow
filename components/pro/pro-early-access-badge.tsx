@@ -16,7 +16,7 @@ export function ProEarlyAccessBadge({
       href={badge.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "inline-flex min-h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 text-[0.6875rem] font-semibold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "inline-flex min-h-8 shrink-0 items-center whitespace-nowrap rounded-full border px-2 text-[0.6875rem] font-semibold tracking-wide transition-colors sm:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         active
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-border bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
