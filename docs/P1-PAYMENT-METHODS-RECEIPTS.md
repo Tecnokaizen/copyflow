@@ -119,3 +119,38 @@ Validación requerida con la Preview y el entorno compartido autorizado:
 8. Probar móvil, viewer, pedido archivado y #93 cambiando otros campos antes de editar el total.
 
 Solo después de evidencia DEMO y autorización de integración: quitar borrador, integrar y promover la versión de aplicación coordinada con el contrato de BD. No borrar columnas ni vínculos como rollback tras registrar pagos: una recuperación posterior debe ser hacia adelante y conservar el ledger.
+
+## Validación en Staging — 15 de octubre de 2026
+
+Supabase Staging (`fmmfsbhcwxkaszrrarpw`), tenant sintético `e2e`, R2
+`gestcopy-files-staging`. Sin service_role en el navegador; Production no se toca.
+
+| Paso | Resultado |
+| --- | --- |
+| `db push --dry-run` | Solo `20261016090000` y `20261016091000` pendientes |
+| Migraciones aplicadas (versiones exactas) | OK; hash de suscripciones/planes/precios/overrides/tenants sin cambios; los 9 cobros previos idénticos |
+| **Expand con la app anterior** (E2E V0 sin método, antes de desplegar el código) | 3/3 PASS, `E2E-0013`: cobro de 20 € con método `NULL` («Sin especificar») |
+| Despliegue del código (`gestcopy-staging` `7db5d5d`, con #105 y #99) | OK |
+| E2E V0 de esta rama (Bizum + justificante + descarga) | 3/3 PASS, `E2E-0015`: INIT → PUT R2 → COMPLETE → cobro; descarga desde el bucket de Staging con SHA-256 idéntico |
+| Listado de archivos del pedido y biblioteca del tenant | 200; el justificante aparece como documento protegido |
+| Reintento con la misma clave | Un solo movimiento; misma clave con otro importe → 409 |
+| Justificante reutilizado / de otro tenant / inexistente / sin método | 409 / 422 / 422 / 422, sin dinero añadido |
+| Descarga de un archivo de otro tenant | 404 |
+| Borrar un justificante | 409, también tras anular su entrega; anular dos veces → 409 |
+| Anulación | Conserva método y justificante |
+| Viewer | Lee (200); registrar y borrar → 403 |
+| Ficha y diálogo en 1440 px y 375 px, claro y oscuro | Sin scroll horizontal; método y «Adjuntar justificante» visibles |
+
+Local (BD aislada con `main` + esta rama): invariantes de seguridad, todas las
+suites del Release Gate, `phase45_commercial_operations`,
+`phase46_order_total_validation`, `phase46_payment_receipts`,
+`phase46_files_storage_deletion`, `phase17`, `phase22`, `tamara_operational_access`
+y las concurrencias `phase45`, `phase46_payment_receipts` y
+`phase46_files_storage_deletion`: PASS. Unitarias: 1088 (1082 PASS, 0 FAIL, 6
+omitidas por el arnés local). TypeScript y ESLint sin errores; migration guard PASS.
+
+Integración: Production todavía no tiene la expand. Orden: 1) `db push` de las
+dos migraciones (dry-run previo), 2) merge y despliegue, 3) contract en otra PR
+cuando no queden clientes antiguos. Hasta el merge, el workflow `E2E staging`
+lanzado desde `main` no elige método y fallaría contra un Staging con esta PR;
+el runner de esta rama ya lo hace.
