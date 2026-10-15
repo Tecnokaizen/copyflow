@@ -132,16 +132,24 @@ export class Harness {
     });
   }
 
-  async step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  async step<T>(name: string, fn: () => Promise<T>, timeoutMs = 120_000): Promise<T> {
     this.log(`▶ ${name}`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await fn();
+      const result = await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`step exceeded ${timeoutMs / 1000} s`)), timeoutMs);
+        }),
+      ]);
       this.log(`✔ ${name}`);
       return result;
     } catch (error) {
       this.log(`✖ ${name}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
       await this.screenshot(name).catch(() => undefined);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

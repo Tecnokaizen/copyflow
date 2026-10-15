@@ -53,8 +53,19 @@ const h = new Harness(target, redactor, artifactsDir, bypass);
 const isApi = (method: string, pattern: RegExp) => (response: { url(): string; request(): { method(): string } }) =>
   response.request().method() === method && pattern.test(new URL(response.url()).pathname);
 
+/** Rejects after `ms`; keeps a stuck browser-side promise from hanging the run. */
+function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function apiJson(response: { status(): number; json(): Promise<unknown>; url(): string }, expected: number) {
-  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await within(response.json(), 15_000, `body of ${redactor.url(response.url())}`).catch(() => null)) as
+    | Record<string, unknown>
+    | null;
   if (response.status() !== expected) {
     const detail = body ? JSON.stringify({ error: body.error, code: body.code }) : "";
     throw new Error(`${redactor.url(response.url())} → HTTP ${response.status()} (expected ${expected}) ${detail}`);
@@ -269,12 +280,17 @@ async function flowFiles(page: Page) {
     assert.equal(putOutcome.status, 200, `R2 PUT → HTTP ${putOutcome.status}`);
     h.log("PUT 200 (R2)");
 
+    // The client never reads the COMPLETE body on success, so with interception on the
+    // browser may never finish it: assert the status here, the result through the API.
     const completeResponse = await complete;
     assert.ok(new URL(completeResponse.url()).pathname.includes(`/files/${state.fileId}/complete`));
-    const completeBody = await apiJson(completeResponse, 200);
-    const file = completeBody.file as { status: string; size_bytes: number; original_name: string };
-    assert.equal(file.status, "ready", "COMPLETE (server-side HEAD) must mark the file ready");
+    assert.equal(completeResponse.status(), 200, `COMPLETE → HTTP ${completeResponse.status()}`);
+    const listed = await appGet(page, `/api/orders/${state.orderId}/files`);
+    const file = (listed.files as { id: string; status: string; size_bytes: number; original_name: string }[])
+      .find((entry) => entry.id === state.fileId);
+    assert.equal(file?.status, "ready", "COMPLETE (server-side HEAD) must mark the file ready");
     assert.equal(Number(file.size_bytes), content.byteLength);
+    assert.equal(file.original_name, state.fileName);
     h.log("COMPLETE 200, status ready");
   });
 
@@ -295,8 +311,8 @@ async function flowFiles(page: Page) {
     const issuedBody = await apiJson(await issued, 200);
     assert.equal(r2BucketFromUrl(issuedBody.download_url as string), target.r2Bucket);
     const file = await download;
-    const saved = await file.path();
-    assert.ok(saved, `download failed: ${await file.failure()}`);
+    const saved = await within<string | null>(file.path(), 30_000, "download");
+    assert.ok(saved, `download failed: ${await within(file.failure(), 5_000, "download failure").catch(() => "unknown")}`);
     const digest = createHash("sha256").update(await readFile(saved)).digest("hex");
     assert.equal(digest, state.fileSha256, "downloaded content must match the uploaded bytes");
     assert.equal(file.suggestedFilename(), state.fileName);

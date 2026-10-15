@@ -121,24 +121,33 @@ Artefactos en `e2e-artifacts/<run-id>/` (ignorado por git) o en
 | Ejecución | Pedidos | Archivos | Cobro |
 |---|---|---|---|
 | `20261015T123845Z-f9a1` | ✖ selector `<tr>` (el listado está en tarjetas) | omitido | omitido |
-| `20261015T124911Z-8f0a` | ✔ E2E-0004 (26,5 s) | ✖ CORS de R2 | ✔ 100 € / 20 € / 80 € `Parcial`, Entregado (32,2 s) |
+| `20261015T124911Z-8f0a` | ✔ E2E-0004 | ✖ CORS de R2 para el origen `e2e` | ✔ |
+| `20261015T125502Z-f6c0` | ✔ E2E-0005 | ✖ el test se colgó leyendo el cuerpo de COMPLETE (el archivo sí quedó `ready`) | no llegó a ejecutarse |
+| `20261015T130305Z-7c8c` | ✔ E2E-0006 (34,7 s) | ✔ INIT 201 → PUT 200 → COMPLETE 200 `ready`, SHA-256 OK (17,3 s) | ✔ 100 € / 20 € / 80 € `Parcial`, Entregado (27,6 s) |
+| `20261015T130439Z-d3d3` (repetición) | ✔ E2E-0007 (34,7 s) | ✔ (16,4 s) | ✔ (24,2 s) |
 
-**Bloqueo de archivos (infraestructura, no del test ni del core).** INIT
-responde 201 con URL presignada al bucket `gestcopy-files-staging`, pero el
-navegador bloquea el PUT: *No 'Access-Control-Allow-Origin' header*.
-Comprobado sin Playwright con un preflight `OPTIONS … PUT` directo a R2:
+Ninguna ejecución modificó DEMO ni AUDIT (conteos y fechas sin cambios).
+No hay contraseñas, secretos de bypass ni claves, firmas presignadas, JWT ni
+cookies `_vercel_jwt` en ningún artefacto.
 
-| Origen | Respuesta |
-|---|---|
-| `https://demo.preview.app.gestcopy.com` | 204, `Allow-Methods: GET, PUT, HEAD`, `Allow-Headers: content-type` |
-| `https://e2e.preview.app.gestcopy.com` | 403 |
-| `https://audit.preview.app.gestcopy.com` | 403 (AUDIT tampoco puede subir) |
+### Incidencias resueltas
 
-Solución: añadir `https://e2e.preview.app.gestcopy.com` (y, si procede,
-`audit`) a la política CORS del bucket `gestcopy-files-staging` en Cloudflare,
-con los mismos métodos y cabeceras que `demo`. Cada intento fallido deja un
-`order_files` en `pending` en el tenant `e2e`, que el mecanismo de limpieza
-existente gestiona.
+1. **Listado en tarjetas.** La presentación por defecto es la cuadrícula. El
+   test buscaba `<tr>`; ahora localiza la tarjeta por su `h2` dentro de
+   `Pedidos en cuadrícula` (DOM inspeccionado en Staging).
+2. **CORS de R2 (infraestructura).** El bucket `gestcopy-files-staging` solo
+   admitía el origen `demo` (preflight `OPTIONS … PUT`: 204 para `demo`, 403
+   para `e2e` y para `audit`). Se añadió `https://e2e.preview.app.gestcopy.com`
+   en Cloudflare. **AUDIT sigue sin poder subir archivos** hasta que se añada
+   su origen.
+3. **Cuerpo de COMPLETE.** En caso de éxito el cliente no lee el cuerpo de
+   COMPLETE. Con la interceptación activa, Playwright puede esperar ese
+   cuerpo indefinidamente. El test comprueba el estado HTTP de COMPLETE y
+   verifica `ready`, tamaño y nombre mediante `GET /api/orders/{id}/files`.
+   Toda lectura de cuerpo, la descarga y cada paso tienen ya un tiempo máximo.
+
+Cada intento de subida fallido dejó un `order_files` en `pending` en el tenant
+`e2e` (E2E-0002…0004). Lo gestiona el mecanismo de limpieza existente.
 
 ## Automatización futura
 
