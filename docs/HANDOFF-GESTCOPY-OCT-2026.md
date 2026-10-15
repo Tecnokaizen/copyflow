@@ -6,8 +6,8 @@ Documento de continuidad para seguir sin repetir auditorías. Estado al 15/10/20
 
 ## 1. `main`
 
-`03fa094` (merge de #98). No ha cambiado durante el sprint: no se ha fusionado
-nada.
+`53deec7`: #106 (`f120dbc`) y #99 (`53deec7`) integradas el 15/10 con
+autorización expresa, con CI y Production verificados. Nada más se ha fusionado.
 
 ## 2. `gestcopy-staging`
 
@@ -21,9 +21,9 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | PR | Estado | Siguiente acción |
 | --- | --- | --- |
 | #105 Pro V1 | Lista | Merge y migración en Production |
-| #99 Novedades | Lista | Merge |
+| #99 Novedades | **Integrada** (`53deec7`) | — |
 | #95 Cobros y justificantes | Lista | Migración en Production **antes** del merge; contract después |
-| #106 Pie (#100) | Lista | Merge (P1) |
+| #106 Pie (#100) | **Integrada** (`f120dbc`) | — |
 | #107 Dirección (#101) | Lista | Migración y merge |
 | #108 Notas (#102) | Lista | Migración y merge |
 | #94 Sesión | Lista | Merge tras #105, con la resolución de `3d1f386` |
@@ -88,14 +88,14 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 
 - Latencia esporádica de Staging (6 a 20 s en algunas API).
 - Copias locales con ramas antiguas en otros worktrees (`copyflow-pr95`,
-  `copyflow-staging` y la carpeta raíz en `feat/changelog-novedades`, un commit
-  por detrás de su remoto). Antes de trabajar en ellas, `git pull --ff-only`.
+  `copyflow-staging` y la carpeta raíz en `feat/changelog-novedades`, rama ya
+  integrada por squash en `53deec7`). Antes de trabajar en ellas, `git pull --ff-only`.
 - `phase12` y `phase39` de concurrencia necesitan `node`/`python3` en el host:
   solo se ejecutan en CI.
 
 ## 10. Próximas acciones priorizadas
 
-1. Merge de #106 y #99.
+1. ~~Merge de #106 y #99~~ (hecho el 15/10).
 2. Merge de #105 y migración en Production.
 3. Merge de #94 con la resolución conocida.
 4. Migraciones de #95 en Production, después merge de #95 y cierre de #91.

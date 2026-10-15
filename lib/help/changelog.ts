@@ -66,8 +66,20 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 export const CHANGELOG: ChangelogRelease[] = [
   {
     date: "2026-10-15",
-    title: "Pruebas de principio a fin antes de publicar",
+    title: "Novedades en la ayuda, pie de presupuestos y pruebas de principio a fin",
     entries: [
+      nuevo(
+        "Ayuda",
+        "Página de Novedades con todos los cambios desde el lanzamiento, filtrable por tipo y enlazada desde el centro de ayuda."
+      ),
+      mejora(
+        "Ayuda",
+        "El menú del centro de ayuda agrupa los artículos en secciones plegables y abre automáticamente la del artículo que estás leyendo."
+      ),
+      correccion(
+        "Presupuestos",
+        "El pie de presupuestos se guarda con cuatro líneas visibles aunque quede una línea vacía al final o el texto se haya pegado desde otro programa, y el contador indica también las líneas."
+      ),
       seguridad(
         "Plataforma",
         "Nueva prueba automatizada del recorrido completo en un entorno de pruebas real: crear cliente y pedido, buscarlo, subir y descargar un archivo y registrar un cobro parcial hasta la entrega."

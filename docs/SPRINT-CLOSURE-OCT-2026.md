@@ -1,9 +1,10 @@
 # Sprint de consolidación — 15 a 18 de octubre de 2026
 
-Registro vivo del sprint. Base: `main` `03fa094`. Staging integrado:
-`gestcopy-staging` `4570ea5`. Ninguna PR se ha fusionado en `main` y Production no
-se ha tocado: ni código ni datos. Production solo se ha consultado en
-modo lectura, para el historial de migraciones.
+Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `53deec7`.
+Staging integrado: `gestcopy-staging` `4570ea5`. Con autorización expresa
+solo se han integrado **#106** y **#99** (sin migraciones). El resto sigue sin
+fusionar. Production no ha recibido migraciones ni cambios de datos. Solo se
+ha consultado en modo lectura (historial de migraciones y páginas públicas).
 
 Arquitectura respetada en todo el sprint: un repositorio y un core Next.js, un
 proyecto y un deployment de Production en Vercel, un proyecto Supabase con una
@@ -16,9 +17,9 @@ infraestructura por tenant. No hay código específico de SUR4.
 | Funcionalidad | Issue | PR · head | Migraciones | Pruebas | Staging | Merge |
 | --- | --- | --- | --- | --- | --- | --- |
 | Gestcopy Pro · Acceso anticipado V1 | — | #105 · `4ffa92a` | `20261015200000_pro_early_access_features_v1` | 1102 unitarias; SQL `phase47` (en el gate); 6 mutaciones detectadas | ON/OFF/retirada con owner + viewer, 1440/375 px, claro/oscuro; E2E desde GitHub Actions run `38796720614` 3/3 | Lista; pendiente de autorización |
-| Novedades y ayuda plegable | — | #99 · `3e77e93` | — | Ayuda 27/27; CI verde | 9/9: metadatos, canonical, filtros con teclado, secciones plegables, 60 enlaces con 200, escritorio/móvil, claro/oscuro | Lista |
+| Novedades y ayuda plegable | — | #99 · `3e77e93` | — | Ayuda 27/27; CI verde | 9/9: metadatos, canonical, filtros con teclado, secciones plegables, 60 enlaces con 200, escritorio/móvil, claro/oscuro | **Integrada**: `main` `53deec7`, verificada en Production |
 | Métodos de pago y justificantes | #103 | #95 · `8886ecf` | `20261016090000_order_total_validation_p1`, `20261016091000_order_payment_methods_receipts_expand` | 1088 unitarias; suites SQL de cobros y archivos con concurrencia; smokes de navegador | Expand con la app anterior (`E2E-0013`); E2E V0 con método y justificante (`E2E-0015`, `E2E-0018`); reintentos, ajenos, anulación, viewer, escritorio/móvil | Lista para revisión; aplicar la migración en Production **antes** del merge |
-| Pie de presupuestos (P1) | #100 | #106 · `5b28738` | — | Regresión que falla en `main`; 1077/1077 | Editor real: 4 líneas + Intro se guarda; 5.ª línea → 400; viewer 403 | Lista |
+| Pie de presupuestos (P1) | #100 | #106 · `5b28738` | — | Regresión que falla en `main`; 1077/1077 | Editor real: 4 líneas + Intro se guarda; 5.ª línea → 400; viewer 403 | **Integrada**: `main` `f120dbc`, #100 cerrada |
 | Dirección opcional de clientes | #101 | #107 · `5f34d1f` | `20261016100000_clients_address_v1` | SQL `phase48` (en el gate); 1080/1080 | Alta con y sin dirección, edición, conservación, borrado, viewer 403, escritorio/móvil | Lista |
 | Notas del presupuesto → pedido | #102 | #108 · `53d3e3a` | `20261016110000_quote_conversion_notes_v1` | SQL `phase49` (en el gate); `phase34` y `phase38` actualizadas | `phase49` completa contra la BD de Staging, sin dejar datos | Lista; cambio de comportamiento deliberado (ver la PR) |
 | Modificación de líneas de pedido | #104 | — | — | — | — | **No implementado**: los pedidos no tienen modelo de líneas. Diseño en `docs/adr/2026-10-15-order-lines-v1.md` |
@@ -53,8 +54,8 @@ La guarda de migraciones exige que cada migración nueva sea posterior a la
 cada paso: CI verde, revisión y, si hay migración, `db push --dry-run` en
 Production (solo la esperada) y después `db push`.
 
-1. **#106** (P1, sin migración).
-2. **#99** (sin migración).
+1. ~~**#106**~~: integrada (`f120dbc`).
+2. ~~**#99**~~: integrada (`53deec7`).
 3. **#105**: merge y después la migración en Production (el código funciona sin
    ella). Ningún tenant queda enrolado.
 4. **#94**: antes del merge, `main` a la rama. El conflicto en
@@ -70,6 +71,21 @@ Production (solo la esperada) y después `db push`.
 Hasta que #95 esté en `main`, el workflow `E2E staging` lanzado desde `main`
 falla en el paso de cobro contra el Staging actual, porque no elige método de
 pago. El runner de la rama de #95 sí lo hace.
+
+## Integraciones en `main` (15/10/2026)
+
+Autorizadas solo #106 y #99, en ese orden. Antes de cada una se revalidaron el
+head, los checks y el estado `CLEAN`. Squash merge, sin borrar la rama. #99 se
+fusionó con `--match-head-commit`.
+
+| Orden | PR | Commit en `main` | Antes del merge | CI en `main` (push) | Production | Verificación |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | #106 | `f120dbc` (21:10 UTC) | head `5b28738`, 4/4 checks, `CLEAN` | Release Gate App y Database: success | Deployment `7104463058`: success | Salud pública: `/ayuda` y `/auth/login` 200, `/api/context` anónimo 403. El pie solo se ve con sesión en un tenant: no se probó en Production para no usar cuentas reales. Validado sobre el mismo código en Staging |
+| 2 | #99 | `53deec7` (21:14 UTC) | head `3e77e93`, 4/4 checks, `CLEAN`; con `main` + #106: tsc OK y 1085/1085 | Release Gate App y Database: success | Deployment `7104551268`: success | `/ayuda/novedades` anónima en Production: título, canonical, 28 versiones y 153 entradas con el texto corregido, filtros con ratón y teclado, 10 secciones plegadas, 60 enlaces con 200, escritorio/móvil, claro/oscuro sin scroll horizontal. Login de `app`, `demo` y `sur4` 200 |
+
+Sin regresiones: no ha hecho falta el procedimiento de recuperación. Changelog
+actualizado con #106 y #99 en esta PR (#109), pendiente de autorización para
+integrarla.
 
 ## Resultados de pruebas consolidados
 
@@ -123,5 +139,5 @@ pago. El runner de la rama de #95 sí lo hace.
 
 ## Próximo paso concreto
 
-Integrar #106 (P1 de la copistería piloto) y #99. Después, según el orden anterior,
-con la migración en Production antes del merge cuando corresponda.
+#106 y #99 ya están integradas. Lo siguiente, cuando lo autorices tras tu revisión,
+es #105 y su migración en Production. Después, el resto del orden anterior.
