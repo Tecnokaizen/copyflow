@@ -93,8 +93,21 @@ export function HelpSidebar({
   sections: HelpNavSection[];
   currentSlug?: string;
 }) {
+  const changelogActive = currentSlug === "novedades";
   return (
     <nav aria-label="Documentación" className="grid gap-4">
+      <Link
+        href="/ayuda/novedades"
+        aria-current={changelogActive ? "page" : undefined}
+        className={cn(
+          "block rounded-md px-2 py-1.5 text-sm font-medium",
+          changelogActive
+            ? "bg-primary/10 text-primary"
+            : "text-foreground hover:bg-muted"
+        )}
+      >
+        Novedades
+      </Link>
       {sections.map((section) => (
         <div key={section.id}>
           <p className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
