@@ -66,8 +66,16 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 export const CHANGELOG: ChangelogRelease[] = [
   {
     date: "2026-10-16",
-    title: "Pedidos a salvo si la sesión caduca",
+    title: "Métodos de pago, justificantes y pedidos a salvo si la sesión caduca",
     entries: [
+      nuevo(
+        "Cobros",
+        "Al registrar una entrega a cuenta eliges el método de pago (efectivo, tarjeta, Bizum, transferencia u otro) y puedes adjuntar un justificante. El justificante queda guardado de forma privada y no se puede borrar, ni siquiera si anulas la entrega."
+      ),
+      mejora(
+        "Cobros",
+        "Las entregas registradas antes de este cambio aparecen como «Sin especificar (histórico)»: Gestcopy no deduce el método de los cobros antiguos."
+      ),
       mejora(
         "Pedidos",
         "Si la sesión caduca mientras creas un pedido, Gestcopy guarda lo que llevas escrito y lo recupera cuando vuelves a iniciar sesión. Los archivos adjuntos hay que seleccionarlos de nuevo."

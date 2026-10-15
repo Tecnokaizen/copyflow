@@ -1,12 +1,12 @@
 # Handoff Gestcopy — octubre 2026
 
 Documento de continuidad para seguir sin repetir auditorías. Estado al 16/10/2026,
-00:10 (hora de Madrid). Detalle por funcionalidad en
+00:40 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`8e5dfe1`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`) y #94 (`8e5dfe1`)
+`6e3fc12`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`) y #95 (`6e3fc12`)
 integradas el 15/10 con autorización expresa, con CI y Production verificados. La migración de
 #105 está aplicada en Production y ningún tenant tiene Pro activado. Nada más se
 ha fusionado.
@@ -24,23 +24,22 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | --- | --- | --- |
 | #105 Pro V1 | **Integrada** (`725deff`), migración aplicada | Activar el piloto SUR4 solo con autorización expresa |
 | #99 Novedades | **Integrada** (`53deec7`) | — |
-| #95 Cobros y justificantes | Lista | Migración en Production **antes** del merge; contract después |
+| #95 Cobros y justificantes | **Integrada** (`6e3fc12`), migraciones aplicadas | PR de contract pasadas 24 h |
 | #106 Pie (#100) | **Integrada** (`f120dbc`) | — |
 | #107 Dirección (#101) | Lista | Migración y merge |
 | #108 Notas (#102) | Lista | Migración y merge |
 | #94 Sesión | **Integrada** (`8e5dfe1`) | — |
 | #58 Logos | Lista (validada en Staging) | Merge |
-| #91 Total | Sustituida por #95 | Cerrar al integrar #95 |
+| #91 Total | Sustituida por #95 (integrada) | Cerrar, con autorización |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
 | #32 Kiosk, #11, #2 | Fuera de alcance | Aparcadas |
 
 ## 4. Completado
 
 - **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades, pie de
-  presupuestos y resiliencia de sesión.
-- **Validado en Staging, sin fusionar**: cobros con método y justificante (con
-  expand), dirección de clientes, notas de presupuesto en pedidos y logos del
-  tenant.
+  presupuestos, resiliencia de sesión y cobros con método y justificante (expand).
+- **Validado en Staging, sin fusionar**: dirección de clientes, notas de
+  presupuesto en pedidos y logos del tenant.
 
 ## 5. Pendiente
 
@@ -55,7 +54,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | --- | --- | --- |
 | ≤ `20261014120000` | Sí | Sí |
 | `20261015200000` Pro | Sí (15/10, 21:44 UTC) | Sí |
-| `20261016090000` total, `20261016091000` cobros (expand) | No | Sí |
+| `20261016090000` total, `20261016091000` cobros (expand) | Sí (15/10, 22:32 UTC) | Sí |
 | `20261016100000` dirección | No | Sí |
 | `20261016110000` notas | No | Sí |
 
@@ -75,7 +74,11 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
   `e2e`. CORS solo para los orígenes `demo` y `e2e` (`audit` sigue sin subir
   archivos).
 - **Production**: migración de #105 aplicada (catálogo `pro_early_access` y
-  `ai_voice_orders`, sin filas de plan ni overrides). Por lo demás, solo lectura.
+  `ai_voice_orders`, sin filas de plan ni overrides) y expand de #95 (columnas
+  nulas, guardas y firma nueva de `record_order_payment`; los cobros anteriores
+  intactos y «Sin especificar»). Reversión de la expand en
+  `supabase/rollbacks/20261016091000_order_payment_methods_receipts_expand.sql`,
+  válida solo mientras no haya cobros con método. Por lo demás, solo lectura.
 
 ## 8. Release Gate y E2E
 
@@ -83,9 +86,8 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
   `phase49`, `phase46_order_total_validation` y `phase46_payment_receipts`.
 - En el árbol integrado: 1157 unitarias y 56 suites SQL (concurrencia incluida) en
   verde.
-- `E2E staging` (manual): run `38796720614` 3/3 sobre `main`. **Aviso**: mientras
-  Staging tenga #95 y `main` no, ese workflow falla en el paso de cobro, porque no
-  elige método.
+- `E2E staging` (manual): run `38818090064` 3/3 sobre `main` `6e3fc12` (con #95:
+  elige método Bizum y adjunta justificante; pedido `E2E-0019`).
 - Scripts nuevos en #105: `e2e/staging/pro-early-access.ts` (recorrido Pro ON/OFF)
   y `seed-viewer.ts`.
 
@@ -103,7 +105,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 1. ~~Merge de #106 y #99~~ (hecho el 15/10).
 2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
 3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
-4. Migraciones de #95 en Production, después merge de #95 y cierre de #91.
+4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91.
 5. #107 y después #108, con sus migraciones.
 6. Merge de #58.
 7. Decisiones de #104.
@@ -159,8 +161,9 @@ git merge-tree --write-tree origin/gestcopy-staging origin/<rama>
 
 ## 13. Riesgos para Production
 
-- **Orden de las migraciones de #95**: si el código se despliega antes, el
-  registro de cobros falla. Hay que aplicar la expand primero.
+- **Contract de #95**: retirar la firma de 4 argumentos solo cuando no quede
+  ningún cliente con la versión anterior (≥ 24 h tras el despliegue del
+  15/10, 22:34 UTC).
 - **Conflicto #94/#105** en `/api/context`: resuelto al integrar #94.
 - **Integrar sin seguir el orden de versión de las migraciones** bloquea la
   guarda de migraciones.
