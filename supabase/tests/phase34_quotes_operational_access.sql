@@ -95,7 +95,9 @@ begin
         end if;
         if not exists(select 1 from public.orders where id = (result->>'order_id')::uuid
           and tenant_id = tenant_a and title = 'Quote title' and description = 'Updated'
-          and notes is null and created_by = actor and priority = 'normal'
+          and notes = '<p><strong>Notas del presupuesto ' || (select reference from public.quotes where id = quote_a)
+            || '</strong></p><p>Updated notes</p>' -- #102
+          and created_by = actor and priority = 'normal'
           and due_at is null and metadata->>'quote_id' = quote_a::text) then
           raise exception 'phase34: % conversion changed order payload', role_name;
         end if;
