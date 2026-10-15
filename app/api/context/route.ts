@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { earlyAccessContext } from "@/lib/features/early-access";
+import { resolveProEarlyAccess } from "@/lib/features/early-access-server";
 import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
@@ -22,11 +24,10 @@ export async function GET() {
     context.tenant.id,
     context.user.id
   );
-  const quotes = await tenantHasFeature(
-    supabase,
-    context.tenant.id,
-    QUOTES_FEATURE_CODE
-  );
+  const [quotes, proEarlyAccess] = await Promise.all([
+    tenantHasFeature(supabase, context.tenant.id, QUOTES_FEATURE_CODE),
+    resolveProEarlyAccess(supabase, context.tenant.id),
+  ]);
   let settings: Awaited<ReturnType<typeof loadOrganizationSettings>> = null;
   try {
     settings = await loadOrganizationSettings(context.tenant.id);
@@ -39,7 +40,8 @@ export async function GET() {
     branding: settings?.branding,
   });
 
-  return NextResponse.json({
+  // Per-user, per-tenant payload: never cache it in a shared cache.
+  return operationalJson({
     ...context,
     tenant: {
       id: context.tenant.id,
@@ -54,5 +56,6 @@ export async function GET() {
     features: {
       quotes,
     },
+    early_access: earlyAccessContext(proEarlyAccess),
   });
 }
