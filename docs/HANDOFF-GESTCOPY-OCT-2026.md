@@ -1,13 +1,15 @@
 # Handoff Gestcopy — octubre 2026
 
 Documento de continuidad para seguir sin repetir auditorías. Estado al 15/10/2026,
-22:00 (hora de Madrid). Detalle por funcionalidad en
+23:50 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`53deec7`: #106 (`f120dbc`) y #99 (`53deec7`) integradas el 15/10 con
-autorización expresa, con CI y Production verificados. Nada más se ha fusionado.
+`725deff`: #106 (`f120dbc`), #99 (`53deec7`) y #105 (`725deff`) integradas el
+15/10 con autorización expresa, con CI y Production verificados. La migración de
+#105 está aplicada en Production y ningún tenant tiene Pro activado. Nada más se
+ha fusionado.
 
 ## 2. `gestcopy-staging`
 
@@ -20,23 +22,25 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 
 | PR | Estado | Siguiente acción |
 | --- | --- | --- |
-| #105 Pro V1 | Lista | Merge y migración en Production |
+| #105 Pro V1 | **Integrada** (`725deff`), migración aplicada | Activar el piloto SUR4 solo con autorización expresa |
 | #99 Novedades | **Integrada** (`53deec7`) | — |
 | #95 Cobros y justificantes | Lista | Migración en Production **antes** del merge; contract después |
 | #106 Pie (#100) | **Integrada** (`f120dbc`) | — |
 | #107 Dirección (#101) | Lista | Migración y merge |
 | #108 Notas (#102) | Lista | Migración y merge |
-| #94 Sesión | Lista | Merge tras #105, con la resolución de `3d1f386` |
+| #94 Sesión | Lista | Fusionar `main` en la rama con la resolución de `3d1f386`, después merge |
 | #58 Logos | Lista (validada en Staging) | Merge |
 | #91 Total | Sustituida por #95 | Cerrar al integrar #95 |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
 | #32 Kiosk, #11, #2 | Fuera de alcance | Aparcadas |
 
-## 4. Completado (validado en Staging, sin fusionar)
+## 4. Completado
 
-Pro V1, Novedades, cobros con método y justificante (con expand), pie de
-presupuestos, dirección de clientes, notas de presupuesto en pedidos,
-resiliencia de sesión y logos del tenant.
+- **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades y pie de
+  presupuestos.
+- **Validado en Staging, sin fusionar**: cobros con método y justificante (con
+  expand), dirección de clientes, notas de presupuesto en pedidos, resiliencia de
+  sesión y logos del tenant.
 
 ## 5. Pendiente
 
@@ -50,7 +54,7 @@ resiliencia de sesión y logos del tenant.
 | Versión | Production (`wsclqvlzjdgwkxbolhoy`) | Staging (`fmmfsbhcwxkaszrrarpw`) |
 | --- | --- | --- |
 | ≤ `20261014120000` | Sí | Sí |
-| `20261015200000` Pro | No | Sí |
+| `20261015200000` Pro | Sí (15/10, 21:44 UTC) | Sí |
 | `20261016090000` total, `20261016091000` cobros (expand) | No | Sí |
 | `20261016100000` dirección | No | Sí |
 | `20261016110000` notas | No | Sí |
@@ -70,7 +74,8 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 - **R2 Staging**: `gestcopy-files-staging`. Justificantes y archivos de E2E en
   `e2e`. CORS solo para los orígenes `demo` y `e2e` (`audit` sigue sin subir
   archivos).
-- **Production**: solo lectura del historial de migraciones; sin cambios.
+- **Production**: migración de #105 aplicada (catálogo `pro_early_access` y
+  `ai_voice_orders`, sin filas de plan ni overrides). Por lo demás, solo lectura.
 
 ## 8. Release Gate y E2E
 
@@ -96,7 +101,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 ## 10. Próximas acciones priorizadas
 
 1. ~~Merge de #106 y #99~~ (hecho el 15/10).
-2. Merge de #105 y migración en Production.
+2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
 3. Merge de #94 con la resolución conocida.
 4. Migraciones de #95 en Production, después merge de #95 y cierre de #91.
 5. #107 y después #108, con sus migraciones.
@@ -156,7 +161,8 @@ git merge-tree --write-tree origin/gestcopy-staging origin/<rama>
 
 - **Orden de las migraciones de #95**: si el código se despliega antes, el
   registro de cobros falla. Hay que aplicar la expand primero.
-- **Conflicto #94/#105** en `/api/context`: aplicar la resolución probada.
+- **Conflicto #94/#105** en `/api/context`: ahora aparece al fusionar `main` en
+  #94. Aplicar la resolución probada en `3d1f386`.
 - **Integrar sin seguir el orden de versión de las migraciones** bloquea la
   guarda de migraciones.
 - **Stripe Live**: no está configurado y no se ha tocado en el sprint. Basic sigue en 39 €/mes.
