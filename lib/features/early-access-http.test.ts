@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import ts from "typescript";
 import * as operationalCache from "../http/operational-cache";
+import * as accessHttp from "../tenant/access-http";
+import { sessionExpiredFailure } from "../tenant/access";
 import * as quotesAccess from "../quotes/access";
 import * as branding from "../tenant/branding";
 import * as earlyAccess from "./early-access";
@@ -47,9 +49,14 @@ function harness(options: {
     "@/lib/team/current-member": { resolveCurrentTeamMember: async () => null },
     "@/lib/tenant/branding": branding,
     "@/lib/tenant/organization": { loadOrganizationSettings: async () => null },
-    "@/lib/tenant/current-context": {
-      getCurrentContext: async () =>
-        options.context === undefined ? CONTEXT : options.context,
+    // PR #94: session/tenant/membership guard with 401/403/503 responses.
+    "@/lib/tenant/access-response": {
+      requireCurrentAccess: async (route: string) => {
+        const context = options.context === undefined ? CONTEXT : options.context;
+        return context
+          ? { ok: true, context }
+          : { ok: false, response: accessHttp.accessFailureResponse(sessionExpiredFailure(), route) };
+      },
     },
   };
   const filename = new URL("../../app/api/context/route.ts", import.meta.url);
@@ -82,8 +89,8 @@ describe("GET /api/context · early access", () => {
   it("denies without session, active tenant or membership before any feature RPC", async () => {
     const h = harness({ context: null, pro: true, quotes: true });
     const response = await h.get();
-    assert.equal(response.status, 403);
-    assertPrivate(response);
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get("Cache-Control") ?? "", /\bprivate\b.*\bno-store\b/);
     const body = await response.json();
     assert.equal("early_access" in body, false);
     assert.equal(h.calls.length, 0);

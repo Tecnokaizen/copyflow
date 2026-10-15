@@ -29,7 +29,7 @@ await build({
     api.onResolve({ filter: /^next\/(navigation|link)$/ }, ({ path }) => ({ path, namespace: "test-next" }));
     api.onLoad({ filter: /.*/, namespace: "test-next" }, ({ path: module }) => ({
       contents: module.endsWith("navigation")
-        ? "export const useRouter = () => ({push: (url) => { window.lastNavigation = url; }});"
+        ? "export const useRouter = () => ({push: (url) => { window.lastNavigation = url; }}); export const usePathname = () => '/orders';"
         : "import React from 'react'; export default function Link({href, children, ...props}) { return React.createElement('a', {...props, href}, children); }",
       resolveDir: root,
     }));
