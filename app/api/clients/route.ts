@@ -6,6 +6,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { parseClientPayload } from "@/lib/clients/payload";
+import { CLIENT_ADDRESS_UNAVAILABLE, writeClient } from "@/lib/clients/write-rpc";
 import { mapClientSummaries } from "@/lib/clients/types";
 import {
   clientDuplicateResponse,
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("create_client", {
+  const { data, error } = await writeClient(supabase, "create", {
     p_tenant_id: context.tenant.id,
     p_customer_type_id: parsed.data.customer_type_id,
     p_name: parsed.data.name,
@@ -129,7 +130,7 @@ export async function POST(request: NextRequest) {
     p_email: parsed.data.email,
     p_phone: parsed.data.phone,
     p_notes: parsed.data.notes,
-  });
+  }, parsed.data.address);
 
   if (error || !data) {
     const duplicate = clientDuplicateResponse(error);
@@ -140,14 +141,20 @@ export async function POST(request: NextRequest) {
     console.error("create_client", error?.message ?? "unknown error");
 
     return NextResponse.json(
-      { error: "Could not create client" },
+      {
+        error:
+          error?.code === CLIENT_ADDRESS_UNAVAILABLE
+            ? "La dirección todavía no está disponible. Guarda el cliente sin dirección o inténtalo más tarde."
+            : "Could not create client",
+      },
       { status: statusForClientRpcError(error?.code) }
     );
   }
 
+  const created = data as { client?: unknown };
   return NextResponse.json({
     ok: true,
     tenant: context.tenant.slug,
-    client: data.client ?? data,
+    client: created.client ?? created,
   });
 }

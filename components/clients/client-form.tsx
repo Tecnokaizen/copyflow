@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
+import { CLIENT_ADDRESS_MAX_CHARS } from "@/lib/clients/payload";
 import {
   EMPTY_CLIENT_FORM,
   duplicateMatchLabels,
@@ -184,6 +185,22 @@ export function ClientForm({
           className={fieldClassName}
         />
       </label>
+
+      {/* Hidden when the address was not loaded, so an edit never clears it. */}
+      {form.address !== undefined ? (
+        <label className="grid gap-1 text-sm">
+          Dirección (opcional)
+          <textarea
+            value={form.address}
+            rows={2}
+            maxLength={CLIENT_ADDRESS_MAX_CHARS}
+            autoComplete="street-address"
+            disabled={submitting}
+            onChange={(event) => updateField("address", event.target.value)}
+            className={`${fieldClassName} resize-y`}
+          />
+        </label>
+      ) : null}
 
       <div className="grid gap-1 text-sm">
         Notas

@@ -70,7 +70,7 @@ function DetailRow({
   return (
     <div className="grid gap-1 border-b py-4 last:border-b-0 md:grid-cols-[220px_1fr]">
       <div className="text-sm font-medium text-muted-foreground">{label}</div>
-      <div className="text-sm">{value || "—"}</div>
+      <div className="whitespace-pre-line text-sm">{value || "—"}</div>
     </div>
   );
 }
@@ -249,6 +249,9 @@ function ClientDetailContent() {
         <DetailRow label="NIF/CIF" value={client.tax_id} />
         <DetailRow label="Email" value={client.email} />
         <DetailRow label="Teléfono" value={client.phone} />
+        {client.address !== undefined ? (
+          <DetailRow label="Dirección" value={client.address} />
+        ) : null}
         <DetailRow
           label="Tipo"
           value={client.customer_type_name ?? "Sin definir"}
