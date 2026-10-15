@@ -1,15 +1,16 @@
 # Handoff Gestcopy — octubre 2026
 
 Documento de continuidad para seguir sin repetir auditorías. Estado al 16/10/2026,
-01:30 (hora de Madrid). Detalle por funcionalidad en
+01:50 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`1e50228`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`), #107 (`81aa3de`) y #108 (`1e50228`)
-integradas el 15/10 con autorización expresa, con CI y Production verificados. La migración de
-#105 está aplicada en Production y ningún tenant tiene Pro activado. Nada más se
-ha fusionado.
+`4877db7`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`), #107 (`81aa3de`), #108 (`1e50228`) y #58 (`4877db7`)
+integradas el 15/10 con autorización expresa, con CI y Production verificados. Las
+migraciones de #105, #95, #107 y #108 están aplicadas en Production (cada una antes
+de su merge salvo la de #105) y ningún tenant tiene Pro activado. Sin fusionar:
+#109 (esta documentación), #90 (voz) y #91 (sustituida, pendiente de cerrar).
 
 ## 2. `gestcopy-staging`
 
@@ -29,7 +30,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 | #107 Dirección (#101) | **Integrada** (`81aa3de`), migración aplicada | — |
 | #108 Notas (#102) | **Integrada** (`1e50228`), migración aplicada | — |
 | #94 Sesión | **Integrada** (`8e5dfe1`) | — |
-| #58 Logos | Lista (validada en Staging) | Merge |
+| #58 Logos | **Integrada** (`4877db7`) | — |
 | #91 Total | Sustituida por #95 (integrada) | Cerrar, con autorización |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
 | #32 Kiosk, #11, #2 | Fuera de alcance | Aparcadas |
@@ -38,8 +39,8 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
 
 - **Integrado en `main`**: Pro V1 (sin tenants enrolados), Novedades, pie de
   presupuestos, resiliencia de sesión, cobros con método y justificante (expand),
-  dirección opcional de clientes y notas de presupuesto en pedidos.
-- **Validado en Staging, sin fusionar**: logos del tenant.
+  dirección opcional de clientes, notas de presupuesto en pedidos y logos del
+  tenant (con la corrección para la etiqueta Pro en móviles estrechos).
 
 ## 5. Pendiente
 
@@ -86,8 +87,8 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
   `phase49`, `phase46_order_total_validation` y `phase46_payment_receipts`.
 - En el árbol integrado: 1157 unitarias y 56 suites SQL (concurrencia incluida) en
   verde.
-- `E2E staging` (manual): run `38823386750` 3/3 sobre `main` `1e50228` (pedido
-  `E2E-0021`); con #95 elige método Bizum y adjunta justificante.
+- `E2E staging` (manual): run `38825177132` 3/3 sobre `main` `4877db7` (pedido
+  `E2E-0022`); con #95 elige método Bizum y adjunta justificante.
 - Scripts nuevos en #105: `e2e/staging/pro-early-access.ts` (recorrido Pro ON/OFF)
   y `seed-viewer.ts`.
 
@@ -107,7 +108,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
 4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91.
 5. ~~#107~~ (hecho el 15/10, 22:58 UTC) y ~~#108~~ (hecho el 15/10, 23:23 UTC).
-6. Merge de #58.
+6. ~~Merge de #58~~ (hecho el 15/10, 23:41 UTC).
 7. Decisiones de #104.
 8. Alinear #90 y pasar sus gates.
 9. Checklist de lanzamiento de SUR4 (#34, #35, #84) con el usuario.

@@ -68,6 +68,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "2026-10-16",
     title: "Métodos de pago, justificantes, dirección de clientes y notas de presupuesto en pedidos",
     entries: [
+      correccion(
+        "Ajustes",
+        "El logo de la copistería se muestra con su forma real en la cabecera, sea horizontal o vertical, y al cambiarlo o quitarlo se actualiza al momento, sin recargar la página."
+      ),
       mejora(
         "Presupuestos",
         "Al convertir un presupuesto aceptado en pedido, sus condiciones y sus notas internas pasan a las notas internas del pedido, cada bloque con el número del presupuesto. Nada se copia a los campos que ve el cliente, y los pedidos ya convertidos no cambian."

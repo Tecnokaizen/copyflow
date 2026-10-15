@@ -1,11 +1,12 @@
 # Sprint de consolidación — 15 a 18 de octubre de 2026
 
-Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `1e50228`.
+Registro vivo del sprint. Base: `main` `03fa094`. `main` actual: `4877db7`.
 Staging integrado: `gestcopy-staging` `4570ea5`. Con autorización expresa se
 han integrado **#106**, **#99**, **#105** (con su migración), **#94** (sin
 migraciones), **#95**, **#107** y **#108** (migraciones aplicadas antes del
-merge).
-El resto sigue sin fusionar. Production ha recibido la migración de #105 (dos
+merge) y **#58** (sin migraciones).
+Quedan sin fusionar esta PR de documentación (#109), #90 (voz, borrador) y #91
+(sustituida por #95, pendiente de cerrar). Production ha recibido la migración de #105 (dos
 filas de catálogo, sin concesiones) y la expand de #95 (columnas nulas, guardas
 y la firma nueva de `record_order_payment`; el libro de cobros intacto) y la
 dirección opcional de #107 (columna nula y RPC v2; clientes existentes intactos)
@@ -30,7 +31,7 @@ infraestructura por tenant. No hay código específico de SUR4.
 | Notas del presupuesto → pedido | #102 | #108 · `ed33422` | `20261016110000_quote_conversion_notes_v1` | SQL 56/56 con `phase49`; `phase34` y `phase38` actualizadas; suites de `main` sobre la migración: solo cambian a propósito las dos aserciones de notas | `phase49` completa contra la BD de Staging, sin dejar datos | **Integrada**: migración en Production a las 23:23 UTC y `main` `1e50228` |
 | Modificación de líneas de pedido | #104 | — | — | — | — | **No implementado**: los pedidos no tienen modelo de líneas. Diseño en `docs/adr/2026-10-15-order-lines-v1.md` |
 | Resiliencia de sesión | — | #94 · `b6427a6` | — | 1141/1141 con `main` `725deff`; 4 smokes de navegador | Sesión caducada → 401 y el borrador se recupera; viewer 403; contexto anónimo 401 | **Integrada**: `main` `8e5dfe1`, con la resolución de `3d1f386` |
-| Logos del tenant | — | #58 · `cf569be` | — | 1076/1076; CI verde | Logos 3:1 y 1:3 proporcionados, sustitución sin recarga, quitar → monograma, escritorio/móvil, claro/oscuro | Lista |
+| Logos del tenant | — | #58 · `d487d54` | — | 1157/1157 con `main` `1e50228`; smoke nuevo de cabecera 48/48 (falla sin la corrección); 9 smokes que montan la cabecera | Logos 3:1 y 1:3 proporcionados, sustitución sin recarga, quitar → monograma, escritorio/móvil, claro/oscuro | **Integrada**: `main` `4877db7`. Corregido al integrarla: con la etiqueta Pro de #105, a 320 px el logo apaisado quedaba bajo la etiqueta |
 | Gestcopy AI — Pedidos por voz | #76, #78–#82 | #90 · `bf18b26` (borrador, en conflicto) | `20261012120000_ai_voice_orders_foundation_v1` (sin aplicar) | — | — | No integrar; plan en `docs/AI-VOICE-ORDERS-PLAN.md` |
 | Corrección de total (#91) | — | #91 · `dd3c90c` (en conflicto) | Su migración viajó en #95 (`20261016090000`), ya en Production | — | — | Sustituida por #95; **sigue abierta** hasta que se autorice cerrarla |
 
@@ -68,17 +69,17 @@ Production (solo la esperada) y después `db push`.
    cerrar #91 (con autorización) y, pasadas 24 h, la PR de contract.
 6. ~~**#107**~~: migración en Production y después merge (`81aa3de`).
 7. ~~**#108**~~: migración en Production y después merge (`1e50228`).
-8. **#58** (validada en Staging).
+8. ~~**#58**~~: integrada (`4877db7`).
 
 Con #95 en `main`, el workflow `E2E staging` lanzado desde `main` elige método
 de pago y vuelve a pasar contra Staging (run `38818090064`, 3/3; tras #107, run
-`38820759045`, 3/3; tras #108, run `38823386750`, 3/3).
+`38820759045`, 3/3; tras #108, run `38823386750`, 3/3; tras #58, run `38825177132`, 3/3).
 
 ## Integraciones en `main` (15/10/2026)
 
-Autorizadas #106 y #99, en ese orden, después #105 con su migración, #94, y #95, #107 y #108 con sus migraciones antes del merge. Antes
+Autorizadas #106 y #99, en ese orden, después #105 con su migración, #94, #95, #107 y #108 con sus migraciones antes del merge, y #58. Antes
 de cada una se revalidaron el head, los checks y el estado `CLEAN`. Squash
-merge, sin borrar la rama. #99, #105, #94, #95, #107 y #108 se fusionaron con `--match-head-commit`.
+merge, sin borrar la rama. #99, #105, #94, #95, #107, #108 y #58 se fusionaron con `--match-head-commit`.
 
 | Orden | PR | Commit en `main` | Antes del merge | CI en `main` (push) | Production | Verificación |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -89,10 +90,11 @@ merge, sin borrar la rama. #99, #105, #94, #95, #107 y #108 se fusionaron con `-
 | 5 | #95 | `6e3fc12` (22:33 UTC) | head `db46e50` (`main` `8e5dfe1` fusionado en `e9363b8`), 7/7 checks, `CLEAN`. Antes del merge, migraciones en Production: foto previa, dry-run con solo `20261016090000` y `20261016091000`, `db push` a las 22:32 UTC; después, libro de cobros, totales y archivos con las mismas huellas, 0 cobros con método, md5 de funciones esperados, firma de 4 argumentos intacta y comprobación HTTP 25/25 con la app anterior | Release Gate App y Database: success (run `38817924266`) | Deployment `7106029461`: success (22:34 UTC) | Comprobación sin sesión 25/25; login de `app`, `demo` y `sur4` 200; E2E staging desde `main` (run `38818090064`): 3/3 con método Bizum y justificante, pedido `E2E-0019` |
 | 6 | #107 | `81aa3de` (22:58 UTC) | head `af37f94` (`main` `6e3fc12` fusionado en `f2cd96b`), todos los checks en verde. Antes del merge, migración en Production: foto previa, dry-run con solo `20261016100000`, `db push` a las 22:57 UTC; después, misma huella de los clientes existentes y ninguno con dirección, RPC v1 sin cambios, v2 y restricción con el md5 esperado, y comprobación HTTP 25/25 con la app anterior | Release Gate App y Database: success (run `38820634673`) | Deployment `7106431012`: success (22:59 UTC) | Comprobación sin sesión 25/25; login de `app`, `demo` y `sur4` 200; E2E staging desde `main` (run `38820759045`): 3/3, pedido `E2E-0020` |
 | 7 | #108 | `1e50228` (23:23 UTC) | head `ed33422` (`main` `81aa3de` fusionado en `6a929d3`), todos los checks en verde. Antes del merge, migración en Production: foto previa, dry-run con solo `20261016110000`, `db push` a las 23:23 UTC; después, misma huella de pedidos y presupuestos, `convert_quote_to_order` con el md5 y los permisos esperados y la firma antigua intacta, y comprobación HTTP 25/25 | Release Gate App y Database: success (run `38823303324`) | Deployment `7106828510`: success (23:24 UTC); la PR no cambia la app | Comprobación sin sesión 25/25; login de `app`, `demo` y `sur4` 200; E2E staging desde `main` (run `38823386750`): 3/3, pedido `E2E-0021` |
+| 8 | #58 | `4877db7` (23:41 UTC) | head `d487d54` (`main` `1e50228` fusionado en `6211224` y corrección del logo con la etiqueta Pro a 320 px), 4/4 checks, `CLEAN`; árbol de `main` idéntico al head | Release Gate App y Database: success (run `38825075304`) | Deployment `7107090184`: success (23:42 UTC). Sin migraciones | Comprobación sin sesión 25/25; login de `app`, `demo` y `sur4` 200; E2E staging desde `main` (run `38825177132`): 3/3, pedido `E2E-0022` |
 
 Sin regresiones: no ha hecho falta el procedimiento de recuperación. Changelog
 actualizado en esta PR (#109) con #106 y #99 y, en una versión del 16/10 (hora de
-Madrid), con #94, #95, #107 y #108. Pendiente de autorización para integrarla. #105 no tiene entrada en Novedades: no cambia nada visible para
+Madrid), con #94, #95, #107, #108 y #58. Pendiente de autorización para integrarla. #105 no tiene entrada en Novedades: no cambia nada visible para
 ningún tenant mientras no haya una concesión. El uso real con sesión en
 Production no se ha observado todavía: no hubo tráfico autenticado entre el
 despliegue y el cierre de la integración.
@@ -149,6 +151,7 @@ despliegue y el cierre de la integración.
 
 ## Próximo paso concreto
 
-#106, #99, #105, #94, #95, #107 y #108 ya están integradas. Lo siguiente, cuando
-lo autorices tras tu revisión, es #58 (logos, sin migraciones). Quedan también el
-cierre de #91 y, pasadas 24 h y con autorización, la PR de contract de #95.
+Todas las PR del sprint están integradas (#106, #99, #105, #94, #95, #107, #108 y
+#58). Quedan, con autorización: integrar esta PR (#109), cerrar #91 y, pasadas
+24 h, la PR de contract de #95. Después, #104 (decisiones de producto) y la voz
+(#90).
