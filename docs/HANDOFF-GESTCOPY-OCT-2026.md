@@ -11,9 +11,9 @@ nada.
 
 ## 2. `gestcopy-staging`
 
-`3d1f386` = `main` + #105, #99, #95, #106, #107, #108 y #94, integradas solo con
-fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #58 y #90
-**no** están. El contenido de pruebas y documentación de los últimos commits de
+`4570ea5` = `main` + #105, #99, #95, #106, #107, #108, #94 y #58, integradas solo con
+fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #90
+**no** está. El contenido de pruebas y documentación de los últimos commits de
 #95 (`8886ecf`) y #108 (`53d3e3a`) no se ha desplegado porque no cambia la app.
 
 ## 3. PR abiertas
@@ -27,7 +27,7 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #58 y #90
 | #107 Dirección (#101) | Lista | Migración y merge |
 | #108 Notas (#102) | Lista | Migración y merge |
 | #94 Sesión | Lista | Merge tras #105, con la resolución de `3d1f386` |
-| #58 Logos | CI verde | Validación visual en Staging |
+| #58 Logos | Lista (validada en Staging) | Merge |
 | #91 Total | Sustituida por #95 | Cerrar al integrar #95 |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
 | #32 Kiosk, #11, #2 | Fuera de alcance | Aparcadas |
@@ -35,14 +35,13 @@ fast-forwards. Sirve `demo`, `audit` y `e2e.preview.app.gestcopy.com`. #58 y #90
 ## 4. Completado (validado en Staging, sin fusionar)
 
 Pro V1, Novedades, cobros con método y justificante (con expand), pie de
-presupuestos, dirección de clientes, notas de presupuesto en pedidos y
-resiliencia de sesión.
+presupuestos, dirección de clientes, notas de presupuesto en pedidos,
+resiliencia de sesión y logos del tenant.
 
 ## 5. Pendiente
 
 - #104 líneas de pedido: decisiones de producto y ADR propuesto.
 - Contract de #95.
-- Validación visual de #58.
 - Integración de la voz (#90).
 - Operación de lanzamiento: #34, #35 y #84.
 
@@ -101,7 +100,7 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 3. Merge de #94 con la resolución conocida.
 4. Migraciones de #95 en Production, después merge de #95 y cierre de #91.
 5. #107 y después #108, con sus migraciones.
-6. Validación visual de #58.
+6. Merge de #58.
 7. Decisiones de #104.
 8. Alinear #90 y pasar sus gates.
 9. Checklist de lanzamiento de SUR4 (#34, #35, #84) con el usuario.

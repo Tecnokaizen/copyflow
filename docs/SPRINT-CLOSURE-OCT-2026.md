@@ -1,7 +1,7 @@
 # Sprint de consolidación — 15 a 18 de octubre de 2026
 
 Registro vivo del sprint. Base: `main` `03fa094`. Staging integrado:
-`gestcopy-staging` `3d1f386`. Ninguna PR se ha fusionado en `main` y Production no
+`gestcopy-staging` `4570ea5`. Ninguna PR se ha fusionado en `main` y Production no
 se ha tocado: ni código ni datos. Production solo se ha consultado en
 modo lectura, para el historial de migraciones.
 
@@ -23,7 +23,7 @@ infraestructura por tenant. No hay código específico de SUR4.
 | Notas del presupuesto → pedido | #102 | #108 · `53d3e3a` | `20261016110000_quote_conversion_notes_v1` | SQL `phase49` (en el gate); `phase34` y `phase38` actualizadas | `phase49` completa contra la BD de Staging, sin dejar datos | Lista; cambio de comportamiento deliberado (ver la PR) |
 | Modificación de líneas de pedido | #104 | — | — | — | — | **No implementado**: los pedidos no tienen modelo de líneas. Diseño en `docs/adr/2026-10-15-order-lines-v1.md` |
 | Resiliencia de sesión | — | #94 · `9a91fb6` | — | 1106/1106; 4 smokes de navegador | Sesión caducada → 401 y el borrador se recupera; viewer 403; contexto anónimo 401 | Lista; conflicto con #105 resuelto en Staging (`3d1f386`) |
-| Logos del tenant | — | #58 · `cf569be` | — | 1076/1076; CI verde | No validado en Staging | Pendiente de validación visual |
+| Logos del tenant | — | #58 · `cf569be` | — | 1076/1076; CI verde | Logos 3:1 y 1:3 proporcionados, sustitución sin recarga, quitar → monograma, escritorio/móvil, claro/oscuro | Lista |
 | Gestcopy AI — Pedidos por voz | #76, #78–#82 | #90 · `bf18b26` (borrador, en conflicto) | `20261012120000_ai_voice_orders_foundation_v1` (sin aplicar) | — | — | No integrar; plan en `docs/AI-VOICE-ORDERS-PLAN.md` |
 | Corrección de total (#91) | — | #91 · `dd3c90c` (en conflicto) | Su migración viaja en #95 con nueva versión | — | — | Cerrar como sustituida al integrar #95 (no se ha cerrado) |
 
@@ -65,7 +65,7 @@ Production (solo la esperada) y después `db push`.
    con la app actual), después el merge. Cerrar #91. Pasadas 24 h, PR de contract.
 6. **#107**: migración, después el merge (el código también funciona sin ella).
 7. **#108**: migración (es solo de base de datos) y merge.
-8. **#58** tras su validación visual.
+8. **#58** (validada en Staging).
 
 Hasta que #95 esté en `main`, el workflow `E2E staging` lanzado desde `main`
 falla en el paso de cobro contra el Staging actual, porque no elige método de
@@ -101,7 +101,6 @@ pago. El runner de la rama de #95 sí lo hace.
   activación de Pro en SUR4 y cierre de #91.
 - **Contract de #95**: PR posterior al despliegue.
 - **#104**: requiere decisiones de producto (ver el ADR).
-- **#58**: validación visual en Staging.
 - **Voz**: integrar #90 exige renombrar el código de feature y la migración y
   resolver conflictos con #94.
 - **Operación de lanzamiento** (#34, #35, #84): alta manual de datos de SUR4,
