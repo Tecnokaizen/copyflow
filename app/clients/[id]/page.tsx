@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
@@ -88,6 +88,12 @@ function ClientDetailContent() {
   const [editError, setEditError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<ClientDuplicate | null>(null);
   const [activityReload, setActivityReload] = useState(0);
+  // Stable while editing: a new object per render made the form reset to the
+  // stored values whenever the page re-rendered (e.g. while saving).
+  const editInitialValues = useMemo(
+    () => (data?.client ? clientToForm(data.client) : undefined),
+    [data]
+  );
 
   useEffect(() => {
     async function load() {
@@ -344,7 +350,7 @@ function ClientDetailContent() {
         <ClientModal>
           <ClientForm
             title="Editar cliente"
-            initialValues={clientToForm(client)}
+            initialValues={editInitialValues}
             submitting={saving}
             error={editError}
             duplicate={duplicate}
