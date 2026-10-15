@@ -231,20 +231,72 @@ solo la resincroniza.
   HTTP ≥ 400; 27 `ERR_ABORTED` por navegación y 12 bloqueos «foreign» de
   `vercel.live`; ninguno hacia Production.
 
-### Integración controlada (cuando se autorice)
+### Gate final de integración (15/10/2026)
 
-1. Fusionar la PR en `main` (despliegue compartido de todos los tenants). Con
-   el código nuevo y sin la migración, el programa resuelve `false` para
-   todos: no hay ventana de riesgo.
-2. Production: `supabase db push --linked --dry-run` sobre el proyecto de
-   Production debe listar solo `20261015200000_pro_early_access_features_v1.sql`;
-   después, `db push`. Comprobar 0 filas de plan y 0 overrides.
-3. Verificar `/api/context` con un usuario cualquiera: `{"pro": false}`.
-4. Ningún tenant queda enrolado. El piloto SUR4 es otra operación, con
+Rama actualizada con `main` `53deec7` (#106 y #99) en el merge `a026d57`, sin
+conflictos.
+
+- **App**: `tsc` OK, lint sin errores (4 avisos previos de `main` en
+  `lib/orders/quote-situation.test.ts`), **1111/1111** unitarias, build OK,
+  guarda de migraciones PASS (1 migración, posterior a la última de `main`).
+- **SQL desde cero** (`main` + esta migración, Supabase local aislado):
+  invariantes de seguridad y las 15 suites del Release Gate, `phase47`
+  incluida: **16/16 PASS**.
+- **Código nuevo contra el esquema de Production, sin la migración**: BD
+  aislada con solo las 66 migraciones de `main`, usuarios sintéticos (owner,
+  viewer, ajeno) y `resolveProEarlyAccess` y la guarda de `/pro` llamando a
+  PostgREST real. Resultado: RPC sin errores, `early_access = {"pro": false}`
+  y `/pro` → `notFound()` para los tres; `quotes` sin cambios. Después de la
+  migración, lo mismo, con 0 filas de plan y 0 overrides. Concesión y retirada
+  en un tenant sintético local: owner y viewer `true`, ajeno `false`, voz
+  siempre `false`; tras retirar, todo `false`.
+- **Production en solo lectura**: historial de migraciones idéntico al de
+  `main` (66/66, última `20261014120000`); el catálogo no tiene los códigos ni
+  los ids `…0008`/`…0009`; `features_code_unique` existe (el `on conflict
+  (code)` es válido); `tenant_has_feature` y `set_tenant_feature` tienen el
+  mismo cuerpo (md5) que la BD local probada; Postgres 17.6 en ambos. Línea
+  base de resolución para todos los tenants (sesión `postgres` sin JWT, la vía
+  operativa): ninguno resuelve Pro ni voz.
+- **Dry-run en Production** (`db push --dry-run --linked` desde un directorio
+  con las migraciones de `a026d57`): solo
+  `20261015200000_pro_early_access_features_v1.sql`, sin seeds ni roles.
+
+### Procedimiento de integración (requiere autorización)
+
+1. Revalidar: head de la PR, checks en verde y `mergeStateStatus` `CLEAN`.
+2. Squash merge con `--match-head-commit` y el SHA completo del head. Esperar
+   el Release Gate de `main` y el deployment de Production en Vercel.
+3. Comprobar el código desplegado (anónimo, sin cuentas reales):
+   `/api/context` → 403 con `Cache-Control: private, no-store, max-age=0,
+   must-revalidate` y `Pragma: no-cache` (antes del merge, `public, …`: es la
+   señal de que corre el código nuevo); `/pro` → 307 a
+   `/auth/login?next=%2Fpro`; `/auth/login` y `/ayuda` → 200.
+4. Migración, desde un directorio enlazado a Production con exactamente las
+   migraciones de `main`: `db push --dry-run --linked` debe listar solo
+   `20261015200000_pro_early_access_features_v1.sql`. Si lista otra cosa, parar.
+   Después, `db push --linked`.
+5. Comprobaciones posteriores en solo lectura: historial con 67 migraciones;
+   catálogo con `pro_early_access` y `ai_voice_orders`; 0 filas de plan y
+   0 overrides de ambos; resolución para todos los tenants igual que la línea
+   base (ninguno con Pro ni voz, mismos con `quotes`); `tenant_has_feature` con
+   el mismo md5. Repetir las comprobaciones HTTP del paso 3.
+6. Ningún tenant queda enrolado. El piloto SUR4 es otra operación, con
    autorización expresa y el bloque de preflight usando su id real.
 
-Rollback: revertir el merge deja el catálogo inofensivo (sin consumidores ni
-concesiones). No borrar las filas del catálogo si ya hubo concesiones.
+### Recuperación
+
+- **Fallo antes del merge**: no se hace nada; la PR sigue abierta.
+- **Regresión tras el merge**: revertir el squash en `main` mediante PR de
+  revert (o restaurar el deployment anterior de Production en Vercel mientras
+  tanto). La migración no hace falta deshacerla: el catálogo sin concesiones no
+  tiene consumidores y el código anterior no lo lee.
+- **Fallo de la migración**: va en una única transacción; si falla, no se aplica
+  nada y el código sigue resolviendo `false`. Revisar el error antes de
+  reintentar.
+- **Retirar el catálogo** (solo si se pide expresamente y sin overrides ni filas
+  de plan de esos códigos): borrar las dos filas de `features` y marcar la
+  versión con `supabase migration repair --status reverted 20261015200000`. No
+  borrar nunca si ya hubo concesiones.
 
 ## Pendiente
 
