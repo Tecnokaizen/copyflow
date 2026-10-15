@@ -31,6 +31,15 @@ describe("operational session failures", () => {
     assert.equal(client.message, "No tienes permiso para crear este cliente");
   });
 
+  it("does not blame the session for a server error unrelated to Auth", () => {
+    const client = interpretOperationalFailure(500, { error: "Could not create client" }, "client");
+    assert.equal(client.message, "No se pudo crear el cliente");
+    assert.equal(client.login, false);
+    assert.equal(interpretOperationalFailure(500, null, "order").message, "No se pudo crear el pedido");
+    assert.match(interpretOperationalFailure(503, null, "client").message, /sesión/);
+    assert.match(interpretOperationalFailure(500, { code: "AUTH_TEMPORARILY_UNAVAILABLE" }, "order").message, /sesión/);
+  });
+
   it("lets the worker retry a temporary Auth failure without signing out", () => {
     const failure = interpretOperationalFailure(
       503,

@@ -16,6 +16,12 @@ const TEMPORARY_MESSAGE =
   "No se ha podido comprobar la sesión. Vuelve a intentarlo.";
 const ORDER_DENIED = "No tienes permiso para crear este pedido";
 const CLIENT_DENIED = "No tienes permiso para crear este cliente";
+/** Server errors unrelated to the session keep the action's own message. */
+const ACTION_FAILED: Record<OperationalAction, string> = {
+  order: "No se pudo crear el pedido",
+  client: "No se pudo crear el cliente",
+  options: "Error al cargar las opciones del formulario",
+};
 
 function readCode(body: { code?: unknown; error?: unknown } | null) {
   return typeof body?.code === "string" ? body.code : null;
@@ -53,7 +59,7 @@ export function interpretOperationalFailure(
   if (status >= 500) {
     return {
       kind: "temporary",
-      message: TEMPORARY_MESSAGE,
+      message: ACTION_FAILED[action],
       retry: true,
       login: false,
     };
