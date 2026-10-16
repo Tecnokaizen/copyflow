@@ -56,9 +56,11 @@ async function tenantId(slug: string) {
 
 async function existingClients(slug: string) {
   const id = await tenantId(slug);
-  const all: { email: string | null; phone: string | null; tax_id: string | null; source_system: string | null; source_record_id: string | null }[] = [];
+  const all: { id: string; email: string | null; phone: string | null; tax_id: string | null; source_system: string | null; source_record_id: string | null }[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await admin.from("clients").select("email, phone, tax_id, source_system, source_record_id").eq("tenant_id", id).range(from, from + 999);
+    // Ordered: OFFSET pages without ORDER BY are not stable (synchronized seq scans
+    // under concurrent load skipped 37 of 19 196 clients in round r7).
+    const { data, error } = await admin.from("clients").select("id, email, phone, tax_id, source_system, source_record_id").eq("tenant_id", id).order("id").range(from, from + 999);
     if (error) throw error;
     all.push(...data);
     if (data.length < 1000) break;
