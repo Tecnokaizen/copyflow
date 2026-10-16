@@ -9,7 +9,13 @@
 --     result is identical to a single pass.
 --   * client_import_revert works in chunks (p_limit) and finishes the batch when
 --     no reverted row is left.
--- Additive: same tables, same checks, same grants model.
+-- Same tables, same checks, same grants model.
+--
+-- The two DROPs replace client_import_finalize(uuid) and client_import_revert(uuid)
+-- with their chunked signatures. Both one-shot versions were created by
+-- 20261016120000 in this same PR, have never been applied in Production and are
+-- not called by any deployed app version, so expand-contract does not apply.
+-- release-gate: allow destructive-ddl: drops only the one-shot finalize/revert created by 20261016120000 in the same PR, never applied in Production nor called by deployed code
 
 begin;
 
