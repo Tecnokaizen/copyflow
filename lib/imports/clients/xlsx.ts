@@ -1,5 +1,7 @@
 import readXlsxFile from "read-excel-file/universal";
 
+import { assertSafeXlsx } from "./xlsx-guard";
+
 export type XlsxSheet = { name: string; rows: string[][] };
 
 function cellToText(value: unknown): string {
@@ -25,6 +27,8 @@ function cellToText(value: unknown): string {
  * only their cached values are read.
  */
 export async function readXlsxSheets(input: ArrayBuffer): Promise<XlsxSheet[]> {
+  // Size, structure and XML checks before the reader expands anything.
+  assertSafeXlsx(new Uint8Array(input));
   const sheets = await readXlsxFile<string>(input, { parseNumber: (value) => value });
   return sheets.map((sheet) => ({
     name: sheet.sheet,
