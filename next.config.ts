@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+import { assertProductionDatabaseAllowed } from "./lib/supabase/production-guard";
+
+// Next loads .env* before evaluating this file, so .env.local is covered too.
+assertProductionDatabaseAllowed();
+
 const nextConfig: NextConfig = {
   cacheComponents: true,
   serverExternalPackages: ["@react-pdf/renderer"],
