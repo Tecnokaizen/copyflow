@@ -413,6 +413,42 @@ begin
   perform pg_temp.p50_check((select status from imports_private.client_import_batches where id = batch_b) = 'cancelled', 'cancelled stays cancelled');
   perform pg_temp.p50_check(not exists (select 1 from imports_private.client_import_rows where batch_id = batch_b), 'expired rows purged');
 
+  -- Stale statistics (Staging QA): the rows table is analyzed with an earlier
+  -- batch only, so the planner estimates 1 row for the batch staged next, as in
+  -- a real import. Classifying it must stay linear (500 rows used to take > 60 s).
+  perform pg_temp.p50_as(owner_a);
+  batch_tmp := (public.client_import_create_batch(tenant_a, 'Estadísticas', 'previo.csv', 10, pg_catalog.repeat('9', 64), mapping) ->> 'id')::uuid;
+  perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'row_number', g, 'name', 'Previa ' || g, 'email', 'prev' || g || '@phase50.test', 'phone', (660000000 + g)::text))
+    from pg_catalog.generate_series(1, 500) g));
+  execute 'reset role';
+  analyze imports_private.client_import_rows;
+  perform pg_temp.p50_as(owner_a);
+  batch_tmp := (public.client_import_create_batch(tenant_a, 'Estadísticas', 'stale.csv', 10, pg_catalog.repeat('c', 64), mapping) ->> 'id')::uuid;
+  for v in 0 .. 1 loop
+    perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'row_number', g, 'name', 'Fila ' || g,
+      'email', case when g % 10 = 0 then 'existe@phase50.test' else 'stale' || (g % 750) || '@phase50.test' end,
+      'phone', (650000000 + g)::text, 'tax_id', 'S' || pg_catalog.lpad(g::text, 8, '0'), 'source_record_id', 'S-' || g))
+      from pg_catalog.generate_series(v * 500 + 1, v * 500 + 500) g));
+  end loop;
+  msg := pg_catalog.clock_timestamp()::text;
+  r := public.client_import_finalize(batch_tmp, 1, 2000);
+  perform pg_temp.p50_check(pg_catalog.clock_timestamp() - msg::timestamptz < interval '4 seconds',
+    'fresh 1000-row batch classified in ' || (pg_catalog.clock_timestamp() - msg::timestamptz)::text);
+  -- 100 rows reuse E1's email; 225 repeat an earlier email of the file.
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r -> 'counts' ->> 'valid')::integer = 675
+    and (r -> 'counts' ->> 'duplicate_existing')::integer = 100 and (r -> 'counts' ->> 'duplicate_in_file')::integer = 225,
+    'stale-statistics counts: ' || (r -> 'counts')::text);
+
+  -- Plan settings that keep chunks linear on fresh data (see 20261016122000).
+  perform pg_temp.p50_check((select p.proconfig @> array['enable_nestloop=off'] from pg_proc p
+    where p.oid = 'public.client_import_finalize(uuid, integer, integer)'::regprocedure), 'finalize avoids nested loops');
+  perform pg_temp.p50_check((select p.proconfig @> array['plan_cache_mode=force_custom_plan', 'gin_pending_list_limit=64MB'] from pg_proc p
+    where p.oid = 'public.client_import_commit_chunk(uuid, integer, integer)'::regprocedure), 'commit forces custom plans and defers GIN flushes');
+  perform pg_temp.p50_check((select p.proconfig @> array['gin_pending_list_limit=64MB'] from pg_proc p
+    where p.oid = 'public.client_import_revert(uuid, integer)'::regprocedure), 'revert defers GIN flushes');
+
   raise notice 'phase50 clients import PASS';
 end;
 $phase50$;
