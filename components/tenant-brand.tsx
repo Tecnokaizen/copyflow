@@ -50,7 +50,9 @@ function TenantBrandContent({
         <img
           src={imageUrl ?? undefined}
           alt=""
-          className="h-auto w-auto max-h-9 max-w-28 shrink-0 rounded-md border border-border/80 bg-card object-contain sm:max-h-10 sm:max-w-40"
+          // min-w-0: in a narrow header (e.g. 320 px with the Pro badge) the logo
+          // shrinks proportionally instead of overflowing under its neighbour.
+          className="h-auto w-auto min-w-0 max-h-9 max-w-28 rounded-md border border-border/80 bg-card object-contain sm:max-h-10 sm:max-w-40"
           style={brandColor ? { borderColor: brandColor } : undefined}
           onError={() => setLogoFailed(true)}
         />
@@ -67,7 +69,8 @@ function TenantBrandContent({
         </span>
       )}
       <div
-        className={cn("min-w-0", brandColor && "border-l-2 pl-2.5")}
+        // The (truncated) name gives up space before the logo does.
+        className={cn("min-w-0 shrink-[999]", brandColor && "border-l-2 pl-2.5")}
         style={brandColor ? { borderLeftColor: brandColor } : undefined}
       >
         {name ? (

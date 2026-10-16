@@ -40,6 +40,8 @@ tenant `e2e`.
 | `e2e/staging/harness.ts` | Navegador, preflight (TLS / Deployment Protection), egress, artefactos |
 | `e2e/staging/run.ts` | Los tres recorridos |
 | `e2e/staging/seed.ts` | Aprovisionamiento idempotente del tenant `e2e` (solo terminal de confianza) |
+| `e2e/staging/seed-viewer.ts` | Viewer sintético opcional en `e2e` para el recorrido Pro (solo terminal de confianza) |
+| `e2e/staging/pro-early-access.ts` | Recorrido Gestcopy Pro ON/OFF de solo lectura ([PRO-EARLY-ACCESS-V1.md](PRO-EARLY-ACCESS-V1.md)) |
 | `.github/workflows/e2e-staging.yml` | Workflow manual (`workflow_dispatch`, entorno `staging`) |
 
 Playwright `1.58.2` se instala fuera de `package.json`, igual que en

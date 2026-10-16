@@ -373,8 +373,10 @@ async function flowPayment(page: Page) {
     assert.equal(body.paid_amount, PARTIAL_PAYMENT);
     assert.equal(body.pending_amount, pending);
     assert.equal(body.collection_state, "partial");
-    const payment = (body.payments as RecordedPayment[]).find((row) => row.id === body.payment_id);
-    assert.ok(payment, "the recorded payment is returned");
+    const recordedPayments = body.payments as RecordedPayment[];
+    assert.equal(recordedPayments.length, 1, "exactly one movement after the first payment");
+    const payment = recordedPayments.find((row) => row.receipt?.original_name === state.receiptName);
+    assert.ok(payment, "the recorded payment carries its receipt");
     assert.equal(payment.payment_method, "bizum");
     assert.equal(payment.receipt?.original_name, state.receiptName);
     assert.equal(JSON.stringify(body).includes("storage_key"), false, "no storage keys in the payment DTO");
