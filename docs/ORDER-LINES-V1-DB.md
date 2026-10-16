@@ -61,11 +61,11 @@ Flags de transacción (`set_config(..., true)`, nunca fuera de funciones `SECURI
 
 ## Dependencia: hotfix P0 de la guarda de `total_amount` (PR #129)
 
-Al preparar esta PR se detectó que `tg_orders_total_amount_guard` no se aplicaba en una conexión que nunca había fijado `gestcopy.order_total_write` (el parámetro es `NULL` y `NOT NULL` es `NULL`): un usuario operativo podía hacer `UPDATE orders SET total_amount` directamente, también por debajo de lo cobrado. Ese hallazgo se separó en un hotfix independiente, `20261016123500_order_total_guard_null_bypass.sql` (PR #129).
+Al preparar esta PR se detectó que `tg_orders_total_amount_guard` no se aplicaba en una conexión que nunca había fijado `gestcopy.order_total_write` (el parámetro es `NULL` y `NOT NULL` es `NULL`): un usuario operativo podía hacer `UPDATE orders SET total_amount` directamente, también por debajo de lo cobrado. Ese hallazgo se separó en un hotfix independiente, `20261016125000_order_total_guard_null_bypass.sql` (PR #129).
 
 Esta migración **no redefine la guarda**: depende de ella y se niega a ejecutarse si la guarda no es la versión corregida (precondición al inicio). La reversión de Order Lines no toca la guarda, así que nunca restaura la versión vulnerable (y la del hotfix se niega a revertirse). `phase51` mantiene las pruebas de sesión nueva como regresión.
 
-**Orden obligatorio:** `123500` (hotfix) → `124000` (importaciones, si procede) → `130000` (esta).
+**Orden obligatorio:** `124000` (importaciones, ya en `main`) → `125000` (hotfix) → `130000` (esta).
 
 ## Rendimiento
 
@@ -94,4 +94,4 @@ Se niega si existe alguna línea o algún pedido que use líneas (modo `items`, 
 
 ## Coordinación
 
-Las migraciones de importaciones de Claude: `20261016120000`–`123000` ya están en `main`; la `124000` (PR #124/#126/#127) está pendiente. Esta migración usa `20261016130000`: ordena después de todas ellas, de `main` y del hotfix `123500`. Si aparece otra migración posterior antes de integrar, hay que reordenar antes del merge.
+Las migraciones de importaciones de Claude: `20261016120000`–`123000` ya están en `main`; la `124000` (#127) también. Esta migración usa `20261016130000`: ordena después de todas ellas, de `main` y del hotfix `123500`. Si aparece otra migración posterior antes de integrar, hay que reordenar antes del merge.

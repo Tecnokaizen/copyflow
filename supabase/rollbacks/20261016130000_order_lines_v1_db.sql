@@ -9,7 +9,7 @@
 -- those orders back to manual mode first; total_amount is never modified here.
 --
 -- It never touches tg_orders_total_amount_guard (owned by the P0 hotfix
--- 20261016123500, which cannot be rolled back): the vulnerable version is never
+-- 20261016125000, which cannot be rolled back): the vulnerable version is never
 -- restored by this script.
 -- It does not delete 'order.items_replaced' rows from activity_log (history).
 -- Then: supabase migration repair --status reverted 20261016130000

@@ -31,14 +31,14 @@
 --
 -- Not touched: quotes, convert_quote_to_order (PR B), record_order_payment,
 -- void_order_payment, tg_orders_total_amount_guard, Kiosk, UI.
--- Depends on 20261016123500_order_total_guard_null_bypass (P0 hotfix): this migration
+-- Depends on 20261016125000_order_total_guard_null_bypass (P0 hotfix): this migration
 -- relies on the NULL-safe flag handling of tg_orders_total_amount_guard and refuses
 -- to run without it (precondition below). It does not redefine that guard.
 -- Rollback: supabase/rollbacks/20261016130000_order_lines_v1_db.sql
 begin;
 
 -- Precondition: the total guard must be the NULL-safe version (P0 hotfix
--- 20261016123500). Items mode relies on `NULL = not allowed`; without it a fresh
+-- 20261016125000). Items mode relies on `NULL = not allowed`; without it a fresh
 -- connection could skip total_amount_rpc_only and total_below_paid.
 do $precondition$
 begin
@@ -48,7 +48,7 @@ begin
     where p.oid = 'public.tg_orders_total_amount_guard()'::pg_catalog.regprocedure
       and p.prosrc like '%coalesce(%order_total_write%'
   ) then
-    raise exception 'Order Lines V1 requires 20261016123500_order_total_guard_null_bypass to be applied first';
+    raise exception 'Order Lines V1 requires 20261016125000_order_total_guard_null_bypass to be applied first';
   end if;
 end
 $precondition$;
