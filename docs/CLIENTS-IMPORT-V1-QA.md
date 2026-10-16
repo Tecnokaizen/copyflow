@@ -77,6 +77,41 @@ Cada ronda usa archivos nuevos (`SUFFIX`, `SEED`), para no reutilizar lotes.
 - Incluso así hay al menos el doble de margen frente al límite de 8 s.
 - Medidas desde el navegador, las llamadas suman la función de Vercel: sesión, membresía y RPC. La más lenta tardó 9,5 s. Las funciones del proyecto tienen Fluid con un límite de 300 s, así que eso no corta nada.
 
+## Auditoría independiente: rondas r7 y r8 (migración `20261016124000`, #127)
+
+**Contexto:** tras integrar #122 en Production, una auditoría encontró tres defectos P1. Se reprodujeron sobre el esquema de Production y se corrigieron en #127 (base de datos) y #124 (interfaz). Esta QA los comprueba de extremo a extremo con tres pasos nuevos.
+
+| Paso | Comprobación | r8 |
+| --- | --- | --- |
+| 9. Subida interrumpida | Se corta el segundo envío de filas de un CSV de 1.200 filas. El lote queda en `uploaded` con 500 de 1.200. El historial dice «Faltan 700 filas» y «Continuar» vuelve al paso 1 pidiendo el archivo. Con el archivo, el **mismo lote** se completa (1.200) y la revisión coincide con el oráculo | Correcto |
+| 10. API | El último rango primero: `uploaded`, `done=false`, `next_row=1`. Confirmar antes de clasificar todo: 409. Completo: `validated`. Con 2 de 3 filas: 409 `batch_incomplete`. Fila fuera del recuento: 400. Crear sin recuento: 400 | Correcto |
+| 11. Purga a mitad de confirmación (`PURGE_ONLY`, en r7) | Un operador movió al pasado la caducidad de `api-orden.csv` (1 de 3 creadas). La purga elimina sus 3 filas y se conserva `created=1`. Confirmar y revertir dan 409. El historial muestra «Caducada a medias» con solo «Ver resumen» | Correcto |
+
+**r7 falló en el paso 5, pero por el oráculo.** El servidor marcaba 37 filas más como «ya existe».
+
+- **Comprobación independiente en Staging:** 0 filas válidas coinciden con alguno de los 19.196 clientes previos, 0 filas «ya existe» carecen de coincidencia real y 0 filas quedan sin clasificar.
+- **Causa:** el oráculo paginaba los clientes con `OFFSET` y sin `ORDER BY`. Con escaneos sincronizados bajo carga, perdió 37.
+- **Solución:** ahora ordena por `id`. Recalculado con los clientes de ese momento, da exactamente lo mismo que el servidor.
+
+**r8, todo correcto** (`failures: []`):
+
+- 100 / 1.000 / 10.000 filas iguales al oráculo; 8.122 altas y 8.122 revertidas.
+- Aislamiento: 404 en ambos sentidos.
+- Pasos 9 y 10 correctos.
+
+**Tiempos dentro de la base en r8:**
+
+| RPC | Mediana | Máximo |
+| --- | --- | --- |
+| Clasificación | 1,3 s | 2,5 s |
+| Confirmación | 429 ms | 3,3 s |
+| Reversión | 416 ms | 7,2 s |
+| Resumen | — | 1,1 s |
+
+La reversión de 7,2 s ocurrió con la base cargada por miles de altas y reversiones seguidas.
+
+**Los únicos 500 de PostgREST son las pruebas negativas:** `batch_rows_purged`, `import batch not found` (tenant ajeno) y `batch_state`. PostgREST los devuelve como 500 y la app los traduce a 404 o 409.
+
 ## Datos que quedan en Staging
 
 Todo es sintético y solo afecta a `e2e` y `e2e-import`:
@@ -91,7 +126,7 @@ La feature sigue activa solo en esos dos tenants. **Production no se ha tocado.*
 
 Requisitos:
 
-- Las cuatro migraciones de la PR 2 aplicadas en Staging.
+- Las migraciones de Migration V1 aplicadas en Staging: las cuatro de #122 y `20261016124000` (#127).
 - Los tenants `e2e` (owner y viewer) y `e2e-import` (owner `e2e-import-owner@example.com`).
 - Playwright instalado fuera del repositorio.
 - Los secretos en `.env.e2e.local`, que nunca se imprimen.
