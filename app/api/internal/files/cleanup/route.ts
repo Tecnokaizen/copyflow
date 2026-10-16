@@ -118,6 +118,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // 3. Client import rows older than 30 days (Migration V1). Independent of
+  //    Files: a failure is logged and never blocks the storage cleanup.
+  const { data: importPurge, error: importPurgeError } = await supabase.rpc(
+    "client_import_purge_expired",
+    { p_limit: 50 }
+  );
+  if (importPurgeError) {
+    log("client import purge failed", { message: importPurgeError.message });
+  }
+
   const purged = count(expiredSummary.orders) + count(expiredSummary.quotes);
   const skipped = count(expiredSummary.skipped);
   const failed =
@@ -135,5 +145,6 @@ export async function GET(request: NextRequest) {
     limit: CLEANUP_LIMIT,
     deletions,
     backlog: backlogError ? null : backlogSummary,
+    client_import_purge: importPurgeError ? null : importPurge,
   });
 }

@@ -21,7 +21,7 @@ import {
   type ClientListItem,
   type ClientListResponse,
 } from "@/lib/clients/types";
-import { canWriteClients } from "@/lib/auth/membership-roles";
+import { canManageClientImport, canWriteClients } from "@/lib/auth/membership-roles";
 
 type CustomerTypeOption = {
   id: string;
@@ -59,6 +59,7 @@ export default function ClientsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [canWrite, setCanWrite] = useState(false);
+  const [canImport, setCanImport] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -87,6 +88,11 @@ export default function ClientsPage() {
       if (response.ok) {
         const context = await response.json();
         setCanWrite(canWriteClients(context?.membership?.role));
+        if (canManageClientImport(context?.membership?.role)) {
+          const importAccess = await fetch("/api/imports/clients/access", { cache: "no-store" });
+          const result = importAccess.ok ? await importAccess.json() : null;
+          setCanImport(result?.allowed === true);
+        }
       }
     }
 
@@ -222,17 +228,26 @@ export default function ClientsPage() {
         title="Clientes"
         description={`${total} clientes`}
         actions={
-          canWrite ? (
-            <Button
-              type="button"
-              onClick={() => {
-                setCreateError(null);
-                setDuplicate(null);
-                setCreateOpen(true);
-              }}
-            >
-              Nuevo cliente
-            </Button>
+          canWrite || canImport ? (
+            <>
+              {canImport ? (
+                <Button asChild variant="outline">
+                  <Link href="/clients/import">Importar</Link>
+                </Button>
+              ) : null}
+              {canWrite ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setCreateError(null);
+                    setDuplicate(null);
+                    setCreateOpen(true);
+                  }}
+                >
+                  Nuevo cliente
+                </Button>
+              ) : null}
+            </>
           ) : null
         }
       />
