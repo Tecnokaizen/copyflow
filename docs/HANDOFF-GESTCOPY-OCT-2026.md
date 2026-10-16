@@ -1,16 +1,16 @@
 # Handoff Gestcopy — octubre 2026
 
 Documento de continuidad para seguir sin repetir auditorías. Estado al 16/10/2026,
-01:50 (hora de Madrid). Detalle por funcionalidad en
+02:05 (hora de Madrid). Detalle por funcionalidad en
 [SPRINT-CLOSURE-OCT-2026.md](SPRINT-CLOSURE-OCT-2026.md).
 
 ## 1. `main`
 
-`4877db7`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`), #107 (`81aa3de`), #108 (`1e50228`) y #58 (`4877db7`)
+`25875b9`: #106 (`f120dbc`), #99 (`53deec7`), #105 (`725deff`), #94 (`8e5dfe1`), #95 (`6e3fc12`), #107 (`81aa3de`), #108 (`1e50228`), #58 (`4877db7`) y la documentación #109 (`25875b9`)
 integradas el 15/10 con autorización expresa, con CI y Production verificados. Las
 migraciones de #105, #95, #107 y #108 están aplicadas en Production (cada una antes
-de su merge salvo la de #105) y ningún tenant tiene Pro activado. Sin fusionar:
-#109 (esta documentación), #90 (voz) y #91 (sustituida, pendiente de cerrar).
+de su merge salvo la de #105) y ningún tenant tiene Pro activado. #91 se cerró el
+16/10 como sustituida por #95. Solo queda sin fusionar #90 (voz).
 
 ## 2. `gestcopy-staging`
 
@@ -33,7 +33,8 @@ fast-forward cuando se autorice.
 | #108 Notas (#102) | **Integrada** (`1e50228`), migración aplicada | — |
 | #94 Sesión | **Integrada** (`8e5dfe1`) | — |
 | #58 Logos | **Integrada** (`4877db7`) | — |
-| #91 Total | Sustituida por #95 (integrada) | Cerrar, con autorización |
+| #109 Documentación y Novedades | **Integrada** (`25875b9`) | — |
+| #91 Total | **Cerrada** el 16/10, sustituida por #95 (migración idéntica en Production; la parte de app la cubre #93) | — |
 | #90 Voz | Borrador, en conflicto | Ver `AI-VOICE-ORDERS-PLAN.md` |
 | #32 Kiosk, #11, #2 | Fuera de alcance | Aparcadas |
 
@@ -108,8 +109,9 @@ Todas son aditivas y compatibles con la app anterior. #108 solo cambia el valor 
 1. ~~Merge de #106 y #99~~ (hecho el 15/10).
 2. ~~Merge de #105 y migración en Production~~ (hecho el 15/10).
 3. ~~Merge de #94 con la resolución conocida~~ (hecho el 15/10).
-4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10). Pendiente: cerrar #91
-   y, no antes del 16/10 a las 22:34 UTC, el contract de #95.
+4. ~~Migraciones de #95 en Production y merge~~ (hecho el 15/10) y ~~cierre de #91~~
+   (16/10). Pendiente: no antes del 16/10 a las 22:34 UTC y con autorización, el
+   contract de #95.
 5. ~~#107~~ (hecho el 15/10, 22:58 UTC) y ~~#108~~ (hecho el 15/10, 23:23 UTC).
 6. ~~Merge de #58~~ (hecho el 15/10, 23:41 UTC).
 7. Decisiones de #104.
