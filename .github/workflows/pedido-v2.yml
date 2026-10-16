@@ -33,6 +33,14 @@ jobs:
     env:
       TZ: UTC
     steps:
+      # supabase/config.toml binds fixed host ports (54320-54329) that fall inside
+      # Linux's ephemeral range (32768-60999). Reserve them before any network
+      # traffic so no outgoing connection can grab 54322 ahead of `supabase start`.
+      - name: Reserve local Supabase ports from the ephemeral range
+        run: |
+          sudo sysctl -w net.ipv4.ip_local_reserved_ports=54320-54329
+          held="$(ss -Htan 'sport >= :54320 and sport <= :54329')"
+          if [ -n "${held}" ]; then echo "::warning::Supabase ports already in use:"; echo "${held}"; fi
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
