@@ -4,7 +4,7 @@ Fecha: 16/10/2026.
 
 - Base: `main` `bef29ac`.
 - Implementa el [ADR](adr/2026-10-16-clients-import-v1.md) (diseño cerrado: D1–D9, S1–S12).
-- Migraciones: `20261016120000_clients_import_v1.sql`, `20261016121000_clients_import_v1_chunks.sql`, `20261016122000_clients_import_v1_finalize_plan.sql` y `20261016123000_clients_import_v1_summary.sql`.
+- Migraciones: `20261016120000_clients_import_v1.sql`, `20261016121000_clients_import_v1_chunks.sql`, `20261016122000_clients_import_v1_finalize_plan.sql` y `20261016123000_clients_import_v1_summary.sql`, **aplicadas en Production el 16/10** (#122). Corrección posterior: `20261016124000_clients_import_v1_integrity.sql`.
 
 **No se aplica en Production sin gate y autorización. La feature `clients_import` no se activa para ningún tenant.**
 
@@ -71,7 +71,7 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | `phase50_clients_import_concurrency.sh` (manual, como las demás `*_concurrency.sh`) | Dos creaciones del mismo archivo → un lote. Dos confirmaciones del mismo tramo → una escribe y la otra recibe `GC409`. 400 filas procesadas una sola vez |
 | Rendimiento (10 000 filas contra 2 000 clientes, `statement_timeout` de 8 s) | Preparación 20×500 en ≈1 s. Clasificación ≈2 s. Confirmación 50×200 en 11 s (llamada más lenta: 2 s). Reversión de 9 000 altas: 3 s |
 | Suites de `main` sobre la migración | Las 19 suites del Release Gate y las invariantes, en verde |
-| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql` deshace las cuatro migraciones. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
+| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql` deshace las cinco migraciones (en Production solo con diagnóstico y autorización propios). Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
 
 ## Correcciones tras la QA en Staging (`20261016121000`)
 
@@ -158,6 +158,28 @@ Midiendo la confirmación con datos recién escritos aparecieron otros dos probl
 - `phase50` comprueba el contenido del resumen: orden, filas a revisar primero y cliente coincidente. Pasa con la versión anterior y con la nueva.
 - Gate en local: 21/21.
 - El script de recuperación deshace las cuatro migraciones y deja el esquema idéntico a `main`.
+
+## Corrección de integridad tras la auditoría (`20261016124000`)
+
+Una auditoría independiente encontró tres defectos P1. Los tres se reprodujeron sobre el esquema que ya estaba en Production, que entonces no tenía ningún lote:
+
+| Defecto | Reproducción | Corrección |
+| --- | --- | --- |
+| Clasificación incompleta | `finalize(lote, 9, 2)` en un lote de 10 filas lo dejaba `validated` con 8 filas sin clasificar. La confirmación creaba 2 y omitía 8 en silencio | `finalize` solo valida cuando no queda ninguna fila sin clasificar, sea cual sea el orden de los rangos. `next_row` es la primera fila sin clasificar. Reiniciar un lote validado reclasifica todas las filas. Tras empezar la clasificación no se puede preparar ni sustituir ninguna fila |
+| Pérdida del resumen | Tras purgar un lote a medio confirmar, la siguiente confirmación lo marcaba `committed` y recalculaba los contadores con 0 filas (`created` pasaba de 2 a 0) | `lock_batch` rechaza cualquier cambio en un lote purgado (`55000 batch_rows_purged`): confirmar, revertir, clasificar, cancelar, estrategia y decisiones. Los contadores de un lote purgado no se recalculan nunca |
+| Recepción incompleta | Con 3 de 5 filas recibidas, el lote se validaba y se confirmaba | El lote guarda `expected_rows`, declarado al crearlo con `client_import_create_batch_v2`. La v1 deja de ser ejecutable. Un trigger solo admite filas de 1 a `expected_rows`. `finalize` y `commit` se niegan (`GC422 batch_incomplete`) si falta alguna fila o alguna está sin clasificar |
+
+**La migración es aditiva:** `ADD COLUMN`, un índice parcial y un trigger nuevos, `CREATE OR REPLACE` con las mismas firmas, una RPC nueva y un `REVOKE`. Las cuatro migraciones aplicadas no se modifican.
+
+**Pruebas:**
+
+| Prueba | Resultado |
+| --- | --- |
+| `phase50` | Ahora usa la v2. Comprueba que la v1 ya no se puede ejecutar. Añade la regresión de los tres defectos: rangos desordenados o fuera de rango, preparar después de clasificar, confirmar con filas sin clasificar, preparación incompleta, número de filas incoherente, lote antiguo que adopta su número de filas, y purga a mitad de confirmación con los contadores conservados |
+| `phase50_clients_import_concurrency.sh` | Nuevos casos C4–C6. C4: rangos simultáneos en orden inverso, que validan una sola vez. C5: preparar mientras se clasifica, que se rechaza. C6: purgar durante una confirmación, que se salta el lote bloqueado; tras la purga se rechaza la confirmación y los contadores se mantienen |
+| Gate en local | 21/21 |
+| Rendimiento | Igual que con cuatro migraciones, sobre una base recién creada. Clasificación de 10.000 filas con estadísticas antiguas: 223–401 ms por llamada |
+| Recuperación | El script deshace las cinco migraciones y el esquema vuelve a ser idéntico al anterior a la importación |
 
 ## Gate y despliegue (pendiente de autorización)
 

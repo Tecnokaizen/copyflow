@@ -4,6 +4,12 @@
 #   C2 commit_chunk ∥ commit_chunk (same expected version) -> one writes, the
 #      other waits for the batch lock and gets row_version_conflict (GC409); no row is processed twice
 #   C3 resume until committed -> every row processed exactly once, no duplicates
+#   C4 finalize ∥ finalize (ranges in reverse order) -> serialized by the batch
+#      lock; validated only once every row is classified
+#   C5 stage ∥ finalize -> the staging waits for the lock, then is refused
+#      (no row can be replaced once classification started)
+#   C6 purge ∥ commit -> the purge skips the batch an in-flight commit holds;
+#      after the purge a commit is refused and the counters are kept
 # Local only. Uses fixed ids and removes its fixtures on exit.
 set -euo pipefail
 
@@ -56,7 +62,7 @@ SQL
 # C1 -------------------------------------------------------------------------
 create_batch_sql="begin; $AS_OWNER
   select (r ->> 'id') || ' ' || (r ->> 'reused')
-  from public.client_import_create_batch('$TENANT', 'Concurrencia', 'c.csv', 100, '$SHA', '{\"Nombre\":\"name\"}') r;
+  from public.client_import_create_batch_v2('$TENANT', 'Concurrencia', 'c.csv', 100, '$SHA', '{\"Nombre\":\"name\"}', 400) r;
   select pg_sleep(1);
   commit;"
 psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "$create_batch_sql" > "$WORK/c1a" 2>&1 &
@@ -118,4 +124,92 @@ dups="$(psql_value "select count(*) from (select lower(email) from public.client
 linked="$(psql_value "select count(*) from public.clients where tenant_id = '$TENANT' and import_batch_id = '$BATCH'")"
 [ "$linked" = "400" ] || fail "C3 clients linked to batch: $linked"
 
-echo "phase50 concurrency PASS (C1 one batch, C2 one writer + row_version_conflict, C3 400 rows once)"
+
+AS_SERVICE="select set_config('request.jwt.claim.role', 'service_role', true) is null; set local role service_role;"
+
+# new_batch <sha-char> <rows>: a staged batch of <rows> rows, id on stdout.
+new_batch() {
+  local sha
+  sha="$(printf "$1%.0s" $(seq 1 64))"
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+    select r ->> 'id' from public.client_import_create_batch_v2('$TENANT', 'Concurrencia', '$1.csv', 100, '$sha', '{\"Nombre\":\"name\"}', $2) r;
+    commit;" | grep -E '^[0-9a-f-]{36}$'
+}
+stage() { # batch from to
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt >/dev/null -c "begin; $AS_OWNER
+    select public.client_import_stage_rows('$1',
+      (select jsonb_agg(jsonb_build_object('row_number', g, 'name', 'K ' || g, 'email', 'k' || g || '-$1@phase50c.test'))
+       from generate_series($2, $3) g));
+    commit;"
+}
+
+# C4 -------------------------------------------------------------------------
+B4="$(new_batch d 300)"
+stage "$B4" 1 300
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_finalize('$B4', 151, 150) ->> 'next_row';
+  select pg_sleep(1.5);
+  commit;" > "$WORK/c4a" 2>&1 &
+p1=$!
+sleep 0.5
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_finalize('$B4', 1, 150) ->> 'status';
+  commit;" > "$WORK/c4b" 2>&1 || fail "C4 session B: $(cat "$WORK/c4b")"
+wait "$p1" || fail "C4 session A: $(cat "$WORK/c4a")"
+grep -qx '1' "$WORK/c4a" || fail "C4 session A (last range first) should report next_row 1: $(cat "$WORK/c4a")"
+grep -qx 'validated' "$WORK/c4b" || fail "C4 session B should validate after A: $(cat "$WORK/c4b")"
+state="$(psql_value "select b.status || ',' || b.valid_rows || ',' || (select count(*) from imports_private.client_import_rows r
+  where r.batch_id = b.id and r.classification is null) from imports_private.client_import_batches b where b.id = '$B4'")"
+[ "$state" = "validated,300,0" ] || fail "C4 final state: $state"
+
+# C5 -------------------------------------------------------------------------
+B5="$(new_batch e 200)"
+stage "$B5" 1 200
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_finalize('$B5', 1, 100) ->> 'status';
+  select pg_sleep(1.5);
+  commit;" > "$WORK/c5a" 2>&1 &
+p1=$!
+sleep 0.5
+set +e
+stage "$B5" 5 5 > "$WORK/c5b" 2>&1
+rc_b=$?
+set -e
+wait "$p1" || fail "C5 session A: $(cat "$WORK/c5a")"
+[ "$rc_b" -ne 0 ] || fail "C5 staging after classification started should fail"
+grep -q 'batch_classification_started' "$WORK/c5b" || fail "C5 session B: $(cat "$WORK/c5b")"
+
+# C6 -------------------------------------------------------------------------
+B6="$(new_batch f 300)"
+stage "$B6" 1 300
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt >/dev/null -c "begin; $AS_OWNER select public.client_import_finalize('$B6'); commit;"
+V6="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B6'")"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt >/dev/null -c "begin; $AS_OWNER select public.client_import_commit_chunk('$B6', $V6, 100); commit;"
+psql_value "update imports_private.client_import_batches set expires_at = now() - interval '1 day' where id = '$B6'" >/dev/null
+V6="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B6'")"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_commit_chunk('$B6', $V6, 100) -> 'counts' ->> 'created';
+  select pg_sleep(1.5);
+  commit;" > "$WORK/c6a" 2>&1 &
+p1=$!
+sleep 0.5
+purged_during="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_SERVICE
+  select public.client_import_purge_expired(50) ->> 'batches'; commit;" | grep -E '^[0-9]+$')"
+wait "$p1" || fail "C6 session A: $(cat "$WORK/c6a")"
+[ "$purged_during" = "0" ] || fail "C6 purge should skip the batch held by the commit, purged $purged_during"
+grep -qx '200' "$WORK/c6a" || fail "C6 second chunk should reach 200 created: $(cat "$WORK/c6a")"
+purged_after="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_SERVICE
+  select public.client_import_purge_expired(50) ->> 'batches'; commit;" | grep -E '^[0-9]+$')"
+[ "$purged_after" = "1" ] || fail "C6 purge after the commit: $purged_after"
+V6="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B6'")"
+set +e
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_commit_chunk('$B6', $V6, 100); commit;" > "$WORK/c6b" 2>&1
+rc_b=$?
+set -e
+[ "$rc_b" -ne 0 ] && grep -q 'batch_rows_purged' "$WORK/c6b" || fail "C6 commit after purge: $(cat "$WORK/c6b")"
+state="$(psql_value "select status || ',' || created_count || ',' || total_rows || ',' || (rows_purged_at is not null)
+  from imports_private.client_import_batches where id = '$B6'")"
+[ "$state" = "committing,200,300,true" ] || fail "C6 purged batch state: $state"
+
+echo "phase50 concurrency PASS (C1 one batch, C2 one writer + row_version_conflict, C3 400 rows once, C4 ranges in reverse order validate once, C5 no staging after classification, C6 purge skips in-flight commit and blocks it after)"
