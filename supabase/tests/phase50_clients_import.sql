@@ -254,6 +254,24 @@ begin
   perform pg_temp.p50_check((select pg_catalog.count(*) = 6 from imports_private.client_import_rows
     where batch_id = batch and decision = 'create'), 'only valid rows default to create');
 
+  -- Finalize by ranges gives exactly the same classification as one pass.
+  create temp table p50_single as
+    select row_number, classification, matched_client_id, matched_row_number, match_reasons, decision
+    from imports_private.client_import_rows where batch_id = batch;
+  perform pg_temp.p50_as(manager_a);
+  perform pg_temp.p50_expect(format('select public.client_import_finalize(%L, 5, 4)', batch), '55000', 'validated batch restarts from row 1');
+  r := public.client_import_finalize(batch, 1, 4);
+  perform pg_temp.p50_check(r ->> 'status' = 'uploaded' and (r ->> 'done')::boolean = false and (r ->> 'next_row')::integer = 5, 'first range');
+  r := public.client_import_finalize(batch, 5, 4);
+  r := public.client_import_finalize(batch, 9, 4);
+  r := public.client_import_finalize(batch, 13, 4);
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r ->> 'done')::boolean, 'last range validates');
+  execute 'reset role';
+  perform pg_temp.p50_check(not exists (
+    select row_number, classification, matched_client_id, matched_row_number, match_reasons, decision
+    from imports_private.client_import_rows where batch_id = batch
+    except select * from p50_single), 'ranges == single pass');
+
   -- S7: explicit fill_blanks; decisions per row ------------------------------
   perform pg_temp.p50_as(manager_a);
   perform pg_temp.p50_expect(format('select public.client_import_set_strategy(%L, %L)', batch, 'fill_blanks'), '22023', 'fill without confirm');
@@ -272,7 +290,7 @@ begin
 
   -- S6: resumable commit with optimistic version
   perform pg_temp.p50_as(manager_a);
-  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s, 4)', batch, v - 1), '40001', 'stale version');
+  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s, 4)', batch, v - 1), 'GC409', 'stale version');
   n := 0;
   loop
     r := public.client_import_commit_chunk(batch, v, 4);
@@ -331,10 +349,20 @@ begin
   perform pg_temp.p50_as(staff_a);
   perform pg_temp.p50_expect(format('select public.client_import_revert(%L)', batch), 'P0002', 'staff revert');
   perform pg_temp.p50_as(admin_a);
-  r := public.client_import_revert(batch);
-  perform pg_temp.p50_check(r ->> 'status' = 'reverted' and (r -> 'counts' ->> 'deactivated')::integer = 4
-    and (r -> 'counts' ->> 'restored')::integer = 1 and pg_catalog.jsonb_array_length(r -> 'kept') = 2,
-    'revert: 4 deactivated, 1 restored, 2 kept: ' || r::text);
+  -- In chunks of 2: the batch stays committed until the last chunk.
+  n := 0;
+  v := 0;
+  loop
+    r := public.client_import_revert(batch, 2);
+    n := n + 1;
+    v := v + pg_catalog.jsonb_array_length(r -> 'kept');
+    exit when (r ->> 'remaining')::integer = 0;
+    perform pg_temp.p50_check(r ->> 'status' = 'committed', 'partial revert keeps the batch committed');
+    if n > 10 then raise exception 'phase50: revert did not finish'; end if;
+  end loop;
+  perform pg_temp.p50_check(n = 4 and r ->> 'status' = 'reverted' and (r -> 'counts' ->> 'deactivated')::integer = 4
+    and (r -> 'counts' ->> 'restored')::integer = 1 and v = 2,
+    'revert in 4 chunks: 4 deactivated, 1 restored, 2 kept: ' || r::text);
   perform pg_temp.p50_expect(format('select public.client_import_revert(%L)', batch), '55000', 'second revert');
 
   execute 'reset role';

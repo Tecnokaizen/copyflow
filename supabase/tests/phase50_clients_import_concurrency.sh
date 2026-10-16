@@ -2,7 +2,7 @@
 # Migration V1 client import: real interleavings with separate sessions.
 #   C1 create_batch ∥ create_batch (same file + mapping) -> one batch, one reuse
 #   C2 commit_chunk ∥ commit_chunk (same expected version) -> one writes, the
-#      other waits for the batch lock and gets 40001; no row is processed twice
+#      other waits for the batch lock and gets row_version_conflict (GC409); no row is processed twice
 #   C3 resume until committed -> every row processed exactly once, no duplicates
 # Local only. Uses fixed ids and removes its fixtures on exit.
 set -euo pipefail
@@ -118,4 +118,4 @@ dups="$(psql_value "select count(*) from (select lower(email) from public.client
 linked="$(psql_value "select count(*) from public.clients where tenant_id = '$TENANT' and import_batch_id = '$BATCH'")"
 [ "$linked" = "400" ] || fail "C3 clients linked to batch: $linked"
 
-echo "phase50 concurrency PASS (C1 one batch, C2 one writer + 40001, C3 400 rows once)"
+echo "phase50 concurrency PASS (C1 one batch, C2 one writer + row_version_conflict, C3 400 rows once)"
