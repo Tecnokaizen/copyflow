@@ -1,11 +1,11 @@
 "use client";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import { RichTextContent } from "@/components/rich-text/rich-text-content";
 import { DatePicker } from "@/components/gestcopy/date-picker";
-import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
-import { emptyEditorItem, moveEditorItem, formatQuoteMoney, type EditorValues } from "@/lib/quotes/editor";
+import { ArrowDown, ArrowUp, Copy, Trash2 } from "lucide-react";
+import { duplicateEditorItem, emptyEditorItem, moveEditorItem, formatQuoteMoney, MAX_EDITOR_ITEMS, type EditorValues } from "@/lib/quotes/editor";
 import type { QuoteCommercialDetail, QuoteDraftHeader } from "@/lib/quotes/types";
 
 const TEXT_FIELDS: Array<[keyof QuoteDraftHeader, string, string?, number?]> = [
@@ -24,6 +24,25 @@ export function QuoteDraftForm({ detail, values, dirty, busy, blocked = false, e
     onChange({ ...values, header: { ...values.header, [key]: value } });
   }
   const totals = detail?.current_version;
+  const list = useRef<HTMLOListElement>(null);
+  const focusKey = useRef<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  // The copy is a normal line: put the cursor in its first field so it can be edited at once.
+  useEffect(() => {
+    const key = focusKey.current;
+    if (!key) return;
+    focusKey.current = null;
+    const row = Array.from(list.current?.children ?? []).find((child) => child instanceof HTMLElement && child.dataset.itemKey === key);
+    row?.querySelector<HTMLInputElement>("input")?.focus();
+  }, [values.items]);
+  function duplicate(index: number) {
+    const key = crypto.randomUUID();
+    const items = duplicateEditorItem(values.items, index, key);
+    if (items === values.items) return;
+    focusKey.current = key;
+    setAnnouncement(`Partida ${index + 1} duplicada. La copia es la partida ${index + 2}.`);
+    onChange({ ...values, items });
+  }
   return <form className="grid min-w-0 gap-5" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
     <SectionCard title="Datos del presupuesto" description={readonly ? (detail?.quote.accepted_version_id ? "Presupuesto aceptado. Sus datos se conservan sin cambios." : "Presupuesto preparado. Crea una revisión para hacer cambios.") : "Puedes adaptar estos datos para este presupuesto sin cambiar la ficha del cliente."} bodyClassName="p-5 sm:p-6">
       {clientSlot ?? <p className="mb-4 text-sm"><span className="gc-fact-label">Cliente </span>{detail?.quote.client?.name ?? "Sin cliente"}</p>}
@@ -51,21 +70,23 @@ export function QuoteDraftForm({ detail, values, dirty, busy, blocked = false, e
       </div>)}
     </SectionCard>
     <SectionCard title="Partidas" description={dirty ? "Cambios sin guardar. Los importes se actualizarán al guardar." : "Importes del presupuesto guardado."}
-      actions={!readonly ? <button type="button" className="gc-action min-h-11" disabled={busy || blocked || values.items.length >= 500} onClick={() => onChange({ ...values, items: [...values.items, emptyEditorItem(crypto.randomUUID())] })}>Añadir línea</button> : undefined}
+      actions={!readonly ? <button type="button" className="gc-action min-h-11" disabled={busy || blocked || values.items.length >= MAX_EDITOR_ITEMS} onClick={() => onChange({ ...values, items: [...values.items, emptyEditorItem(crypto.randomUUID())] })}>Añadir línea</button> : undefined}
       bodyClassName="p-3 sm:p-5">
       {values.items.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Todavía no hay partidas. Añade la primera línea.</p> : null}
-      <ol className="grid gap-4">
+      {announcement ? <p role="status" className="sr-only">{announcement}</p> : null}
+      <ol className="grid gap-4" ref={list}>
         {values.items.map((item, index) => {
           const authoritative = !dirty ? detail?.items.find((saved) => saved.id === item.key) : undefined;
           function change(key: string, value: string) {
             onChange({ ...values, items: values.items.map((line) => line.key === item.key ? { ...line, [key]: value } : line) });
           }
-          return <li key={item.key} className="min-w-0 rounded-lg border bg-background p-3 sm:p-4" data-testid="quote-item">
+          return <li key={item.key} className="min-w-0 rounded-lg border bg-background p-3 sm:p-4" data-testid="quote-item" data-item-key={item.key}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">Partida {index + 1}</h3>
               {!readonly ? <div className="flex gap-1">
                 <button className="gc-action min-h-11" type="button" aria-label={`Subir partida ${index + 1}`} disabled={busy || blocked || index === 0} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, -1) })}><ArrowUp size={16} /></button>
                 <button className="gc-action min-h-11" type="button" aria-label={`Bajar partida ${index + 1}`} disabled={busy || blocked || index === values.items.length - 1} onClick={() => onChange({ ...values, items: moveEditorItem(values.items, index, 1) })}><ArrowDown size={16} /></button>
+                <button className="gc-action min-h-11 gap-1.5" type="button" aria-label={`Duplicar partida ${index + 1}`} title={values.items.length >= MAX_EDITOR_ITEMS ? `Máximo de ${MAX_EDITOR_ITEMS} partidas` : "Duplicar partida"} disabled={busy || blocked || values.items.length >= MAX_EDITOR_ITEMS} onClick={() => duplicate(index)}><Copy size={16} aria-hidden="true" /><span className="hidden sm:inline">Duplicar</span></button>
                 <button className="gc-action min-h-11" type="button" aria-label={`Eliminar partida ${index + 1}`} disabled={busy || blocked} onClick={() => onChange({ ...values, items: values.items.filter((line) => line.key !== item.key) })}><Trash2 size={16} /></button>
               </div> : null}
             </div>
