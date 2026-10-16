@@ -19,7 +19,7 @@ import {
   resolvePendingCommercialTenant,
 } from "@/lib/onboarding/pending-tenant";
 import { createClient } from "@/lib/supabase/server";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import { isTrustedAppHost } from "@/lib/tenant/trusted-host";
 
 const DEFAULT_TIMEZONE = "Europe/Madrid";
 const NO_STORE = {
@@ -100,12 +100,12 @@ function parseOnboardingPayload(payload: unknown):
   return { ok: true, name, slug, timezone };
 }
 
-function isTenantHostFromRequest(request: NextRequest) {
-  const hostname =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    "";
-  return getSubdomainFromHostname(hostname) !== null;
+/**
+ * Onboarding is allowed only from a trusted app host. Tenant hosts AND
+ * untrusted hosts are refused (fail closed): "no slug" is not "app host".
+ */
+function isNotAppHostRequest(request: NextRequest) {
+  return !isTrustedAppHost(request.headers, process.env);
 }
 
 async function startOnboardingCheckout(input: {
@@ -130,7 +130,7 @@ async function startOnboardingCheckout(input: {
 }
 
 export async function GET(request: NextRequest) {
-  if (isTenantHostFromRequest(request)) {
+  if (isNotAppHostRequest(request)) {
     return json(
       { error: "Onboarding is only available on the app host" },
       403
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (isTenantHostFromRequest(request)) {
+  if (isNotAppHostRequest(request)) {
     return json(
       { error: "Onboarding is only available on the app host" },
       403

@@ -1,7 +1,7 @@
 # ADR — Gestcopy Migration V1: importación de clientes (CSV/XLSX)
 
-Fecha: 16 de octubre de 2026. Estado: **propuesto, previo a implementación**.
-Issue: #110 (P0 comercial). Base: `main` `c5eebbf`.
+Fecha: 16 de octubre de 2026. Estado: **aceptado; diseño cerrado el 16/10/2026** (ver «Cierre del diseño»).
+Issue: #110 (P0 comercial). Base: `main` `c5eebbf`; cierre sobre `0877199`.
 
 ## Contexto
 
@@ -162,14 +162,123 @@ filas. Los clientes ya en uso se listan y se dejan como están.
 Cada PR se integra con el mismo procedimiento de gate que el sprint (migración antes
 del merge cuando aplique).
 
-## Decisiones abiertas
 
-1. ¿Puede importar también staff, o solo owner, admin y manager (propuesto)?
-2. Estrategia por defecto ante duplicados: omitir (propuesto) o completar huecos.
-3. Granularidad de la actividad: un registro por cliente más el resumen (propuesto)
-   o solo el resumen.
-4. Retención de las filas del lote: 30 días (propuesto).
-5. Librería XLSX (candidatas con licencia MIT y mantenidas, p. ej. `read-excel-file`
-   o `exceljs`) y lector CSV (`papaparse`): se decide en la PR 3 tras una prueba.
-6. Límites comerciales por plan e importación asistida: fuera de V1 hasta definir
-   enforcement y costes (#110).
+## Cierre del diseño (16/10/2026)
+
+### Decisiones cerradas
+
+Antes «decisiones abiertas»:
+
+| # | Decisión | Resolución |
+| --- | --- | --- |
+| 1 | Quién importa | Owner, admin y manager. Staff no |
+| 2 | Duplicados por defecto | Omitir. «Completar huecos» solo si se elige de forma explícita en la revisión |
+| 3 | Actividad | Un `client.created` o `client.updated` por cliente, con el lote en `metadata`, más un registro resumen del lote |
+| 4 | Retención | Filas del lote, 30 días. Resumen del lote, indefinido |
+| 5 | Librerías | `papaparse` 5.7.0 y `read-excel-file` 9.3.12, con versión exacta y tras un adaptador (evaluación en `docs/CLIENTS-IMPORT-V1-PREP.md`). Se confirman en la PR 3 con los ficheros sintéticos |
+| 6 | Límites comerciales por plan | Fuera de V1. Solo límites técnicos |
+
+### D9 — Confirmación `SECURITY DEFINER` que delega en `create_client_v2`
+
+**Hallazgo:** `create_client`, al que llama `create_client_v2`, no depende de la RLS para autorizar.
+
+- Exige `auth.uid()` (`28000`).
+- Comprueba `has_tenant_role(p_tenant_id, owner|admin|manager|staff)` (`42501`).
+- Valida los datos y devuelve `client_duplicate` tanto en la comprobación previa como ante `unique_violation`.
+- `auth.uid()` lee los claims del JWT y no cambia dentro de `SECURITY DEFINER`.
+
+**Decisión:** `client_import_commit_chunk` es `SECURITY DEFINER` (`search_path = ''`) y:
+
+1. Comprueba el rol de gestión (`owner`, `admin`, `manager`) y la feature `clients_import`.
+2. Bloquea el lote (`FOR UPDATE`) y verifica `row_version`.
+3. Para cada fila con `decision = create`, llama a `public.create_client_v2(...)` dentro de un bloque `begin … exception`:
+   - un error en una fila queda registrado en esa fila (`failed`, con su `sqlstate` y su motivo) sin abortar el tramo;
+   - los duplicados que aparezcan entre la revisión y la confirmación terminan en `skipped` con motivo `client_duplicate`.
+4. Para `fill_blanks`, actualiza solo los campos vacíos del cliente existente.
+   - Lo hace en la misma función, con `tenant_id` explícito.
+   - Guarda los valores previos en `previous_values`.
+   - El trigger de actividad registra `client.updated`.
+5. Fija `app.client_import_batch` con `set_config(..., true)` solo alrededor de la escritura, como `app.order_lifecycle`.
+
+No se refactoriza `create_client` ni `create_client_v2`: la app actual no cambia. Esto sustituye a la «función interna común» propuesta en `CLIENTS-IMPORT-V1-PREP.md` §3.
+
+### Criterios de seguridad (obligatorios para cada PR de la importación)
+
+| # | Criterio | Cómo se prueba |
+| --- | --- | --- |
+| S1 | El tenant se deriva del lote y se comprueba la membresía activa en cada RPC. Nunca se confía en un `tenant_id` del navegador sin comprobarlo | `phase50`: dos tenants, lectura y escritura cruzadas rechazadas |
+| S2 | Solo owner, admin y manager. Staff, anónimo y usuarios sin membresía reciben `42501` (o `28000` sin sesión) | `phase50` y la prueba de guardas del Release Gate |
+| S3 | Feature `clients_import` comprobada en cada RPC y en cada ruta | `phase50` y pruebas de rutas |
+| S4 | Sin `service_role` en el flujo. RPC `DEFINER` con `search_path = ''`, `revoke all from public, anon` y `grant execute to authenticated`. `imports_private` sin permisos directos y con RLS activada sin políticas | `release_gate_security_invariants` y `phase50` |
+| S5 | El servidor valida todo: ≤ 500 filas por tramo, ≤ 10.000 por lote, longitudes iguales a las de `clients` (dirección ≤ 500) y cuerpo ≤ 4 MB. Lo que interpreta el navegador nunca se da por bueno | `phase50` y unitarias |
+| S6 | Idempotencia y concurrencia: lote único por `(tenant, sha256, hash del mapeo)`, fila única por `(lote, row_number)`, `FOR UPDATE` con `row_version` y dos confirmaciones simultáneas sin duplicar | `phase50` (concurrencia con `dblink` o dos sesiones) |
+| S7 | Nunca se sobrescribe un dato existente. `fill_blanks` solo rellena vacíos, guarda `previous_values` y la reversión solo deshace lo que siga intacto | `phase50` |
+| S8 | RGPD: no se guarda el fichero, las filas se borran a los 30 días, sin datos de clientes en logs ni en el `metadata` de la actividad (solo identificadores) y el informe es solo para gestión | `phase50` y revisión |
+| S9 | Salida segura: la vista previa escapa el contenido (sin `dangerouslySetInnerHTML`), las notas se importan como texto plano y el informe CSV neutraliza `= + - @ \t \r` | Unitarias y smoke |
+| S10 | Lectura segura: Web Worker, límites de tamaño y filas antes de leer, XLSX sin evaluar fórmulas ni macros y celdas siempre como texto | Unitarias con ficheros sintéticos |
+| S11 | Trazabilidad: actividad por cliente y resumen del lote, respuestas `operationalJson` con `correlation_id` | Smoke |
+| S12 | Migración solo aditiva, script de recuperación probado y suites de `main` en verde sobre la migración | Gate de la PR 2 |
+
+### Fase siguiente: especificación de la PR 2 (migración y contratos SQL)
+
+**Objetos.** Una migración aditiva, aplicada en Production antes del merge previa autorización:
+
+- **Esquema** `imports_private` con `revoke all on schema … from public, anon, authenticated`.
+- **Tabla `imports_private.client_import_batches`:**
+  - `id uuid pk` y `tenant_id uuid not null` (FK a `tenants`);
+  - `created_by uuid not null default auth.uid()`;
+  - `source_system text not null` (1–60 caracteres);
+  - `file_name text not null` (≤ 255) y `file_size bigint not null` (> 0 y ≤ 5 MiB);
+  - `file_sha256 text not null` (`^[0-9a-f]{64}$`) y `mapping jsonb not null`, junto con `mapping_hash text not null`;
+  - `duplicate_strategy text not null` (`skip` | `fill_blanks`, por defecto `skip`);
+  - `status text not null` (`uploaded`, `validated`, `committing`, `committed`, `cancelled`, `reverted`, `expired`);
+  - contadores `int not null default 0` y `row_version int not null default 0`;
+  - fechas: `created_at`, `updated_at`, `committed_at`, `reverted_at` y `expires_at` (+30 días);
+  - índice único `(tenant_id, file_sha256, mapping_hash)` para estados no terminales.
+- **Tabla `imports_private.client_import_rows`:**
+  - `batch_id` (FK con `on delete cascade`) y `row_number int` (> 0), con PK `(batch_id, row_number)`;
+  - `source_record_id text` (≤ 120), `normalized jsonb not null` y `row_hash text not null`;
+  - `classification text not null` (`valid`, `error`, `duplicate_in_file`, `duplicate_existing`, `possible_duplicate`) y `errors jsonb`;
+  - `matched_client_id uuid` y `decision text` (`create`, `fill_blanks`, `skip`);
+  - `result text` (`created`, `filled`, `skipped`, `failed`), `result_reason text` y `client_id uuid`;
+  - `previous_values jsonb`.
+- **`public.clients`:**
+  - nuevas columnas `source_system text`, `source_record_id text` (≤ 120) e `import_batch_id uuid`, todas nulas;
+  - índice único parcial `(tenant_id, source_system, source_record_id) where source_record_id is not null`.
+- **Catálogo:** feature `clients_import`, sin `plan_features`.
+
+**RPC.** Todas `authenticated`, `DEFINER` con `search_path = ''` y respuesta `jsonb`:
+
+| Función | Devuelve | Errores |
+| --- | --- | --- |
+| `client_import_create_batch(p_tenant_id, p_source_system, p_file_name, p_file_size, p_file_sha256, p_mapping, p_duplicate_strategy)` | `{batch_id, status, reused}` | `28000`, `42501`, `feature_disabled`, `22023` |
+| `client_import_stage_rows(p_batch_id, p_rows)` | `{staged, valid, errors, duplicate_in_file, duplicate_existing, possible_duplicate, row_version}` | `42501`, `22023` (tramo > 500, lote > 10.000 o fila inválida), `batch_state` |
+| `client_import_summary(p_batch_id, p_limit default 50)` | Totales, primeras filas y duplicados con el cliente coincidente (id y nombre) | `42501` |
+| `client_import_commit_chunk(p_batch_id, p_expected_version, p_limit default 200)` | `{processed, created, filled, skipped, failed, remaining, row_version, status}` | `42501`, `row_version_conflict`, `batch_state` |
+| `client_import_cancel(p_batch_id)` | `{status}` | Solo antes de `committing` |
+| `client_import_revert(p_batch_id)` | `{deactivated, restored, kept_in_use: [client_id…]}` | Solo `committed` |
+
+**Reversión de un lote:**
+
+- Desactiva (`active = false`) solo los clientes con `import_batch_id` igual al lote que:
+  - no tengan pedidos ni presupuestos;
+  - no se hayan modificado después de la confirmación (`updated_at <= committed_at`).
+- Restaura `previous_values` solo en los campos que conserven el valor importado.
+- Nunca borra filas.
+
+**Pruebas.** `supabase/tests/phase50_clients_import.sql` en el job Database del Release Gate, que cubre S1–S7 y además:
+
+- normalización igual a la de `normalize_client_*`;
+- posible duplicado por `+34`/`0034`;
+- reanudación tras un fallo a mitad de tramo;
+- caducidad de las filas.
+
+Datos de entrada: el generador `scripts/imports/client-fixtures.ts`.
+
+**Gate de la PR 2:**
+
+1. SQL desde cero.
+2. Suites de `main` sobre la migración (la app actual intacta).
+3. Script de recuperación probado.
+4. `db push --dry-run` en Production con solo la nueva migración.
+5. Migración aplicada antes del merge, previa autorización.

@@ -97,7 +97,8 @@ npx tsx scripts/imports/client-fixtures.ts --rows 10000 --seed 42 --delimiter ";
 - `client_import_commit_chunk` será `SECURITY DEFINER`:
   - comprueba explícitamente tenant, rol (`owner`, `admin`, `manager`), feature y `row_version`;
   - bloquea el lote con `FOR UPDATE`;
-  - inserta cada cliente aplicando las mismas validaciones y normalizaciones que `create_client_v2`, a partir de una función interna común extraída de ella.
+  - llama a `create_client_v2` por fila.
+- **Actualización del 16/10:** no hace falta ninguna función interna común. `create_client` autoriza con `auth.uid()` y `has_tenant_role` de forma explícita, sin depender de la RLS. Decisión D9 en el ADR, «Cierre del diseño».
 - El trigger de actividad seguirá viendo `auth.uid()`, porque este lee los claims del JWT y no cambia con `SECURITY DEFINER`. El marcador de sesión `app.client_import_batch` (patrón `app.order_lifecycle`) añade el lote a `metadata`.
 - `phase50` debe demostrar:
   - que staff y anónimo no pueden;
