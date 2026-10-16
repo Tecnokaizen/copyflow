@@ -4,6 +4,8 @@ import type { QuoteCommercialDetail, QuoteDraftHeader, QuoteDraftItemInput, Quot
 export const VERSION_LABELS = { draft: "Borrador", prepared: "Preparado", sent: "Enviado" };
 export type EditorItem = QuoteDraftItemInput & { key: string };
 export type EditorValues = { header: QuoteDraftHeader; items: EditorItem[] };
+/** Same ceiling the server enforces (`payload.ts`). */
+export const MAX_EDITOR_ITEMS = 500;
 export function editorValues(detail: QuoteCommercialDetail): EditorValues {
   const { quote: q, current_version: v } = detail;
   function contact(key: 'contact_name' | 'contact_email' | 'contact_phone' | 'billing_name' | 'tax_id' | 'billing_address', fallback?: string | null) {
@@ -29,12 +31,27 @@ export function moveEditorItem(items: EditorItem[], index: number, offset: numbe
   [next[index], next[target]] = [next[target], next[index]];
   return next;
 }
+/**
+ * Clones the editable fields of `items[index]` into a normal, independent line
+ * placed right after it. It is NOT an alternative: the copy is summed by the
+ * existing totals like any other line. Server-computed data (id, position,
+ * subtotal, tax_amount, total) is never copied, and no total is calculated here.
+ * Returns the same array when nothing can be done (bad index, 500 lines reached,
+ * or a `key` that is empty or already in use).
+ */
+export function duplicateEditorItem(items: EditorItem[], index: number, key: string): EditorItem[] {
+  if (!Number.isInteger(index) || index < 0 || index >= items.length || items.length >= MAX_EDITOR_ITEMS) return items;
+  if (!key || items.some((item) => item.key === key)) return items;
+  const { concept, description, quantity, unit, unit_price, discount_percent, tax_rate } = items[index];
+  const copy: EditorItem = { key, concept, description: description ?? null, quantity, unit: unit ?? null, unit_price, discount_percent, tax_rate };
+  return [...items.slice(0, index + 1), copy, ...items.slice(index + 1)];
+}
 export function editorValidation(values: EditorValues): string[] {
   const errors: string[] = [];
   if (isRichTextEmpty(values.header.description)) errors.push("La descripción del trabajo es obligatoria.");
   if (!values.header.issue_date) errors.push("Indica la fecha de emisión.");
   if (!/^[A-Z]{3}$/.test(values.header.currency)) errors.push("La moneda debe tener tres letras (por ejemplo, EUR).");
-  if (values.items.length > 500) errors.push("El máximo es de 500 partidas.");
+  if (values.items.length > MAX_EDITOR_ITEMS) errors.push(`El máximo es de ${MAX_EDITOR_ITEMS} partidas.`);
   values.items.forEach((item, index) => {
     const prefix = `Partida ${index + 1}: `;
     if (!item.concept.trim()) errors.push(prefix + "el concepto es obligatorio.");
