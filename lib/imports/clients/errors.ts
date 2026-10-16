@@ -8,7 +8,12 @@ export type ImportFileErrorCode =
   | "sheet_not_found"
   | "no_rows"
   | "too_many_rows"
-  | "csv_unterminated_quote";
+  | "csv_unterminated_quote"
+  | "xlsx_too_large"
+  | "xlsx_unsafe"
+  | "too_many_sheets"
+  | "too_many_columns"
+  | "cell_too_long";
 
 export class ImportFileError extends Error {
   constructor(
@@ -32,6 +37,12 @@ export const IMPORT_FILE_ERROR_LABELS: Record<ImportFileErrorCode, string> = {
   too_many_rows: "El archivo tiene más de 10.000 filas. Divídelo en varios archivos.",
   csv_unterminated_quote:
     "El archivo tiene unas comillas sin cerrar y no se puede leer entero. Revisa esa línea o guárdalo de nuevo como CSV desde Excel.",
+  xlsx_too_large: "El archivo XLSX ocupa más de 64 MB una vez descomprimido. Guárdalo como CSV o divídelo en varios archivos.",
+  xlsx_unsafe:
+    "El archivo XLSX tiene contenido que no se admite (cifrado, definiciones XML o una estructura dañada). Ábrelo en Excel y guárdalo de nuevo, o expórtalo como CSV.",
+  too_many_sheets: "El archivo tiene más de 50 hojas. Deja solo la hoja de clientes.",
+  too_many_columns: "El archivo tiene más de 200 columnas. Quita las que no necesites.",
+  cell_too_long: "Una celda supera 32.767 caracteres, el máximo de Excel.",
 };
 
 /** Message for an ImportFileError, with the line when the reader knows it. */

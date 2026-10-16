@@ -1,6 +1,11 @@
 import { parseCsvText, type CsvDelimiter } from "./csv";
 import { decodeText, type DetectedEncoding } from "./encoding";
-import { CLIENT_IMPORT_MAX_FILE_BYTES, CLIENT_IMPORT_MAX_ROWS } from "./limits";
+import {
+  CLIENT_IMPORT_MAX_CELL_CHARS,
+  CLIENT_IMPORT_MAX_COLUMNS,
+  CLIENT_IMPORT_MAX_FILE_BYTES,
+  CLIENT_IMPORT_MAX_ROWS,
+} from "./limits";
 import { ImportFileError } from "./errors";
 import { readXlsxSheets } from "./xlsx";
 
@@ -42,6 +47,9 @@ function splitHeader(table: string[][]): { headers: string[]; rows: string[][] }
   const rawHeaders = table[start].map((cell) => cell.trim());
   let width = rawHeaders.length;
   while (width > 0 && !rawHeaders[width - 1]) width -= 1;
+  if (width > CLIENT_IMPORT_MAX_COLUMNS) {
+    throw new ImportFileError("too_many_columns");
+  }
   const headers = rawHeaders.slice(0, width).map((header, index) => header || `Columna ${index + 1}`);
   const rows = table
     .slice(start + 1)
@@ -52,6 +60,10 @@ function splitHeader(table: string[][]): { headers: string[]; rows: string[][] }
   }
   if (rows.length > CLIENT_IMPORT_MAX_ROWS) {
     throw new ImportFileError("too_many_rows");
+  }
+  const tooLong = [rawHeaders, ...rows].findIndex((row) => row.some((cell) => cell.length > CLIENT_IMPORT_MAX_CELL_CHARS));
+  if (tooLong >= 0) {
+    throw new ImportFileError("cell_too_long", start + tooLong + 1);
   }
   return { headers, rows };
 }
@@ -83,7 +95,8 @@ export async function parseImportFile(
     let sheets;
     try {
       sheets = await readXlsxSheets(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof ImportFileError) throw error;
       throw new ImportFileError("invalid_xlsx");
     }
     const sheet = options.sheet ? sheets.find((item) => item.name === options.sheet) : sheets[0];
