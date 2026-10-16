@@ -4,17 +4,17 @@ Informe de ejecución de las prioridades post-sprint. **No se ha comprado nada, 
 ha cambiado la facturación y no se ha modificado Production.** Todas las consultas a
 Production han sido de solo lectura (agregados y metadatos, sin datos personales).
 
-Base: `main` `893f366`. Documento hermano: [SUR4-FIN-PRUEBA-OCT-2026.md](SUR4-FIN-PRUEBA-OCT-2026.md).
+Base: `main` `893f366`; actualizado el mismo día tras integrar #115 y #116. Documento hermano: [SUR4-FIN-PRUEBA-OCT-2026.md](SUR4-FIN-PRUEBA-OCT-2026.md).
 
 ## Resumen
 
 | Prioridad | Estado | Evidencia |
 | --- | --- | --- |
 | P0 Planes y costes reales | Verificado. Procedimiento listo, sin ejecutar | §1 y §2 |
-| P0 Aislar el desarrollo local | Hecho en local. Guarda en código pendiente de merge | §3, PR #115 |
+| P0 Aislar el desarrollo local | Hecho. Guarda integrada (#115, `cfd3673`) y desplegada en Production; copias antiguas reenlazadas a Staging | §3 |
 | P0 Staging = `main` | Hecho: `d00d515` (árbol de `893f366`), Release Gate y E2E en verde | §4 |
 | P0 Gate operativo SUR4 y fin de la prueba | Preparado. **La prueba vence el 19/10 a las 13:53 UTC** | SUR4-FIN-PRUEBA |
-| P1 Migration V1 (clientes) | Dependencias evaluadas, plan detallado y generador de ficheros sintéticos | PR #116 |
+| P1 Migration V1 (clientes) | Dependencias evaluadas, plan detallado y generador de ficheros sintéticos | #116 integrada (`75cbd99`) |
 | Contract de #95 | No iniciado, por instrucción | — |
 
 ## 1. Infraestructura: configuración y costes reales
@@ -39,7 +39,16 @@ Base: `main` `893f366`. Documento hermano: [SUR4-FIN-PRUEBA-OCT-2026.md](SUR4-FI
 
 **Riesgo por el SMTP de Auth:** si Production no tiene SMTP propio, la recuperación de contraseña (`resetPasswordForEmail`) y el alta pública (`signUp`) no llegan a usuarios reales como Tamara. Las invitaciones no se ven afectadas: van por Resend desde la app y crean el usuario con `admin.createUser`. En las últimas 24 h no hay intentos de recuperación en los logs de Auth, así que **no se ha podido comprobar**. Hay que mirarlo en el panel (ver §2).
 
-**Copias externas:** existe `infra/backup-runner`, un recurso de Coolify que hace volcados cifrados con `age` a Backblaze B2, con Object Lock de 30 días. Desde aquí no se puede verificar si está programado ni cuándo fue su última ejecución, y en los logs de Postgres de 24 h no aparece ningún `pg_dump` (puede que esas conexiones no se registren). **Hay que confirmar en Coolify el último `DATABASE_BACKUP_SUCCESS`.**
+**Copias externas (verificadas el 16/10 en el bucket de B2, en solo lectura):** `infra/backup-runner` (Coolify → Backblaze B2, cifrado con `age`, Object Lock de 30 días) está funcionando.
+
+- **Base de datos:** 4 volcados completos al día, cada 6 horas, del 10/10 al 16/10, sin huecos.
+  - El último es del 16/10 a las 10:27 UTC.
+  - Su manifiesto indica `status: complete`, Postgres 17.6, snapshot consistente y tres artefactos (aplicación, auth y migraciones) con su tamaño y SHA-256.
+- **Files:**
+  - R2 tiene 127 objetos (0,93 GB) y B2, 132 (B2 conserva los borrados).
+  - Coinciden 126.
+  - Falta 1, subido a las 10:29 UTC, después de la copia horaria de las 10:17; entra en la de las 11:17 UTC.
+- **Pendiente:** la prueba de restauración aislada. Requiere la identidad privada de `age`, que solo tiene el propietario.
 
 ### Vercel
 
@@ -174,14 +183,14 @@ Hobby ya permite elegir una región, así que este paso no depende de Pro. Hay d
   - el `42703` de `order_payments.receipt_file_id`;
   - los `permission denied for table tenants`.
 
-**PR #115 (pendiente de merge):**
+**PR #115 (integrada en `cfd3673` y desplegada en Production el 16/10):**
 
 - `next.config.ts` impide `next dev`, `next build` y `next start` contra la BD de Production salvo en un despliegue de Vercel Production.
 - La excepción explícita es `GESTCOPY_ALLOW_PRODUCTION_DATABASE=1`.
 - Probado con `.env.local` y con variables de entorno: los tres comandos salen con código 1.
 - **Riesgo para Production:** si en el build faltara `VERCEL_ENV`, el build fallaría y Vercel mantendría el despliegue anterior. No hay corte de servicio.
 
-**Pendiente de decisión:** las copias `copyflow-release` y `copyflow-pr57-deploy` siguen enlazadas a Production en `supabase/.temp`. Se propone reenlazarlas a Staging o eliminarlas, y usar solo `~/copyflow-ops/production-link` para `db push`.
+**Copias antiguas:** `copyflow-release` y `copyflow-pr57-deploy` no tenían trabajo pendiente (HEAD en ramas remotas, sin cambios ni commits sin subir). Se han reenlazado a Staging, con copia del enlace anterior en `~/copyflow-ops/env-backups`. El único enlace con Production es `~/copyflow-ops/production-link`, y ningún `.env` local apunta a Production.
 
 ## 4. Staging sincronizado con `main`
 
@@ -203,15 +212,13 @@ Hobby ya permite elegir una región, así que este paso no depende de Pro. Hay d
 | --- | --- | --- | --- |
 | B1 | La prueba interna de SUR4 vence el **19/10 a las 13:53 UTC** | No corta el acceso, pero Facturación mostrará un periodo vencido y no hay condición comercial registrada | Propietario: elegir opción en SUR4-FIN-PRUEBA |
 | B2 | SMTP de Auth sin verificar | Si es el de por defecto, Tamara y su equipo no reciben correos de recuperación de contraseña | Propietario: revisar el panel; §2.1 |
-| B3 | Supabase Free | Sin copias diarias gestionadas ni protección de contraseñas filtradas | Propietario: §2.2 y confirmar el runner de copias |
+| B3 | Supabase Free | Sin copias gestionadas por Supabase ni protección de contraseñas filtradas. Las copias externas cada 6 h funcionan | Propietario: §2.2 |
 | B4 | Vercel Hobby | Uso comercial no permitido por las condiciones | Propietario: §2.3 |
 | B5 | Stripe Live (#35) | Sin cuenta Live, catálogo ni webhook: no se puede cobrar por la app | Propietario: decisión comercial y fiscal |
 
 No bloquean pero conviene resolver:
 
 - región de funciones (§2.4);
-- PR #115;
-- copias locales enlazadas a Production;
 - tenants de prueba en Production (SUR4-FIN-PRUEBA, §6).
 
 ## 6. Decisiones del propietario
@@ -221,9 +228,7 @@ No bloquean pero conviene resolver:
 3. **Vercel Pro**: sí o no, y el umbral de aviso de gasto.
 4. **Región `fra1`**: autorizar la PR de `vercel.json` y su despliegue.
 5. **SMTP de Auth con Resend**: revisar el estado y autorizar la configuración (§2.1).
-6. **Copias externas**: confirmar que el runner de Coolify está programado y su última ejecución correcta.
-7. **Merge de la PR #115** (guarda local contra Production).
-8. **Copias `copyflow-release` y `copyflow-pr57-deploy`**: reenlazarlas a Staging o eliminarlas.
-9. **Tenant de verificación en Production** y **limpieza de los tenants de prueba** (SUR4-FIN-PRUEBA, §5 y §6).
-10. **Decisiones abiertas del ADR de importación de clientes** (roles, duplicados, actividad, retención) y la RPC de confirmación `SECURITY DEFINER` propuesta en la PR #116. Las dependencias ya tienen recomendación.
-11. **Contract de #95**: momento de ejecución. Técnicamente es posible desde el 16/10 a las 22:34 UTC; no se ha iniciado.
+6. **Prueba de restauración aislada** de las copias externas (requiere la identidad privada de `age`).
+7. **Tenant de verificación en Production** y **limpieza de los tenants de prueba** (SUR4-FIN-PRUEBA, §5 y §6).
+8. **Decisiones abiertas del ADR de importación de clientes** (roles, duplicados, actividad, retención) y la RPC de confirmación `SECURITY DEFINER` propuesta en la PR #116. Las dependencias ya tienen recomendación.
+9. **Contract de #95**: momento de ejecución. Técnicamente es posible desde el 16/10 a las 22:34 UTC; no se ha iniciado.
