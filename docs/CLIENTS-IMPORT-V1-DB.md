@@ -4,7 +4,7 @@ Fecha: 16/10/2026.
 
 - Base: `main` `bef29ac`.
 - Implementa el [ADR](adr/2026-10-16-clients-import-v1.md) (diseño cerrado: D1–D9, S1–S12).
-- Migración: `20261016120000_clients_import_v1.sql`, solo aditiva.
+- Migraciones: `20261016120000_clients_import_v1.sql` y `20261016121000_clients_import_v1_chunks.sql`, solo aditivas.
 
 **No se aplica en Production sin gate y autorización. La feature `clients_import` no se activa para ningún tenant.**
 
@@ -33,12 +33,12 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | --- | --- |
 | `client_import_create_batch` | Crea el lote o devuelve el existente (`reused`). Rechaza `fill_blanks` sin confirmación posterior y más de 10 lotes abiertos por tenant (`54000`) |
 | `client_import_stage_rows` | ≤ 500 filas por llamada y ≤ 10 000 por lote, idempotente por `row_number`. Valida en el servidor: nombre obligatorio, longitudes, email, teléfono y NIF. Resuelve el tipo de cliente por nombre (si no existe, aviso). Convierte las notas en HTML escapado |
-| `client_import_finalize` | Clasificación en bloque: `error`, `duplicate_existing` (email, teléfono, NIF u origen, como `create_client`), `duplicate_in_file`, `possible_duplicate` (solo coincide sin `+34`/`0034`) y `valid`. Decisiones por defecto: crear las válidas y omitir todo lo demás |
+| `client_import_finalize(lote, desde, límite)` | Clasificación por tramos de filas (2.000 por defecto); el resultado es idéntico al de una sola pasada: `error`, `duplicate_existing` (email, teléfono, NIF u origen, como `create_client`), `duplicate_in_file`, `possible_duplicate` (solo coincide sin `+34`/`0034`) y `valid`. Decisiones por defecto: crear las válidas y omitir todo lo demás |
 | `client_import_summary` | Totales y primeras filas para la revisión |
 | `client_import_set_strategy` | `fill_blanks` solo con `p_confirm = true` |
 | `client_import_set_row_decisions` | Posibles duplicados → crear u omitir. Duplicados existentes → omitir o completar |
-| `client_import_commit_chunk` | Tramos de hasta 500 (200 por defecto). Usa `row_version` optimista (`40001`) y bloqueo del lote. Crea cada cliente con `create_client_v2`, sin cambiarla. Completar huecos solo rellena campos vacíos y guarda los valores previos. Se puede reanudar |
-| `client_import_cancel` / `client_import_revert` | Cancelar antes de escribir. Revertir después: desactiva los creados sin uso ni edición y restaura solo los campos rellenados que no se han tocado. Nunca borra |
+| `client_import_commit_chunk` | Tramos de hasta 500 (200 por defecto). Usa `row_version` optimista (`GC409`) y bloqueo del lote. Crea cada cliente con `create_client_v2`, sin cambiarla. Completar huecos solo rellena campos vacíos y guarda los valores previos. Se puede reanudar |
+| `client_import_cancel` / `client_import_revert(lote, límite)` | Cancelar antes de escribir. Revertir después, por tramos (500 por defecto): desactiva los creados sin uso ni edición y restaura solo los campos rellenados que no se han tocado. Nunca borra |
 | `client_import_report` / `client_import_list_batches` | Informe por fila (páginas de 1000) e historial |
 | `client_import_purge_expired` | Solo `service_role` (cron): borra las filas de los lotes caducados y conserva el resumen |
 
@@ -73,11 +73,26 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | Suites de `main` sobre la migración | Las 19 suites del Release Gate y las invariantes, en verde |
 | Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql`. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
 
+## Correcciones tras la QA en Staging (`20261016121000`)
+
+La primera migración se aplicó en Staging, pero no en Production. Al probarla con la app real (PostgREST y Vercel) aparecieron dos problemas que la base aislada no mostraba. Los corrige la segunda migración:
+
+| Problema en Staging | Causa | Corrección |
+| --- | --- | --- |
+| Una confirmación con versión obsoleta tardó 125 s y acabó en 504 | El conflicto usaba SQLSTATE `40001` (fallo de serialización), y **PostgREST reintenta** esas transacciones | El conflicto pasa a `GC409`, sin reintento. La API responde 409 |
+| La clasificación de 10.000 filas superó el `statement_timeout` de 8 s (500) | La base de Staging es lenta: lo que en local tardaba 2 s pasaba de 8 s. Production tiene el mismo tipo de cómputo | `client_import_finalize` por tramos de filas, con consultas indexadas por fila para los duplicados internos. La reversión también va por tramos |
+
+**Pruebas:**
+
+- `phase50` comprueba que la clasificación en tramos de 4 filas da exactamente lo mismo que una sola pasada, y que la reversión en tramos de 2 llega al mismo resultado.
+- En local, 10.000 filas: ninguna llamada pasa de 1 s (clasificación 5×2.000, confirmación 50×200, reversión 18×500).
+- El script de recuperación deshace las dos migraciones y deja el esquema idéntico a `main`.
+
 ## Gate y despliegue (pendiente de autorización)
 
 1. Revalidar el HEAD de la PR y el CI.
 2. Comprobación previa en Production (solo lectura).
-3. `db push --dry-run`, que debe listar solo `20261016120000`.
+3. `db push --dry-run`, que debe listar solo `20261016120000` y `20261016121000`.
 4. `db push`.
 5. Comprobaciones inmediatas:
    - huellas;

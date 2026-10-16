@@ -1,4 +1,5 @@
--- Rollback for 20261016120000_clients_import_v1.sql (Migration V1, #110).
+-- Rollback for 20261016120000_clients_import_v1.sql and
+-- 20261016121000_clients_import_v1_chunks.sql (Migration V1, #110).
 --
 -- Use only if the client import itself must be withdrawn. Rolling back the
 -- APPLICATION alone does not need this script: the previous app never calls the
@@ -15,7 +16,7 @@
 -- Verified on a database with main + this migration: afterwards the schema
 -- fingerprint (columns, constraints, indexes, policies, triggers, functions)
 -- equals that of main.
--- Then: supabase migration repair --status reverted 20261016120000
+-- Then: supabase migration repair --status reverted 20261016121000 20261016120000
 begin;
 
 do $guard$
@@ -42,12 +43,14 @@ $guard$;
 drop function if exists public.client_import_create_batch(uuid, text, text, bigint, text, jsonb, text);
 drop function if exists public.client_import_stage_rows(uuid, jsonb);
 drop function if exists public.client_import_finalize(uuid);
+drop function if exists public.client_import_finalize(uuid, integer, integer);
 drop function if exists public.client_import_summary(uuid, integer);
 drop function if exists public.client_import_set_strategy(uuid, text, boolean);
 drop function if exists public.client_import_set_row_decisions(uuid, integer[], text);
 drop function if exists public.client_import_commit_chunk(uuid, integer, integer);
 drop function if exists public.client_import_cancel(uuid);
 drop function if exists public.client_import_revert(uuid);
+drop function if exists public.client_import_revert(uuid, integer);
 drop function if exists public.client_import_report(uuid, integer, integer);
 drop function if exists public.client_import_list_batches(uuid, integer);
 drop function if exists public.client_import_purge_expired(integer);
