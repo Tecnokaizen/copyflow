@@ -254,6 +254,16 @@ begin
   perform pg_temp.p50_check((select pg_catalog.count(*) = 6 from imports_private.client_import_rows
     where batch_id = batch and decision = 'create'), 'only valid rows default to create');
 
+  -- Review summary: rows that need attention come first, with the matched client.
+  perform pg_temp.p50_as(manager_a);
+  r := public.client_import_summary(batch, 5);
+  execute 'reset role';
+  perform pg_temp.p50_check((select pg_catalog.array_agg((t.x ->> 'row_number')::integer order by t.i)
+    from pg_catalog.jsonb_array_elements(r -> 'rows') with ordinality as t(x, i)) = array[2, 3, 4, 5, 7],
+    'summary lists the rows needing attention first: ' || (r -> 'rows')::text);
+  perform pg_temp.p50_check((r -> 'rows' -> 2 -> 'matched_client' ->> 'id')::uuid = e1
+    and (r -> 'rows' -> 2 -> 'matched_client' ->> 'name') = 'Existente Uno', 'summary shows the matched client');
+
   -- Finalize by ranges gives exactly the same classification as one pass.
   create temp table p50_single as
     select row_number, classification, matched_client_id, matched_row_number, match_reasons, decision

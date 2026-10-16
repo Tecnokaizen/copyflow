@@ -4,7 +4,7 @@ Fecha: 16/10/2026.
 
 - Base: `main` `bef29ac`.
 - Implementa el [ADR](adr/2026-10-16-clients-import-v1.md) (diseño cerrado: D1–D9, S1–S12).
-- Migraciones: `20261016120000_clients_import_v1.sql`, `20261016121000_clients_import_v1_chunks.sql` y `20261016122000_clients_import_v1_finalize_plan.sql`.
+- Migraciones: `20261016120000_clients_import_v1.sql`, `20261016121000_clients_import_v1_chunks.sql`, `20261016122000_clients_import_v1_finalize_plan.sql` y `20261016123000_clients_import_v1_summary.sql`.
 
 **No se aplica en Production sin gate y autorización. La feature `clients_import` no se activa para ningún tenant.**
 
@@ -71,7 +71,7 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | `phase50_clients_import_concurrency.sh` (manual, como las demás `*_concurrency.sh`) | Dos creaciones del mismo archivo → un lote. Dos confirmaciones del mismo tramo → una escribe y la otra recibe `GC409`. 400 filas procesadas una sola vez |
 | Rendimiento (10 000 filas contra 2 000 clientes, `statement_timeout` de 8 s) | Preparación 20×500 en ≈1 s. Clasificación ≈2 s. Confirmación 50×200 en 11 s (llamada más lenta: 2 s). Reversión de 9 000 altas: 3 s |
 | Suites de `main` sobre la migración | Las 19 suites del Release Gate y las invariantes, en verde |
-| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql` deshace las tres migraciones. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
+| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql` deshace las cuatro migraciones. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
 
 ## Correcciones tras la QA en Staging (`20261016121000`)
 
@@ -135,11 +135,35 @@ Midiendo la confirmación con datos recién escritos aparecieron otros dos probl
 - Concurrencia: correcta.
 - El script de recuperación deshace las tres migraciones y la huella vuelve a ser idéntica a la de `main`.
 
+## Tercera ronda de QA en Staging (`20261016123000`)
+
+**Con `…122000` todo funcionó en Staging.** Tiempos medidos en la base, con tramos de 2.000 / 200 / 500:
+
+| RPC | Mediana | Máximo |
+| --- | --- | --- |
+| Clasificación | 450 ms | 6,8 s |
+| Confirmación | 661 ms | 1,2 s |
+| Reversión | 576 ms | 795 ms |
+
+- **La clasificación de 6,8 s** coincidió con autovacuum procesando la reversión de 8.329 clientes y con un checkpoint. Repetida sin carga, la lectura de ese tramo tarda 426 ms.
+- **Ajuste:** la interfaz baja los tramos a 1.000 / 100 / 250 (PR 4), para tener margen frente a esa contención.
+
+**En la ronda siguiente**, el resumen de la revisión tardó **4,2 s** justo después de clasificar 10.000 filas nuevas:
+
+- cruzaba todas las filas del lote con `clients` (8.241 coincidencias, lecturas aleatorias con poca caché) antes de quedarse con las 200 primeras;
+- `client_import_summary` ahora elige primero las filas y solo busca esos clientes (como mucho 200). La salida es la misma.
+
+**Pruebas:**
+
+- `phase50` comprueba el contenido del resumen: orden, filas a revisar primero y cliente coincidente. Pasa con la versión anterior y con la nueva.
+- Gate en local: 21/21.
+- El script de recuperación deshace las cuatro migraciones y deja el esquema idéntico a `main`.
+
 ## Gate y despliegue (pendiente de autorización)
 
 1. Revalidar el HEAD de la PR y el CI.
 2. Comprobación previa en Production (solo lectura).
-3. `db push --dry-run`, que debe listar solo `20261016120000`, `20261016121000` y `20261016122000`.
+3. `db push --dry-run`, que debe listar solo `20261016120000`, `20261016121000`, `20261016122000` y `20261016123000`.
 4. `db push`.
 5. Comprobaciones inmediatas:
    - huellas;
