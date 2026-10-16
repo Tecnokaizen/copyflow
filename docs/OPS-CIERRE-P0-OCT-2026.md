@@ -2,7 +2,7 @@
 
 Continúa [POST-SPRINT-OPS-OCT-2026.md](POST-SPRINT-OPS-OCT-2026.md).
 
-**No se ha comprado nada, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han hecho dos cosas, ambas autorizadas: integrar las tres PR y prorrogar la prueba interna de SUR4 (§6). Se mantienen un único core multi-tenant y una única base de datos compartida.
+**No se ha comprado nada, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han hecho tres cosas, todas autorizadas: integrar #115–#118 y prorrogar la prueba interna de SUR4 (§6). Se mantienen un único core multi-tenant y una única base de datos compartida.
 
 ## 1. Integraciones (#115, #116, #117)
 
@@ -208,9 +208,28 @@ Si falta el comodín, el enlace del correo cae en la Site URL, sin tenant, y el 
 
 **Vuelta atrás:** «Downgrade Plan». Antes hay que trasladar dominios y stores, como indica Vercel.
 
-## 5. Región `fra1`
+## 5. Región `fra1` (integrada el 16/10)
 
-PR #118, sin fusionar.
+**Integración:** #118 integrada en `8cb913f` con autorización expresa.
+
+- Release Gate `38893991991` en verde.
+- Production `dpl_2jt2TUH4zKh94hLwtMwTgK3Wjqxc` READY, con `regions: ["fra1"]` y el cron registrado.
+- Punto de vuelta atrás, sin usar: `dpl_12GFKXYWjcRRSQwsSBszoCXdz5QJ`.
+
+**Resultado real en Production** (tiempo de origen que mide Supabase por petición):
+
+| | Antes (`IAD`) | Después (`FRA`) |
+| --- | --- | --- |
+| p50 | 120 ms | 31 ms |
+| p90 | 316 ms | 98 ms |
+
+**Vigilancia de 30 minutos:** sin 4xx ni 5xx y sin errores de Postgres, Auth ni funciones. Cola de R2 a 0.
+
+**E2E de Staging:** `38894442617` en verde, con Staging avanzado a `484eff6` (árbol de `main`).
+
+**Cron:** se comprueba el 17/10 (03:15–04:15 UTC) que llega desde `FRA`.
+
+**Antes de la integración:**
 
 **Medición:** previews con el mismo código y los mismos datos de Staging. La latencia p50 de las APIs baja entre un 47 % y un 55 %. Por ejemplo, `/api/orders` pasa de 1275 a 579 ms.
 
@@ -270,7 +289,7 @@ La implementación de la PR 2 no se ha empezado.
 ## 8. Pendiente de autorización o de acción del propietario
 
 1. **Condiciones comerciales de SUR4** (#35) antes del 02/11, nuevo vencimiento tras la prórroga (§6).
-2. **Merge de #118** (`fra1`) y su despliegue.
+2. **Cron del 17/10:** comprobar que se ejecuta desde `FRA` (`~/copyflow-ops/fra1/cron-check-2026-10-17.md`).
 3. **Merge de #119** (cierre del diseño) y comienzo de la PR 2.
 4. **SMTP con Resend** y URL Configuration de Auth (§4.1).
 5. **Supabase Pro** y **Vercel Pro** (§4.2 y §4.3): decisión y compra.
