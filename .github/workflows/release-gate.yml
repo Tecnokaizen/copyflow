@@ -95,6 +95,7 @@ jobs:
             phase50_clients_import \
             phase46_files_storage_deletion \
             phase46_order_total_validation \
+            phase52_order_total_guard \
             phase46_payment_receipts \
             phase51_order_lines \
             phase13_order_lifecycle \
