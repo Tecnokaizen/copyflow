@@ -4,7 +4,7 @@ Fecha: 16/10/2026.
 
 - Base: `main` `bef29ac`.
 - Implementa el [ADR](adr/2026-10-16-clients-import-v1.md) (diseño cerrado: D1–D9, S1–S12).
-- Migraciones: `20261016120000_clients_import_v1.sql` y `20261016121000_clients_import_v1_chunks.sql`, solo aditivas.
+- Migraciones: `20261016120000_clients_import_v1.sql`, `20261016121000_clients_import_v1_chunks.sql` y `20261016122000_clients_import_v1_finalize_plan.sql`.
 
 **No se aplica en Production sin gate y autorización. La feature `clients_import` no se activa para ningún tenant.**
 
@@ -71,7 +71,7 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | `phase50_clients_import_concurrency.sh` (manual, como las demás `*_concurrency.sh`) | Dos creaciones del mismo archivo → un lote. Dos confirmaciones del mismo tramo → una escribe y la otra recibe `GC409`. 400 filas procesadas una sola vez |
 | Rendimiento (10 000 filas contra 2 000 clientes, `statement_timeout` de 8 s) | Preparación 20×500 en ≈1 s. Clasificación ≈2 s. Confirmación 50×200 en 11 s (llamada más lenta: 2 s). Reversión de 9 000 altas: 3 s |
 | Suites de `main` sobre la migración | Las 19 suites del Release Gate y las invariantes, en verde |
-| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql`. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
+| Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql` deshace las tres migraciones. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
 
 ## Correcciones tras la QA en Staging (`20261016121000`)
 
@@ -97,11 +97,49 @@ La primera migración se aplicó en Staging, pero no en Production. Al probarla 
 
 No hay otro `DROP` en la PR.
 
+## Segunda ronda de QA en Staging (`20261016122000`)
+
+Con la segunda migración aplicada, la clasificación de un XLSX de **1.000 filas** volvió a superar los 8 s en Staging (500). Se reprodujo en local con la misma situación:
+
+- la tabla de filas tenía estadísticas solo de lotes anteriores;
+- el planificador estimaba **1 fila** para el lote recién preparado (tenía 1.000);
+- con esa estimación, cada `UPDATE … FROM` recorría la tabla destino en un bucle anidado y repetía las subconsultas de duplicados por cada fila: coste cuadrático.
+
+En local, 500 filas pasaban de 60 s. No es un caso raro: el autoanalyze siempre llega tarde a una importación recién hecha.
+
+Midiendo la confirmación con datos recién escritos aparecieron otros dos problemas del mismo tipo:
+
+| Problema | Causa | Corrección |
+| --- | --- | --- |
+| Clasificación cuadrática con estadísticas antiguas | Plan elegido sobre una estimación de 1 fila | `client_import_finalize` lee cada tramo una vez. Duplicados del archivo con funciones de ventana, sin joins. Claves de los clientes del tenant calculadas una vez por llamada y cruzadas por igualdad. `SET enable_nestloop = off` solo en esta función, así que los joins son hash o merge (lineales). Un `UPDATE` por fila por clave primaria (antes hasta cinco) |
+| Las 5 primeras llamadas de confirmación tardaban unos 3 s cada una | `create_client` busca duplicados con un `OR` de las tres claves. PL/pgSQL guarda un plan genérico por sesión y, con estadísticas antiguas, ese plan recorría todos los clientes del tenant por cada alta | `client_import_commit_chunk` con `SET plan_cache_mode = force_custom_plan`: los planes a medida usan los tres índices únicos. **`create_client` no se modifica** |
+| Una llamada de confirmación tardó 5,7 s | `clients` tiene 7 índices GIN de trigramas con `fastupdate`. El `INSERT` que pasa la lista pendiente de 4 MB la vuelca de golpe | Confirmación y reversión con `SET gin_pending_list_limit = 64MB`: el volcado queda para autovacuum |
+
+**Medidas en local** (estadísticas antiguas, timeout de 8 s):
+
+| Operación | Antes | Después |
+| --- | --- | --- |
+| Clasificación de un lote nuevo | 500 filas: > 60 s | 1.000 filas: 81 ms |
+| Clasificación de 10.000 filas (5 llamadas) | timeout | 152–191 ms por llamada |
+| Clasificación de 2.000 filas contra 10.000 clientes recién insertados | timeout | 327 ms |
+| Confirmación 50×200 | primeras ≈ 3 s; un pico de 5,7 s | 194–528 ms por llamada (una pasada con autovacuum limpiando 57.000 tuplas muertas: 6 s) |
+| Reversión 18×500 | ≤ 1 s | 123–175 ms por llamada |
+
+**Pruebas:**
+
+- `phase50` reproduce el caso de Staging: lote previo de 500 filas, `ANALYZE` y lote nuevo de 1.000 con duplicados existentes y del archivo. Exige clasificarlo en menos de 4 s y con los recuentos exactos.
+  - Con la versión anterior, esta prueba no termina en 120 s.
+  - Con la nueva, pasa.
+- `phase50` comprueba también los ajustes de plan de las tres funciones.
+- Gate en local: 21/21.
+- Concurrencia: correcta.
+- El script de recuperación deshace las tres migraciones y la huella vuelve a ser idéntica a la de `main`.
+
 ## Gate y despliegue (pendiente de autorización)
 
 1. Revalidar el HEAD de la PR y el CI.
 2. Comprobación previa en Production (solo lectura).
-3. `db push --dry-run`, que debe listar solo `20261016120000` y `20261016121000`.
+3. `db push --dry-run`, que debe listar solo `20261016120000`, `20261016121000` y `20261016122000`.
 4. `db push`.
 5. Comprobaciones inmediatas:
    - huellas;

@@ -1,5 +1,5 @@
--- Rollback for 20261016120000_clients_import_v1.sql and
--- 20261016121000_clients_import_v1_chunks.sql (Migration V1, #110).
+-- Rollback for 20261016120000_clients_import_v1.sql, 20261016121000_clients_import_v1_chunks.sql
+-- and 20261016122000_clients_import_v1_finalize_plan.sql (Migration V1, #110).
 --
 -- Use only if the client import itself must be withdrawn. Rolling back the
 -- APPLICATION alone does not need this script: the previous app never calls the
@@ -16,7 +16,7 @@
 -- Verified on a database with main + this migration: afterwards the schema
 -- fingerprint (columns, constraints, indexes, policies, triggers, functions)
 -- equals that of main.
--- Then: supabase migration repair --status reverted 20261016121000 20261016120000
+-- Then: supabase migration repair --status reverted 20261016122000 20261016121000 20261016120000
 begin;
 
 do $guard$
