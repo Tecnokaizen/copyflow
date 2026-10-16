@@ -5,7 +5,6 @@
 export const CLIENT_IMPORT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const CLIENT_IMPORT_MAX_ROWS = 10_000;
 export const CLIENT_IMPORT_STAGE_CHUNK = 500;
-export const CLIENT_IMPORT_COMMIT_CHUNK = 200;
 
 export const CLIENT_IMPORT_FIELD_LIMITS = {
   name: 200,
