@@ -2,9 +2,9 @@
 
 Continúa [POST-SPRINT-OPS-OCT-2026.md](POST-SPRINT-OPS-OCT-2026.md).
 
-**No se ha comprado nada, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han hecho tres cosas, todas autorizadas: integrar #115–#118 y prorrogar la prueba interna de SUR4 (§6). Se mantienen un único core multi-tenant y una única base de datos compartida.
+**No se ha comprado nada, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han hecho tres cosas, todas autorizadas: integrar #115–#119 y prorrogar la prueba interna de SUR4 (§6). Se mantienen un único core multi-tenant y una única base de datos compartida.
 
-## 1. Integraciones (#115, #116, #117)
+## 1. Integraciones (#115–#119)
 
 Cada una se integró con la misma secuencia:
 
@@ -19,6 +19,8 @@ Cada una se integró con la misma secuencia:
 | #115 Guarda contra la BD de Production | `cfd3673` | OK | `dpl_2ePwmWZ7epBFcvxK2yTBdbxSagyS` READY |
 | #116 Preparación de Migration V1 | `75cbd99` | OK | Despliegue OK |
 | #117 Informe post-sprint y fin de la prueba | `0877199` | OK | `dpl_12GFKXYWjcRRSQwsSBszoCXdz5QJ` READY |
+| #118 Funciones en `fra1` | `8cb913f` | OK (`38893991991`) | `dpl_2jt2TUH4zKh94hLwtMwTgK3Wjqxc` READY, en `fra1` (§5) |
+| #119 Cierre del diseño de Migration V1 | `9a863f9` | OK (`38899075153`) | `dpl_4sAbhADWeSALczcQHJaQCfhNZUVi` READY |
 
 **Efecto de la guarda en Production:** el build de Production pasó con #115 sin incidencias (`VERCEL=1`, `VERCEL_ENV=production`).
 
@@ -277,20 +279,20 @@ El procedimiento, las comprobaciones y la recuperación están en `docs/VERCEL-R
 
 ## 7. Migration V1
 
-PR #119, sin fusionar: cierra el diseño del ADR.
+PR #119, integrada en `9a863f9` el 16/10: cierra el diseño del ADR.
 
 - Decisiones cerradas.
 - D9: la confirmación `DEFINER` delega en `create_client_v2`, que ya autoriza de forma explícita.
 - Criterios de seguridad S1–S12.
 - Especificación completa de la PR 2.
 
-La implementación de la PR 2 no se ha empezado.
+La implementación de la PR 2 empieza el 16/10, en una rama propia. No se aplicará ninguna migración en Production sin gate y autorización.
 
 ## 8. Pendiente de autorización o de acción del propietario
 
 1. **Condiciones comerciales de SUR4** (#35) antes del 02/11, nuevo vencimiento tras la prórroga (§6).
 2. **Cron del 17/10:** comprobar que se ejecuta desde `FRA` (`~/copyflow-ops/fra1/cron-check-2026-10-17.md`).
-3. **Merge de #119** (cierre del diseño) y comienzo de la PR 2.
+3. **Migration V1, PR 2**: en desarrollo según el ADR cerrado. Su gate se presentará antes de cualquier merge o migración en Production.
 4. **SMTP con Resend** y URL Configuration de Auth (§4.1).
 5. **Supabase Pro** y **Vercel Pro** (§4.2 y §4.3): decisión y compra.
 6. **Simulacro de restauración completo** con la identidad `age` (§3).
