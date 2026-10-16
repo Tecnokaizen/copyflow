@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
 import {
+  CLIENT_IMPORT_COMMIT_CHUNK,
   CLIENT_IMPORT_FINALIZE_CHUNK,
   ClientImportApiError,
   clientImportApi,
@@ -21,7 +22,7 @@ import {
   suggestMapping,
   type ClientImportField,
 } from "@/lib/imports/clients/headers";
-import { CLIENT_IMPORT_COMMIT_CHUNK, CLIENT_IMPORT_STAGE_CHUNK } from "@/lib/imports/clients/limits";
+import { CLIENT_IMPORT_STAGE_CHUNK } from "@/lib/imports/clients/limits";
 import { mapRows, mappingToRecord, validateMapping, type ClientImportMapping } from "@/lib/imports/clients/mapping";
 import { previewRowProblems, ROW_PROBLEM_LABELS } from "@/lib/imports/clients/normalize";
 import type { ParsedImportFile } from "@/lib/imports/clients/parse-file";

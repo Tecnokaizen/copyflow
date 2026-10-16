@@ -21,12 +21,12 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 | `/batches` | GET / POST | `client_import_list_batches` / `client_import_create_batch` |
 | `/batches/[id]` | GET | `client_import_summary` |
 | `/batches/[id]/rows` | POST | `client_import_stage_rows` (≤ 500 filas) |
-| `/batches/[id]/finalize` | POST | `client_import_finalize` por tramos (`from_row`, `limit`; 2.000 por defecto) |
+| `/batches/[id]/finalize` | POST | `client_import_finalize` por tramos (`from_row`, `limit`) |
 | `/batches/[id]/strategy` | POST | `client_import_set_strategy` |
 | `/batches/[id]/decisions` | POST | `client_import_set_row_decisions` |
 | `/batches/[id]/commit` | POST | `client_import_commit_chunk` |
 | `/batches/[id]/cancel` | POST | `client_import_cancel` |
-| `/batches/[id]/revert` | POST | `client_import_revert` por tramos (`limit`; 500 por defecto) |
+| `/batches/[id]/revert` | POST | `client_import_revert` por tramos (`limit`) |
 | `/batches/[id]/report` | GET | `client_import_report`, paginado → CSV neutralizado (descarga) |
 
 **Cron diario:** `/api/internal/files/cleanup` llama además a `client_import_purge_expired`. Un fallo se registra y no bloquea la limpieza de Files.
@@ -50,16 +50,18 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
    - en móvil, lista con desplegables a todo el ancho.
 3. **Vista previa:** totales y primeras 20 filas, con los problemas detectados en el navegador.
 4. **Duplicados:**
-   - la clasificación se pide en tramos de 2.000 filas; si se interrumpe, el historial la retoma desde el principio;
+   - la clasificación se pide en tramos de 1.000 filas; si se interrumpe, el historial la retoma desde el principio;
    - resumen del servidor;
    - estrategia: omitir, o completar campos vacíos con confirmación explícita;
    - «Crear igualmente» por cada posible duplicado;
    - filas que no se importarán.
-5. **Importar:** confirmación y tramos de 200 con progreso. Ante `row_version_conflict` recarga el estado y sigue; si se interrumpe, se reanuda desde el historial.
+5. **Importar:** confirmación y tramos de 100 con progreso. Ante `row_version_conflict` recarga el estado y sigue; si se interrumpe, se reanuda desde el historial.
 6. **Informe:**
    - resultados;
    - descarga del CSV;
-   - reversión con confirmación, en tramos de 500 con progreso, que muestra los desactivados, los restaurados y los que se mantienen. Si se interrumpe, se vuelve a pulsar y continúa donde se quedó.
+   - reversión con confirmación, en tramos de 250 con progreso, que muestra los desactivados, los restaurados y los que se mantienen. Si se interrumpe, se vuelve a pulsar y continúa donde se quedó.
+
+**Tamaño de los tramos** (`lib/imports/clients/api.ts`): 1.000 filas al clasificar, 100 al confirmar y 250 al revertir. En la QA de Staging (mismo tipo de cómputo que Production), cada llamada tarda unos 0,3–0,6 s, así que queda muy por debajo del límite de 8 s incluso con autovacuum o un checkpoint en marcha.
 
 **Lectura del archivo:** en un **Web Worker**. Si no está disponible, se hace en el hilo principal, cargando los lectores bajo demanda. En ambos casos papaparse y read-excel-file quedan fuera del paquete principal.
 

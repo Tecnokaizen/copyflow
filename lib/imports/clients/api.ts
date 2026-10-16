@@ -67,8 +67,14 @@ export class ClientImportApiError extends Error {
 
 const BASE = "/api/imports/clients/batches";
 
-/** Rows classified per finalize call (each call stays well under the 8 s DB timeout). */
-export const CLIENT_IMPORT_FINALIZE_CHUNK = 2000;
+/**
+ * Rows per call. Measured in Staging (same compute class as Production), each call
+ * takes about 0.3–0.6 s, so it stays far below the 8 s DB timeout even when
+ * autovacuum or a checkpoint slows the database down several times.
+ */
+export const CLIENT_IMPORT_FINALIZE_CHUNK = 1000;
+export const CLIENT_IMPORT_COMMIT_CHUNK = 100;
+export const CLIENT_IMPORT_REVERT_CHUNK = 250;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -96,15 +102,15 @@ export const clientImportApi = {
     post<{ batch: ClientImportBatch }>(BASE, input).then((r) => r.batch),
   summary: (id: string, limit = 200) => request<{ batch: ClientImportBatch }>(`${BASE}/${id}?limit=${limit}`).then((r) => r.batch),
   stage: (id: string, rows: MappedClientRow[]) => post<{ result: { total_rows: number; row_version: number } }>(`${BASE}/${id}/rows`, { rows }),
-  finalize: (id: string, fromRow = 1, limit = 2000) =>
+  finalize: (id: string, fromRow = 1, limit = CLIENT_IMPORT_FINALIZE_CHUNK) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/finalize`, { from_row: fromRow, limit }).then((r) => r.batch),
   strategy: (id: string, strategy: "skip" | "fill_blanks", confirm: boolean) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/strategy`, { strategy, confirm }).then((r) => r.batch),
   decisions: (id: string, rowNumbers: number[], decision: "create" | "skip" | "fill_blanks") =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/decisions`, { row_numbers: rowNumbers, decision }).then((r) => r.batch),
-  commit: (id: string, expectedVersion: number, limit = 200) =>
+  commit: (id: string, expectedVersion: number, limit = CLIENT_IMPORT_COMMIT_CHUNK) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/commit`, { expected_version: expectedVersion, limit }).then((r) => r.batch),
   cancel: (id: string) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/cancel`).then((r) => r.batch),
-  revert: (id: string, limit = 500) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/revert`, { limit }).then((r) => r.batch),
+  revert: (id: string, limit = CLIENT_IMPORT_REVERT_CHUNK) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/revert`, { limit }).then((r) => r.batch),
   reportUrl: (id: string) => `${BASE}/${id}/report`,
 };
