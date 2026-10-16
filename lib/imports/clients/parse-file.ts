@@ -4,7 +4,7 @@ import { CLIENT_IMPORT_MAX_FILE_BYTES, CLIENT_IMPORT_MAX_ROWS } from "./limits";
 import { ImportFileError } from "./errors";
 import { readXlsxSheets } from "./xlsx";
 
-export { IMPORT_FILE_ERROR_LABELS, ImportFileError, type ImportFileErrorCode } from "./errors";
+export { IMPORT_FILE_ERROR_LABELS, ImportFileError, importFileErrorMessage, type ImportFileErrorCode } from "./errors";
 
 export type ParsedImportFile = {
   fileName: string;

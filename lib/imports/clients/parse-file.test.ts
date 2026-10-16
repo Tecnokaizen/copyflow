@@ -43,6 +43,18 @@ describe("client import · CSV files", () => {
     assert.deepEqual(parsed.rows, [["00042", "0034600111222", "00123456Z"]]);
   });
 
+  it("refuses a file with an unterminated quote instead of truncating it", async () => {
+    const csv = 'Nombre;Notas\nAna;ok\nLuis;=HYPERLINK("http://x";"y")\nEva;ok\nPablo;ok\n';
+    await assert.rejects(
+      parseImportFile({ name: "c.csv", bytes: toBuffer(new TextEncoder().encode(csv)) }),
+      (error: unknown) => error instanceof ImportFileError && error.code === "csv_unterminated_quote" && error.line === 3,
+    );
+    const quoted = 'Nombre;Notas\nAna;ok\nLuis;"=HYPERLINK(""http://x"";""y"")"\nEva;ok\n';
+    const parsed = await parseImportFile({ name: "c.csv", bytes: toBuffer(new TextEncoder().encode(quoted)) });
+    assert.deepEqual(parsed.rows.map((row) => row[0]), ["Ana", "Luis", "Eva"]);
+    assert.equal(parsed.rows[1][1], '=HYPERLINK("http://x";"y")');
+  });
+
   it("skips leading empty lines, pads short rows and drops trailing empty rows", async () => {
     const csv = "\n\nNombre;Email;;\nAna;ana@example.com\n;;;\n";
     const parsed = await parseImportFile({ name: "c.csv", bytes: toBuffer(new TextEncoder().encode(csv)) });

@@ -7,10 +7,15 @@ export type ImportFileErrorCode =
   | "invalid_xlsx"
   | "sheet_not_found"
   | "no_rows"
-  | "too_many_rows";
+  | "too_many_rows"
+  | "csv_unterminated_quote";
 
 export class ImportFileError extends Error {
-  constructor(readonly code: ImportFileErrorCode) {
+  constructor(
+    readonly code: ImportFileErrorCode,
+    /** 1-based line of the file where the problem starts, when known. */
+    readonly line?: number,
+  ) {
     super(code);
     this.name = "ImportFileError";
   }
@@ -25,4 +30,12 @@ export const IMPORT_FILE_ERROR_LABELS: Record<ImportFileErrorCode, string> = {
   sheet_not_found: "No se encuentra la hoja elegida.",
   no_rows: "El archivo no tiene filas de clientes.",
   too_many_rows: "El archivo tiene más de 10.000 filas. Divídelo en varios archivos.",
+  csv_unterminated_quote:
+    "El archivo tiene unas comillas sin cerrar y no se puede leer entero. Revisa esa línea o guárdalo de nuevo como CSV desde Excel.",
 };
+
+/** Message for an ImportFileError, with the line when the reader knows it. */
+export function importFileErrorMessage(error: ImportFileError) {
+  const base = IMPORT_FILE_ERROR_LABELS[error.code];
+  return error.line ? `${base} (línea ${error.line})` : base;
+}
