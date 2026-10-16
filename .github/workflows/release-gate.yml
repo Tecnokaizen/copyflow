@@ -92,6 +92,7 @@ jobs:
             phase49_quote_conversion_notes \
             phase44_quote_client_recovery \
             phase48_clients_address \
+            phase50_clients_import \
             phase46_files_storage_deletion \
             phase46_order_total_validation \
             phase46_payment_receipts \
