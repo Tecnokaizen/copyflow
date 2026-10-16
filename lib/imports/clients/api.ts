@@ -1,4 +1,5 @@
 import type { MappedClientRow } from "./mapping";
+import type { ClientImportPlan, ClientImportRowDecision, ClientImportRowFilter } from "./review";
 
 /** Batch as returned by imports_private.batch_json (+ summary rows). */
 export type ClientImportBatch = {
@@ -36,6 +37,20 @@ export type ClientImportBatch = {
   next_row?: number | null;
   kept?: { client_id: string; reason: "in_use" | "edited" }[];
   rows?: ClientImportSummaryRow[];
+  /** Summary and decisions: what confirming will do, from every row (null once the rows are purged). */
+  plan?: ClientImportPlan | null;
+  changed?: number;
+};
+
+/** One page of client_import_rows_page: every row of the batch, by filter. */
+export type ClientImportRowsPage = ClientImportBatch & {
+  filter: ClientImportRowFilter;
+  after_row: number;
+  /** Rows of the filter in the whole batch. */
+  total: number;
+  has_more: boolean;
+  next_after_row: number | null;
+  rows: ClientImportSummaryRow[];
 };
 
 export type ClientImportSummaryRow = {
@@ -47,11 +62,22 @@ export type ClientImportSummaryRow = {
   tax_id: string | null;
   classification: "valid" | "error" | "duplicate_in_file" | "duplicate_existing" | "possible_duplicate" | null;
   decision: "create" | "fill_blanks" | "skip" | null;
+  /** Excluded by the user: never imported, whatever its decision. */
+  excluded: boolean;
+  company_name?: string | null;
   errors: string[];
   warnings: string[];
   match_reasons: string[];
   matched_row_number: number | null;
-  matched_client: { id: string; name: string; active: boolean } | null;
+  matched_client: {
+    id: string;
+    name: string;
+    active: boolean;
+    /** Only in pages, to compare with the row. */
+    email?: string | null;
+    phone?: string | null;
+    tax_id?: string | null;
+  } | null;
   result: string | null;
   result_reason: string | null;
 };
@@ -109,13 +135,18 @@ export const clientImportApi = {
     expected_rows: number;
   }) =>
     post<{ batch: ClientImportBatch }>(BASE, input).then((r) => r.batch),
-  summary: (id: string, limit = 200) => request<{ batch: ClientImportBatch }>(`${BASE}/${id}?limit=${limit}`).then((r) => r.batch),
+  /** Counters and plan; the review reads its rows page by page (rows), so by default just one. */
+  summary: (id: string, limit = 1) => request<{ batch: ClientImportBatch }>(`${BASE}/${id}?limit=${limit}`).then((r) => r.batch),
   stage: (id: string, rows: MappedClientRow[]) => post<{ result: { total_rows: number; row_version: number } }>(`${BASE}/${id}/rows`, { rows }),
   finalize: (id: string, fromRow = 1, limit = CLIENT_IMPORT_FINALIZE_CHUNK) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/finalize`, { from_row: fromRow, limit }).then((r) => r.batch),
   strategy: (id: string, strategy: "skip" | "fill_blanks", confirm: boolean) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/strategy`, { strategy, confirm }).then((r) => r.batch),
-  decisions: (id: string, rowNumbers: number[], decision: "create" | "skip" | "fill_blanks") =>
+  rows: (id: string, filter: ClientImportRowFilter, afterRow: number, limit: number) =>
+    request<{ page: ClientImportRowsPage }>(
+      `${BASE}/${id}/rows?${new URLSearchParams({ filter, after: String(afterRow), limit: String(limit) })}`,
+    ).then((r) => r.page),
+  decisions: (id: string, rowNumbers: number[], decision: ClientImportRowDecision) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/decisions`, { row_numbers: rowNumbers, decision }).then((r) => r.batch),
   commit: (id: string, expectedVersion: number, limit = CLIENT_IMPORT_COMMIT_CHUNK) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/commit`, { expected_version: expectedVersion, limit }).then((r) => r.batch),

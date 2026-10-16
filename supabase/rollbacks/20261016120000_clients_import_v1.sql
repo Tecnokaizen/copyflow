@@ -1,8 +1,9 @@
 -- Rollback for 20261016120000_clients_import_v1.sql, 20261016121000_clients_import_v1_chunks.sql,
--- 20261016122000_clients_import_v1_finalize_plan.sql, 20261016123000_clients_import_v1_summary.sql
--- and 20261016124000_clients_import_v1_integrity.sql (Migration V1, #110).
+-- 20261016122000_clients_import_v1_finalize_plan.sql, 20261016123000_clients_import_v1_summary.sql,
+-- 20261016124000_clients_import_v1_integrity.sql and 20261016126000_clients_import_v1_review.sql
+-- (Migration V1, #110).
 --
--- The four first migrations are applied in Production. Running this script there
+-- The five first migrations are applied in Production. Running this script there
 -- needs its own diagnosis and authorization.
 --
 -- Use only if the client import itself must be withdrawn. Rolling back the
@@ -20,7 +21,7 @@
 -- Verified on a database with main + this migration: afterwards the schema
 -- fingerprint (columns, constraints, indexes, policies, triggers, functions)
 -- equals that of main.
--- Then: supabase migration repair --status reverted 20261016124000 20261016123000 20261016122000 20261016121000 20261016120000
+-- Then: supabase migration repair --status reverted 20261016126000 20261016124000 20261016123000 20261016122000 20261016121000 20261016120000
 begin;
 
 do $guard$
@@ -50,6 +51,7 @@ drop function if exists public.client_import_stage_rows(uuid, jsonb);
 drop function if exists public.client_import_finalize(uuid);
 drop function if exists public.client_import_finalize(uuid, integer, integer);
 drop function if exists public.client_import_summary(uuid, integer);
+drop function if exists public.client_import_rows_page(uuid, text, integer, integer);
 drop function if exists public.client_import_set_strategy(uuid, text, boolean);
 drop function if exists public.client_import_set_row_decisions(uuid, integer[], text);
 drop function if exists public.client_import_commit_chunk(uuid, integer, integer);

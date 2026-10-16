@@ -10,6 +10,10 @@
 #      (no row can be replaced once classification started)
 #   C6 purge ∥ commit -> the purge skips the batch an in-flight commit holds;
 #      after the purge a commit is refused and the counters are kept
+#   C7 decisions ∥ commit -> an exclusion that lands first makes the commit of
+#      the reviewed version fail (GC409); once a commit holds the batch, a
+#      later exclusion waits and is refused (batch_state); rows are skipped as
+#      excluded exactly when they were excluded before the commit
 # Local only. Uses fixed ids and removes its fixtures on exit.
 set -euo pipefail
 
@@ -212,4 +216,50 @@ state="$(psql_value "select status || ',' || created_count || ',' || total_rows 
   from imports_private.client_import_batches where id = '$B6'")"
 [ "$state" = "committing,200,300,true" ] || fail "C6 purged batch state: $state"
 
-echo "phase50 concurrency PASS (C1 one batch, C2 one writer + row_version_conflict, C3 400 rows once, C4 ranges in reverse order validate once, C5 no staging after classification, C6 purge skips in-flight commit and blocks it after)"
+# C7 -------------------------------------------------------------------------
+B7="$(new_batch 7 300)"
+stage "$B7" 1 300
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt >/dev/null -c "begin; $AS_OWNER select public.client_import_finalize('$B7'); commit;"
+V7="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B7'")"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_set_row_decisions('$B7', '{1,2,3,4,5}', 'exclude') -> 'plan' ->> 'excluded';
+  select pg_sleep(1.5);
+  commit;" > "$WORK/c7a" 2>&1 &
+p1=$!
+sleep 0.5
+set +e
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_commit_chunk('$B7', $V7, 100); commit;" > "$WORK/c7b" 2>&1
+rc_b=$?
+set -e
+wait "$p1" || fail "C7 session A: $(cat "$WORK/c7a")"
+grep -qx '5' "$WORK/c7a" || fail "C7 session A should exclude 5 rows: $(cat "$WORK/c7a")"
+[ "$rc_b" -ne 0 ] && grep -q 'row_version_conflict' "$WORK/c7b" || fail "C7 commit of the reviewed version: $(cat "$WORK/c7b")"
+V7="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B7'")"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_commit_chunk('$B7', $V7, 100) ->> 'status';
+  select pg_sleep(1.5);
+  commit;" > "$WORK/c7c" 2>&1 &
+p1=$!
+sleep 0.5
+set +e
+psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+  select public.client_import_set_row_decisions('$B7', '{10}', 'exclude'); commit;" > "$WORK/c7d" 2>&1
+rc_b=$?
+set -e
+wait "$p1" || fail "C7 session C: $(cat "$WORK/c7c")"
+grep -qx 'committing' "$WORK/c7c" || fail "C7 first chunk: $(cat "$WORK/c7c")"
+[ "$rc_b" -ne 0 ] && grep -q 'batch_state' "$WORK/c7d" || fail "C7 exclusion during the commit: $(cat "$WORK/c7d")"
+for _ in 1 2 3 4; do
+  V7="$(psql_value "select row_version from imports_private.client_import_batches where id = '$B7'")"
+  status="$(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt -c "begin; $AS_OWNER
+    select public.client_import_commit_chunk('$B7', $V7, 100) ->> 'status'; commit;" | tail -1)"
+  [ "$status" = "committed" ] && break
+done
+result="$(psql_value "select count(*) filter (where result = 'created') || ',' ||
+  string_agg(row_number::text, ' ' order by row_number) filter (where result_reason = 'excluded_by_user') || ',' ||
+  count(*) filter (where excluded_at is not null)
+  from imports_private.client_import_rows where batch_id = '$B7'")"
+[ "$status,$result" = "committed,295,1 2 3 4 5,5" ] || fail "C7 final state: $status,$result"
+
+echo "phase50 concurrency PASS (C1 one batch, C2 one writer + row_version_conflict, C3 400 rows once, C4 ranges in reverse order validate once, C5 no staging after classification, C6 purge skips in-flight commit and blocks it after, C7 exclusions vs commit serialized by version and state)"

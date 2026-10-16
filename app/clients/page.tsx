@@ -89,9 +89,14 @@ export default function ClientsPage() {
         const context = await response.json();
         setCanWrite(canWriteClients(context?.membership?.role));
         if (canManageClientImport(context?.membership?.role)) {
-          const importAccess = await fetch("/api/imports/clients/access", { cache: "no-store" });
-          const result = importAccess.ok ? await importAccess.json() : null;
-          setCanImport(result?.allowed === true);
+          // The import button is optional: if this check fails the page works without it.
+          try {
+            const importAccess = await fetch("/api/imports/clients/access", { cache: "no-store" });
+            const result = importAccess.ok ? await importAccess.json() : null;
+            setCanImport(result?.allowed === true);
+          } catch {
+            setCanImport(false);
+          }
         }
       }
     }
