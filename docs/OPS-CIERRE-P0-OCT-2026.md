@@ -2,7 +2,7 @@
 
 Continúa [POST-SPRINT-OPS-OCT-2026.md](POST-SPRINT-OPS-OCT-2026.md).
 
-**No se ha comprado nada, no se ha cambiado la facturación, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han integrado las tres PR autorizadas. Se mantienen un único core multi-tenant y una única base de datos compartida.
+**No se ha comprado nada, no se ha tocado Stripe y no se ha iniciado el contract de #95.** En Production solo se han hecho dos cosas, ambas autorizadas: integrar las tres PR y prorrogar la prueba interna de SUR4 (§6). Se mantienen un único core multi-tenant y una única base de datos compartida.
 
 ## 1. Integraciones (#115, #116, #117)
 
@@ -216,7 +216,7 @@ PR #118, sin fusionar.
 
 El procedimiento, las comprobaciones y la recuperación están en `docs/VERCEL-REGION-FRA1.md`.
 
-## 6. Prórroga de SUR4 hasta el 02/11/2026 (preparada, sin ejecutar)
+## 6. Prórroga de SUR4 hasta el 02/11/2026 (ejecutada el 16/10)
 
 **Ubicación:** `~/copyflow-ops/sur4/`, fuera del repositorio:
 
@@ -238,7 +238,23 @@ El procedimiento, las comprobaciones y la recuperación están en `docs/VERCEL-R
 - una segunda ejecución se niega sin cambiar nada;
 - la vuelta atrás restaura la fila exactamente.
 
-**Ejecución:** solo con autorización expresa y **antes del 19/10 a las 13:53 UTC**, con el SQL Editor o con `execute_sql`.
+**Ejecutada en Production el 16/10/2026 a las 11:07 UTC**, con autorización expresa del propietario y con `execute_sql`:
+
+- **Comprobación previa:** una fila; sin cambios desde el 08/10.
+- **Foto previa:** guardada en `~/copyflow-ops/sur4`.
+- **Prórroga:** una fila modificada.
+- **Comprobación posterior:**
+  - `trialing`, del 26/09 al **02/11/2026 a las 13:53 UTC**;
+  - 37 días de gracia, 14 de prórroga, e historial;
+  - `billing_activation` sin cambios.
+- **Sin efectos colaterales:**
+  - única suscripción modificada;
+  - la otra fila de SUR4 y el tenant, sin cambios;
+  - `/auth/login` responde 200 y `/api/context` 401.
+
+**Vuelta atrás:** `4-rollback.sql`.
+
+**Efecto:** Facturación muestra «En prueba» y «26/09/2026 → 02/11/2026». Acceso, presupuestos y cuota, sin cambios. La decisión comercial (piloto o Stripe Live, #35) pasa a tener como fecha límite el 02/11.
 
 ## 7. Migration V1
 
@@ -253,7 +269,7 @@ La implementación de la PR 2 no se ha empezado.
 
 ## 8. Pendiente de autorización o de acción del propietario
 
-1. **Prórroga de SUR4** (§6), antes del 19/10 a las 13:53 UTC.
+1. **Condiciones comerciales de SUR4** (#35) antes del 02/11, nuevo vencimiento tras la prórroga (§6).
 2. **Merge de #118** (`fra1`) y su despliegue.
 3. **Merge de #119** (cierre del diseño) y comienzo de la PR 2.
 4. **SMTP con Resend** y URL Configuration de Auth (§4.1).
