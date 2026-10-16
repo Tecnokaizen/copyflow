@@ -10,7 +10,7 @@ import {
 import { resolveOnboardingStatusState } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import { isTrustedAppHost } from "@/lib/tenant/trusted-host";
 
 const NO_STORE = {
   "Cache-Control": "private, no-store, max-age=0, must-revalidate",
@@ -20,16 +20,16 @@ function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: NO_STORE });
 }
 
-function isTenantHostFromRequest(request: NextRequest) {
-  const hostname =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    "";
-  return getSubdomainFromHostname(hostname) !== null;
+/**
+ * Allowed only from a trusted app host. Tenant hosts AND untrusted hosts are
+ * refused (fail closed): "no slug" is not "app host".
+ */
+function isNotAppHostRequest(request: NextRequest) {
+  return !isTrustedAppHost(request.headers, process.env);
 }
 
 export async function GET(request: NextRequest) {
-  if (isTenantHostFromRequest(request)) {
+  if (isNotAppHostRequest(request)) {
     return json(
       { error: "Onboarding status is only available on the app host" },
       403
