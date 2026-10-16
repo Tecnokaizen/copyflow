@@ -8,6 +8,8 @@ export type ClientImportBatch = {
   file_size: number;
   duplicate_strategy: "skip" | "fill_blanks";
   status: "uploaded" | "validated" | "committing" | "committed" | "cancelled" | "reverted" | "expired";
+  /** Rows the file declared when the batch was created (null only for batches created before 20261016124000). */
+  expected_rows: number | null;
   row_version: number;
   counts: {
     total: number;
@@ -98,7 +100,14 @@ const post = <T>(path: string, body?: unknown) =>
 
 export const clientImportApi = {
   list: () => request<{ batches: ClientImportBatch[] }>(BASE).then((r) => r.batches),
-  create: (input: { source_system: string; file_name: string; file_size: number; file_sha256: string; mapping: Record<string, string> }) =>
+  create: (input: {
+    source_system: string;
+    file_name: string;
+    file_size: number;
+    file_sha256: string;
+    mapping: Record<string, string>;
+    expected_rows: number;
+  }) =>
     post<{ batch: ClientImportBatch }>(BASE, input).then((r) => r.batch),
   summary: (id: string, limit = 200) => request<{ batch: ClientImportBatch }>(`${BASE}/${id}?limit=${limit}`).then((r) => r.batch),
   stage: (id: string, rows: MappedClientRow[]) => post<{ result: { total_rows: number; row_version: number } }>(`${BASE}/${id}/rows`, { rows }),

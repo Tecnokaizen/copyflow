@@ -13,12 +13,13 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 **Formato de las respuestas:**
 
 - `operationalJson`, con caché privada.
-- Los errores de las RPC se traducen a mensajes en español: 401, 403, 404, 400, 409 (`batch_state` y `row_version_conflict`, que llega como `GC409` para que PostgREST no lo reintente) y 429.
+- Los errores de las RPC se traducen a mensajes en español: 401, 403, 404, 400, 409 y 429.
+  - El 409 cubre `batch_state`, `row_version_conflict` (llega como `GC409`, para que PostgREST no lo reintente) y `batch_incomplete` (`GC422`: faltan filas por enviar o por clasificar).
 
 | Ruta | Método | RPC |
 | --- | --- | --- |
 | `/access` | GET | ¿Puede abrir Clientes → Importar? |
-| `/batches` | GET / POST | `client_import_list_batches` / `client_import_create_batch` |
+| `/batches` | GET / POST | `client_import_list_batches` / `client_import_create_batch_v2` (con `expected_rows`, las filas del archivo) |
 | `/batches/[id]` | GET | `client_import_summary` |
 | `/batches/[id]/rows` | POST | `client_import_stage_rows` (≤ 500 filas) |
 | `/batches/[id]/finalize` | POST | `client_import_finalize` por tramos (`from_row`, `limit`) |
@@ -60,6 +61,17 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
    - resultados;
    - descarga del CSV;
    - reversión con confirmación, en tramos de 250 con progreso, que muestra los desactivados, los restaurados y los que se mantienen. Si se interrumpe, se vuelve a pulsar y continúa donde se quedó.
+
+**Integridad tras la auditoría (migración `20261016124000`, #127):**
+
+- **Al crear el lote**, se declara cuántas filas tiene el archivo.
+- **Al clasificar**, el asistente sigue el `next_row` del servidor (la primera fila sin clasificar). Si no avanza, se detiene. El lote solo queda revisado cuando no falta ninguna.
+- **Al reanudar desde el historial** un lote al que le faltan filas (por ejemplo, porque se cerró la página mientras se enviaban), **no se clasifica**:
+  - el asistente vuelve al paso 1 e indica cuántas filas faltan;
+  - pide el archivo original con las mismas columnas;
+  - con ese archivo, el servidor reutiliza el lote, recibe el resto y lo clasifica.
+- **Un lote ya revisado** se abre en la revisión, sin volver a enviar filas.
+- **Los lotes caducados** solo ofrecen «Ver resumen»; los que caducaron a medio importar aparecen como «Caducada a medias».
 
 **Tamaño de los tramos** (`lib/imports/clients/api.ts`): 1.000 filas al clasificar, 100 al confirmar y 250 al revertir. En la QA de Staging (mismo tipo de cómputo que Production), cada llamada tarda unos 0,3–0,6 s, así que queda muy por debajo del límite de 8 s incluso con autovacuum o un checkpoint en marcha.
 
