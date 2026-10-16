@@ -30,6 +30,8 @@ export type ClientImportBatch = {
   rows_purged: boolean;
   reused?: boolean;
   remaining?: number;
+  done?: boolean;
+  next_row?: number | null;
   kept?: { client_id: string; reason: "in_use" | "edited" }[];
   rows?: ClientImportSummaryRow[];
 };
@@ -65,6 +67,9 @@ export class ClientImportApiError extends Error {
 
 const BASE = "/api/imports/clients/batches";
 
+/** Rows classified per finalize call (each call stays well under the 8 s DB timeout). */
+export const CLIENT_IMPORT_FINALIZE_CHUNK = 2000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -91,7 +96,8 @@ export const clientImportApi = {
     post<{ batch: ClientImportBatch }>(BASE, input).then((r) => r.batch),
   summary: (id: string, limit = 200) => request<{ batch: ClientImportBatch }>(`${BASE}/${id}?limit=${limit}`).then((r) => r.batch),
   stage: (id: string, rows: MappedClientRow[]) => post<{ result: { total_rows: number; row_version: number } }>(`${BASE}/${id}/rows`, { rows }),
-  finalize: (id: string) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/finalize`).then((r) => r.batch),
+  finalize: (id: string, fromRow = 1, limit = 2000) =>
+    post<{ batch: ClientImportBatch }>(`${BASE}/${id}/finalize`, { from_row: fromRow, limit }).then((r) => r.batch),
   strategy: (id: string, strategy: "skip" | "fill_blanks", confirm: boolean) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/strategy`, { strategy, confirm }).then((r) => r.batch),
   decisions: (id: string, rowNumbers: number[], decision: "create" | "skip" | "fill_blanks") =>
@@ -99,6 +105,6 @@ export const clientImportApi = {
   commit: (id: string, expectedVersion: number, limit = 200) =>
     post<{ batch: ClientImportBatch }>(`${BASE}/${id}/commit`, { expected_version: expectedVersion, limit }).then((r) => r.batch),
   cancel: (id: string) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/cancel`).then((r) => r.batch),
-  revert: (id: string) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/revert`).then((r) => r.batch),
+  revert: (id: string, limit = 500) => post<{ batch: ClientImportBatch }>(`${BASE}/${id}/revert`, { limit }).then((r) => r.batch),
   reportUrl: (id: string) => `${BASE}/${id}/report`,
 };

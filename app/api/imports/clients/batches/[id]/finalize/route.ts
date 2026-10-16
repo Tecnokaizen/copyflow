@@ -6,13 +6,14 @@ import {
   clientImportRpcError,
   isUuid,
   notFound,
+  readJsonBody,
 } from "@/lib/imports/clients/http";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentAccess } from "@/lib/tenant/access-response";
 
 const ROUTE = "POST /api/imports/clients/batches/[id]/finalize";
 
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const access = await requireCurrentAccess(ROUTE);
   if (!access.ok) return access.response;
   const supabase = await createClient();
@@ -22,7 +23,11 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   const { id } = await params;
   if (!isUuid(id)) return notFound();
 
-  const { data, error } = await supabase.rpc("client_import_finalize", { p_batch_id: id });
+  const body = await readJsonBody(request);
+  const fromRow = Number.isInteger(body?.from_row) ? Math.max(body?.from_row as number, 1) : 1;
+  const limit = Number.isInteger(body?.limit) ? Math.min(Math.max(body?.limit as number, 1), 5000) : 2000;
+
+  const { data, error } = await supabase.rpc("client_import_finalize", { p_batch_id: id, p_from_row: fromRow, p_limit: limit });
   if (error) return clientImportRpcError(ROUTE, access.context, error);
   return operationalJson({ batch: data });
 }

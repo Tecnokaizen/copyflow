@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
 import {
+  CLIENT_IMPORT_FINALIZE_CHUNK,
   ClientImportApiError,
   clientImportApi,
   type ClientImportBatch,
@@ -194,6 +195,16 @@ export function ClientImportWizard() {
     }
   }
 
+  /** Classifies the batch range by range (each call stays well under the DB timeout). */
+  async function finalizeAll(id: string, total: number) {
+    let fromRow: number | null = 1;
+    while (fromRow !== null) {
+      setProgress({ label: "Comprobando duplicados", done: Math.min(fromRow - 1, total), total });
+      const result: ClientImportBatch = await clientImportApi.finalize(id, fromRow, CLIENT_IMPORT_FINALIZE_CHUNK);
+      fromRow = result.done ? null : (result.next_row ?? null);
+    }
+  }
+
   async function refreshSummary(id: string) {
     const summary = await clientImportApi.summary(id);
     setBatch(summary);
@@ -231,8 +242,7 @@ export function ClientImportWizard() {
         setProgress({ label: "Enviando filas para validar", done: start, total: mappedRows.length });
         await clientImportApi.stage(current.id, mappedRows.slice(start, start + CLIENT_IMPORT_STAGE_CHUNK));
       }
-      setProgress({ label: "Comprobando duplicados", done: mappedRows.length, total: mappedRows.length });
-      await clientImportApi.finalize(current.id);
+      await finalizeAll(current.id, mappedRows.length);
       current = await refreshSummary(current.id);
       setFillConfirmed(current.duplicate_strategy === "fill_blanks");
       setStep("review");
@@ -310,13 +320,25 @@ export function ClientImportWizard() {
     setRevertOpen(false);
     setBusy(true);
     setError(null);
+    const kept: NonNullable<ClientImportBatch["kept"]> = [];
     try {
-      const reverted = await clientImportApi.revert(batch.id);
-      setBatch({ ...(await clientImportApi.summary(batch.id)), kept: reverted.kept });
+      const total = batch.counts.created + batch.counts.filled;
+      let remaining = total;
+      // At least one call, so a batch with nothing to undo still ends as reverted.
+      do {
+        setProgress({ label: "Revirtiendo", done: total - remaining, total });
+        const reverted = await clientImportApi.revert(batch.id);
+        kept.push(...(reverted.kept ?? []));
+        const next = reverted.remaining ?? 0;
+        if (next > 0 && next >= remaining) throw new Error("revert_stalled");
+        remaining = next;
+      } while (remaining > 0);
+      setBatch({ ...(await clientImportApi.summary(batch.id)), kept });
     } catch (caught) {
-      setError(messageFor(caught));
+      setError(`${messageFor(caught)} Puedes volver a pulsar «Revertir importación»: continúa donde se quedó.`);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -327,7 +349,7 @@ export function ClientImportWizard() {
       const summary = await refreshSummary(item.id);
       setFillConfirmed(summary.duplicate_strategy === "fill_blanks");
       if (summary.status === "uploaded") {
-        await clientImportApi.finalize(summary.id);
+        await finalizeAll(summary.id, summary.counts.total);
         await refreshSummary(summary.id);
         setStep("review");
       } else if (summary.status === "validated") {

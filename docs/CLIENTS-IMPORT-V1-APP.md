@@ -13,7 +13,7 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 **Formato de las respuestas:**
 
 - `operationalJson`, con caché privada.
-- Los errores de las RPC se traducen a mensajes en español: 401, 403, 404, 400, 409 (`batch_state` y `row_version_conflict`) y 429.
+- Los errores de las RPC se traducen a mensajes en español: 401, 403, 404, 400, 409 (`batch_state` y `row_version_conflict`, que llega como `GC409` para que PostgREST no lo reintente) y 429.
 
 | Ruta | Método | RPC |
 | --- | --- | --- |
@@ -21,12 +21,12 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 | `/batches` | GET / POST | `client_import_list_batches` / `client_import_create_batch` |
 | `/batches/[id]` | GET | `client_import_summary` |
 | `/batches/[id]/rows` | POST | `client_import_stage_rows` (≤ 500 filas) |
-| `/batches/[id]/finalize` | POST | `client_import_finalize` |
+| `/batches/[id]/finalize` | POST | `client_import_finalize` por tramos (`from_row`, `limit`; 2.000 por defecto) |
 | `/batches/[id]/strategy` | POST | `client_import_set_strategy` |
 | `/batches/[id]/decisions` | POST | `client_import_set_row_decisions` |
 | `/batches/[id]/commit` | POST | `client_import_commit_chunk` |
 | `/batches/[id]/cancel` | POST | `client_import_cancel` |
-| `/batches/[id]/revert` | POST | `client_import_revert` |
+| `/batches/[id]/revert` | POST | `client_import_revert` por tramos (`limit`; 500 por defecto) |
 | `/batches/[id]/report` | GET | `client_import_report`, paginado → CSV neutralizado (descarga) |
 
 **Cron diario:** `/api/internal/files/cleanup` llama además a `client_import_purge_expired`. Un fallo se registra y no bloquea la limpieza de Files.
@@ -50,6 +50,7 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
    - en móvil, lista con desplegables a todo el ancho.
 3. **Vista previa:** totales y primeras 20 filas, con los problemas detectados en el navegador.
 4. **Duplicados:**
+   - la clasificación se pide en tramos de 2.000 filas; si se interrumpe, el historial la retoma desde el principio;
    - resumen del servidor;
    - estrategia: omitir, o completar campos vacíos con confirmación explícita;
    - «Crear igualmente» por cada posible duplicado;
@@ -58,7 +59,7 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 6. **Informe:**
    - resultados;
    - descarga del CSV;
-   - reversión con confirmación, que muestra los desactivados, los restaurados y los que se mantienen.
+   - reversión con confirmación, en tramos de 500 con progreso, que muestra los desactivados, los restaurados y los que se mantienen. Si se interrumpe, se vuelve a pulsar y continúa donde se quedó.
 
 **Lectura del archivo:** en un **Web Worker**. Si no está disponible, se hace en el hilo principal, cargando los lectores bajo demanda. En ambos casos papaparse y read-excel-file quedan fuera del paquete principal.
 
@@ -85,4 +86,6 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 
 **Visual y calidad:** escritorio claro y móvil oscuro (390 px) sin desbordamiento horizontal ni errores de consola.
 
-**Comprobaciones:** tipos y lint en verde. Tests 1195/1196 (falla el conocido de zona horaria). Test de guardas de rutas y suites de ayuda en verde.
+**Tras pasar a tramos (`20261016121000`):** el mismo recorrido da exactamente los mismos números (revisión, resultado, informe y reversión).
+
+**Comprobaciones:** tipos, lint y build en verde. Tests 1195/1196 (falla el conocido de zona horaria). Test de guardas de rutas y suites de ayuda en verde.

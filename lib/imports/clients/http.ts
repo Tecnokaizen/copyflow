@@ -45,7 +45,7 @@ const RPC_ERRORS: Record<string, { status: number; code: string; error: string }
   P0002: { status: 404, code: "not_found", error: "No se encuentra esta importación." },
   "22023": { status: 400, code: "invalid", error: "Los datos enviados no son válidos." },
   "55000": { status: 409, code: "batch_state", error: "La importación ya no admite este paso." },
-  "40001": { status: 409, code: "row_version_conflict", error: "La importación ha cambiado. Recarga el estado y vuelve a intentarlo." },
+  GC409: { status: 409, code: "row_version_conflict", error: "La importación ha cambiado. Recarga el estado y vuelve a intentarlo." },
   "54000": { status: 429, code: "too_many_open_batches", error: "Hay demasiadas importaciones abiertas. Termina o cancela alguna." },
 };
 
