@@ -59,13 +59,13 @@ Flags de transacción (`set_config(..., true)`, nunca fuera de funciones `SECURI
 | `UPDATE orders` directo (`authenticated` tiene `UPDATE` de tabla) | `total_amount`, `total_mode`, `prices_include_tax` e `items_*` quedan protegidos por triggers |
 | Kiosco y alta de pedidos | Insertan con los valores por defecto |
 
-## Hallazgo corregido: la guarda de `total_amount` fallaba con la sesión nueva
+## Dependencia: hotfix P0 de la guarda de `total_amount` (PR #129)
 
-`tg_orders_total_amount_guard` (migración `20261007190056`) calculaba `v_allowed := current_setting('gestcopy.order_total_write', true) = '1'`. En una conexión que nunca ha fijado ese parámetro el valor es `NULL`, `NOT NULL` es `NULL` y el `IF` no se cumple: **`total_amount_rpc_only` y `total_below_paid` no se aplicaban**, y un usuario operativo podía hacer `UPDATE orders SET total_amount = …` directamente. Verificado en una base local con las migraciones de `main`, tanto en SQL como con sesiones nuevas. Solo se enmascaraba en conexiones que ya habían ejecutado una RPC de totales.
+Al preparar esta PR se detectó que `tg_orders_total_amount_guard` no se aplicaba en una conexión que nunca había fijado `gestcopy.order_total_write` (el parámetro es `NULL` y `NOT NULL` es `NULL`): un usuario operativo podía hacer `UPDATE orders SET total_amount` directamente, también por debajo de lo cobrado. Ese hallazgo se separó en un hotfix independiente, `20261016123500_order_total_guard_null_bypass.sql` (PR #129).
 
-Corrección: `coalesce(… = '1', false)` (mismo cuerpo, una línea). La reversión **no** restaura el comportamiento anterior. Tests: `phase51_order_lines.sql` (sesión nueva, antes de cualquier RPC) y `phase51_order_lines_concurrency.sh` (cada llamada es una sesión nueva).
+Esta migración **no redefine la guarda**: depende de ella y se niega a ejecutarse si la guarda no es la versión corregida (precondición al inicio). La reversión de Order Lines no toca la guarda, así que nunca restaura la versión vulnerable (y la del hotfix se niega a revertirse). `phase51` mantiene las pruebas de sesión nueva como regresión.
 
-**Mientras esta migración no se aplique en Production, el hueco sigue abierto allí** (requiere un usuario autenticado con rol operativo y una conexión recién abierta).
+**Orden obligatorio:** `123500` (hotfix) → `124000` (importaciones, si procede) → `130000` (esta).
 
 ## Rendimiento
 
@@ -86,12 +86,12 @@ Crecimiento lineal (~0,15 ms por línea). Inserción de 500 líneas sin refresco
 | `supabase/tests/phase51_order_lines.sql` | Pedidos históricos intactos, privilegios y RLS, escrituras directas, modo manual, IVA excluido e incluido exactos, modo `items`, cobros (`total_below_paid`, `payment_exceeds_total`), atomicidad, validación de cada campo, límite de 500, archivados, roles (`viewer`, `staff`, `manager`, otro tenant, `anon`, sin sesión), triggers de sentencia, purga y rendimiento con 1, 50 y 500 |
 | `supabase/tests/phase51_order_lines_concurrency.sh` | Cinco sesiones con la misma versión (un ganador), carreras cobro/rebaja del total, escrituras paralelas en pedidos distintos, escrituras directas en sesiones nuevas |
 
-Verificados con mutaciones: sin el `coalesce` y con el refresco por sentencia sin silenciar, ambas suites fallan.
+Verificados con mutaciones: con el refresco por sentencia sin silenciar, ambas suites fallan; con la guarda anterior al hotfix, la precondición impide aplicar la migración.
 
 ## Reversión
 
-Se niega si existe alguna línea o algún pedido que use líneas (modo `items`, IVA incluido o `items_*` distintos de cero). Verificado en local: con datos rechaza; sin datos deja el catálogo idéntico a `main` salvo la guarda de `total_amount` ya corregida, y la migración vuelve a aplicarse limpiamente. Después: `supabase migration repair --status reverted 20261016130000`.
+Se niega si existe alguna línea o algún pedido que use líneas (modo `items`, IVA incluido o `items_*` distintos de cero). Verificado en local: con datos rechaza; sin datos deja el catálogo **idéntico** al de `main` con el hotfix, y la migración vuelve a aplicarse limpiamente. Después: `supabase migration repair --status reverted 20261016130000`.
 
 ## Coordinación
 
-Las migraciones de Claude (`20261016120000`–`123000`, PR #122–#126) no están en `main`. Esta migración usa `20261016130000`: ordena después de todas ellas y de `main`. Si aparece otra migración posterior antes de integrar, hay que reordenar antes del merge.
+Las migraciones de importaciones de Claude: `20261016120000`–`123000` ya están en `main`; la `124000` (PR #124/#126/#127) está pendiente. Esta migración usa `20261016130000`: ordena después de todas ellas, de `main` y del hotfix `123500`. Si aparece otra migración posterior antes de integrar, hay que reordenar antes del merge.

@@ -8,11 +8,10 @@
 -- uses lines (items mode, VAT-included flag or non-zero items_* amounts). Move
 -- those orders back to manual mode first; total_amount is never modified here.
 --
--- What it deliberately does NOT do:
---   * restore the NULL-handling of tg_orders_total_amount_guard that the migration
---     fixed: with it a fresh connection could UPDATE orders.total_amount directly
---     and skip total_below_paid. The fixed guard stays (same behaviour otherwise).
---   * delete 'order.items_replaced' rows from activity_log (history).
+-- It never touches tg_orders_total_amount_guard (owned by the P0 hotfix
+-- 20261016123500, which cannot be rolled back): the vulnerable version is never
+-- restored by this script.
+-- It does not delete 'order.items_replaced' rows from activity_log (history).
 -- Then: supabase migration repair --status reverted 20261016130000
 begin;
 
