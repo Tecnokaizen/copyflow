@@ -38,7 +38,17 @@ jobs:
       # traffic so no outgoing connection can grab 54322 ahead of `supabase start`.
       - name: Reserve local Supabase ports from the ephemeral range
         run: |
-          sudo sysctl -w net.ipv4.ip_local_reserved_ports=54320-54329
+          before="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports before: '${before}'"
+          sudo sysctl -q -w net.ipv4.ip_local_reserved_ports="${before:+${before},}54320-54329"
+          after="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports after: '${after}'"
+          covered=false
+          IFS=, read -ra ranges <<< "${after}"
+          for r in "${ranges[@]}"; do
+            if [ "${r%-*}" -le 54322 ] && [ "${r#*-}" -ge 54322 ]; then covered=true; fi
+          done
+          if [ "${covered}" != true ]; then echo "::error::port 54322 is not reserved"; exit 1; fi
           held="$(ss -Htan 'sport >= :54320 and sport <= :54329')"
           if [ -n "${held}" ]; then echo "::warning::Supabase ports already in use:"; echo "${held}"; fi
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
