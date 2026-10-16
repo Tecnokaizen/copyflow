@@ -1,5 +1,7 @@
 import Papa from "papaparse";
 
+import { ImportFileError } from "./errors";
+
 export const CSV_DELIMITERS = [";", ",", "\t"] as const;
 export type CsvDelimiter = (typeof CSV_DELIMITERS)[number];
 
@@ -14,6 +16,12 @@ export function parseCsvText(text: string): { rows: string[][]; delimiter: CsvDe
     skipEmptyLines: "greedy",
     dynamicTyping: false,
   });
+  // An unterminated quote swallows the rest of the file into one cell: refuse
+  // the file instead of silently importing part of it.
+  const unterminated = result.errors.find((error) => error.code === "MissingQuotes");
+  if (unterminated) {
+    throw new ImportFileError("csv_unterminated_quote", typeof unterminated.row === "number" ? unterminated.row + 1 : undefined);
+  }
   const delimiter = (CSV_DELIMITERS as readonly string[]).includes(result.meta.delimiter)
     ? (result.meta.delimiter as CsvDelimiter)
     : ";";
