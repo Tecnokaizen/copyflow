@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
     typeof body.file_name !== "string" ||
     typeof body.file_size !== "number" ||
     typeof body.file_sha256 !== "string" ||
+    !Number.isInteger(body.expected_rows) ||
+    (body.expected_rows as number) < 1 ||
+    (body.expected_rows as number) > 10000 ||
     !body.mapping ||
     typeof body.mapping !== "object" ||
     Array.isArray(body.mapping)
@@ -49,13 +52,15 @@ export async function POST(request: NextRequest) {
     return invalidBody();
   }
 
-  const { data, error } = await supabase.rpc("client_import_create_batch", {
+  // v2 records how many rows the file has: the batch can only be validated once all arrived.
+  const { data, error } = await supabase.rpc("client_import_create_batch_v2", {
     p_tenant_id: access.context.tenant.id,
     p_source_system: body.source_system,
     p_file_name: body.file_name,
     p_file_size: body.file_size,
     p_file_sha256: body.file_sha256,
     p_mapping: body.mapping,
+    p_expected_rows: body.expected_rows,
   });
   if (error) return clientImportRpcError(CREATE_ROUTE, access.context, error);
   return operationalJson({ batch: data });

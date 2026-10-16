@@ -63,6 +63,25 @@ const MATCH_LABELS: Record<string, string> = {
   phone_prefix: "teléfono sin prefijo +34",
 };
 
+/** Rows still missing from a batch whose file was not fully sent (e.g. the page was closed). */
+function missingRows(batch: ClientImportBatch) {
+  return batch.expected_rows === null ? null : Math.max(batch.expected_rows - batch.counts.total, 0);
+}
+
+function statusLabel(batch: ClientImportBatch) {
+  if (batch.rows_purged && batch.status === "committing") return "Caducada a medias";
+  return STATUS_LABELS[batch.status];
+}
+
+function incompleteNotice(batch: ClientImportBatch) {
+  const missing = missingRows(batch);
+  const detail =
+    missing === null
+      ? "No consta cuántas filas tenía el archivo."
+      : `Faltan ${missing.toLocaleString("es-ES")} de ${batch.expected_rows!.toLocaleString("es-ES")} filas por enviar.`;
+  return `${detail} Vuelve a elegir el archivo original («${batch.file_name}»), con las mismas columnas, para completarla.`;
+}
+
 function messageFor(error: unknown) {
   if (error instanceof ImportFileError) return importFileErrorMessage(error);
   if (error instanceof ClientImportApiError) return error.message;
@@ -196,13 +215,19 @@ export function ClientImportWizard() {
     }
   }
 
-  /** Classifies the batch range by range (each call stays well under the DB timeout). */
+  /**
+   * Classifies the batch range by range (each call stays well under the DB timeout).
+   * The server reports the first row still unclassified, so no range can be skipped.
+   */
   async function finalizeAll(id: string, total: number) {
-    let fromRow: number | null = 1;
-    while (fromRow !== null) {
+    let fromRow = 1;
+    for (;;) {
       setProgress({ label: "Comprobando duplicados", done: Math.min(fromRow - 1, total), total });
       const result: ClientImportBatch = await clientImportApi.finalize(id, fromRow, CLIENT_IMPORT_FINALIZE_CHUNK);
-      fromRow = result.done ? null : (result.next_row ?? null);
+      if (result.done) return;
+      const next = result.next_row ?? null;
+      if (next === null || next < fromRow) throw new Error("finalize_stalled");
+      fromRow = next;
     }
   }
 
@@ -226,6 +251,7 @@ export function ClientImportWizard() {
         file_size: parsed.fileSize,
         file_sha256: parsed.fileSha256,
         mapping: record,
+        expected_rows: mappedRows.length,
       });
       if (current.reused && current.status === "committed") {
         setNotice("Este archivo ya se importó con estas columnas. Este es su resultado.");
@@ -239,9 +265,19 @@ export function ClientImportWizard() {
         setStep("confirm");
         return;
       }
-      for (let start = 0; start < mappedRows.length; start += CLIENT_IMPORT_STAGE_CHUNK) {
-        setProgress({ label: "Enviando filas para validar", done: start, total: mappedRows.length });
-        await clientImportApi.stage(current.id, mappedRows.slice(start, start + CLIENT_IMPORT_STAGE_CHUNK));
+      if (current.status === "validated") {
+        current = await refreshSummary(current.id);
+        setFillConfirmed(current.duplicate_strategy === "fill_blanks");
+        setNotice("Este archivo ya se había revisado con estas columnas. Continúa desde la revisión.");
+        setStep("review");
+        return;
+      }
+      // A resumed batch that already has every row only needs its classification.
+      if (missingRows(current) !== 0) {
+        for (let start = 0; start < mappedRows.length; start += CLIENT_IMPORT_STAGE_CHUNK) {
+          setProgress({ label: "Enviando filas para validar", done: start, total: mappedRows.length });
+          await clientImportApi.stage(current.id, mappedRows.slice(start, start + CLIENT_IMPORT_STAGE_CHUNK));
+        }
       }
       await finalizeAll(current.id, mappedRows.length);
       current = await refreshSummary(current.id);
@@ -349,7 +385,17 @@ export function ClientImportWizard() {
     try {
       const summary = await refreshSummary(item.id);
       setFillConfirmed(summary.duplicate_strategy === "fill_blanks");
-      if (summary.status === "uploaded") {
+      if (summary.rows_purged) {
+        // Its rows are gone: only its summary is left.
+        setStep("result");
+      } else if (summary.status === "uploaded" && missingRows(summary) !== 0) {
+        // Never validate a partial file: the rest of the rows must come from the file itself.
+        setBatch(null);
+        setSourceKind(summary.source_system === GESTCOPY_TEMPLATE ? "gestcopy" : "other");
+        if (summary.source_system !== GESTCOPY_TEMPLATE) setSourceName(summary.source_system);
+        setNotice(incompleteNotice(summary));
+        setStep("file");
+      } else if (summary.status === "uploaded") {
         await finalizeAll(summary.id, summary.counts.total);
         await refreshSummary(summary.id);
         setStep("review");
@@ -494,16 +540,25 @@ export function ClientImportWizard() {
                         <span className="block text-xs text-muted-foreground">{item.source_system}</span>
                       </td>
                       <td>{formatDateTime(item.created_at)}</td>
-                      <td>{STATUS_LABELS[item.status]}</td>
+                      <td>
+                        {statusLabel(item)}
+                        {item.status === "uploaded" && missingRows(item) !== 0 ? (
+                          <span className="block text-xs text-muted-foreground">
+                            {missingRows(item) === null
+                              ? "Falta el número de filas"
+                              : `Faltan ${missingRows(item)!.toLocaleString("es-ES")} filas`}
+                          </span>
+                        ) : null}
+                      </td>
                       <td>{item.counts.created.toLocaleString("es-ES")}</td>
                       <td className="text-right">
                         <div className="flex justify-end gap-2">
                           {item.status === "cancelled" || item.status === "expired" ? null : (
                             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void openFromHistory(item)}>
-                              {item.status === "committed" || item.status === "reverted" ? "Ver informe" : "Continuar"}
+                              {item.rows_purged ? "Ver resumen" : item.status === "committed" || item.status === "reverted" ? "Ver informe" : "Continuar"}
                             </Button>
                           )}
-                          {item.status === "uploaded" || item.status === "validated" ? (
+                          {(item.status === "uploaded" || item.status === "validated") && !item.rows_purged ? (
                             <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void discard(item)}>
                               Descartar
                             </Button>

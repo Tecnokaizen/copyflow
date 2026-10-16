@@ -46,6 +46,11 @@ const RPC_ERRORS: Record<string, { status: number; code: string; error: string }
   "22023": { status: 400, code: "invalid", error: "Los datos enviados no son válidos." },
   "55000": { status: 409, code: "batch_state", error: "La importación ya no admite este paso." },
   GC409: { status: 409, code: "row_version_conflict", error: "La importación ha cambiado. Recarga el estado y vuelve a intentarlo." },
+  GC422: {
+    status: 409,
+    code: "batch_incomplete",
+    error: "A esta importación le faltan filas del archivo. Vuelve a elegir el archivo original, con las mismas columnas, para completarla.",
+  },
   "54000": { status: 429, code: "too_many_open_batches", error: "Hay demasiadas importaciones abiertas. Termina o cancela alguna." },
 };
 
