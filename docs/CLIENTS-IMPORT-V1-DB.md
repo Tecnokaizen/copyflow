@@ -68,7 +68,7 @@ Un lote de otro tenant responde igual que uno inexistente (`P0002`), así que no
 | Prueba | Resultado |
 | --- | --- |
 | `phase50_clients_import.sql` (en el Release Gate) | Cubre:<br>• anónimo; `service_role`; staff, viewer, membresía inactiva y externo;<br>• tenant inactivo y feature desactivada;<br>• dos tenants: aislamiento de lotes y de la detección de duplicados;<br>• esquema privado cerrado y origen no falsificable;<br>• límites; idempotencia del lote y de las filas;<br>• las cinco clasificaciones y las notas escapadas;<br>• `fill_blanks` con confirmación y sin sobrescribir;<br>• duplicado aparecido entre revisión y confirmación;<br>• confirmación reanudable en 4 tramos y versión obsoleta;<br>• actividad;<br>• reversión con cliente en uso, editado y relleno parcialmente editado;<br>• informe e historial;<br>• cancelación; límite de lotes abiertos; purga |
-| `phase50_clients_import_concurrency.sh` (manual, como las demás `*_concurrency.sh`) | Dos creaciones del mismo archivo → un lote. Dos confirmaciones del mismo tramo → una escribe y la otra recibe `40001`. 400 filas procesadas una sola vez |
+| `phase50_clients_import_concurrency.sh` (manual, como las demás `*_concurrency.sh`) | Dos creaciones del mismo archivo → un lote. Dos confirmaciones del mismo tramo → una escribe y la otra recibe `GC409`. 400 filas procesadas una sola vez |
 | Rendimiento (10 000 filas contra 2 000 clientes, `statement_timeout` de 8 s) | Preparación 20×500 en ≈1 s. Clasificación ≈2 s. Confirmación 50×200 en 11 s (llamada más lenta: 2 s). Reversión de 9 000 altas: 3 s |
 | Suites de `main` sobre la migración | Las 19 suites del Release Gate y las invariantes, en verde |
 | Recuperación | `supabase/rollbacks/20261016120000_clients_import_v1.sql`. Se niega si hay clientes importados o lotes confirmados. Si no, la huella del esquema (columnas, restricciones, índices, políticas, triggers, funciones, permisos y features) vuelve a ser **idéntica a la de `main`** |
@@ -87,6 +87,15 @@ La primera migración se aplicó en Staging, pero no en Production. Al probarla 
 - `phase50` comprueba que la clasificación en tramos de 4 filas da exactamente lo mismo que una sola pasada, y que la reversión en tramos de 2 llega al mismo resultado.
 - En local, 10.000 filas: ninguna llamada pasa de 1 s (clasificación 5×2.000, confirmación 50×200, reversión 18×500).
 - El script de recuperación deshace las dos migraciones y deja el esquema idéntico a `main`.
+
+**Guarda de migraciones del Release Gate:** la segunda migración elimina `client_import_finalize(uuid)` y `client_import_revert(uuid)` para sustituirlas por sus versiones por tramos. La guarda bloquea cualquier `DROP` (expandir y luego contraer), así que el archivo lleva la excepción explícita `-- release-gate: allow destructive-ddl: …` con el motivo:
+
+- solo afecta a esas dos funciones;
+- las creó la primera migración de esta misma PR;
+- nunca se han aplicado en Production;
+- ninguna versión desplegada de la app las llama.
+
+No hay otro `DROP` en la PR.
 
 ## Gate y despliegue (pendiente de autorización)
 
