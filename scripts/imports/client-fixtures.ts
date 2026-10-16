@@ -85,7 +85,7 @@ function kindFor(index: number): RowKind {
 }
 
 function slug(value: string) {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
 }
 
 function formatPhone(digits: string, style: number) {
