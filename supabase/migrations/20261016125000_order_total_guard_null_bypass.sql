@@ -15,7 +15,7 @@
 -- The trigger, grants and RPCs are not touched. No schema change, no data change.
 --
 -- Rollback: none by design. Restoring the previous body would reintroduce the
--- bypass; supabase/rollbacks/20261016123500_order_total_guard_null_bypass.sql
+-- bypass; supabase/rollbacks/20261016125000_order_total_guard_null_bypass.sql
 -- refuses and explains. Correct forward instead of reverting.
 begin;
 

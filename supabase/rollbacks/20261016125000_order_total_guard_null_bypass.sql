@@ -1,4 +1,4 @@
--- Rollback for 20261016123500_order_total_guard_null_bypass.sql (P0 hotfix).
+-- Rollback for 20261016125000_order_total_guard_null_bypass.sql (P0 hotfix).
 --
 -- Deliberately REFUSES. The only difference with the previous guard is the NULL
 -- handling; reverting would reintroduce the bypass of total_amount_rpc_only and
@@ -8,6 +8,6 @@
 -- corrected forward migration instead.
 do $refuse$
 begin
-  raise exception 'rollback refused: 20261016123500 closes a P0 bypass of the orders.total_amount guard; fix forward';
+  raise exception 'rollback refused: 20261016125000 closes a P0 bypass of the orders.total_amount guard; fix forward';
 end
 $refuse$;
