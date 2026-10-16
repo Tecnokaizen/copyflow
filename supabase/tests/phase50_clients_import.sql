@@ -123,25 +123,25 @@ begin
 
   -- S2/S3: authentication, roles, membership, tenant and feature gates --------
   perform pg_temp.p50_as(null);
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '28000', 'anonymous create');
   execute 'set local role service_role';
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'service_role cannot import');
   foreach v in array array[1, 2, 3, 4] loop
     perform pg_temp.p50_as((array[staff_a, viewer_a, former_a, outsider])[v]);
-    perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+    perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
       tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'role/membership denied #' || v);
   end loop;
   perform pg_temp.p50_as(owner_c);
-  msg := pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  msg := pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_c, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'feature disabled');
   perform pg_temp.p50_check(msg = 'clients_import_disabled', 'feature disabled message');
   perform pg_temp.p50_as(owner_d);
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_d, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'inactive tenant');
   perform pg_temp.p50_as(owner_b);
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'other tenant create');
 
   -- S4: private schema closed, maintenance not callable by users
@@ -158,20 +158,24 @@ begin
 
   -- S5: input validation ----------------------------------------------------
   perform pg_temp.p50_as(manager_a);
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_a, 'Programa X', 'clientes.csv', 'nothex', mapping), '22023', 'bad sha');
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 6000000, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 6000000, %L, %L, 14)',
     tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '22023', 'file too big');
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14, %L)',
     tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping, 'fill_blanks'), '22023', 'fill_blanks at creation');
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 0)',
+    tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '22023', 'row count required');
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+    tenant_a, 'Programa X', 'clientes.csv', sha_a, mapping), '42501', 'v1 cannot declare the row count: not executable');
 
   -- S6: batch idempotency ---------------------------------------------------
-  r := public.client_import_create_batch(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping);
+  r := public.client_import_create_batch_v2(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping, 14);
   batch := (r ->> 'id')::uuid;
-  perform pg_temp.p50_check((r ->> 'reused')::boolean = false and r ->> 'status' = 'uploaded', 'new batch');
-  r := public.client_import_create_batch(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping);
+  perform pg_temp.p50_check((r ->> 'reused')::boolean = false and r ->> 'status' = 'uploaded' and (r ->> 'expected_rows')::integer = 14, 'new batch declares 14 rows');
+  r := public.client_import_create_batch_v2(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping, 14);
   perform pg_temp.p50_check((r ->> 'id')::uuid = batch and (r ->> 'reused')::boolean, 'same file + mapping reuses the batch');
-  r := public.client_import_create_batch(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, '{"Nombre":"name"}');
+  r := public.client_import_create_batch_v2(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, '{"Nombre":"name"}', 1);
   perform pg_temp.p50_check((r ->> 'id')::uuid <> batch, 'different mapping is a different batch');
   batch_tmp := (r ->> 'id')::uuid;
 
@@ -315,7 +319,7 @@ begin
     and (r -> 'counts' ->> 'skipped')::integer = 7 and (r -> 'counts' ->> 'failed')::integer = 0,
     'commit results: ' || (r -> 'counts')::text);
   perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s)', batch, v), '55000', 'commit after committed');
-  r := public.client_import_create_batch(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping);
+  r := public.client_import_create_batch_v2(tenant_a, 'Programa X', 'clientes.csv', 2048, sha_a, mapping, 14);
   perform pg_temp.p50_check((r ->> 'id')::uuid = batch and r ->> 'status' = 'committed', 're-import returns the committed batch');
 
   execute 'reset role';
@@ -393,7 +397,7 @@ begin
 
   -- Tenant B: its own batch; duplicates are per tenant; cancel ----------------
   perform pg_temp.p50_as(owner_b);
-  batch_b := (public.client_import_create_batch(tenant_b, 'Otro CRM', 'b.xlsx', 4096, sha_b, mapping) ->> 'id')::uuid;
+  batch_b := (public.client_import_create_batch_v2(tenant_b, 'Otro CRM', 'b.xlsx', 4096, sha_b, mapping, 1) ->> 'id')::uuid;
   perform public.client_import_stage_rows(batch_b, '[{"row_number": 1, "name": "Mismo email que A", "email": "existe@phase50.test"}]');
   r := public.client_import_finalize(batch_b);
   perform pg_temp.p50_check((r -> 'counts' ->> 'valid')::integer = 1, 'A clients do not count as duplicates in B');
@@ -404,10 +408,10 @@ begin
   perform pg_temp.p50_expect(format('select public.client_import_cancel(%L)', batch_b), '55000', 'cancel twice');
   -- At most 10 open batches per tenant (cancelled ones do not count).
   for v in 1 .. 10 loop
-    perform public.client_import_create_batch(tenant_b, 'Otro CRM', 'b' || v || '.csv', 10,
-      pg_catalog.lpad(v::text, 64, 'f'), mapping);
+    perform public.client_import_create_batch_v2(tenant_b, 'Otro CRM', 'b' || v || '.csv', 10,
+      pg_catalog.lpad(v::text, 64, 'f'), mapping, 1);
   end loop;
-  perform pg_temp.p50_expect(format('select public.client_import_create_batch(%L, %L, %L, 10, %L, %L)',
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 14)',
     tenant_b, 'Otro CRM', 'b11.csv', pg_catalog.repeat('e', 64), mapping), '54000', 'eleventh open batch');
 
   -- Retention: purge rows of expired batches (service_role only) ---------------
@@ -427,14 +431,14 @@ begin
   -- batch only, so the planner estimates 1 row for the batch staged next, as in
   -- a real import. Classifying it must stay linear (500 rows used to take > 60 s).
   perform pg_temp.p50_as(owner_a);
-  batch_tmp := (public.client_import_create_batch(tenant_a, 'Estadísticas', 'previo.csv', 10, pg_catalog.repeat('9', 64), mapping) ->> 'id')::uuid;
+  batch_tmp := (public.client_import_create_batch_v2(tenant_a, 'Estadísticas', 'previo.csv', 10, pg_catalog.repeat('9', 64), mapping, 500) ->> 'id')::uuid;
   perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
     'row_number', g, 'name', 'Previa ' || g, 'email', 'prev' || g || '@phase50.test', 'phone', (660000000 + g)::text))
     from pg_catalog.generate_series(1, 500) g));
   execute 'reset role';
   analyze imports_private.client_import_rows;
   perform pg_temp.p50_as(owner_a);
-  batch_tmp := (public.client_import_create_batch(tenant_a, 'Estadísticas', 'stale.csv', 10, pg_catalog.repeat('c', 64), mapping) ->> 'id')::uuid;
+  batch_tmp := (public.client_import_create_batch_v2(tenant_a, 'Estadísticas', 'stale.csv', 10, pg_catalog.repeat('c', 64), mapping, 1000) ->> 'id')::uuid;
   for v in 0 .. 1 loop
     perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
       'row_number', g, 'name', 'Fila ' || g,
@@ -450,6 +454,90 @@ begin
   perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r -> 'counts' ->> 'valid')::integer = 675
     and (r -> 'counts' ->> 'duplicate_existing')::integer = 100 and (r -> 'counts' ->> 'duplicate_in_file')::integer = 225,
     'stale-statistics counts: ' || (r -> 'counts')::text);
+
+  -- Audit P1 (20261016124000) -------------------------------------------------
+  -- 1. Ranges out of order never validate a batch with unclassified rows.
+  perform pg_temp.p50_as(owner_a);
+  batch_tmp := (public.client_import_create_batch_v2(tenant_a, 'Auditoría', 'orden.csv', 10, pg_catalog.repeat('1', 64), mapping, 10) ->> 'id')::uuid;
+  perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'row_number', g, 'name', 'Orden ' || g, 'email', 'orden' || g || '@phase50.test')) from pg_catalog.generate_series(1, 10) g));
+  r := public.client_import_finalize(batch_tmp, 9, 2);
+  perform pg_temp.p50_check(r ->> 'status' = 'uploaded' and (r ->> 'done')::boolean = false and (r ->> 'next_row')::integer = 1,
+    'last range first: not validated, next_row 1: ' || r::text);
+  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s)', batch_tmp, (r ->> 'row_version')::integer),
+    '55000', 'commit refused before full classification');
+  r := public.client_import_finalize(batch_tmp, 101, 10);
+  perform pg_temp.p50_check(r ->> 'status' = 'uploaded' and (r ->> 'next_row')::integer = 1, 'range beyond the end: still row 1 pending');
+  r := public.client_import_finalize(batch_tmp, 1, 4);
+  perform pg_temp.p50_check((r ->> 'next_row')::integer = 5 and r ->> 'status' = 'uploaded', 'next_row is the first unclassified row');
+  r := public.client_import_finalize(batch_tmp, 5, 4);
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r ->> 'done')::boolean and r ->> 'next_row' is null
+    and (r -> 'counts' ->> 'valid')::integer = 10, 'validated once every row is classified: ' || r::text);
+  -- Nothing can be staged or replaced once classification started.
+  perform pg_temp.p50_expect(format('select public.client_import_stage_rows(%L, %L)', batch_tmp,
+    '[{"row_number": 3, "name": "Cambiada"}]'), '55000', 'no restaging after classification');
+  -- A batch validated by an older version with an unclassified row cannot be committed.
+  execute 'reset role';
+  update imports_private.client_import_rows set classification = null where batch_id = batch_tmp and row_number = 3;
+  perform pg_temp.p50_as(owner_a);
+  v := (public.client_import_summary(batch_tmp, 1) ->> 'row_version')::integer;
+  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s)', batch_tmp, v), 'GC422', 'commit refuses unclassified rows');
+  r := public.client_import_finalize(batch_tmp, 1, 2000);
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r -> 'counts' ->> 'valid')::integer = 10, 'reclassification from row 1 repairs it');
+  r := public.client_import_commit_chunk(batch_tmp, (r ->> 'row_version')::integer, 200);
+  perform pg_temp.p50_check(r ->> 'status' = 'committed' and (r -> 'counts' ->> 'created')::integer = 10, 'all 10 rows created, none skipped');
+
+  -- 2. The server knows how many rows the file has.
+  batch_tmp := (public.client_import_create_batch_v2(tenant_a, 'Auditoría', 'parcial.csv', 10, pg_catalog.repeat('2', 64), mapping, 5) ->> 'id')::uuid;
+  perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'row_number', g, 'name', 'Parcial ' || g, 'email', 'parcial' || g || '@phase50.test')) from pg_catalog.generate_series(1, 3) g));
+  msg := pg_temp.p50_expect(format('select public.client_import_finalize(%L)', batch_tmp), 'GC422', 'finalize refuses 3 of 5 rows');
+  perform pg_temp.p50_check(msg = 'batch_incomplete', 'incomplete message');
+  perform pg_temp.p50_expect(format('select public.client_import_stage_rows(%L, %L)', batch_tmp,
+    '[{"row_number": 6, "name": "Sobra"}]'), '22023', 'row beyond the declared count');
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 6)',
+    tenant_a, 'Auditoría', 'parcial.csv', pg_catalog.repeat('2', 64), mapping), '22023', 'same file, other row count');
+  r := public.client_import_create_batch_v2(tenant_a, 'Auditoría', 'parcial.csv', 10, pg_catalog.repeat('2', 64), mapping, 5);
+  perform pg_temp.p50_check((r ->> 'id')::uuid = batch_tmp and (r ->> 'reused')::boolean and (r -> 'counts' ->> 'total')::integer = 3
+    and (r ->> 'expected_rows')::integer = 5, 'resumed batch shows 3 of 5 rows');
+  perform public.client_import_stage_rows(batch_tmp, (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'row_number', g, 'name', 'Parcial ' || g, 'email', 'parcial' || g || '@phase50.test')) from pg_catalog.generate_series(1, 5) g));
+  r := public.client_import_finalize(batch_tmp);
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r -> 'counts' ->> 'total')::integer = 5, 'complete batch validates');
+  -- A batch created before the row count existed adopts it while nothing is classified.
+  execute 'reset role';
+  update imports_private.client_import_batches set expected_rows = null
+  where tenant_id = tenant_a and file_name = 'previo.csv';
+  perform pg_temp.p50_as(owner_a);
+  perform pg_temp.p50_expect(format('select public.client_import_create_batch_v2(%L, %L, %L, 10, %L, %L, 400)',
+    tenant_a, 'Estadísticas', 'previo.csv', pg_catalog.repeat('9', 64), mapping), '22023', 'cannot adopt fewer rows than staged');
+  r := public.client_import_create_batch_v2(tenant_a, 'Estadísticas', 'previo.csv', 10, pg_catalog.repeat('9', 64), mapping, 500);
+  perform pg_temp.p50_check((r ->> 'expected_rows')::integer = 500 and (r ->> 'reused')::boolean, 'older batch adopts its row count');
+
+  -- 3. Purging a half-committed batch keeps its history and blocks every change.
+  v := (public.client_import_summary(batch_tmp, 1) ->> 'row_version')::integer;
+  r := public.client_import_commit_chunk(batch_tmp, v, 2);
+  perform pg_temp.p50_check(r ->> 'status' = 'committing' and (r -> 'counts' ->> 'created')::integer = 2, 'first chunk of the parcial batch');
+  v := (r ->> 'row_version')::integer;
+  execute 'reset role';
+  update imports_private.client_import_batches set expires_at = pg_catalog.now() - interval '1 day' where id = batch_tmp;
+  perform pg_temp.p50_as(null);
+  execute 'set local role service_role';
+  r := public.client_import_purge_expired(10);
+  perform pg_temp.p50_check((r ->> 'batches')::integer = 1 and (r ->> 'rows')::integer = 5, 'half-committed batch purged: ' || r::text);
+  perform pg_temp.p50_as(owner_a);
+  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s)', batch_tmp, v), '55000', 'no commit after purge');
+  perform pg_temp.p50_expect(format('select public.client_import_revert(%L)', batch_tmp), '55000', 'no revert after purge');
+  perform pg_temp.p50_expect(format('select public.client_import_finalize(%L)', batch_tmp), '55000', 'no finalize after purge');
+  perform pg_temp.p50_expect(format('select public.client_import_cancel(%L)', batch_tmp), '55000', 'no cancel after purge');
+  r := public.client_import_summary(batch_tmp, 5);
+  perform pg_temp.p50_check(r ->> 'status' = 'committing' and (r ->> 'rows_purged')::boolean
+    and (r -> 'counts' ->> 'created')::integer = 2 and (r -> 'counts' ->> 'total')::integer = 5,
+    'purged batch keeps its counters: ' || (r -> 'counts')::text);
+  execute 'reset role';
+  perform imports_private.refresh_batch_counters(batch_tmp);
+  perform pg_temp.p50_check((select created_count = 2 and total_rows = 5 from imports_private.client_import_batches where id = batch_tmp),
+    'counters of a purged batch are never recomputed');
 
   -- Plan settings that keep chunks linear on fresh data (see 20261016122000).
   perform pg_temp.p50_check((select p.proconfig @> array['enable_nestloop=off'] from pg_proc p
