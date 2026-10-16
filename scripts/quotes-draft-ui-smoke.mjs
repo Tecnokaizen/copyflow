@@ -54,16 +54,17 @@ const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM
 const url = `http://127.0.0.1:${server.address().port}`;
 const results = []; let assertions = 0; let lastPage; let lastEvents;
 function check(actual, expected, description) { assert.deepEqual(actual, expected, description); assertions++; }
-function fixture(state = "draft", legacy = false) {
+function fixture(state = "draft", legacy = false, count = 1) {
   const v = { pdf_file_id: null, id: "version-2", quote_id: "quote-1", version_number: 2, state, title: "Catálogos", description: "<p>Material para evento</p>", terms: "<p>Pago a 30 días</p>", issue_date: "2026-10-05", valid_until: "2026-10-31", currency: "EUR", prices_include_tax: false, subtotal: "100.00", tax_total: "21.00", total: "121.00", row_version: 4, created_at: "2026-10-05T12:00:00Z", locked_at: state === "draft" ? null : "2026-10-05T12:01:00Z", sent_at: state === "sent" ? "2026-10-05T12:02:00Z" : null, tax_breakdown: [] };
   const q = { ...v, id: "quote-1", reference: "P-0001", row_version: 55, title: "Catálogos", status: { id: "status-1", code: "draft", name: "Borrador" }, client: { id: "client-1", name: "Cliente de prueba" }, current_version_id: legacy ? null : v.id, current_version_number: legacy ? null : 2, current_version_state: legacy ? null : state, contact_name: "Raquel", contact_email: "raquel@example.com", contact_phone: "600123456", billing_name: "Cliente de prueba SL", tax_id: "B12345678", billing_address: "Calle Mayor 1", notes: "<p>Pago a 30 días</p>", converted_order_id: null, service: null, assignee: null, converted_order: null };
   const item = { id: "line-1", position: 1, concept: "Impresión", description: "A4", quantity: "1", unit: "ud", unit_price: "100", discount_percent: "0", tax_rate: "21", subtotal: "100.00", tax_amount: "21.00", total: "121.00" };
-  return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : [item], versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", pdf_file_id: "pdf-old", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
+  const items = Array.from({ length: count }, (_, i) => i === 0 ? item : { ...item, id: `line-${i + 1}`, position: i + 1, concept: `Partida ${i + 1}` });
+  return { quote: q, current_version: legacy ? null : v, items: legacy ? [] : items, versions: legacy ? [] : [v, { ...v, id: "version-1", version_number: 1, state: "sent", pdf_file_id: "pdf-old", locked_at: "2026-10-04T12:01:00Z", sent_at: "2026-10-04T12:02:00Z", total: "80.00" }] };
 }
-async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0 } = {}) {
+async function setup(width, theme, { state = "draft", legacy = false, mode = "editor", denied = 0, count = 1 } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(10000);
   lastPage = page;
-  let stored = fixture(state, legacy); let fail = null; let readFail = false; const events = []; const errors = [];
+  let stored = fixture(state, legacy, count); let fail = null; let readFail = false; const events = []; const errors = [];
   lastEvents = events;
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
@@ -126,6 +127,51 @@ try {
     check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "No page horizontal overflow");
     await page.getByRole("link", { name: "Imprimir presupuesto", exact: true }).waitFor();
     check(await page.getByRole("link", { name: "Imprimir presupuesto", exact: true }).getAttribute("href"), "/quotes/quote-1/print", "Draft version can print saved operational sheet");
+    // --- Duplicar partida (desktop/móvil) ---
+    {
+      const lineAmounts = () => page.getByTestId("quote-item").first().locator("dl").innerText();
+      const totals = () => page.getByTestId("quote-totals").innerText();
+      const dup = page.getByRole("button", { name: "Duplicar partida 1", exact: true });
+      check(await dup.count(), 1, "Editable line offers Duplicar");
+      check(await dup.isEnabled(), true, "Duplicar enabled on an editable draft");
+      check((await dup.boundingBox()).height >= 44, true, "Duplicar keeps a 44px touch target");
+      check(await dup.getByText("Duplicar", { exact: true }).isVisible(), width >= 640, "Text label only from the sm breakpoint; icon-only on phones");
+      check(await page.getByText("Importes del presupuesto guardado.").count() > 0, true, "Clean draft shows saved amounts");
+      check((await lineAmounts()).includes("121,00"), true, "Saved line amount is shown before editing");
+      const totalsBefore = await totals();
+      await dup.click();
+      check(await page.getByTestId("quote-item").count(), 2, "Duplicar adds exactly one line");
+      check(await page.getByLabel("Concepto", { exact: true }).nth(1).inputValue(), "Impresión", "Copy keeps the concept");
+      check(await page.getByTestId("quote-item").nth(1).locator("textarea").inputValue(), "A4", "Copy keeps the description");
+      for (const [label, value] of [["Cantidad", "1"], ["Unidad", "ud"], ["Precio unitario", "100"], ["Descuento %", "0"], ["IVA %", "21"]]) check(await page.getByLabel(label, { exact: true }).nth(1).inputValue(), value, `Copy keeps ${label}`);
+      check(await page.getByRole("heading", { name: "Partida 2", exact: true }).count(), 1, "Copy is placed right after the original");
+      check(await page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.closest("label")?.innerText.trim().split("\n")[0]), "Concepto", "Focus moves to the first field of the copy");
+      check(await page.getByLabel("Concepto", { exact: true }).nth(1).evaluate((el) => el === document.activeElement), true, "The copy can be edited immediately");
+      check(await page.getByRole("status").filter({ hasText: "Partida 1 duplicada. La copia es la partida 2." }).count(), 1, "Screen readers are told about the copy");
+      // Current editor behavior, verified rather than assumed: the draft is dirty, the saved totals
+      // block is NOT recomputed on the client, and per-line amounts fall back to a dash until saved.
+      check(await page.getByText("Cambios sin guardar. Los importes se actualizarán al guardar.", { exact: true }).count(), 1, "Duplicating marks the draft as unsaved");
+      check(await totals(), totalsBefore, "Totals block shows the last saved amounts; the client computes nothing");
+      check((await lineAmounts()).includes("121,00"), false, "Per-line amounts are not shown for unsaved lines");
+      check(events.filter(e => e.method === "PUT").length, 0, "Duplicar never saves by itself");
+      await page.getByLabel("Concepto", { exact: true }).nth(1).fill("Copia editada");
+      await page.getByLabel("Cantidad", { exact: true }).nth(1).fill("5");
+      check(await page.getByLabel("Concepto", { exact: true }).first().inputValue(), "Impresión", "Editing the copy leaves the original untouched");
+      check(await page.getByLabel("Cantidad", { exact: true }).first().inputValue(), "1", "Editing the copy quantity leaves the original untouched");
+      await page.getByTestId("quote-item").first().locator("textarea").fill("A3");
+      check(await page.getByTestId("quote-item").nth(1).locator("textarea").inputValue(), "A4", "Editing the original leaves the copy untouched");
+      await page.getByRole("button", { name: "Duplicar partida 2", exact: true }).click();
+      check(await page.getByTestId("quote-item").count(), 3, "A copy can be duplicated too");
+      check(await page.getByLabel("Concepto", { exact: true }).nth(2).inputValue(), "Copia editada", "Second-generation copy keeps edited values");
+      check(await page.getByLabel("Cantidad", { exact: true }).nth(2).inputValue(), "5", "Second-generation copy keeps edited quantity");
+      check(await page.evaluate(() => new Set(Array.from(document.querySelectorAll("[data-item-key]"), (el) => el.getAttribute("data-item-key"))).size), 3, "Every line has its own key");
+      await page.getByRole("button", { name: "Eliminar partida 3", exact: true }).click();
+      await page.getByRole("button", { name: "Eliminar partida 2", exact: true }).click();
+      check(await page.getByTestId("quote-item").count(), 1, "Copies can be removed");
+      await page.getByTestId("quote-item").first().locator("textarea").fill("A4");
+      check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "No horizontal overflow with the extra action");
+      await page.screenshot({ path: path.join(out, `duplicate-${width}-${theme}.png`), fullPage: true });
+    }
     await page.getByLabel("Título / trabajo").fill("Trabajo editado");
     check(await page.getByRole("button", { name: "Imprimir presupuesto", exact: true }).isEnabled(), false, "Unsaved changes cannot print stale data");
     await page.getByLabel("Persona de contacto").fill("Contacto editado");
@@ -202,6 +248,7 @@ try {
     await page.getByRole("button").filter({ hasText: "Revisión 2 · Preparado" }).click();
     await page.getByRole("heading", { name: "Revisión 2", exact: true }).waitFor();
     check(await page.getByLabel("Título / trabajo").count(), 0, "Historical prepared cannot be edited");
+    check(await page.getByRole("button", { name: /Duplicar partida/ }).count(), 0, "Historical versions never offer Duplicar");
     check(await page.getByRole("link", { name: "Vista previa PDF", exact: true }).getAttribute("href"), "/api/quotes/quote-1/versions/version-2/pdf", "Prepared history opens its own PDF");
     await page.screenshot({ path: path.join(out, `history-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Volver al presupuesto actual", exact: true }).click();
@@ -228,6 +275,8 @@ try {
     await h.page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
     check(await h.page.getByLabel("Título / trabajo").isDisabled(), true, `${state} current is readonly`);
     check(await h.page.getByRole("button", { name: "Guardar borrador", exact: true }).count(), 0, "No writable save");
+    check(await h.page.getByRole("button", { name: /Duplicar partida/ }).count(), 0, `${state} current never offers Duplicar`);
+    check(await h.page.getByRole("button", { name: "Añadir línea", exact: true }).count(), 0, `${state} current never offers Añadir línea`);
     await h.page.close();
   }
   const legacy = await setup(390, "light", { legacy: true });
@@ -244,6 +293,43 @@ try {
   await legacy.page.getByRole("button", { name: "Guardar borrador", exact: true }).click();
   await legacy.page.getByRole("status").filter({ hasText: "Borrador guardado" }).waitFor();
   await legacy.page.close();
+  for (const width of [390, 1280]) {
+    const full = await setup(width, "light", { count: 499 });
+    await full.page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
+    check(await full.page.getByTestId("quote-item").count(), 499, "Fixture with 499 lines");
+    const near = full.page.getByRole("button", { name: "Duplicar partida 499", exact: true });
+    check(await near.isEnabled(), true, "Duplicar enabled at 499 lines");
+    await near.click();
+    check(await full.page.getByTestId("quote-item").count(), 500, "Duplicar reaches the 500-line limit");
+    check(await full.page.getByRole("button", { name: /Duplicar partida/ }).evaluateAll((els) => els.length > 0 && els.every((el) => el.disabled)), true, "Every Duplicar is disabled at 500 lines");
+    check(await full.page.getByRole("button", { name: "Duplicar partida 1", exact: true }).getAttribute("title"), "Máximo de 500 partidas", "Disabled Duplicar explains the limit");
+    check(await full.page.getByRole("button", { name: "Añadir línea", exact: true }).isDisabled(), true, "Añadir línea shares the same limit");
+    check(await full.page.getByRole("alert").filter({ hasText: "máximo es de 500" }).count(), 0, "500 lines is valid");
+    await full.page.getByRole("button", { name: "Eliminar partida 500", exact: true }).click();
+    check(await full.page.getByRole("button", { name: "Duplicar partida 1", exact: true }).isEnabled(), true, "Duplicar re-enabled below the limit");
+    check(full.errors, [], "No browser errors at the limit");
+    await full.page.close();
+  }
+  {
+    const h = await setup(1280, "light");
+    await h.page.getByRole("heading", { name: "Datos del presupuesto" }).waitFor();
+    await h.page.getByRole("button", { name: "Duplicar partida 1", exact: true }).click();
+    await h.page.getByLabel("Cantidad", { exact: true }).nth(1).fill("500");
+    h.setFail({ status: 400, error: "Validación del servidor" });
+    await h.page.getByRole("button", { name: "Guardar borrador", exact: true }).click();
+    await h.page.getByRole("alert").filter({ hasText: "Validación del servidor" }).waitFor();
+    check(await h.page.getByTestId("quote-item").count(), 2, "A failed save keeps the duplicated lines");
+    await h.page.getByRole("button", { name: "Guardar borrador", exact: true }).click();
+    await h.page.getByRole("status").filter({ hasText: "Borrador guardado" }).waitFor();
+    const put = h.events.filter(e => e.method === "PUT").at(-1).body;
+    check(put.items.length, 2, "Save sends both lines");
+    check(put.items.map(i => i.quantity), ["1", "500"], "Save sends each line's own quantity");
+    check(put.items.every(i => !("key" in i) && !("id" in i) && !("total" in i) && !("position" in i)), true, "Payload carries no key, id, position or totals");
+    check(Object.keys(put.items[1]).sort(), Object.keys(put.items[0]).sort(), "The copy has exactly the same writable fields as the original");
+    check(await h.page.getByTestId("quote-totals").innerText().then(t => t.includes("987,65")), true, "After saving, totals are the server's");
+    check(h.errors, [], "No browser errors on save");
+    await h.page.close();
+  }
   for (const denied of [403, 404]) {
     const h = await setup(390, "light", { denied });
     await h.page.getByText("Acceso no disponible", { exact: true }).waitFor();
