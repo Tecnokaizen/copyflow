@@ -1,5 +1,6 @@
 // Synthetic QA files for clients-import-qa.mts: 100 CSV (Windows-1252, ;),
-// 1 000 XLSX and 10 000 CSV (UTF-8 BOM, ,). OUT=<dir> SEED=<n> SUFFIX=<s> npx tsx e2e/staging/clients-import-files.mts
+// 1 000 XLSX, 10 000 CSV (UTF-8 BOM, ,) and a 1 200-row CSV for the interrupted
+// upload. OUT=<dir> SEED=<n> SUFFIX=<s> npx tsx e2e/staging/clients-import-files.mts
 import { writeFileSync } from "node:fs";
 import { generateClientFixture } from "../../scripts/imports/client-fixtures";
 import { parseImportFile } from "../../lib/imports/clients/parse-file";
@@ -12,4 +13,6 @@ const parsed = await parseImportFile({ name: "x.csv", bytes: f1000.bytes.buffer.
 writeFileSync(`${out}/clientes-1000${process.env.SUFFIX ?? ""}.xlsx`, new Uint8Array(buildXlsx([{ name: "Clientes", rows: [parsed.headers, ...parsed.rows] }])));
 const f10000 = generateClientFixture({ rows: 10000, seed: Number(process.env.SEED ?? 101) + 202, delimiter: ",", encoding: "utf8-bom" });
 writeFileSync(`${out}/clientes-10000${process.env.SUFFIX ?? ""}.csv`, f10000.bytes);
+const fPartial = generateClientFixture({ rows: 1200, seed: Number(process.env.SEED ?? 101) + 303, delimiter: ";", encoding: "utf8" });
+writeFileSync(`${out}/clientes-incompleta${process.env.SUFFIX ?? ""}.csv`, fPartial.bytes);
 console.log("files written");

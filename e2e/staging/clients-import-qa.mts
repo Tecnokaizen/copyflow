@@ -12,10 +12,17 @@
  * the feature clients_import is switched for them and nothing else.
  * STUCK_BATCH_FILES (optional, comma-separated) name batches left "uploaded" by an
  * earlier run: each is resumed from the history, checked against the oracle and cancelled.
+ * PURGE_ONLY=1 + PURGED_BATCH_FILE: only step 11. Step 10 leaves a half-committed
+ * batch (api-orden.csv); once an operator moves its expires_at to the past in
+ * Staging, this mode purges it and checks that it keeps its counters and accepts
+ * no further change.
+ * Audit P1 checks (20261016124000): interrupted upload resumed from the history
+ * (step 9), out-of-order ranges and incomplete staging through the API (step 10).
  * Expected results come from an independent oracle (same engine + duplicate rules
  * + the tenant's existing clients read with the Staging service key).
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- Playwright is loaded at runtime, outside package.json. */
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { parseImportFile } from "../../lib/imports/clients/parse-file";
@@ -159,10 +166,51 @@ async function uiCommit(page: any, shot: string, resume = false) {
 const SUFFIX = process.env.SUFFIX ?? "";
 // Each round imports "from another program": origin ids of earlier rounds do not count as duplicates.
 const source = (name: string) => `${name}${SUFFIX}`;
-const files = { f100: `${OUT}/clientes-100${SUFFIX}.csv`, f1000: `${OUT}/clientes-1000${SUFFIX}.xlsx`, f10000: `${OUT}/clientes-10000${SUFFIX}.csv` };
+const files = {
+  f100: `${OUT}/clientes-100${SUFFIX}.csv`,
+  f1000: `${OUT}/clientes-1000${SUFFIX}.xlsx`,
+  f10000: `${OUT}/clientes-10000${SUFFIX}.csv`,
+  partial: `${OUT}/clientes-incompleta${SUFFIX}.csv`,
+};
 const ownerE2E = { email: process.env.E2E_USER_EMAIL!, password: process.env.E2E_USER_PASSWORD! };
 const viewerE2E = { email: "e2e-viewer@example.com", password: readFileSync(process.env.VIEWER_PW_FILE!, "utf8").trim() };
 const ownerImport = { email: "e2e-import-owner@example.com", password: readFileSync(process.env.IMPORT_PW_FILE!, "utf8").trim() };
+
+// 11. Audit P1: a half-committed batch whose rows are purged keeps its counters
+//     and accepts no further change.
+async function purgeCheck(page: any, purgedName: string) {
+  const before = await latestBatch(page, purgedName);
+  const { data: purge, error: purgeError } = await admin.rpc("client_import_purge_expired", { p_limit: 10 });
+  if (purgeError) throw purgeError;
+  const after = await latestBatch(page, purgedName);
+  const commit = await api(page, "POST", `/api/imports/clients/batches/${after?.id}/commit`, { expected_version: after?.row_version });
+  const revert = await api(page, "POST", `/api/imports/clients/batches/${after?.id}/revert`, {});
+  await page.goto(`${BASE}/clients/import`);
+  await page.getByRole("heading", { name: "Importaciones recientes" }).waitFor({ timeout: 60_000 });
+  const row = page.locator("tr", { hasText: purgedName }).first();
+  const statusText = await row.locator("td").nth(2).innerText();
+  const actions = await row.getByRole("button").allInnerTexts();
+  await page.screenshot({ path: `${OUT}/p1-purged-history.png`, fullPage: true });
+  const still = await latestBatch(page, purgedName);
+  results.p1Purged = {
+    purge, before: { status: before?.status, created: before?.counts?.created, purged: before?.rows_purged },
+    after: { status: after?.status, created: after?.counts?.created, purged: after?.rows_purged },
+    commit: commit.status, revert: revert.status, statusText, actions, createdAtEnd: still?.counts?.created,
+  };
+  check(before?.status === "committing" && after?.rows_purged === true && after?.counts?.created === before?.counts?.created, "P1 purge: counters kept");
+  check(commit.status === 409 && revert.status === 409 && still?.status === before?.status && still?.counts?.created === before?.counts?.created, "P1 purge: no change after purge");
+  check(statusText.includes("Caducada a medias") && JSON.stringify(actions) === JSON.stringify(["Ver resumen"]), "P1 purge: history shows it as expired half-way");
+}
+
+if (process.env.PURGE_ONLY) {
+  const session = await login("e2e-import", ownerImport.email, ownerImport.password);
+  await purgeCheck(session.page, process.env.PURGED_BATCH_FILE!);
+  await browser.close();
+  results.failures = failures;
+  writeFileSync(`${OUT}/results-purge.json`, JSON.stringify(results, null, 2));
+  console.log(JSON.stringify(results, null, 2));
+  process.exit(0);
+}
 
 // 1. Viewer: no access in API or UI.
 {
@@ -278,7 +326,7 @@ let tenKCreated = 0;
   check(a.status === 404 && b.status === 404 && c.status() === 404 && d.status === 404 && e.status === 404 && !(results.isolation as any).listLeaks, "tenant isolation");
 }
 
-// 7. Revert of the 10 000-row import from the UI (chunks of 500 until nothing is left).
+// 7. Revert of the 10 000-row import from the UI (chunks of 250 until nothing is left).
 {
   const page = importDesktop.page;
   const before = calls.length;
@@ -319,6 +367,100 @@ for (const stuckName of (process.env.STUCK_BATCH_FILES ?? "").split(",").map((s)
   }
 }
 results.resumeUploaded = resumed;
+
+// 9. Audit P1: an upload interrupted half-way is never validated as is. The
+//    second batch of rows is dropped on the way; after a reload the history says
+//    how many rows are missing and "Continuar" asks for the file again.
+{
+  const page = importDesktop.page;
+  const partialName = `clientes-incompleta${SUFFIX}.csv`;
+  const expected = await oracle("e2e-import", source("Envío interrumpido"), files.partial);
+  let stageCalls = 0;
+  await page.route("**/api/imports/clients/batches/*/rows", (route: any) => {
+    stageCalls += 1;
+    return stageCalls === 2 ? route.abort() : route.fallback();
+  });
+  await page.goto(`${BASE}/clients/import`);
+  await page.getByRole("heading", { name: "1. Elige el archivo" }).waitFor({ timeout: 60_000 });
+  await page.getByPlaceholder("Ej. Mi programa anterior").fill(source("Envío interrumpido"));
+  await page.locator('input[type="file"]').setInputFiles(files.partial);
+  await page.getByRole("heading", { name: "2. Relaciona las columnas" }).waitFor({ timeout: 120_000 });
+  await page.getByRole("button", { name: "Ver vista previa" }).click();
+  await page.getByRole("heading", { name: "3. Vista previa" }).waitFor();
+  await page.getByRole("button", { name: "Validar en Gestcopy" }).click();
+  await page.locator('p[role="alert"]').waitFor({ timeout: 120_000 });
+  await page.unroute("**/api/imports/clients/batches/*/rows");
+  const interrupted = await latestBatch(page, partialName);
+  await page.goto(`${BASE}/clients/import`);
+  await page.getByRole("heading", { name: "Importaciones recientes" }).waitFor({ timeout: 60_000 });
+  const row = page.locator("tr", { hasText: partialName });
+  const statusText = await row.locator("td").nth(2).innerText();
+  await row.getByRole("button", { name: "Continuar" }).click();
+  const notice = await page.locator('p[role="status"]').first().innerText({ timeout: 60_000 });
+  const backToFile = await page.getByRole("heading", { name: "1. Elige el archivo" }).isVisible();
+  await page.screenshot({ path: `${OUT}/p1-partial-resume.png`, fullPage: true });
+  await page.locator('input[type="file"]').setInputFiles(files.partial);
+  await page.getByRole("heading", { name: "2. Relaciona las columnas" }).waitFor({ timeout: 120_000 });
+  await page.getByRole("button", { name: "Ver vista previa" }).click();
+  await page.getByRole("heading", { name: "3. Vista previa" }).waitFor();
+  await page.getByRole("button", { name: "Validar en Gestcopy" }).click();
+  await page.getByRole("heading", { name: "4. Revisa los duplicados" }).waitFor({ timeout: 600_000 });
+  const kpis = (await page.locator(".gc-kpi-value").allInnerTexts()).map((v: string) => Number(v.replace(/\./g, "")));
+  const review = { valid: kpis[0], duplicate_existing: kpis[1], possible_duplicate: kpis[2], duplicate_in_file: kpis[3], error: kpis[4] };
+  const completed = await latestBatch(page, partialName);
+  const cancel = await api(page, "POST", `/api/imports/clients/batches/${completed?.id}/cancel`);
+  results.p1Partial = {
+    interrupted: { status: interrupted?.status, total: interrupted?.counts?.total, expected: interrupted?.expected_rows },
+    statusText, notice, backToFile, sameBatch: completed?.id === interrupted?.id,
+    completed: { status: completed?.status, total: completed?.counts?.total }, expected, review, cancel: cancel.status,
+  };
+  check(interrupted?.status === "uploaded" && interrupted?.counts?.total === 500 && interrupted?.expected_rows === 1200, "P1 partial: 500 of 1200 rows arrived");
+  check(/Faltan 700 filas/.test(statusText) && /Faltan 700 de 1\.?200 filas/.test(notice) && backToFile, "P1 partial: history and notice ask for the file");
+  check(completed?.id === interrupted?.id && completed?.status === "validated" && completed?.counts?.total === 1200, "P1 partial: same batch completed with 1200 rows");
+  check(JSON.stringify(review) === JSON.stringify({ valid: expected.valid, duplicate_existing: expected.duplicate_existing, possible_duplicate: expected.possible_duplicate, duplicate_in_file: expected.duplicate_in_file, error: expected.error }), "P1 partial: review == oracle");
+}
+
+// 10. Audit P1 through the API: ranges out of order and incomplete staging.
+{
+  const page = importDesktop.page;
+  const sha = (label: string) => createHash("sha256").update(`${label}${SUFFIX}`).digest("hex");
+  const create = (label: string, rows: number) => api(page, "POST", "/api/imports/clients/batches", {
+    source_system: source("API auditoría"), file_name: `api-${label}.csv`, file_size: 10, file_sha256: sha(label),
+    mapping: { Nombre: "name" }, expected_rows: rows,
+  });
+  const rows = (from: number, to: number, tag: string) => Array.from({ length: to - from + 1 }, (_, i) => ({ row_number: from + i, name: `${tag} ${from + i}` }));
+  const ordered = (await create("orden", 3)).body?.batch;
+  await api(page, "POST", `/api/imports/clients/batches/${ordered.id}/rows`, { rows: rows(1, 3, `Orden${SUFFIX}`) });
+  const lastFirst = await api(page, "POST", `/api/imports/clients/batches/${ordered.id}/finalize`, { from_row: 3, limit: 1 });
+  const commitEarly = await api(page, "POST", `/api/imports/clients/batches/${ordered.id}/commit`, { expected_version: lastFirst.body?.batch?.row_version });
+  const full = await api(page, "POST", `/api/imports/clients/batches/${ordered.id}/finalize`, { from_row: 1, limit: 1000 });
+  const partial = (await create("parcial", 3)).body?.batch;
+  await api(page, "POST", `/api/imports/clients/batches/${partial.id}/rows`, { rows: rows(1, 2, `Parcial${SUFFIX}`) });
+  const finalizePartial = await api(page, "POST", `/api/imports/clients/batches/${partial.id}/finalize`, {});
+  const beyond = await api(page, "POST", `/api/imports/clients/batches/${partial.id}/rows`, { rows: rows(4, 4, `Parcial${SUFFIX}`) });
+  const noCount = await api(page, "POST", "/api/imports/clients/batches", {
+    source_system: source("API auditoría"), file_name: "sin-recuento.csv", file_size: 10, file_sha256: sha("sin-recuento"), mapping: { Nombre: "name" },
+  });
+  // Leave it half-committed (1 of 3 rows) for the purge check (PURGE_ONLY).
+  const halfway = await api(page, "POST", `/api/imports/clients/batches/${ordered.id}/commit`, { expected_version: full.body?.batch?.row_version, limit: 1 });
+  await api(page, "POST", `/api/imports/clients/batches/${partial.id}/cancel`);
+  results.p1Api = {
+    lastFirst: { status: lastFirst.body?.batch?.status, done: lastFirst.body?.batch?.done, next_row: lastFirst.body?.batch?.next_row },
+    commitEarly: { status: commitEarly.status, code: commitEarly.body?.code },
+    full: { status: full.body?.batch?.status, valid: full.body?.batch?.counts?.valid },
+    finalizePartial: { status: finalizePartial.status, code: finalizePartial.body?.code },
+    beyond: { status: beyond.status, code: beyond.body?.code },
+    noCount: noCount.status,
+    halfway: { status: halfway.body?.batch?.status, created: halfway.body?.batch?.counts?.created },
+  };
+  check(lastFirst.body?.batch?.status === "uploaded" && lastFirst.body?.batch?.done === false && lastFirst.body?.batch?.next_row === 1, "P1 API: last range first is not validated");
+  check(commitEarly.status === 409, "P1 API: commit refused before full classification");
+  check(full.body?.batch?.status === "validated" && full.body?.batch?.counts?.valid === 3, "P1 API: validated once complete");
+  check(finalizePartial.status === 409 && finalizePartial.body?.code === "batch_incomplete", "P1 API: 2 of 3 rows refused");
+  check(beyond.status === 400, "P1 API: row beyond the declared count refused");
+  check(noCount.status === 400, "P1 API: the row count is required");
+  check(halfway.body?.batch?.status === "committing" && halfway.body?.batch?.counts?.created === 1, "P1 API: api-orden.csv left half-committed");
+}
 
 // Every chunked call stays far from the 8 s statement timeout; no 5xx anywhere.
 const byKind = (kind: string) => {
