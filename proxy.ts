@@ -4,7 +4,11 @@ import { trustedKioskRequestContext } from "@/lib/kiosk/trusted-request";
 import { kioskUnavailableResponse } from "@/lib/kiosk/unavailable-response";
 import { createServerClient } from "@supabase/ssr";
 import { hasEnvVars } from "@/lib/utils";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import {
+  classifyRequestHost,
+  isHostGateExemptPath,
+} from "@/lib/tenant/trusted-host";
+import { untrustedHostResponse } from "@/lib/tenant/untrusted-host-response";
 import {
   isTenantAppExemptPath,
   resolveInactiveTenantState,
@@ -33,6 +37,19 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Fail closed on any host that is not explicitly trusted (spoofed or
+  // inconsistent forwarding headers, unknown/custom domains). Runs before any
+  // session or tenant work. Only an explicit list of exact paths is exempt (see
+  // HOST_GATE_EXEMPT_PATHS): each authenticates by signature, secret or its own
+  // stricter validator and never trusts the host.
+  const hostClassification = classifyRequestHost(request.headers, process.env);
+  if (
+    hostClassification.status === "untrusted" &&
+    !isHostGateExemptPath(request.nextUrl.pathname)
+  ) {
+    return untrustedHostResponse();
+  }
+
   const session = await updateSession(request);
 
   // Central provisioning gate: inactive tenants must not render the app UI.
@@ -42,11 +59,8 @@ export async function proxy(request: NextRequest) {
     session.response.status >= 200 &&
     session.response.status < 400
   ) {
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "";
-    const slug = getSubdomainFromHostname(host);
+    const slug =
+      hostClassification.status === "tenant" ? hostClassification.slug : null;
     if (slug) {
       try {
         const supabase = createServerClient(

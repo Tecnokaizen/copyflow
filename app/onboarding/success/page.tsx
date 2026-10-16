@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
-import { isTenantHostRequest } from "@/lib/tenant/request-host";
+import { isOnboardingHostRequest } from "@/lib/tenant/request-host";
 import Link from "next/link";
 
 export const instant = false;
@@ -21,7 +21,7 @@ export default async function OnboardingSuccessPage({
 }: {
   searchParams: Promise<{ session_id?: string }>;
 }) {
-  if (await isTenantHostRequest()) {
+  if (!(await isOnboardingHostRequest())) {
     redirect("/");
   }
 
