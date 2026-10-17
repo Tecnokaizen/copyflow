@@ -49,6 +49,15 @@ begin
 end;
 $helper$;
 
+-- Row numbers of a page or summary, in order.
+create function pg_temp.p50_rows(p_result jsonb)
+  returns integer[]
+  language sql
+as $helper$
+  select coalesce(pg_catalog.array_agg((t.x ->> 'row_number')::integer order by t.i), '{}'::integer[])
+  from pg_catalog.jsonb_array_elements(p_result -> 'rows') with ordinality as t(x, i);
+$helper$;
+
 do $phase50$
 declare
   tenant_a uuid := 'e5000000-0000-4000-8000-0000000000a1';
@@ -78,6 +87,7 @@ declare
   msg text;
   c public.clients%rowtype;
   client_row1 uuid; client_row10 uuid; client_row11 uuid;
+  e4 uuid; batch_rev uuid; plan jsonb;
   h jsonb := '{"description":"Copias","title":"Trabajo","issue_date":"2026-10-16","currency":"EUR","prices_include_tax":false}';
   items jsonb := '[{"concept":"Copias A4","quantity":"2","unit_price":"100","discount_percent":"0","tax_rate":"21"}]';
 begin
@@ -538,6 +548,176 @@ begin
   perform imports_private.refresh_batch_counters(batch_tmp);
   perform pg_temp.p50_check((select created_count = 2 and total_rows = 5 from imports_private.client_import_batches where id = batch_tmp),
     'counters of a purged batch are never recomputed');
+
+  -- Review (20261016125500): every row by pages, exclusion, plan from the server --
+  perform pg_temp.p50_as(owner_a);
+  e4 := (public.create_client_v2(null, 'Existente Cuatro', null, null, null, null, '+34 622555666', null, tenant_a, null)
+         -> 'client' ->> 'id')::uuid;
+  batch_rev := (public.client_import_create_batch_v2(tenant_a, 'Revisión', 'revision.csv', 10, pg_catalog.repeat('3', 64), mapping, 8) ->> 'id')::uuid;
+  perform public.client_import_stage_rows(batch_rev, pg_catalog.jsonb_build_array(
+    pg_catalog.jsonb_build_object('row_number', 1, 'name', 'Rev Uno', 'email', 'rev1@phase50.test'),
+    pg_catalog.jsonb_build_object('row_number', 2, 'name', 'Rev Dos', 'email', 'rev2@phase50.test'),
+    pg_catalog.jsonb_build_object('row_number', 3, 'name', 'Rev Existe', 'email', 'existe@phase50.test'),
+    pg_catalog.jsonb_build_object('row_number', 4, 'name', 'Rev Prefijo', 'phone', '622 555 666'),
+    pg_catalog.jsonb_build_object('row_number', 5, 'name', 'Rev Repetido', 'email', 'REV1@phase50.test'),
+    pg_catalog.jsonb_build_object('row_number', 6, 'name', 'Rev Error', 'email', 'no-es-email'),
+    pg_catalog.jsonb_build_object('row_number', 7, 'name', 'Rev Tres', 'email', 'rev3@phase50.test'),
+    pg_catalog.jsonb_build_object('row_number', 8, 'name', 'Rev Existe Tres', 'email', 'tres@phase50.test', 'phone', '699 000 111')));
+  r := public.client_import_finalize(batch_rev);
+  perform pg_temp.p50_check(r ->> 'status' = 'validated' and (r -> 'counts' ->> 'valid')::integer = 3
+    and (r -> 'counts' ->> 'duplicate_existing')::integer = 2 and (r -> 'counts' ->> 'possible_duplicate')::integer = 1
+    and (r -> 'counts' ->> 'duplicate_in_file')::integer = 1 and (r -> 'counts' ->> 'error')::integer = 1,
+    'review batch classification: ' || (r -> 'counts')::text);
+  plan := public.client_import_summary(batch_rev, 1) -> 'plan';
+  perform pg_temp.p50_check(plan = '{"create": 3, "create_possible": 0, "fill_blanks": 0, "skip": 3, "skip_existing": 2,
+    "skip_possible": 1, "excluded": 0, "error": 1, "duplicate_in_file": 1, "unclassified": 0, "total": 8}'::jsonb,
+    'initial plan: ' || plan::text);
+
+  -- Pages: keyset by row number, total of the filter over the whole batch.
+  r := public.client_import_rows_page(batch_rev, 'attention', 0, 2);
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[3, 4] and (r ->> 'total')::integer = 5
+    and (r ->> 'has_more')::boolean and (r ->> 'next_after_row')::integer = 4, 'attention page 1: ' || r::text);
+  r := public.client_import_rows_page(batch_rev, 'attention', 4, 2);
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[5, 6] and (r ->> 'next_after_row')::integer = 6, 'attention page 2: ' || r::text);
+  r := public.client_import_rows_page(batch_rev, 'attention', 6, 2);
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[8] and not (r ->> 'has_more')::boolean
+    and r -> 'next_after_row' = 'null'::jsonb and (r ->> 'total')::integer = 5, 'attention last page: ' || r::text);
+  r := public.client_import_rows_page(batch_rev, 'all', 0, 200);
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[1, 2, 3, 4, 5, 6, 7, 8] and (r ->> 'total')::integer = 8, 'all rows');
+  perform pg_temp.p50_check(pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'valid')) = array[1, 2, 7], 'valid rows');
+  perform pg_temp.p50_check(pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'error')) = array[6], 'error rows');
+  perform pg_temp.p50_check(pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'duplicate_in_file')) = array[5], 'repeated rows');
+  r := public.client_import_rows_page(batch_rev, 'possible_duplicate');
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[4] and (r -> 'rows' -> 0 -> 'matched_client' ->> 'id')::uuid = e4
+    and r -> 'rows' -> 0 -> 'matched_client' ->> 'phone' = '+34 622555666', 'possible duplicate shows the matched client: ' || r::text);
+  r := public.client_import_rows_page(batch_rev, 'duplicate_existing');
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[3, 8] and (r -> 'rows' -> 0 -> 'matched_client' ->> 'id')::uuid = e1
+    and (r -> 'rows' -> 1 -> 'matched_client' ->> 'id')::uuid = e3
+    and r -> 'rows' -> 0 -> 'matched_client' ->> 'email' = 'existe@phase50.test', 'existing duplicates and their clients');
+  r := public.client_import_rows_page(batch_rev, 'all', 0, 0);
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[1] and (r ->> 'has_more')::boolean, 'page size at least 1');
+  r := public.client_import_rows_page(batch_rev, 'all', -5, 1000);
+  perform pg_temp.p50_check((r ->> 'after_row')::integer = 0 and pg_catalog.jsonb_array_length(r -> 'rows') = 8, 'cursor and size clamped');
+  r := public.client_import_rows_page(batch_rev, null);
+  perform pg_temp.p50_check(r ->> 'filter' = 'attention' and pg_temp.p50_rows(r) = array[3, 4, 5, 6, 8], 'attention by default');
+  perform pg_temp.p50_expect(format('select public.client_import_rows_page(%L, %L)', batch_rev, 'bogus'), '22023', 'unknown filter');
+  r := public.client_import_rows_page(batch_tmp, 'all');
+  perform pg_temp.p50_check((r ->> 'rows_purged')::boolean and (r ->> 'total')::integer = 0 and r -> 'rows' = '[]'::jsonb
+    and public.client_import_summary(batch_tmp, 1) -> 'plan' = 'null'::jsonb, 'purged batch: no rows and no plan');
+
+  -- Pages follow the same tenant, role and feature rules as the summary.
+  perform pg_temp.p50_as(owner_b);
+  perform pg_temp.p50_expect(format('select public.client_import_rows_page(%L)', batch_rev), 'P0002', 'B reads A rows');
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{2}', 'exclude'),
+    'P0002', 'B excludes A rows');
+  perform pg_temp.p50_as(staff_a);
+  perform pg_temp.p50_expect(format('select public.client_import_rows_page(%L)', batch_rev), 'P0002', 'staff reads rows');
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{2}', 'exclude'),
+    'P0002', 'staff excludes rows');
+  perform pg_temp.p50_as(null);
+  perform pg_temp.p50_expect(format('select public.client_import_rows_page(%L)', batch_rev), 'P0002', 'anonymous reads rows');
+  execute 'reset role';
+  perform public.set_tenant_feature('phase50a', 'clients_import', false, null);
+  perform pg_temp.p50_as(owner_a);
+  msg := pg_temp.p50_expect(format('select public.client_import_rows_page(%L)', batch_rev), '42501', 'rows with the feature off');
+  perform pg_temp.p50_check(msg = 'clients_import_disabled', 'feature off message for rows');
+  execute 'reset role';
+  perform public.set_tenant_feature('phase50a', 'clients_import', true, null);
+
+  -- Exclusion: only importable rows; it keeps the decision and survives the
+  -- strategy and a reclassification.
+  perform pg_temp.p50_as(manager_a);
+  v := (public.client_import_summary(batch_rev, 1) ->> 'row_version')::integer;
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{6}', 'exclude'),
+    '22023', 'rows with errors cannot be excluded');
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{5}', 'include'),
+    '22023', 'rows repeated in the file cannot be included');
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{1}', 'bogus'),
+    '22023', 'unknown decision');
+  r := public.client_import_set_row_decisions(batch_rev, '{1,3,4}', 'exclude');
+  perform pg_temp.p50_check((r ->> 'changed')::integer = 3 and (r ->> 'row_version')::integer = v + 1
+    and r -> 'plan' = '{"create": 2, "create_possible": 0, "fill_blanks": 0, "skip": 1, "skip_existing": 1,
+      "skip_possible": 0, "excluded": 3, "error": 1, "duplicate_in_file": 1, "unclassified": 0, "total": 8}'::jsonb,
+    'exclude three rows: ' || r::text);
+  r := public.client_import_set_row_decisions(batch_rev, '{1}', 'exclude');
+  perform pg_temp.p50_check((r ->> 'changed')::integer = 0 and (r -> 'plan' ->> 'excluded')::integer = 3, 'excluding twice changes nothing');
+  r := public.client_import_set_row_decisions(batch_rev, '{4}', 'create');
+  perform pg_temp.p50_check((r -> 'plan' ->> 'excluded')::integer = 3 and (r -> 'plan' ->> 'create')::integer = 2,
+    'an excluded row is not created whatever its decision');
+  r := public.client_import_set_row_decisions(batch_rev, '{4}', 'include');
+  perform pg_temp.p50_check((r ->> 'changed')::integer = 1 and (r -> 'plan' ->> 'create')::integer = 3
+    and (r -> 'plan' ->> 'create_possible')::integer = 1 and (r -> 'plan' ->> 'excluded')::integer = 2,
+    'the included row gets its decision back: ' || (r -> 'plan')::text);
+  perform public.client_import_set_strategy(batch_rev, 'fill_blanks', true);
+  plan := public.client_import_summary(batch_rev, 1) -> 'plan';
+  perform pg_temp.p50_check(plan = '{"create": 3, "create_possible": 1, "fill_blanks": 1, "skip": 0, "skip_existing": 0,
+    "skip_possible": 0, "excluded": 2, "error": 1, "duplicate_in_file": 1, "unclassified": 0, "total": 8}'::jsonb,
+    'filling blanks does not bring back the excluded duplicate: ' || plan::text);
+  r := public.client_import_finalize(batch_rev);
+  perform pg_temp.p50_check(r -> 'counts' ->> 'valid' = '3' and public.client_import_summary(batch_rev, 1) -> 'plan'
+    = '{"create": 2, "create_possible": 0, "fill_blanks": 1, "skip": 1, "skip_existing": 0, "skip_possible": 1,
+      "excluded": 2, "error": 1, "duplicate_in_file": 1, "unclassified": 0, "total": 8}'::jsonb,
+    'reclassifying keeps the exclusions and resets the decisions');
+  r := public.client_import_rows_page(batch_rev, 'excluded');
+  perform pg_temp.p50_check(pg_temp.p50_rows(r) = array[1, 3] and (r -> 'rows' -> 0 ->> 'excluded')::boolean
+    and (r -> 'rows' -> 0 ->> 'decision') = 'create', 'excluded rows keep their decision');
+  perform pg_temp.p50_check(pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'create')) = array[2, 7]
+    and pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'fill_blanks')) = array[8]
+    and pg_temp.p50_rows(public.client_import_rows_page(batch_rev, 'skip')) = array[4], 'pages by outcome match the plan');
+  perform pg_temp.p50_check((select pg_catalog.bool_and(x.ok) from (
+      select (public.client_import_rows_page(batch_rev, f) ->> 'total')::integer = (s.j -> 'plan' ->> f)::integer as ok
+      from public.client_import_summary(batch_rev, 1) s(j),
+           pg_catalog.unnest(array['create', 'fill_blanks', 'skip', 'excluded', 'error', 'duplicate_in_file']) f
+    ) x), 'page totals equal the plan');
+
+  -- A change from elsewhere between the review and the confirmation.
+  v := (public.client_import_summary(batch_rev, 1) ->> 'row_version')::integer;
+  perform public.client_import_set_row_decisions(batch_rev, '{2}', 'exclude');
+  perform pg_temp.p50_expect(format('select public.client_import_commit_chunk(%L, %s)', batch_rev, v), 'GC409', 'plan changed after review');
+  r := public.client_import_set_row_decisions(batch_rev, '{2}', 'include');
+  perform pg_temp.p50_check((r -> 'plan' ->> 'create')::integer = 2, 'row 2 back in the plan');
+
+  -- Confirming does exactly what the plan said.
+  r := public.client_import_commit_chunk(batch_rev, (r ->> 'row_version')::integer, 200);
+  perform pg_temp.p50_check(r ->> 'status' = 'committed' and (r -> 'counts' ->> 'created')::integer = 2
+    and (r -> 'counts' ->> 'filled')::integer = 1 and (r -> 'counts' ->> 'skipped')::integer = 5
+    and (r -> 'counts' ->> 'excluded')::integer = 2 and (r -> 'counts' ->> 'failed')::integer = 0,
+    'commit follows the plan; 2 of the 5 skipped were excluded: ' || (r -> 'counts')::text);
+  perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{1}', 'include'),
+    '55000', 'no exclusion changes after the commit');
+  perform pg_temp.p50_check((public.client_import_summary(batch_rev, 1) -> 'plan' ->> 'excluded')::integer = 2, 'plan kept after commit');
+  r := public.client_import_rows_page(batch_rev, 'excluded');
+  perform pg_temp.p50_check(r -> 'rows' -> 0 ->> 'result' = 'skipped' and r -> 'rows' -> 1 ->> 'result_reason' = 'excluded_by_user',
+    'excluded rows reported as excluded');
+  execute 'reset role';
+  perform pg_temp.p50_check((select pg_catalog.array_agg(row_number order by row_number) from imports_private.client_import_rows
+    where batch_id = batch_rev and result_reason = 'excluded_by_user') = array[1, 3], 'rows 1 and 3 skipped as excluded');
+  perform pg_temp.p50_check(not exists (select 1 from public.clients where tenant_id = tenant_a and email = 'rev1@phase50.test'),
+    'excluded new row not created');
+  perform pg_temp.p50_check((select phone = '699 000 111' from public.clients where id = e3), 'included existing duplicate filled');
+  perform pg_temp.p50_check(not exists (select 1 from imports_private.client_import_rows
+    where batch_id <> batch_rev and (excluded_at is not null or result_reason = 'excluded_by_user')), 'other batches untouched');
+  perform pg_temp.p50_check(not exists (select 1 from imports_private.client_import_batches
+    where id <> batch_rev and excluded_count <> 0), 'no other batch counts excluded rows');
+
+  -- The 30-day purge keeps the excluded rows apart from the skipped ones.
+  update imports_private.client_import_batches set expires_at = pg_catalog.now() - interval '1 day' where id = batch_rev;
+  perform pg_temp.p50_as(null);
+  execute 'set local role service_role';
+  r := public.client_import_purge_expired(10);
+  perform pg_temp.p50_check((r ->> 'batches')::integer = 1 and (r ->> 'rows')::integer = 8, 'review batch purged: ' || r::text);
+  perform pg_temp.p50_as(owner_a);
+  r := public.client_import_summary(batch_rev, 5);
+  perform pg_temp.p50_check((r ->> 'rows_purged')::boolean and r -> 'plan' = 'null'::jsonb and r -> 'rows' = '[]'::jsonb
+    and (r -> 'counts' ->> 'skipped')::integer = 5 and (r -> 'counts' ->> 'excluded')::integer = 2
+    and (r -> 'counts' ->> 'created')::integer = 2, 'purged batch still tells excluded from skipped: ' || (r -> 'counts')::text);
+  perform pg_temp.p50_check((select (h.x -> 'counts' ->> 'excluded')::integer = 2
+    from pg_catalog.jsonb_array_elements(public.client_import_list_batches(tenant_a)) h(x)
+    where (h.x ->> 'id')::uuid = batch_rev), 'history keeps the excluded count');
+  execute 'reset role';
+  perform imports_private.refresh_batch_counters(batch_rev);
+  perform pg_temp.p50_check((select excluded_count = 2 and skipped_count = 5 from imports_private.client_import_batches where id = batch_rev),
+    'excluded counter of a purged batch never recomputed');
 
   -- Plan settings that keep chunks linear on fresh data (see 20261016122000).
   perform pg_temp.p50_check((select p.proconfig @> array['enable_nestloop=off'] from pg_proc p

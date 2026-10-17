@@ -170,6 +170,11 @@ export function canWriteClients(role: string | null | undefined) {
   return hasMembershipRole(role, OPERATIVE_ROLES);
 }
 
+/** Client import (Migration V1): management roles; the clients_import feature is checked by the API. */
+export function canManageClientImport(role: string | null | undefined) {
+  return hasMembershipRole(role, MANAGEMENT_ROLES);
+}
+
 export function canWriteServices(role: string | null | undefined) {
   return hasMembershipRole(role, MANAGEMENT_ROLES);
 }
