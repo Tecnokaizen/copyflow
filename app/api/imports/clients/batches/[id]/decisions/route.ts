@@ -9,6 +9,7 @@ import {
   notFound,
   readJsonBody,
 } from "@/lib/imports/clients/http";
+import { isRowDecision } from "@/lib/imports/clients/review";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentAccess } from "@/lib/tenant/access-response";
 
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     rowNumbers.length < 1 ||
     rowNumbers.length > 10_000 ||
     !rowNumbers.every((value) => Number.isInteger(value)) ||
-    !["create", "skip", "fill_blanks"].includes(String(body.decision))
+    !isRowDecision(body.decision)
   ) {
     return invalidBody();
   }

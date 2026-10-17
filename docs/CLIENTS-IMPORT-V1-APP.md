@@ -20,11 +20,12 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 | --- | --- | --- |
 | `/access` | GET | ¿Puede abrir Clientes → Importar? |
 | `/batches` | GET / POST | `client_import_list_batches` / `client_import_create_batch_v2` (con `expected_rows`, las filas del archivo) |
-| `/batches/[id]` | GET | `client_import_summary` |
+| `/batches/[id]` | GET | `client_import_summary`, con el `plan` de la confirmación |
+| `/batches/[id]/rows` | GET | `client_import_rows_page`: todas las filas por filtro (`filter`, `after`, `limit` ≤ 200) |
 | `/batches/[id]/rows` | POST | `client_import_stage_rows` (≤ 500 filas) |
 | `/batches/[id]/finalize` | POST | `client_import_finalize` por tramos (`from_row`, `limit`) |
 | `/batches/[id]/strategy` | POST | `client_import_set_strategy` |
-| `/batches/[id]/decisions` | POST | `client_import_set_row_decisions` |
+| `/batches/[id]/decisions` | POST | `client_import_set_row_decisions`: `create`, `skip`, `fill_blanks`, `exclude` o `include`; devuelve el `plan` |
 | `/batches/[id]/commit` | POST | `client_import_commit_chunk` |
 | `/batches/[id]/cancel` | POST | `client_import_cancel` |
 | `/batches/[id]/revert` | POST | `client_import_revert` por tramos (`limit`) |
@@ -42,21 +43,23 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 **Pasos del asistente:**
 
 1. **Archivo:**
-   - origen («Otro programa» con su nombre, o «Plantilla de Gestcopy» con descarga de la plantilla);
+   - origen («Otro programa» con su nombre, o «Plantilla de Gestcopy» con descarga de la plantilla versionada, `plantilla-clientes-gestcopy-v1.csv`);
    - selector de archivo;
    - historial de importaciones (continuar, ver informe, descartar).
 2. **Columnas:**
    - relación sugerida por sinónimos, editable;
    - elección de hoja en XLSX;
+   - si el archivo tiene las columnas de una versión de la plantilla (en cualquier orden, con o sin tildes), se indica cuál;
    - en móvil, lista con desplegables a todo el ancho.
 3. **Vista previa:** totales y primeras 20 filas, con los problemas detectados en el navegador.
-4. **Duplicados:**
+4. **Revisión:**
    - la clasificación se pide en tramos de 1.000 filas; si se interrumpe, el historial la retoma desde el principio;
-   - resumen del servidor;
+   - totales del **plan del servidor**, calculados sobre todas las filas: se crearán, se completarán, se omiten (duplicados), excluidas por el usuario y no importables (errores y repetidas en el archivo);
    - estrategia: omitir, o completar campos vacíos con confirmación explícita;
-   - «Crear igualmente» por cada posible duplicado;
-   - filas que no se importarán.
-5. **Importar:** confirmación y tramos de 100 con progreso. Ante `row_version_conflict` recarga el estado y sigue; si se interrumpe, se reanuda desde el historial.
+   - **todas las filas**, de 50 en 50, con filtros: para revisar (por defecto), posibles duplicados, ya existen, repetidas en el archivo, con errores, nuevas, excluidas y todas. Cada fila muestra el cliente con el que coincide y qué se hará con ella;
+   - por fila: «Excluir» / «Volver a incluir» en las importables, y «Crear igualmente» / «No crear» en los posibles duplicados;
+   - nada se escribe en la cartera hasta confirmar.
+5. **Importar:** los mismos totales del plan, confirmación y tramos de 100 con progreso. El primer tramo lleva la `row_version` del plan mostrado: si el lote cambió después (otra pestaña u otra persona), el servidor responde `row_version_conflict`, **no se importa nada** y el asistente vuelve a la revisión con los totales al día. Si se interrumpe, se reanuda desde el historial.
 6. **Informe:**
    - resultados;
    - descarga del CSV;
@@ -75,11 +78,44 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 
 **Tamaño de los tramos** (`lib/imports/clients/api.ts`): 1.000 filas al clasificar, 100 al confirmar y 250 al revertir. En la QA de Staging (mismo tipo de cómputo que Production), cada llamada tarda unos 0,3–0,6 s, así que queda muy por debajo del límite de 8 s incluso con autovacuum o un checkpoint en marcha.
 
+**Revisión completa (migración `20261016126000`):**
+
+- Ya no hay límite de 200 filas en la revisión: el resumen solo da contadores y plan, y las filas llegan por páginas (`client_import_rows_page`, cursor por número de fila).
+- Si al cargar una página la `row_version` no coincide con la del plan en pantalla, el asistente vuelve a pedir el plan.
+- Una fila excluida se omite al confirmar con el motivo «Excluida en la revisión», sea cual sea su decisión. La exclusión se mantiene si se cambia la estrategia o se reclasifica el lote, y al volver a incluir la fila recupera su decisión.
+- El informe y el resultado distinguen las filas excluidas de las omitidas por duplicado. El resultado usa `counts.excluded`, que el lote conserva después de la purga de 30 días.
+
+**Página de Clientes:** si la comprobación de `/access` falla (por ejemplo, sin red), la página funciona igual y el botón **Importar** no aparece.
+
 **Lectura del archivo:** en un **Web Worker**. Si no está disponible, se hace en el hilo principal, cargando los lectores bajo demanda. En ambos casos papaparse y read-excel-file quedan fuera del paquete principal.
 
 **Diseño:** componentes `gc-*` (`SectionCard`, `ConfirmDialog`, chips y KPI), responsive y con modo oscuro. Todo el texto se escapa (React, sin `dangerouslySetInnerHTML`).
 
 **Ayuda:** artículo «Importar clientes» en Ayuda → Clientes. **Novedades no se actualiza** hasta activar la feature para algún tenant.
+
+## Límites
+
+**Vigentes (técnicos, ADR D8):**
+
+| Límite | Valor |
+| --- | --- |
+| Tamaño del archivo | 5 MB |
+| Filas por archivo | 10.000 |
+| XLSX descomprimido | 64 MB, ≤ 1.000 entradas y ≤ 50 hojas |
+| Columnas | 200 |
+| Caracteres por celda | 32.767 (el máximo de Excel) |
+| Filas por envío | 500 |
+| Lotes abiertos por copistería | 10 |
+
+**Límites comerciales por plan:** no se implementan en V1 (ADR, decisión 6). La feature `clients_import` se activa por tenant y no tiene filas en `plan_features`.
+
+**Extensión futura (sin implementar):**
+
+- Una fila de `plan_features` para `clients_import` por plan, con `limit_value` como máximo de filas por importación. `NULL` significa sin límite.
+- Se resolvería como `resolve_tenant_storage_limit_bytes`: suscripción vigente (`trialing`, `active` o `past_due`), feature habilitada y `NULL` para no aplicar el límite.
+- `client_import_create_batch_v2` lo compararía con `p_expected_rows` y respondería con un código propio. La interfaz lo mostraría en el paso 1, antes de enviar filas.
+- Los overrides por tenant seguirían sirviendo para pilotos.
+- Requiere su propia migración, sus pruebas y una decisión comercial. No cambia precios ni Stripe.
 
 ## Verificación local (pila Supabase aislada `import-v1-ui`, datos sintéticos)
 

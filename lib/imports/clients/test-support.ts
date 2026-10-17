@@ -41,7 +41,8 @@ function sheetXml(rows: XlsxCell[][]) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${MAIN}"><sheetData>${body}</sheetData></worksheet>`;
 }
 
-export function buildXlsx(sheets: { name: string; rows: XlsxCell[][] }[]): ArrayBuffer {
+/** The parts of a minimal workbook, so a test can alter one before zipping. */
+export function xlsxParts(sheets: { name: string; rows: XlsxCell[][] }[]): Record<string, Uint8Array> {
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
@@ -76,6 +77,14 @@ export function buildXlsx(sheets: { name: string; rows: XlsxCell[][] }[]): Array
   sheets.forEach((sheet, i) => {
     files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet.rows));
   });
-  const zipped = zipSync(files);
+  return files;
+}
+
+export function zipParts(files: Record<string, Uint8Array>): Uint8Array {
+  return zipSync(files);
+}
+
+export function buildXlsx(sheets: { name: string; rows: XlsxCell[][] }[]): ArrayBuffer {
+  const zipped = zipParts(xlsxParts(sheets));
   return zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength) as ArrayBuffer;
 }

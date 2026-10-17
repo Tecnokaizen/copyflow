@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { SectionCard } from "@/components/gestcopy/section-card";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   CLIENT_IMPORT_COMMIT_CHUNK,
@@ -12,9 +13,10 @@ import {
   ClientImportApiError,
   clientImportApi,
   type ClientImportBatch,
+  type ClientImportRowsPage,
   type ClientImportSummaryRow,
 } from "@/lib/imports/clients/api";
-import { buildTemplateCsv, parseFileInBrowser, TEMPLATE_FILE_NAME } from "@/lib/imports/clients/browser";
+import { parseFileInBrowser } from "@/lib/imports/clients/browser";
 import { ImportFileError, importFileErrorMessage } from "@/lib/imports/clients/errors";
 import {
   CLIENT_IMPORT_FIELD_LABELS,
@@ -26,6 +28,23 @@ import { CLIENT_IMPORT_STAGE_CHUNK } from "@/lib/imports/clients/limits";
 import { mapRows, mappingToRecord, validateMapping, type ClientImportMapping } from "@/lib/imports/clients/mapping";
 import { previewRowProblems, ROW_PROBLEM_LABELS } from "@/lib/imports/clients/normalize";
 import type { ParsedImportFile } from "@/lib/imports/clients/parse-file";
+import {
+  CLIENT_IMPORT_PAGE_SIZE,
+  type ClientImportPlan,
+  type ClientImportRowDecision,
+  type ClientImportRowFilter,
+  type ClientImportRowOutcome,
+  ROW_FILTER_LABELS,
+  ROW_OUTCOME_LABELS,
+  rowActions,
+  rowOutcome,
+  rowSituation,
+} from "@/lib/imports/clients/review";
+import {
+  buildClientImportTemplateCsv,
+  CLIENT_IMPORT_TEMPLATE_FILE_NAME,
+  detectClientImportTemplate,
+} from "@/lib/imports/clients/template";
 
 type Step = "file" | "map" | "preview" | "review" | "confirm" | "result";
 
@@ -33,7 +52,7 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "file", label: "Archivo" },
   { id: "map", label: "Columnas" },
   { id: "preview", label: "Vista previa" },
-  { id: "review", label: "Duplicados" },
+  { id: "review", label: "Revisión" },
   { id: "confirm", label: "Importar" },
   { id: "result", label: "Informe" },
 ];
@@ -55,13 +74,42 @@ const ENCODING_LABELS: Record<string, string> = {
   "utf-16le": " · codificación Unicode (UTF-16)",
 };
 
-const MATCH_LABELS: Record<string, string> = {
-  email: "email",
-  phone: "teléfono",
-  tax_id: "NIF/CIF",
-  source_record: "código de origen",
-  phone_prefix: "teléfono sin prefijo +34",
-};
+/** Filters offered in the review, in this order; empty ones are hidden. */
+const REVIEW_FILTERS: ClientImportRowFilter[] = [
+  "attention",
+  "possible_duplicate",
+  "duplicate_existing",
+  "duplicate_in_file",
+  "error",
+  "valid",
+  "excluded",
+  "all",
+];
+
+function filterCount(batch: ClientImportBatch, filter: ClientImportRowFilter) {
+  const { counts } = batch;
+  switch (filter) {
+    case "attention":
+      return counts.total - counts.valid;
+    case "excluded":
+      return batch.plan?.excluded ?? 0;
+    case "all":
+      return counts.total;
+    case "valid":
+    case "error":
+    case "duplicate_in_file":
+    case "duplicate_existing":
+    case "possible_duplicate":
+      return counts[filter];
+    default:
+      return batch.plan?.[filter] ?? 0;
+  }
+}
+
+/** Keeps the last plan the server sent while a response without one (commit chunks) updates the batch. */
+function withPlan(next: ClientImportBatch, previous: ClientImportBatch | null): ClientImportBatch {
+  return next.plan === undefined ? { ...next, plan: previous?.plan } : next;
+}
 
 /** Rows still missing from a batch whose file was not fully sent (e.g. the page was closed). */
 function missingRows(batch: ClientImportBatch) {
@@ -131,6 +179,29 @@ function Progress({ label, done, total }: { label: string; done: number; total: 
   );
 }
 
+const OUTCOME_BADGES: Record<ClientImportRowOutcome, { variant: BadgeProps["variant"]; className?: string }> = {
+  create: { variant: "default" },
+  fill_blanks: { variant: "secondary" },
+  skip: { variant: "outline" },
+  excluded: { variant: "outline", className: "border-dashed" },
+  not_importable: { variant: "outline", className: "text-destructive" },
+  pending: { variant: "outline" },
+};
+
+/** What confirming will do, as computed by the server from every row of the batch. */
+function PlanKpis({ plan }: { plan: ClientImportPlan }) {
+  const notImportable = plan.error + plan.duplicate_in_file;
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <Kpi label="Se crearán" value={plan.create} tone="info" />
+      <Kpi label="Se completarán" value={plan.fill_blanks} />
+      <Kpi label="Se omiten (duplicados)" value={plan.skip} />
+      <Kpi label="Excluidas por ti" value={plan.excluded} />
+      <Kpi label="No se pueden importar" value={notImportable} tone={notImportable ? "urgent" : undefined} />
+    </div>
+  );
+}
+
 export function ClientImportWizard() {
   const [step, setStep] = useState<Step>("file");
   const [sourceKind, setSourceKind] = useState<"gestcopy" | "other">("other");
@@ -147,6 +218,10 @@ export function ClientImportWizard() {
   const [fillConfirmed, setFillConfirmed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [revertOpen, setRevertOpen] = useState(false);
+  const [rowFilter, setRowFilter] = useState<ClientImportRowFilter>("attention");
+  const [rowsPage, setRowsPage] = useState<ClientImportRowsPage | null>(null);
+  /** after_row of every page up to the one shown, for «Anterior». */
+  const [pageStarts, setPageStarts] = useState<number[]>([0]);
 
   const sourceSystem = sourceKind === "gestcopy" ? GESTCOPY_TEMPLATE : sourceName.trim();
   const mappingProblems = useMemo(() => validateMapping(mapping), [mapping]);
@@ -156,6 +231,7 @@ export function ClientImportWizard() {
     [mappedRows],
   );
   const rowsWithProblems = previewProblems.filter((item) => item.problems.length > 0).length;
+  const templateVersion = useMemo(() => (parsed ? detectClientImportTemplate(parsed.headers) : null), [parsed]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -196,6 +272,9 @@ export function ClientImportWizard() {
     setNotice(null);
     setProgress(null);
     setFillConfirmed(false);
+    setRowsPage(null);
+    setRowFilter("attention");
+    setPageStarts([0]);
     void loadHistory();
   }
 
@@ -237,6 +316,45 @@ export function ClientImportWizard() {
     return summary;
   }
 
+  /** One page of the review. If the batch changed elsewhere meanwhile, its plan is refreshed too. */
+  async function loadRows(id: string, filter: ClientImportRowFilter, starts: number[], knownVersion: number) {
+    const page = await clientImportApi.rows(id, filter, starts[starts.length - 1], CLIENT_IMPORT_PAGE_SIZE);
+    setRowFilter(filter);
+    setPageStarts(starts);
+    setRowsPage(page);
+    if (page.row_version !== knownVersion) await refreshSummary(id);
+    return page;
+  }
+
+  /** Reloads the page shown after a change; the previous one if the change emptied it. */
+  async function reloadRows(id: string, knownVersion: number) {
+    const page = await loadRows(id, rowFilter, pageStarts, knownVersion);
+    if (page.rows.length === 0 && pageStarts.length > 1) {
+      await loadRows(id, rowFilter, pageStarts.slice(0, -1), knownVersion);
+    }
+  }
+
+  /** Review of a validated batch: rows that need attention first. */
+  async function openReview(summary: ClientImportBatch) {
+    setFillConfirmed(summary.duplicate_strategy === "fill_blanks");
+    const filter = filterCount(summary, "attention") > 0 ? "attention" : "all";
+    await loadRows(summary.id, filter, [0], summary.row_version);
+    setStep("review");
+  }
+
+  async function browseRows(filter: ClientImportRowFilter, starts: number[]) {
+    if (!batch) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await loadRows(batch.id, filter, starts, batch.row_version);
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendToGestcopy() {
     if (!parsed || !file) return;
     setBusy(true);
@@ -245,7 +363,7 @@ export function ClientImportWizard() {
     try {
       const record = mappingToRecord(parsed.headers, mapping);
       if (parsed.sheet) record["@sheet"] = parsed.sheet;
-      let current = await clientImportApi.create({
+      const current = await clientImportApi.create({
         source_system: sourceSystem,
         file_name: parsed.fileName,
         file_size: parsed.fileSize,
@@ -255,7 +373,7 @@ export function ClientImportWizard() {
       });
       if (current.reused && current.status === "committed") {
         setNotice("Este archivo ya se importó con estas columnas. Este es su resultado.");
-        setBatch(current);
+        await refreshSummary(current.id);
         setStep("result");
         return;
       }
@@ -266,10 +384,8 @@ export function ClientImportWizard() {
         return;
       }
       if (current.status === "validated") {
-        current = await refreshSummary(current.id);
-        setFillConfirmed(current.duplicate_strategy === "fill_blanks");
+        await openReview(await refreshSummary(current.id));
         setNotice("Este archivo ya se había revisado con estas columnas. Continúa desde la revisión.");
-        setStep("review");
         return;
       }
       // A resumed batch that already has every row only needs its classification.
@@ -280,9 +396,7 @@ export function ClientImportWizard() {
         }
       }
       await finalizeAll(current.id, mappedRows.length);
-      current = await refreshSummary(current.id);
-      setFillConfirmed(current.duplicate_strategy === "fill_blanks");
-      setStep("review");
+      await openReview(await refreshSummary(current.id));
     } catch (caught) {
       setError(messageFor(caught));
     } finally {
@@ -297,7 +411,8 @@ export function ClientImportWizard() {
     setError(null);
     try {
       await clientImportApi.strategy(batch.id, strategy, strategy === "fill_blanks" && fillConfirmed);
-      await refreshSummary(batch.id);
+      const summary = await refreshSummary(batch.id);
+      await reloadRows(batch.id, summary.row_version);
     } catch (caught) {
       setError(messageFor(caught));
     } finally {
@@ -305,13 +420,15 @@ export function ClientImportWizard() {
     }
   }
 
-  async function setDecision(row: ClientImportSummaryRow, decision: "create" | "skip") {
+  async function changeRow(row: ClientImportSummaryRow, decision: ClientImportRowDecision) {
     if (!batch) return;
     setBusy(true);
     setError(null);
     try {
-      await clientImportApi.decisions(batch.id, [row.row_number], decision);
-      await refreshSummary(batch.id);
+      // The answer carries the new plan computed from every row.
+      const updated = await clientImportApi.decisions(batch.id, [row.row_number], decision);
+      setBatch(updated);
+      await reloadRows(batch.id, updated.row_version);
     } catch (caught) {
       setError(messageFor(caught));
     } finally {
@@ -324,31 +441,47 @@ export function ClientImportWizard() {
     setConfirmOpen(false);
     setBusy(true);
     setError(null);
+    setNotice(null);
+    // The first chunk carries the version whose plan is on screen: if the batch
+    // changed since, the server refuses it and nothing is imported.
     let current = batch;
-    let conflicts = 0;
     try {
       while (current.status !== "committed") {
         const processed = current.counts.created + current.counts.filled + current.counts.skipped + current.counts.failed;
         setProgress({ label: "Importando clientes", done: processed, total: current.counts.total });
-        try {
-          current = await clientImportApi.commit(current.id, current.row_version, CLIENT_IMPORT_COMMIT_CHUNK);
-          setBatch(current);
-        } catch (caught) {
-          if (caught instanceof ClientImportApiError && caught.code === "row_version_conflict" && conflicts < 3) {
-            conflicts += 1;
-            current = await refreshSummary(current.id);
-            continue;
-          }
-          throw caught;
-        }
+        current = withPlan(await clientImportApi.commit(current.id, current.row_version, CLIENT_IMPORT_COMMIT_CHUNK), current);
+        setBatch(current);
       }
-      setBatch(await refreshSummary(current.id));
+      await refreshSummary(current.id);
       setStep("result");
     } catch (caught) {
-      setError(`${messageFor(caught)} La importación se puede reanudar: lo ya importado no se repite.`);
+      if (caught instanceof ClientImportApiError && caught.code === "row_version_conflict") {
+        await showChangedBatch(current.id);
+      } else {
+        setError(`${messageFor(caught)} La importación se puede reanudar: lo ya importado no se repite.`);
+      }
     } finally {
       setBusy(false);
       setProgress(null);
+    }
+  }
+
+  /** The batch changed after its plan was shown (another tab or person): show it again instead of importing it. */
+  async function showChangedBatch(id: string) {
+    try {
+      const summary = await refreshSummary(id);
+      if (summary.status === "validated") {
+        await openReview(summary);
+        setNotice(
+          "La revisión ha cambiado desde otra pestaña o por otra persona y no se ha importado nada. Comprueba los totales y vuelve a confirmar.",
+        );
+      } else if (summary.status === "committed") {
+        setStep("result");
+      } else {
+        setError("Otra pestaña o persona está importando este archivo. Cuando termine, pulsa «Reanudar importación».");
+      }
+    } catch (caught) {
+      setError(messageFor(caught));
     }
   }
 
@@ -397,10 +530,9 @@ export function ClientImportWizard() {
         setStep("file");
       } else if (summary.status === "uploaded") {
         await finalizeAll(summary.id, summary.counts.total);
-        await refreshSummary(summary.id);
-        setStep("review");
+        await openReview(await refreshSummary(summary.id));
       } else if (summary.status === "validated") {
-        setStep("review");
+        await openReview(summary);
       } else if (summary.status === "committing") {
         setStep("confirm");
       } else {
@@ -425,11 +557,8 @@ export function ClientImportWizard() {
     }
   }
 
-  const reviewRows = batch?.rows ?? [];
-  const possibleRows = reviewRows.filter((row) => row.classification === "possible_duplicate");
-  const existingRows = reviewRows.filter((row) => row.classification === "duplicate_existing");
-  const problemRows = reviewRows.filter((row) => row.classification === "error" || row.classification === "duplicate_in_file");
-  const possibleToCreate = possibleRows.filter((row) => row.decision === "create").length;
+  const plan = batch?.plan ?? null;
+  const pageFirst = (pageStarts.length - 1) * CLIENT_IMPORT_PAGE_SIZE + 1;
   const stepIndex = STEPS.findIndex((item) => item.id === step);
 
   return (
@@ -497,7 +626,11 @@ export function ClientImportWizard() {
                   />
                 </label>
               ) : (
-                <Button type="button" variant="outline" onClick={() => downloadText(TEMPLATE_FILE_NAME, buildTemplateCsv())}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => downloadText(CLIENT_IMPORT_TEMPLATE_FILE_NAME, buildClientImportTemplateCsv())}
+                >
                   Descargar plantilla CSV
                 </Button>
               )}
@@ -596,6 +729,11 @@ export function ClientImportWizard() {
                 ))}
               </select>
             </label>
+          ) : null}
+          {templateVersion ? (
+            <p role="status" className="rounded-md border border-border bg-secondary/50 px-4 py-3 text-sm">
+              Es la plantilla de Gestcopy (versión {templateVersion}): cada columna ya está relacionada con su dato.
+            </p>
           ) : null}
           <ul className="space-y-3 sm:hidden">
             {parsed.headers.map((header, index) => (
@@ -733,17 +871,11 @@ export function ClientImportWizard() {
 
       {step === "review" && batch ? (
         <SectionCard
-          title="4. Revisa los duplicados"
-          description="Por defecto no se modifica ningún cliente existente: los duplicados se omiten."
+          title="4. Revisa las filas"
+          description="Nada se guarda en tu cartera hasta que confirmes. Por defecto los duplicados se omiten y no se modifica ningún cliente existente."
           bodyClassName="space-y-5 px-5 py-5 sm:px-6"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Kpi label="Nuevos" value={batch.counts.valid} tone="info" />
-            <Kpi label="Ya existen" value={batch.counts.duplicate_existing} />
-            <Kpi label="Posibles duplicados" value={batch.counts.possible_duplicate} tone="warning" />
-            <Kpi label="Repetidos en el archivo" value={batch.counts.duplicate_in_file} />
-            <Kpi label="Con errores" value={batch.counts.error} tone={batch.counts.error ? "urgent" : undefined} />
-          </div>
+          {plan ? <PlanKpis plan={plan} /> : null}
 
           {batch.counts.duplicate_existing > 0 ? (
             <fieldset className="space-y-3 rounded-md border border-border/80 p-4">
@@ -781,64 +913,100 @@ export function ClientImportWizard() {
                   sobrescribe un dato ya guardado y se puede deshacer revirtiendo la importación.
                 </span>
               </label>
-              {existingRows.length ? (
-                <ul className="space-y-1 text-sm text-muted-foreground">
-                  {existingRows.slice(0, 10).map((row) => (
-                    <li key={row.row_number}>
-                      Fila {row.row_number}: {row.name} → {row.matched_client?.name ?? "cliente existente"} (mismo{" "}
-                      {row.match_reasons.map((reason) => MATCH_LABELS[reason] ?? reason).join(", ")})
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </fieldset>
-          ) : null}
-
-          {possibleRows.length ? (
-            <fieldset className="space-y-3 rounded-md border border-border/80 p-4">
-              <legend className="px-1 text-sm font-semibold">Posibles duplicados ({possibleRows.length})</legend>
-              <p className="text-sm text-muted-foreground">
-                Su teléfono coincide con un cliente existente si se ignora el prefijo +34. Se omiten salvo que marques «Crear igualmente».
+              <p className="text-xs text-muted-foreground">
+                Para dejar fuera a un cliente concreto, usa «Excluir» en su fila: se mantiene aunque cambies esta opción.
               </p>
-              <ul className="divide-y divide-border/60">
-                {possibleRows.map((row) => (
-                  <li key={row.row_number} className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-sm">
-                      Fila {row.row_number}: <strong>{row.name}</strong> ({row.phone}) ↔ {row.matched_client?.name ?? "cliente existente"}
-                    </span>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={row.decision === "create"}
-                        disabled={busy}
-                        onChange={(event) => void setDecision(row, event.target.checked ? "create" : "skip")}
-                      />
-                      Crear igualmente
-                    </label>
-                  </li>
-                ))}
-              </ul>
             </fieldset>
           ) : null}
 
-          {problemRows.length ? (
-            <details className="rounded-md border border-border/80 p-4">
-              <summary className="cursor-pointer text-sm font-semibold">
-                Filas que no se importarán ({batch.counts.error + batch.counts.duplicate_in_file})
-              </summary>
-              <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
-                {problemRows.slice(0, 100).map((row) => (
-                  <li key={row.row_number}>
-                    Fila {row.row_number} · {row.name ?? "sin nombre"}:{" "}
-                    {row.classification === "duplicate_in_file"
-                      ? `repite la fila ${row.matched_row_number}`
-                      : row.errors.map((code) => ROW_PROBLEM_LABELS[code] ?? code).join(", ")}
-                  </li>
-                ))}
+          <div className="space-y-3">
+            <div role="group" aria-label="Filtrar filas" className="flex flex-wrap gap-2">
+              {REVIEW_FILTERS.filter((filter) => filter === rowFilter || filter === "all" || filterCount(batch, filter) > 0).map(
+                (filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    disabled={busy}
+                    className={filter === rowFilter ? "gc-chip gc-chip-active" : "gc-chip"}
+                    aria-pressed={filter === rowFilter}
+                    onClick={() => void browseRows(filter, [0])}
+                  >
+                    {ROW_FILTER_LABELS[filter]} ({filterCount(batch, filter).toLocaleString("es-ES")})
+                  </button>
+                ),
+              )}
+            </div>
+
+            {rowsPage?.rows.length ? (
+              <ul aria-label={`Filas: ${ROW_FILTER_LABELS[rowFilter]}`} className="divide-y divide-border/60 rounded-md border border-border/80">
+                {rowsPage.rows.map((row) => {
+                  const outcome = rowOutcome(row);
+                  const contact = [row.email, row.phone, row.tax_id].filter(Boolean).join(" · ");
+                  return (
+                    <li key={row.row_number} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="text-sm">
+                          <span className="text-muted-foreground">Fila {row.row_number} · </span>
+                          <strong>{row.name ?? row.company_name ?? "Sin nombre"}</strong>
+                        </p>
+                        {contact ? <p className="truncate text-xs text-muted-foreground">{contact}</p> : null}
+                        <p className="text-xs">{rowSituation(row)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+                        <Badge variant={OUTCOME_BADGES[outcome].variant} className={OUTCOME_BADGES[outcome].className}>
+                          {ROW_OUTCOME_LABELS[outcome]}
+                        </Badge>
+                        {rowActions(row).map((action) => (
+                          <Button
+                            key={action.decision}
+                            type="button"
+                            size="sm"
+                            variant={action.decision === "exclude" ? "ghost" : "outline"}
+                            disabled={busy}
+                            aria-label={`${action.label}: fila ${row.row_number}`}
+                            onClick={() => void changeRow(row, action.decision)}
+                          >
+                            {action.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
-              <p className="mt-2 text-xs text-muted-foreground">El informe final incluye todas las filas.</p>
-            </details>
-          ) : null}
+            ) : rowsPage ? (
+              <p className="text-sm text-muted-foreground">No hay filas con este filtro.</p>
+            ) : null}
+
+            {rowsPage && rowsPage.total > 0 ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground" aria-live="polite">
+                  Filas {pageFirst.toLocaleString("es-ES")}–{(pageFirst + rowsPage.rows.length - 1).toLocaleString("es-ES")} de{" "}
+                  {rowsPage.total.toLocaleString("es-ES")}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || pageStarts.length === 1}
+                    onClick={() => void browseRows(rowFilter, pageStarts.slice(0, -1))}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || !rowsPage.has_more || rowsPage.next_after_row === null}
+                    onClick={() => rowsPage.next_after_row !== null && void browseRows(rowFilter, [...pageStarts, rowsPage.next_after_row])}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
             <Button type="button" variant="outline" disabled={busy} onClick={reset}>
@@ -857,14 +1025,18 @@ export function ClientImportWizard() {
           description="Se importa por tramos. Si se interrumpe, puedes reanudarla desde Importaciones recientes sin duplicar nada."
           bodyClassName="space-y-5 px-5 py-5 sm:px-6"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Kpi label="Clientes nuevos" value={batch.counts.valid + possibleToCreate} tone="info" />
-            <Kpi label="A completar" value={batch.duplicate_strategy === "fill_blanks" ? batch.counts.duplicate_existing : 0} />
-            <Kpi
-              label="Se omiten"
-              value={Math.max(batch.counts.total - batch.counts.valid - possibleToCreate - (batch.duplicate_strategy === "fill_blanks" ? batch.counts.duplicate_existing : 0), 0)}
-            />
-          </div>
+          {plan ? (
+            <>
+              <PlanKpis plan={plan} />
+              <p className="text-sm text-muted-foreground">
+                Totales de las {plan.total.toLocaleString("es-ES")} filas del archivo
+                {plan.create_possible
+                  ? `, incluidos ${plan.create_possible.toLocaleString("es-ES")} posibles duplicados que has marcado para crear`
+                  : ""}
+                . Si alguien cambia la revisión antes de confirmar, no se importa nada y vuelves a verla.
+              </p>
+            </>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             Origen: {batch.source_system} · Archivo: {batch.file_name}
           </p>
@@ -872,7 +1044,7 @@ export function ClientImportWizard() {
             <Button type="button" variant="outline" disabled={busy || batch.status === "committing"} onClick={() => setStep("review")}>
               Volver a revisar
             </Button>
-            <Button type="button" disabled={busy} onClick={() => setConfirmOpen(true)}>
+            <Button type="button" disabled={busy || !plan} onClick={() => setConfirmOpen(true)}>
               {batch.status === "committing" ? "Reanudar importación" : "Importar clientes"}
             </Button>
           </div>
@@ -885,10 +1057,11 @@ export function ClientImportWizard() {
           description={`${batch.file_name} · ${formatDateTime(batch.committed_at ?? batch.created_at)}`}
           bodyClassName="space-y-5 px-5 py-5 sm:px-6"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Kpi label="Creados" value={batch.counts.created} tone="info" />
             <Kpi label="Completados" value={batch.counts.filled} />
-            <Kpi label="Omitidos" value={batch.counts.skipped} />
+            <Kpi label="Omitidos" value={batch.counts.skipped - batch.counts.excluded} />
+            {batch.counts.excluded ? <Kpi label="Excluidas por ti" value={batch.counts.excluded} /> : null}
             <Kpi label="Con error" value={batch.counts.failed} tone={batch.counts.failed ? "urgent" : undefined} />
           </div>
           {batch.status === "reverted" ? (
@@ -931,7 +1104,11 @@ export function ClientImportWizard() {
       {confirmOpen && batch ? (
         <ConfirmDialog
           title={batch.status === "committing" ? "¿Reanudar la importación?" : "¿Importar los clientes?"}
-          description={`Se crearán hasta ${(batch.counts.valid + possibleToCreate).toLocaleString("es-ES")} clientes en tu cartera. Podrás revertirlo después mientras no se usen.`}
+          description={
+            plan
+              ? `Se crearán ${plan.create.toLocaleString("es-ES")} clientes y se completarán ${plan.fill_blanks.toLocaleString("es-ES")} existentes. Podrás revertirlo después mientras no se usen.`
+              : "Se importarán las filas revisadas. Podrás revertirlo después mientras no se usen."
+          }
           confirmLabel={batch.status === "committing" ? "Reanudar" : "Importar"}
           busy={busy}
           onConfirm={() => void runCommit()}

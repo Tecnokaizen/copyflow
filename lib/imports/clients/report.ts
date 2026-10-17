@@ -44,6 +44,7 @@ const REASON_LABELS: Record<string, string> = {
   duplicate_existing: "Ya existe en Gestcopy",
   possible_duplicate: "Posible duplicado (omitido)",
   skip: "Omitida",
+  excluded_by_user: "Excluida en la revisión",
 };
 
 const REVERT_LABELS: Record<string, string> = {
