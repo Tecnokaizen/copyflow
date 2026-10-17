@@ -1,6 +1,6 @@
 -- Rollback for 20261016120000_clients_import_v1.sql, 20261016121000_clients_import_v1_chunks.sql,
 -- 20261016122000_clients_import_v1_finalize_plan.sql, 20261016123000_clients_import_v1_summary.sql,
--- 20261016124000_clients_import_v1_integrity.sql and 20261016126000_clients_import_v1_review.sql
+-- 20261016124000_clients_import_v1_integrity.sql and 20261016125500_clients_import_v1_review.sql
 -- (Migration V1, #110).
 --
 -- The five first migrations are applied in Production. Running this script there
@@ -21,7 +21,7 @@
 -- Verified on a database with main + this migration: afterwards the schema
 -- fingerprint (columns, constraints, indexes, policies, triggers, functions)
 -- equals that of main.
--- Then: supabase migration repair --status reverted 20261016126000 20261016124000 20261016123000 20261016122000 20261016121000 20261016120000
+-- Then: supabase migration repair --status reverted 20261016125500 20261016124000 20261016123000 20261016122000 20261016121000 20261016120000
 begin;
 
 do $guard$

@@ -1,7 +1,7 @@
 import type { ClientImportSummaryRow } from "./api";
 import { ROW_PROBLEM_LABELS } from "./normalize";
 
-/** Filters of client_import_rows_page (20261016126000). */
+/** Filters of client_import_rows_page (20261016125500). */
 export const CLIENT_IMPORT_ROW_FILTERS = [
   "attention",
   "all",

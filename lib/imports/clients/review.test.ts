@@ -20,7 +20,7 @@ import {
 type Row = Pick<ClientImportSummaryRow, "classification" | "decision" | "excluded">;
 
 const migration = readFileSync(
-  path.join(import.meta.dirname, "../../../supabase/migrations/20261016126000_clients_import_v1_review.sql"),
+  path.join(import.meta.dirname, "../../../supabase/migrations/20261016125500_clients_import_v1_review.sql"),
   "utf8",
 );
 
@@ -39,7 +39,7 @@ const ROWS: Row[] = [
   { classification: null, decision: null, excluded: false },
 ];
 
-/** batch_plan of 20261016126000, written again from its SQL rules. */
+/** batch_plan of 20261016125500, written again from its SQL rules. */
 function plan(rows: Row[]): ClientImportPlan {
   const out: ClientImportPlan = {
     create: 0, create_possible: 0, fill_blanks: 0, skip: 0, skip_existing: 0, skip_possible: 0,

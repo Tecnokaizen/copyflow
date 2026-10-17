@@ -549,7 +549,7 @@ begin
   perform pg_temp.p50_check((select created_count = 2 and total_rows = 5 from imports_private.client_import_batches where id = batch_tmp),
     'counters of a purged batch are never recomputed');
 
-  -- Review (20261016126000): every row by pages, exclusion, plan from the server --
+  -- Review (20261016125500): every row by pages, exclusion, plan from the server --
   perform pg_temp.p50_as(owner_a);
   e4 := (public.create_client_v2(null, 'Existente Cuatro', null, null, null, null, '+34 622555666', null, tenant_a, null)
          -> 'client' ->> 'id')::uuid;
