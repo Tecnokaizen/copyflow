@@ -183,7 +183,15 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 
 ## Revisión completa antes de confirmar (`20261016125500`, en la PR 4)
 
-**No está aplicada en Staging ni en Production.** Se valida solo en local y necesita autorización específica para aplicarla.
+**Aplicada en Staging el 17/10/2026 a las 12:15 UTC**, con autorización expresa y solo esta migración. **No está aplicada en Production.**
+
+- **Antes:** 77 migraciones, hasta `20261016125000`. El `dry-run` listaba únicamente `20261016125500`, sin `--include-all`.
+- **Después:** 78 migraciones, sin pendientes.
+- **Funciones:** las 14 funciones `client_import_*` son idénticas (md5) a las del repositorio.
+- **Permisos:** `rows_page` solo para `authenticated`, sin acceso para `anon`. Ninguna función privada es ejecutable por los roles de la API.
+- **Esquema y datos:** el esquema privado sigue cerrado y las dos tablas mantienen RLS. Los lotes y las 71.207 filas existentes no cambian, y no hay ninguna fila excluida.
+- **Feature:** solo `e2e` y `e2e-import`.
+- **QA r9** (`docs/CLIENTS-IMPORT-V1-QA.md`): `failures: []`.
 
 **Decisiones del arquitecto que cubre:**
 
