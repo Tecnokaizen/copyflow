@@ -15,7 +15,7 @@ import {
 import { reservedExpiresAtUnix } from "@/lib/billing/checkout-attempts-keys";
 import {
   INTERNAL_SUBSCRIPTION_CURRENT_CODE,
-  tenantHasBlockingNonStripeSubscription,
+  tenantHasCurrentNonStripeSubscription,
 } from "@/lib/billing/current-subscription";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
@@ -52,7 +52,7 @@ export class CheckoutInternalSubscriptionError extends Error {
   readonly code = INTERNAL_SUBSCRIPTION_CURRENT_CODE;
 
   constructor() {
-    super("Current internal subscription is not ready for Checkout");
+    super("Current internal subscription blocks Checkout");
     this.name = "CheckoutInternalSubscriptionError";
   }
 }
@@ -187,7 +187,7 @@ export async function createCheckoutSessionForTenant(input: {
   const livemode = stripeModeToLivemode(getStripeMode());
 
   // Internal trials/pilots are invisible to the prepare RPC (Stripe rows only).
-  if (await tenantHasBlockingNonStripeSubscription(input.tenantId)) {
+  if (await tenantHasCurrentNonStripeSubscription(input.tenantId)) {
     throw new CheckoutInternalSubscriptionError();
   }
 

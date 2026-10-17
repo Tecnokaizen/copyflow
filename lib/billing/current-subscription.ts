@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   CURRENT_SUBSCRIPTION_STATUSES,
   INTERNAL_SUBSCRIPTION_CURRENT_CODE,
-  hasBlockingNonStripeSubscription,
+  hasCurrentNonStripeSubscription,
 } from "@/lib/billing/internal-subscription";
 import { hasCurrentStripeSubscriptionForLivemode } from "@/lib/billing/livemode-select";
 import {
@@ -55,20 +55,20 @@ export async function tenantHasCurrentStripeSubscription(
 
 /**
  * Server-side guard: block new Checkout while a current non-Stripe
- * subscription (internal trial/pilot) exists, in any mode, unless its
- * metadata.billing_activation is 'ready_for_checkout'. The prepare RPC only
- * sees Stripe rows, and a completed Checkout would let
- * sync_billing_subscription_v1 cancel the internal row.
+ * subscription (internal trial/pilot) exists, in any mode. The prepare RPC
+ * only sees Stripe rows, and a completed Checkout would let
+ * sync_billing_subscription_v1 cancel the internal row ("one current").
  *
- * No provider filter in SQL: `.neq("provider", "stripe")` would skip NULL.
+ * Status only, never dates. No provider filter in SQL: `.neq("provider",
+ * "stripe")` would skip NULL providers.
  */
-export async function tenantHasBlockingNonStripeSubscription(
+export async function tenantHasCurrentNonStripeSubscription(
   tenantId: string
 ): Promise<boolean> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("subscriptions")
-    .select("provider, status, metadata")
+    .select("provider, status")
     .eq("tenant_id", tenantId)
     .in("status", [...CURRENT_SUBSCRIPTION_STATUSES]);
 
@@ -78,11 +78,10 @@ export async function tenantHasBlockingNonStripeSubscription(
     );
   }
 
-  return hasBlockingNonStripeSubscription(
+  return hasCurrentNonStripeSubscription(
     (data ?? []).map((row) => ({
       provider: typeof row.provider === "string" ? row.provider : null,
       status: typeof row.status === "string" ? row.status : null,
-      metadata: row.metadata,
     }))
   );
 }

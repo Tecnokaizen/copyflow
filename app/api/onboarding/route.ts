@@ -45,7 +45,7 @@ function checkoutErrorResponse(error: unknown): NextResponse | null {
   if (error instanceof CheckoutInternalSubscriptionError) {
     return json(
       {
-        error: "Current internal subscription is not ready for checkout",
+        error: "Current internal subscription blocks checkout",
         code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
       },
       409

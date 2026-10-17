@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof CheckoutInternalSubscriptionError) {
       return json(
         {
-          error: "Current internal subscription is not ready for checkout",
+          error: "Current internal subscription blocks checkout",
           code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
         },
         409
