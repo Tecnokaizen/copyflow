@@ -22,6 +22,8 @@ export type ClientImportBatch = {
     created: number;
     filled: number;
     skipped: number;
+    /** Part of skipped: rows the user excluded in the review (kept after the 30-day purge). */
+    excluded: number;
     failed: number;
     deactivated: number;
     restored: number;

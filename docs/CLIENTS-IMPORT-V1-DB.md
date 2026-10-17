@@ -192,7 +192,9 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 - totales de confirmación calculados en el servidor sobre el lote completo;
 - protección frente a cambios concurrentes.
 
-**La migración es aditiva:** una columna que admite nulos, un helper privado, una RPC nueva y `CREATE OR REPLACE` con las mismas firmas. Las cinco migraciones aplicadas no se modifican.
+**La migración es aditiva:** dos columnas nuevas (`excluded_at`, que admite nulos, y `excluded_count`, con valor por defecto 0), un helper privado, una RPC nueva y `CREATE OR REPLACE` con las mismas firmas. Las cinco migraciones aplicadas no se modifican.
+
+**Orden:** el identificador `20261016126000` va después de `20261016125000` (#129). En Staging están aplicadas hasta `125000`. En Production están aplicadas hasta `124000`, y `125000` sigue pendiente de su propio proceso.
 
 | Objeto | Cambio |
 | --- | --- |
@@ -202,6 +204,7 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 | `client_import_summary` | Misma firma. Añade el `plan` (`null` en un lote purgado) y `excluded` por fila |
 | `client_import_rows_page(batch, filter, after_row, limit ≤ 200)` | Nueva, solo `authenticated`, con los mismos controles que el resumen: rol, tenant y feature. Paginación por número de fila. Filtros: `attention`, cada clasificación, `excluded`, `create`, `fill_blanks`, `skip` y `all`. Devuelve el total del filtro en todo el lote y, por fila, el cliente coincidente (nombre, estado, email, teléfono y NIF) |
 | `client_import_commit_chunk` | Misma firma y los mismos ajustes de plan. Una fila excluida se omite con `result_reason = 'excluded_by_user'`, sea cual sea su decisión |
+| `client_import_batches.excluded_count`, `refresh_batch_counters`, `batch_json` | Contador nuevo (por defecto 0), expuesto como `counts.excluded`: las filas omitidas por estar excluidas, que forman parte de `skipped`. La purga de 30 días borra las filas pero no los contadores, así que en el historial **las exclusiones no se convierten en omisiones**. Para los lotes anteriores el 0 es exacto, porque no tenían filas excluidas |
 
 **Protección frente a cambios concurrentes:**
 
@@ -213,7 +216,7 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 
 | Prueba | Resultado |
 | --- | --- |
-| `phase50` | Sección nueva con un lote de 8 filas que cubre todas las clasificaciones. Comprueba:<br>• el plan inicial;<br>• paginación por cursor y totales de cada filtro;<br>• cliente coincidente;<br>• límites de página;<br>• filtro inválido;<br>• lote purgado sin plan;<br>• aislamiento de tenant, rol, usuario anónimo y feature;<br>• filas no excluibles;<br>• exclusión idempotente;<br>• la decisión se conserva al excluir y se recupera al incluir;<br>• la estrategia y la reclasificación no deshacen exclusiones;<br>• totales de página iguales al plan;<br>• `GC409` si el lote cambió tras la revisión;<br>• la confirmación hace exactamente lo que dice el plan;<br>• sin cambios tras confirmar;<br>• otros lotes intactos |
+| `phase50` | Sección nueva con un lote de 8 filas que cubre todas las clasificaciones. Comprueba:<br>• el plan inicial;<br>• paginación por cursor y totales de cada filtro;<br>• cliente coincidente;<br>• límites de página;<br>• filtro inválido;<br>• lote purgado sin plan;<br>• aislamiento de tenant, rol, usuario anónimo y feature;<br>• filas no excluibles;<br>• exclusión idempotente;<br>• la decisión se conserva al excluir y se recupera al incluir;<br>• la estrategia y la reclasificación no deshacen exclusiones;<br>• totales de página iguales al plan;<br>• `GC409` si el lote cambió tras la revisión;<br>• la confirmación hace exactamente lo que dice el plan;<br>• sin cambios tras confirmar;<br>• otros lotes intactos;<br>• tras la purga, el lote conserva 2 excluidas dentro de las 5 omitidas, en el resumen y en el historial, sin recalcularse |
 | `phase50_clients_import_concurrency.sh` | Caso nuevo C7. Una exclusión que llega antes hace fallar la confirmación de la versión revisada (`GC409`). Con un tramo en curso, una exclusión espera y se rechaza (`batch_state`). Al final solo se omiten como excluidas las 5 filas excluidas antes |
 | Gate en local (pila aislada, 78 migraciones) | 22/22, incluida `phase52_order_total_guard` de `main` |
 | Rendimiento (10.000 filas frente a 2.000 clientes, tiempo en base de datos) | `summary` con plan, 19 ms. Páginas de 50 o 200 filas con cualquier filtro, 8–119 ms. Excluir o incluir 2.000 filas, 50–57 ms. Primer tramo de confirmación con filas excluidas, 114 ms |

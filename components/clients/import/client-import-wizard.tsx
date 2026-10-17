@@ -1060,8 +1060,8 @@ export function ClientImportWizard() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Kpi label="Creados" value={batch.counts.created} tone="info" />
             <Kpi label="Completados" value={batch.counts.filled} />
-            <Kpi label="Omitidos" value={batch.counts.skipped - (plan?.excluded ?? 0)} />
-            {plan?.excluded ? <Kpi label="Excluidas por ti" value={plan.excluded} /> : null}
+            <Kpi label="Omitidos" value={batch.counts.skipped - batch.counts.excluded} />
+            {batch.counts.excluded ? <Kpi label="Excluidas por ti" value={batch.counts.excluded} /> : null}
             <Kpi label="Con error" value={batch.counts.failed} tone={batch.counts.failed ? "urgent" : undefined} />
           </div>
           {batch.status === "reverted" ? (

@@ -83,7 +83,7 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 - Ya no hay límite de 200 filas en la revisión: el resumen solo da contadores y plan, y las filas llegan por páginas (`client_import_rows_page`, cursor por número de fila).
 - Si al cargar una página la `row_version` no coincide con la del plan en pantalla, el asistente vuelve a pedir el plan.
 - Una fila excluida se omite al confirmar con el motivo «Excluida en la revisión», sea cual sea su decisión. La exclusión se mantiene si se cambia la estrategia o se reclasifica el lote, y al volver a incluir la fila recupera su decisión.
-- El informe y el resultado distinguen las filas excluidas de las omitidas por duplicado.
+- El informe y el resultado distinguen las filas excluidas de las omitidas por duplicado. El resultado usa `counts.excluded`, que el lote conserva después de la purga de 30 días.
 
 **Página de Clientes:** si la comprobación de `/access` falla (por ejemplo, sin red), la página funciona igual y el botón **Importar** no aparece.
 

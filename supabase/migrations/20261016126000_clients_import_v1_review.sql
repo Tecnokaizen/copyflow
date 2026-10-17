@@ -21,11 +21,103 @@
 --   * commit_chunk skips excluded rows with result_reason 'excluded_by_user'.
 --     Rows of batches committed before this migration are never excluded, so
 --     their results and reverts do not change.
+--   * The batch keeps how many rows were skipped because they were excluded
+--     (excluded_count, part of skipped_count, counts.excluded). The 30-day purge
+--     deletes the rows, not the counters, so excluded rows never turn into plain
+--     skipped ones in the history.
 
 begin;
 
 alter table imports_private.client_import_rows
   add column excluded_at timestamptz;
+
+-- Rows skipped at commit because the user excluded them (a part of skipped_count).
+-- Every batch committed before this migration has none, so 0 is exact for them.
+alter table imports_private.client_import_batches
+  add column excluded_count integer not null default 0;
+
+-- Same as 20261016124000 plus excluded_count.
+create or replace function imports_private.refresh_batch_counters(p_batch_id uuid)
+  returns void
+  language sql
+  set search_path to ''
+as $function$
+  update imports_private.client_import_batches b
+  set total_rows = s.total,
+      valid_rows = s.valid,
+      error_rows = s.error,
+      duplicate_in_file_rows = s.dup_file,
+      duplicate_existing_rows = s.dup_existing,
+      possible_duplicate_rows = s.possible,
+      created_count = s.created,
+      filled_count = s.filled,
+      skipped_count = s.skipped,
+      excluded_count = s.excluded,
+      failed_count = s.failed,
+      deactivated_count = s.deactivated,
+      restored_count = s.restored,
+      updated_at = pg_catalog.now()
+  from (
+    select
+      pg_catalog.count(*)::integer as total,
+      pg_catalog.count(*) filter (where r.classification = 'valid')::integer as valid,
+      pg_catalog.count(*) filter (where r.classification = 'error')::integer as error,
+      pg_catalog.count(*) filter (where r.classification = 'duplicate_in_file')::integer as dup_file,
+      pg_catalog.count(*) filter (where r.classification = 'duplicate_existing')::integer as dup_existing,
+      pg_catalog.count(*) filter (where r.classification = 'possible_duplicate')::integer as possible,
+      pg_catalog.count(*) filter (where r.result = 'created')::integer as created,
+      pg_catalog.count(*) filter (where r.result = 'filled')::integer as filled,
+      pg_catalog.count(*) filter (where r.result = 'skipped')::integer as skipped,
+      pg_catalog.count(*) filter (where r.result = 'skipped' and r.result_reason = 'excluded_by_user')::integer as excluded,
+      pg_catalog.count(*) filter (where r.result = 'failed')::integer as failed,
+      pg_catalog.count(*) filter (where r.revert_result = 'deactivated')::integer as deactivated,
+      pg_catalog.count(*) filter (where r.revert_result = 'restored')::integer as restored
+    from imports_private.client_import_rows r
+    where r.batch_id = p_batch_id
+  ) s
+  -- The counters of a purged batch are its only history; never recompute them.
+  where b.id = p_batch_id and b.rows_purged_at is null;
+$function$;
+
+-- Same as 20261016124000 plus counts.excluded.
+create or replace function imports_private.batch_json(p_batch imports_private.client_import_batches)
+  returns jsonb
+  language sql
+  stable
+  set search_path to ''
+as $function$
+  select pg_catalog.jsonb_build_object(
+    'id', p_batch.id,
+    'tenant_id', p_batch.tenant_id,
+    'source_system', p_batch.source_system,
+    'file_name', p_batch.file_name,
+    'file_size', p_batch.file_size,
+    'duplicate_strategy', p_batch.duplicate_strategy,
+    'status', p_batch.status,
+    'expected_rows', p_batch.expected_rows,
+    'row_version', p_batch.row_version,
+    'counts', pg_catalog.jsonb_build_object(
+      'total', p_batch.total_rows,
+      'valid', p_batch.valid_rows,
+      'error', p_batch.error_rows,
+      'duplicate_in_file', p_batch.duplicate_in_file_rows,
+      'duplicate_existing', p_batch.duplicate_existing_rows,
+      'possible_duplicate', p_batch.possible_duplicate_rows,
+      'created', p_batch.created_count,
+      'filled', p_batch.filled_count,
+      'skipped', p_batch.skipped_count,
+      'excluded', p_batch.excluded_count,
+      'failed', p_batch.failed_count,
+      'deactivated', p_batch.deactivated_count,
+      'restored', p_batch.restored_count
+    ),
+    'created_at', p_batch.created_at,
+    'committed_at', p_batch.committed_at,
+    'reverted_at', p_batch.reverted_at,
+    'expires_at', p_batch.expires_at,
+    'rows_purged', p_batch.rows_purged_at is not null
+  );
+$function$;
 
 -- What confirming the batch will do, from every row. Mirrors commit_chunk:
 -- excluded rows are skipped; otherwise the decision create / fill_blanks

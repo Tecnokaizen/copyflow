@@ -681,7 +681,8 @@ begin
   r := public.client_import_commit_chunk(batch_rev, (r ->> 'row_version')::integer, 200);
   perform pg_temp.p50_check(r ->> 'status' = 'committed' and (r -> 'counts' ->> 'created')::integer = 2
     and (r -> 'counts' ->> 'filled')::integer = 1 and (r -> 'counts' ->> 'skipped')::integer = 5
-    and (r -> 'counts' ->> 'failed')::integer = 0, 'commit follows the plan: ' || (r -> 'counts')::text);
+    and (r -> 'counts' ->> 'excluded')::integer = 2 and (r -> 'counts' ->> 'failed')::integer = 0,
+    'commit follows the plan; 2 of the 5 skipped were excluded: ' || (r -> 'counts')::text);
   perform pg_temp.p50_expect(format('select public.client_import_set_row_decisions(%L, %L, %L)', batch_rev, '{1}', 'include'),
     '55000', 'no exclusion changes after the commit');
   perform pg_temp.p50_check((public.client_import_summary(batch_rev, 1) -> 'plan' ->> 'excluded')::integer = 2, 'plan kept after commit');
@@ -696,6 +697,27 @@ begin
   perform pg_temp.p50_check((select phone = '699 000 111' from public.clients where id = e3), 'included existing duplicate filled');
   perform pg_temp.p50_check(not exists (select 1 from imports_private.client_import_rows
     where batch_id <> batch_rev and (excluded_at is not null or result_reason = 'excluded_by_user')), 'other batches untouched');
+  perform pg_temp.p50_check(not exists (select 1 from imports_private.client_import_batches
+    where id <> batch_rev and excluded_count <> 0), 'no other batch counts excluded rows');
+
+  -- The 30-day purge keeps the excluded rows apart from the skipped ones.
+  update imports_private.client_import_batches set expires_at = pg_catalog.now() - interval '1 day' where id = batch_rev;
+  perform pg_temp.p50_as(null);
+  execute 'set local role service_role';
+  r := public.client_import_purge_expired(10);
+  perform pg_temp.p50_check((r ->> 'batches')::integer = 1 and (r ->> 'rows')::integer = 8, 'review batch purged: ' || r::text);
+  perform pg_temp.p50_as(owner_a);
+  r := public.client_import_summary(batch_rev, 5);
+  perform pg_temp.p50_check((r ->> 'rows_purged')::boolean and r -> 'plan' = 'null'::jsonb and r -> 'rows' = '[]'::jsonb
+    and (r -> 'counts' ->> 'skipped')::integer = 5 and (r -> 'counts' ->> 'excluded')::integer = 2
+    and (r -> 'counts' ->> 'created')::integer = 2, 'purged batch still tells excluded from skipped: ' || (r -> 'counts')::text);
+  perform pg_temp.p50_check((select (h.x -> 'counts' ->> 'excluded')::integer = 2
+    from pg_catalog.jsonb_array_elements(public.client_import_list_batches(tenant_a)) h(x)
+    where (h.x ->> 'id')::uuid = batch_rev), 'history keeps the excluded count');
+  execute 'reset role';
+  perform imports_private.refresh_batch_counters(batch_rev);
+  perform pg_temp.p50_check((select excluded_count = 2 and skipped_count = 5 from imports_private.client_import_batches where id = batch_rev),
+    'excluded counter of a purged batch never recomputed');
 
   -- Plan settings that keep chunks linear on fresh data (see 20261016122000).
   perform pg_temp.p50_check((select p.proconfig @> array['enable_nestloop=off'] from pg_proc p
