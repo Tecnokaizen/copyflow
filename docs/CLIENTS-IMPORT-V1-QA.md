@@ -157,14 +157,50 @@ Añade además tres pasos:
 | 11 y 11b. Purga | `api-orden.csv`: `created=1` conservado, 409 al confirmar y al revertir, «Caducada a medias». Lote de revisión: plan `null` y `counts.excluded=3`, que se muestran como 38 omitidos y 3 excluidas |
 | Llamadas | Ningún 5xx. Clasificar, máximo 637 ms. Confirmar, 2,0 s. Revertir, 1,0 s (local). Los 404 y 409 son las pruebas negativas |
 
-## Plan para Staging (r9), pendiente de autorización
+## QA r9 en Staging (17/10/2026)
 
-1. **Autorización para aplicar `20261016125500` en Staging.** `db push --dry-run` debe listar solo esa migración, porque Staging ya tiene hasta `125000`. Después se hace la comprobación de huellas, y la feature se mantiene solo en `e2e` y `e2e-import`.
-2. **Preview de #124 con el `HEAD` revisado**, publicada en su rama.
-3. **Archivos de la ronda:** `OUT=/tmp/qa SEED=<nuevo> SUFFIX=-r9 npx tsx e2e/staging/clients-import-files.mts`.
-4. **Ejecución completa contra la preview** (`results.json` con `failures: []`), y medición de los tiempos de páginas, decisiones y confirmación en los logs de Staging.
-5. **Purga:** un operador mueve al pasado la caducidad de `api-orden.csv` y `clientes-revision-r9.csv`. Después se ejecuta `PURGE_ONLY=1 PURGED_BATCH_FILE=api-orden.csv PURGED_REVIEW_FILE=clientes-revision-r9.csv`.
-6. **No se toca nada más:** ni Production, ni otros tenants, ni Presupuestos.
+**Preparación, con autorización expresa:**
+
+- se aplicó solo `20261016125500` a las 12:15 UTC (77 → 78 migraciones; el `dry-run` listaba únicamente esa);
+- verificación posterior: 14 funciones idénticas al repositorio, permisos y RLS sin cambios, y feature solo en `e2e` y `e2e-import`;
+- **preview de #124** en `1240938` (`copyflow-8hq6yr3xg-tecnokaizen.vercel.app`), conectada a Staging; script de #126 en `9e57cb8`;
+- archivos `SEED=9091` y `SUFFIX=-r9`.
+
+**Resultado: `failures: []`** en la ejecución completa (12:16:51–12:23:29 UTC) y en `PURGE_ONLY`.
+
+| Paso | Resultado en Staging |
+| --- | --- |
+| 1–2 | Viewer: 403, sin botón ni página. Feature desactivada: 404 `feature_disabled` |
+| 3. 100 filas | Clasificación y plan iguales al oráculo (82 / 0 / 1 / 0 / 17). 82 altas, informe de 101 líneas y reversión |
+| 4. 1.000 XLSX, móvil | Igual al oráculo (804 válidas, 44 ya existentes). Dos confirmaciones simultáneas: `[200, 409]`. Reanudación: 804 altas y 804 vinculadas |
+| 5 y 7. 10.000 filas | Igual al oráculo (8.042 válidas, 328 ya existentes, 1 posible). 8.042 altas sin fallos e informe de 10.001 líneas. Reversión: 8.042 desactivados y ninguno activo |
+| 6. Aislamiento | 404 en los 9 accesos cruzados, incluidas páginas de filas y decisiones |
+| 9–10 | 500 de 1.200 filas, «Faltan 700 filas», el mismo lote se completa. API: 409, 409 `batch_incomplete`, 400 y 400 |
+| 12. Revisión completa | 240 filas iguales al oráculo. Los 11 filtros completos y ordenados. Interfaz: 200 filas en 4 páginas. Plan tras excluir, incluir y «Crear igualmente»: 199 / 0 / 23 / 3 / 15, igual en pantalla y en el servidor. Conflicto desde otra sesión: 0 clientes creados. Confirmación: 199 creados, 3 excluidas, 0 errores, 0 excluidas creadas y 0 duplicados. 409 después. 3 líneas «Excluida en la revisión» |
+| 13. Reintento | El mismo lote, con 199 vinculados antes y después |
+| 14. Plantilla y XLSX hostiles | Plantilla v1 reconocida, bomba ZIP y entidades rechazadas, ningún lote y sin desbordamiento |
+| 11 y 11b. Purga | El operador movió al pasado la caducidad de los 2 lotes de r9; no había otros caducados. La purga eliminó 2 lotes y 243 filas. `api-orden.csv`: `created=1` conservado, 409 al confirmar y al revertir, «Caducada a medias». Lote de revisión: plan `null` y `counts.excluded=3`, que se muestran como 38 omitidos y 3 excluidas |
+
+**Tiempos dentro de la base** (`edge_logs`, `response.origin_time`, 12:16–12:30 UTC):
+
+| RPC | Llamadas | Mediana | p95 | Máximo |
+| --- | --- | --- | --- | --- |
+| `commit_chunk` (100) | 111 | 436 ms | 994 ms | 1,8 s |
+| `rows_page` | 37 | 43 ms | 167 ms | 243 ms |
+| `revert` (250) | 35 | 450 ms | 1,2 s | 3,2 s |
+| `stage_rows` (500) | 31 | 340 ms | 551 ms | 599 ms |
+| `summary` (con plan) | 21 | 86 ms | 166 ms | 216 ms |
+| `finalize` (1.000) | 18 | 1,7 s | 4,0 s | 4,1 s |
+| `set_row_decisions` | 10 | 48 ms | 366 ms | 542 ms |
+
+**Errores de base de datos en la ventana:** solo los de las pruebas negativas: 8 `import batch not found`, 2 `batch_state`, 2 `batch_rows_purged` y 1 `batch_incomplete`. La app los devolvió como 404, 409 o 400 y ningún 5xx llegó al usuario.
+
+**Regresiones (tenant `e2e`):**
+
+- **Smoke de solo lectura** con owner y viewer, en el Staging desplegado (`main` 65afb10) y en la preview de #124. Resultado idéntico en los dos: Clientes, Pedidos y Presupuestos cargan; «Nuevo cliente» solo lo ve el owner; el viewer recibe 404 en Presupuestos, como en `main`. Ningún 5xx. «Importar» solo aparece en la preview, para el owner.
+- **E2E V0 contra el Staging desplegado:**
+  - La suite tal cual falla en «create client»: el cliente se crea (200), pero el listado pagina de 25 en 25 y `e2e` ya tiene 46 clientes activos. Es una fragilidad del test, no de la app.
+  - Con una copia local que busca el cliente: pedidos, archivos y cobro **3/3 PASS**. Un primer intento tuvo un `GET /files` puntual de 19 s; se repitió sin incidencias.
 
 ## Datos que quedan en Staging
 
