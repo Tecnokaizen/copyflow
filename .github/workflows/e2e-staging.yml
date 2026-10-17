@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   e2e:
-    name: Staging E2E (orders, R2 files, partial payment)
+    name: Staging E2E (orders, R2, payments, quotes and PDF privacy)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
@@ -47,6 +47,8 @@ jobs:
         run: |
           npm install --prefix /tmp/e2e-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
           node /tmp/e2e-browser/node_modules/playwright/cli.js install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
 
       - name: Run staging E2E
         env:
@@ -55,7 +57,15 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npx tsx e2e/staging/run.ts
 
-      # Redacted step log, network summary and failure screenshots only.
+      - name: Run quote lifecycle and commercial PDF privacy E2E
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx tsx e2e/staging/quotes.ts
+
+      # Redacted logs, screenshots and synthetic commercial PDFs only.
       # No Playwright traces: they would embed session tokens and the bypass header.
       - name: Upload redacted artifacts
         if: always()
