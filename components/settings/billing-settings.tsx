@@ -23,6 +23,7 @@ type BillingSubscriptionResponse = {
     current_period_start: string | null;
     current_period_end: string | null;
     has_stripe_customer: boolean;
+    billing_activation_ready?: boolean;
     plan: {
       code: string;
       name: string;
@@ -116,6 +117,14 @@ export function BillingSettings() {
       if (response.status === 409 && body.code === "current_subscription_exists") {
         throw new Error("Ya existe una suscripción activa para esta organización.");
       }
+      if (
+        response.status === 409 &&
+        body.code === "internal_subscription_current"
+      ) {
+        throw new Error(
+          "La suscripción actual aún no está lista para activar la facturación online."
+        );
+      }
       if (response.status === 503) {
         throw new Error(
           "El pago no está disponible ahora mismo. Inténtalo de nuevo en unos segundos."
@@ -178,11 +187,14 @@ export function BillingSettings() {
   );
   const isInternalCurrent =
     isCurrentSubscription && subscription?.provider !== "stripe";
+  // D2: the server re-checks billing_activation before creating Checkout.
+  const isActivationReady =
+    isInternalCurrent && Boolean(subscription?.billing_activation_ready);
   const isStripeManaged =
     subscription?.provider === "stripe" &&
     Boolean(subscription.has_stripe_customer);
   const canCheckout =
-    !isInternalCurrent &&
+    (!isInternalCurrent || isActivationReady) &&
     (!subscription ||
       subscription.provider !== "stripe" ||
       subscription.status === "canceled");
@@ -250,7 +262,7 @@ export function BillingSettings() {
         <div className="flex flex-wrap gap-3">
           {canCheckout ? (
             <Button type="button" disabled={busy} onClick={() => void startCheckout()}>
-              Contratar Gestcopy Basic
+              {isActivationReady ? "Activar facturación" : "Contratar Gestcopy Basic"}
             </Button>
           ) : null}
           {isStripeManaged ? (
@@ -267,7 +279,12 @@ export function BillingSettings() {
         {actionError ? (
           <p className="mt-3 text-sm text-destructive">{actionError}</p>
         ) : null}
-        {isInternalCurrent ? (
+        {isActivationReady ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Al activar la facturación, Stripe pasará a gestionar esta suscripción
+            en cuanto confirme el pago.
+          </p>
+        ) : isInternalCurrent ? (
           <p className="mt-3 text-sm text-muted-foreground">
             La facturación online mediante Stripe aún no está gestionando esta
             suscripción.

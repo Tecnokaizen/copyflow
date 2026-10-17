@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CHECKOUT_PROCESSING_CODE,
   CheckoutConflictError,
+  CheckoutInternalSubscriptionError,
   CheckoutProcessingError,
   CheckoutTransientError,
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
+  INTERNAL_SUBSCRIPTION_CURRENT_CODE,
   appHostOriginFromRequest,
   createCheckoutSessionForTenant,
 } from "@/lib/billing/checkout";
@@ -36,6 +38,15 @@ function checkoutErrorResponse(error: unknown): NextResponse | null {
       {
         error: "Current subscription already exists",
         code: CURRENT_SUBSCRIPTION_EXISTS_CODE,
+      },
+      409
+    );
+  }
+  if (error instanceof CheckoutInternalSubscriptionError) {
+    return json(
+      {
+        error: "Current internal subscription is not ready for checkout",
+        code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
       },
       409
     );

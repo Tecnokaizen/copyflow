@@ -13,6 +13,10 @@ import {
   resolveReusableCheckoutSession,
 } from "@/lib/billing/checkout-attempts";
 import { reservedExpiresAtUnix } from "@/lib/billing/checkout-attempts-keys";
+import {
+  INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+  tenantHasBlockingNonStripeSubscription,
+} from "@/lib/billing/current-subscription";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
 import { getStripe } from "@/lib/billing/stripe";
 import {
@@ -33,6 +37,7 @@ export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
 export { CHECKOUT_PROCESSING_CODE };
 export { CHECKOUT_MODE_MISMATCH_CODE, CheckoutModeMismatchError };
+export { INTERNAL_SUBSCRIPTION_CURRENT_CODE };
 
 export class CheckoutConflictError extends Error {
   readonly code = CURRENT_SUBSCRIPTION_EXISTS_CODE;
@@ -40,6 +45,15 @@ export class CheckoutConflictError extends Error {
   constructor() {
     super("Current Stripe subscription already exists");
     this.name = "CheckoutConflictError";
+  }
+}
+
+export class CheckoutInternalSubscriptionError extends Error {
+  readonly code = INTERNAL_SUBSCRIPTION_CURRENT_CODE;
+
+  constructor() {
+    super("Current internal subscription is not ready for Checkout");
+    this.name = "CheckoutInternalSubscriptionError";
   }
 }
 
@@ -171,6 +185,11 @@ export async function createCheckoutSessionForTenant(input: {
   flow?: "billing" | "onboarding";
 }): Promise<{ url: string; sessionId: string }> {
   const livemode = stripeModeToLivemode(getStripeMode());
+
+  // Internal trials/pilots are invisible to the prepare RPC (Stripe rows only).
+  if (await tenantHasBlockingNonStripeSubscription(input.tenantId)) {
+    throw new CheckoutInternalSubscriptionError();
+  }
 
   // Up to two prepare passes: first may expire an open Stripe session.
   for (let pass = 0; pass < 2; pass += 1) {
