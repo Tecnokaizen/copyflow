@@ -1,6 +1,11 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  CURRENT_SUBSCRIPTION_STATUSES,
+  INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+  hasCurrentNonStripeSubscription,
+} from "@/lib/billing/internal-subscription";
 import { hasCurrentStripeSubscriptionForLivemode } from "@/lib/billing/livemode-select";
 import {
   getStripeMode,
@@ -48,4 +53,37 @@ export async function tenantHasCurrentStripeSubscription(
   );
 }
 
-export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
+/**
+ * Server-side guard: block new Checkout while a current non-Stripe
+ * subscription (internal trial/pilot) exists, in any mode. The prepare RPC
+ * only sees Stripe rows, and a completed Checkout would let
+ * sync_billing_subscription_v1 cancel the internal row ("one current").
+ *
+ * Status only, never dates. No provider filter in SQL: `.neq("provider",
+ * "stripe")` would skip NULL providers.
+ */
+export async function tenantHasCurrentNonStripeSubscription(
+  tenantId: string
+): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("subscriptions")
+    .select("provider, status")
+    .eq("tenant_id", tenantId)
+    .in("status", [...CURRENT_SUBSCRIPTION_STATUSES]);
+
+  if (error) {
+    throw new Error(
+      `Failed to check current non-Stripe subscription: ${error.message}`
+    );
+  }
+
+  return hasCurrentNonStripeSubscription(
+    (data ?? []).map((row) => ({
+      provider: typeof row.provider === "string" ? row.provider : null,
+      status: typeof row.status === "string" ? row.status : null,
+    }))
+  );
+}
+
+export { CURRENT_SUBSCRIPTION_EXISTS_CODE, INTERNAL_SUBSCRIPTION_CURRENT_CODE };

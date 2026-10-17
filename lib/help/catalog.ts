@@ -170,6 +170,14 @@ export const HELP_SECTIONS: HelpSection[] = [
         ["guias/crear-cliente-en-pedido", "clientes/editar"]
       ),
       article(
+        "clientes/importar",
+        "Importar clientes",
+        "Traer la cartera desde otro programa, un CRM o Excel sin duplicar clientes.",
+        "clientes/importar.md",
+        ["importar clientes", "csv", "excel", "xlsx", "migrar", "otro programa", "crm", "plantilla"],
+        ["clientes", "clientes/crear"]
+      ),
+      article(
         "clientes/editar",
         "Editar un cliente",
         "Actualizar datos de contacto sin perder el historial.",
