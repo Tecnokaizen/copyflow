@@ -181,6 +181,56 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 | Rendimiento | Igual que con cuatro migraciones, sobre una base recién creada. Clasificación de 10.000 filas con estadísticas antiguas: 223–401 ms por llamada |
 | Recuperación | El script deshace las cinco migraciones y el esquema vuelve a ser idéntico al anterior a la importación |
 
+## Revisión completa antes de confirmar (`20261016125500`, en la PR 4)
+
+**Aplicada en Staging el 17/10/2026 a las 12:15 UTC**, con autorización expresa y solo esta migración. **No está aplicada en Production.**
+
+- **Antes:** 77 migraciones, hasta `20261016125000`. El `dry-run` listaba únicamente `20261016125500`, sin `--include-all`.
+- **Después:** 78 migraciones, sin pendientes.
+- **Funciones:** las 14 funciones `client_import_*` son idénticas (md5) a las del repositorio.
+- **Permisos:** `rows_page` solo para `authenticated`, sin acceso para `anon`. Ninguna función privada es ejecutable por los roles de la API.
+- **Esquema y datos:** el esquema privado sigue cerrado y las dos tablas mantienen RLS. Los lotes y las 71.207 filas existentes no cambian, y no hay ninguna fila excluida.
+- **Feature:** solo `e2e` y `e2e-import`.
+- **QA r9** (`docs/CLIENTS-IMPORT-V1-QA.md`): `failures: []`.
+
+**Decisiones del arquitecto que cubre:**
+
+- revisar todas las filas, no solo las 200 del resumen;
+- excluir y recuperar filas una a una;
+- totales de confirmación calculados en el servidor sobre el lote completo;
+- protección frente a cambios concurrentes.
+
+**La migración es aditiva:** dos columnas nuevas (`excluded_at`, que admite nulos, y `excluded_count`, con valor por defecto 0), un helper privado, una RPC nueva y `CREATE OR REPLACE` con las mismas firmas. Las cinco migraciones aplicadas no se modifican.
+
+**Orden:** el identificador `20261016125500` (12:55:00) va después de `20261016125000` (#129) y antes de `20261016130000` (rama `feat/order-lines-v1-db`). Primero se llamó `20261016126000`, que no es una hora válida (12:60:00); se corrigió antes de aplicarla en ningún entorno. En Staging están aplicadas hasta `125000`. En Production están aplicadas hasta `124000`, y `125000` sigue pendiente de su propio proceso.
+
+| Objeto | Cambio |
+| --- | --- |
+| `client_import_rows.excluded_at` | Columna nueva. La exclusión es independiente de la decisión: cambiar la estrategia o reclasificar la conserva, y al volver a incluir la fila recupera su decisión |
+| `imports_private.batch_plan(batch)` | Qué hará la confirmación, calculado sobre todas las filas, en grupos disjuntos que suman el total: `create`, `fill_blanks`, `skip` (duplicados omitidos por regla), `excluded` (por el usuario), `error`, `duplicate_in_file` y `unclassified`. Incluye además los desgloses `create_possible`, `skip_existing` y `skip_possible`. Sigue las mismas reglas que `commit_chunk` |
+| `client_import_set_row_decisions` | Misma firma. Acepta además `exclude` e `include`, solo en filas importables: nuevas, posibles duplicados y ya existentes. Las filas con errores o repetidas en el archivo siguen sin poder importarse (`22023`). Devuelve el `plan` |
+| `client_import_summary` | Misma firma. Añade el `plan` (`null` en un lote purgado) y `excluded` por fila |
+| `client_import_rows_page(batch, filter, after_row, limit ≤ 200)` | Nueva, solo `authenticated`, con los mismos controles que el resumen: rol, tenant y feature. Paginación por número de fila. Filtros: `attention`, cada clasificación, `excluded`, `create`, `fill_blanks`, `skip` y `all`. Devuelve el total del filtro en todo el lote y, por fila, el cliente coincidente (nombre, estado, email, teléfono y NIF) |
+| `client_import_commit_chunk` | Misma firma y los mismos ajustes de plan. Una fila excluida se omite con `result_reason = 'excluded_by_user'`, sea cual sea su decisión |
+| `client_import_batches.excluded_count`, `refresh_batch_counters`, `batch_json` | Contador nuevo (por defecto 0), expuesto como `counts.excluded`: las filas omitidas por estar excluidas, que forman parte de `skipped`. La purga de 30 días borra las filas pero no los contadores, así que en el historial **las exclusiones no se convierten en omisiones**. Para los lotes anteriores el 0 es exacto, porque no tenían filas excluidas |
+
+**Protección frente a cambios concurrentes:**
+
+- Cada decisión o exclusión toma el bloqueo del lote y sube `row_version`.
+- La confirmación exige la `row_version` del plan mostrado (`GC409` si no coincide). Desde el primer tramo el lote pasa a `committing` y ya no admite decisiones (`55000`).
+- Los lotes confirmados antes de esta migración no tienen filas excluidas: sus resultados y su reversión no cambian.
+
+**Pruebas:**
+
+| Prueba | Resultado |
+| --- | --- |
+| `phase50` | Sección nueva con un lote de 8 filas que cubre todas las clasificaciones. Comprueba:<br>• el plan inicial;<br>• paginación por cursor y totales de cada filtro;<br>• cliente coincidente;<br>• límites de página;<br>• filtro inválido;<br>• lote purgado sin plan;<br>• aislamiento de tenant, rol, usuario anónimo y feature;<br>• filas no excluibles;<br>• exclusión idempotente;<br>• la decisión se conserva al excluir y se recupera al incluir;<br>• la estrategia y la reclasificación no deshacen exclusiones;<br>• totales de página iguales al plan;<br>• `GC409` si el lote cambió tras la revisión;<br>• la confirmación hace exactamente lo que dice el plan;<br>• sin cambios tras confirmar;<br>• otros lotes intactos;<br>• tras la purga, el lote conserva 2 excluidas dentro de las 5 omitidas, en el resumen y en el historial, sin recalcularse |
+| `phase50_clients_import_concurrency.sh` | Caso nuevo C7. Una exclusión que llega antes hace fallar la confirmación de la versión revisada (`GC409`). Con un tramo en curso, una exclusión espera y se rechaza (`batch_state`). Al final solo se omiten como excluidas las 5 filas excluidas antes |
+| Gate en local (pila aislada, 78 migraciones) | 22/22, incluida `phase52_order_total_guard` de `main` |
+| Rendimiento (10.000 filas frente a 2.000 clientes, tiempo en base de datos) | `summary` con plan, 19 ms. Páginas de 50 o 200 filas con cualquier filtro, 8–119 ms. Excluir o incluir 2.000 filas, 50–57 ms. Primer tramo de confirmación con filas excluidas, 114 ms |
+| Recuperación | El script deshace las seis migraciones. El esquema vuelve a ser idéntico al anterior a la importación: 72 migraciones frente a 78 más el rollback |
+| Recuperación solo de esta migración | `supabase/rollbacks/20261016125500_clients_import_v1_review.sql` restaura las funciones anteriores y quita lo añadido. Sirve también donde ya hay lotes confirmados, como en Staging, a diferencia del rollback completo. Se niega a ejecutarse si algún usuario ya ha excluido filas, porque esas exclusiones se perderían: entonces hay que corregir hacia delante. Probado en local: con lotes confirmados, el esquema queda idéntico al de las migraciones hasta `125000`, el resumen sigue funcionando y un lote abierto se confirma. Con una fila excluida, se niega y no pierde nada |
+
 ## Gate y despliegue (pendiente de autorización)
 
 1. Revalidar el HEAD de la PR y el CI.
