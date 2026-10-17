@@ -12,7 +12,7 @@ import { describe, it } from "node:test";
  */
 
 const root = path.join(import.meta.dirname, "../..");
-const HOST_TENANT = "11111111-1111-4111-8111-111111111111";
+const HOST_TENANT = "aaaaaaaa-0132-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER_TENANT = "22222222-2222-4222-8222-222222222222";
 
 type ProbeRequest = {
@@ -84,7 +84,7 @@ const probe = `
     current = scenario;
     requests = [];
     const request = new NextRequest(
-      "https://sur4.gestcopy.example/api/billing/checkout-session",
+      "https://tenant-fixture.gestcopy.example/api/billing/checkout-session",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -96,7 +96,7 @@ const probe = `
         await createCheckoutSessionForTenant({
           request,
           tenantId: scenario.direct.tenantId,
-          tenantSlug: "sur4",
+          tenantSlug: "tenant-fixture",
           planCode: "basic",
           billingInterval: "month",
           flow: scenario.direct.flow,
@@ -123,15 +123,15 @@ const probe = `
 `;
 
 const owner = {
-  tenant: { id: HOST_TENANT, slug: "sur4", name: "Sur 4 Colores" },
+  tenant: { id: HOST_TENANT, slug: "tenant-fixture", name: "Tenant Fixture" },
   membership: { role: "owner" },
   user: { id: "33333333-3333-4333-8333-333333333333", email: "owner@example.com" },
 };
 
 const validBody = { plan_code: "basic", billing_interval: "month" };
 
-/** SUR4 after 02/11/2026 13:53 UTC if nobody touches the row: still trialing. */
-const sur4Expired = {
+/** Internal trial whose period ended (e.g. 02/11/2026 13:53 UTC) but is still trialing. */
+const expiredTrial = {
   provider: "internal",
   status: "trialing",
   current_period_end: "2026-11-02T13:53:09.342441+00:00",
@@ -142,7 +142,7 @@ const scenarios = [
     name: "internal-expired-period",
     context: owner,
     requestBody: validBody,
-    rows: [sur4Expired],
+    rows: [expiredTrial],
   },
   {
     name: "internal-ready-for-checkout",
@@ -207,7 +207,7 @@ const scenarios = [
     name: "onboarding-flow",
     context: null,
     requestBody: validBody,
-    rows: [sur4Expired],
+    rows: [expiredTrial],
     direct: { tenantId: HOST_TENANT, flow: "onboarding" },
   },
 ];
@@ -216,10 +216,10 @@ function runProbe(): Map<string, ProbeResult> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NEXT_PUBLIC_SUPABASE_URL: "http://supabase.fixture.invalid",
-    SUPABASE_SECRET_KEY: "sb_secret_fixture_not_real",
+    SUPABASE_SECRET_KEY: "fixture-not-a-real-key",
     STRIPE_MODE: "test",
-    STRIPE_SECRET_KEY: "sk_test_fixture_not_real",
-    STRIPE_WEBHOOK_SECRET: "whsec_fixture_not_real",
+    STRIPE_SECRET_KEY: "sk_test_fixture",
+    STRIPE_WEBHOOK_SECRET: "fixture-not-a-real-webhook-secret",
     PROBE_ROOT: root,
     PROBE_SCENARIOS: JSON.stringify(scenarios),
   };
