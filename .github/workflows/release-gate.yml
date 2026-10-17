@@ -115,6 +115,7 @@ jobs:
             phase46_order_total_validation \
             phase52_order_total_guard \
             phase46_payment_receipts \
+            phase51_order_lines \
             phase13_order_lifecycle \
             phase14_order_archived_immutability \
             phase15_order_concurrency \
