@@ -78,7 +78,7 @@ Fecha: 16/10/2026. Se apoya en la PR 2 (base de datos, #122) y la PR 3 (motor CS
 
 **Tamaño de los tramos** (`lib/imports/clients/api.ts`): 1.000 filas al clasificar, 100 al confirmar y 250 al revertir. En la QA de Staging (mismo tipo de cómputo que Production), cada llamada tarda unos 0,3–0,6 s, así que queda muy por debajo del límite de 8 s incluso con autovacuum o un checkpoint en marcha.
 
-**Revisión completa (migración `20261016126000`):**
+**Revisión completa (migración `20261016125500`):**
 
 - Ya no hay límite de 200 filas en la revisión: el resumen solo da contadores y plan, y las filas llegan por páginas (`client_import_rows_page`, cursor por número de fila).
 - Si al cargar una página la `row_version` no coincide con la del plan en pantalla, el asistente vuelve a pedir el plan.

@@ -181,7 +181,7 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 | Rendimiento | Igual que con cuatro migraciones, sobre una base recién creada. Clasificación de 10.000 filas con estadísticas antiguas: 223–401 ms por llamada |
 | Recuperación | El script deshace las cinco migraciones y el esquema vuelve a ser idéntico al anterior a la importación |
 
-## Revisión completa antes de confirmar (`20261016126000`, en la PR 4)
+## Revisión completa antes de confirmar (`20261016125500`, en la PR 4)
 
 **No está aplicada en Staging ni en Production.** Se valida solo en local y necesita autorización específica para aplicarla.
 
@@ -194,7 +194,7 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 
 **La migración es aditiva:** dos columnas nuevas (`excluded_at`, que admite nulos, y `excluded_count`, con valor por defecto 0), un helper privado, una RPC nueva y `CREATE OR REPLACE` con las mismas firmas. Las cinco migraciones aplicadas no se modifican.
 
-**Orden:** el identificador `20261016126000` va después de `20261016125000` (#129). En Staging están aplicadas hasta `125000`. En Production están aplicadas hasta `124000`, y `125000` sigue pendiente de su propio proceso.
+**Orden:** el identificador `20261016125500` (12:55:00) va después de `20261016125000` (#129) y antes de `20261016130000` (rama `feat/order-lines-v1-db`). Primero se llamó `20261016126000`, que no es una hora válida (12:60:00); se corrigió antes de aplicarla en ningún entorno. En Staging están aplicadas hasta `125000`. En Production están aplicadas hasta `124000`, y `125000` sigue pendiente de su propio proceso.
 
 | Objeto | Cambio |
 | --- | --- |
