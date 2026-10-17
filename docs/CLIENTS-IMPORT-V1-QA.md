@@ -26,7 +26,7 @@ Script `e2e/staging/clients-import-qa.mts` (Playwright con interfaz y API) con a
 | 3. Owner de `e2e`, escritorio claro, 100 filas | Revisión = oráculo, altas = válidas, informe con todas las filas y reversión desde la interfaz |
 | 4. Owner de `e2e-import`, móvil oscuro (390 px), 1.000 filas XLSX | Revisión = oráculo. Un tramo por API y **dos confirmaciones simultáneas** del siguiente (una escribe y la otra recibe 409). Después, reanudación desde el historial. Altas = válidas, sin duplicados |
 | 5. Owner de `e2e-import`, escritorio, 10.000 filas | Revisión = oráculo, altas = válidas, sin fallos, informe con las 10.001 líneas |
-| 6. Aislamiento entre tenants | Leer, revertir o descargar el informe de un lote ajeno da 404 en ambos sentidos, y el historial no lo muestra |
+| 6. Aislamiento entre tenants | Leer, revertir o descargar el informe de un lote ajeno da 404 en ambos sentidos, y el historial no lo muestra. Desde la migración `20261016125500`, también las páginas de filas y las decisiones |
 | 7. Reversión de 10.000 desde la interfaz | Lote `reverted`, todos los creados desactivados y ningún cliente del lote activo |
 | 8. Lotes atascados (`STUCK_BATCH_FILES`) | Un lote que se quedó en `uploaded` se retoma desde el historial, su revisión coincide con el oráculo y se descarta |
 | Tiempos | Duración y estado de **cada** llamada a clasificar, confirmar y revertir. Ningún 5xx |
@@ -112,6 +112,60 @@ La reversión de 7,2 s ocurrió con la base cargada por miles de altas y reversi
 
 **Los únicos 500 de PostgREST son las pruebas negativas:** `batch_rows_purged`, `import batch not found` (tenant ajeno) y `batch_state`. PostgREST los devuelve como 500 y la app los traduce a 404 o 409.
 
+## Revisión completa: pasos 12–14 (migración `20261016125500`, #124)
+
+**Contexto:** las decisiones del arquitecto para #124 piden revisar todas las filas antes de confirmar, excluirlas y recuperarlas una a una, calcular los totales en el servidor sobre el lote completo y protegerse frente a cambios concurrentes. El script se adapta al nuevo asistente:
+
+- revisión «4. Revisa las filas»;
+- totales del plan leídos por su etiqueta;
+- clasificación leída de los filtros;
+- el corte de la subida del paso 9 solo afecta a los envíos (POST), porque las páginas de la revisión usan GET en la misma ruta.
+
+Añade además tres pasos:
+
+| Paso | Comprobación |
+| --- | --- |
+| 3–5 (ampliado) | Además de la clasificación, el plan del servidor coincide con el oráculo: se crean las válidas, se omiten los duplicados y no se pueden importar los errores ni las repetidas |
+| 12. Revisión completa (`e2e-import`, escritorio) | Archivo construido con los clientes del propio tenant: 200 nuevas (cuatro páginas), 20 ya existentes, posibles duplicados por el prefijo +34, 10 repetidas y 5 con errores. Comprueba:<br>• **todas las páginas de los 11 filtros** por API, completas, ordenadas y sin repetir filas, con los totales del oráculo;<br>• filtros desconocidos y páginas de más de 200 filas dan 400;<br>• la interfaz recorre todas las páginas de «Nuevas»;<br>• **excluir y volver a incluir**, «Crear igualmente» y excluir un existente, con el plan en pantalla igual al del servidor;<br>• **otra sesión** excluye una fila con el plan ya en pantalla: al confirmar no se importa nada, se vuelve a la revisión con los totales nuevos y se deshace el cambio;<br>• la confirmación crea **exactamente** lo que dice el plan, ninguna fila excluida y ningún cliente duplicado;<br>• tras confirmar no se admiten cambios (409);<br>• el informe marca cada fila «Excluida en la revisión» |
+| 13. Reintento | El mismo archivo con las mismas columnas devuelve el lote ya importado y no crea nada dos veces |
+| 14. Plantilla y XLSX hostiles (`e2e-import`, móvil oscuro) | La plantilla se descarga como `plantilla-clientes-gestcopy-v1.csv`, se reconoce (versión 1) y queda relacionada entera. Una bomba ZIP (70 MB descomprimida) y un XLSX con `<!ENTITY>` se rechazan en el navegador con su mensaje, sin crear ningún lote y sin desbordamiento horizontal |
+| 11b. Purga del lote de revisión (`PURGE_ONLY` con `PURGED_REVIEW_FILE`) | Después de que un operador mueva al pasado la caducidad del lote del paso 12: sin plan ni filas, pero `counts.excluded` se conserva y el resultado muestra «Excluidas por ti» aparte de «Omitidos» |
+
+**Modo local (`QA_TARGET=local`):** el mismo script contra `next dev` y una pila Supabase local, ambos en `localhost` y sin cabecera de bypass. Cualquier otro host se rechaza, igual que en el modo Staging, que sigue exigiendo una preview `*.vercel.app` y el Supabase de Staging.
+
+### QA local (17/10/2026, antes de Staging)
+
+**Entorno:**
+
+- pila aislada `import-v1-ui` con las 78 migraciones, hasta `20261016125500`;
+- `next dev` con el código de #124 (`0e31d22`) y #126;
+- tenants sintéticos locales `e2e` y `e2e-import`, archivos con `SEED=4242` y `SUFFIX=-local1`.
+
+**Resultado: `failures: []`** en la ejecución completa y en `PURGE_ONLY`.
+
+| Paso | Resultado |
+| --- | --- |
+| 1–2 | Viewer: 403 y sin botón. Feature desactivada: 404 `feature_disabled` |
+| 3. 100 filas | 83 válidas, 9 repetidas y 8 con errores, igual que el oráculo. Plan 83 / 0 / 0 / 0 / 17. 83 altas. Informe completo. Reversión |
+| 4. 1.000 XLSX | 838 altas, igual que el oráculo. Dos confirmaciones simultáneas: 200 y 409. 838 clientes vinculados |
+| 5 y 7. 10.000 filas | 8.344 altas y 4 ya existentes, igual que el oráculo. Reversión: 8.344 desactivados y ninguno activo |
+| 6. Aislamiento | 404 en los 9 accesos cruzados, incluidas las páginas de filas y las decisiones |
+| 9–10 | 500 de 1.200 filas, «Faltan 700 filas», el mismo lote se completa. API: 409 `batch_state`, 409 `batch_incomplete`, 400, 400 |
+| 12. Revisión completa | 240 filas: 200 nuevas, 20 ya existentes, 5 posibles, 10 repetidas y 5 con errores, igual que el oráculo. Los 11 filtros completos y ordenados. Interfaz: 200 filas en 4 páginas («Filas 151–200 de 200»). Plan tras los cambios: 199 / 0 / 23 / 3 / 15, igual en pantalla y en el servidor. Conflicto: 0 clientes creados y 4 excluidas en pantalla; tras deshacerlo, otra vez 199. Confirmación: 199 creados, 3 excluidas, 0 errores, 199 vinculados, 0 excluidas creadas y 0 duplicados. 409 después. 3 líneas «Excluida en la revisión» |
+| 13. Reintento | Mismo lote y 199 vinculados antes y después |
+| 14. Plantilla y XLSX hostiles | Plantilla v1 reconocida, 0 columnas sin relacionar. Bomba: «más de 64 MB». Entidades: «contenido que no se admite». Ningún lote nuevo y sin desbordamiento |
+| 11 y 11b. Purga | `api-orden.csv`: `created=1` conservado, 409 al confirmar y al revertir, «Caducada a medias». Lote de revisión: plan `null` y `counts.excluded=3`, que se muestran como 38 omitidos y 3 excluidas |
+| Llamadas | Ningún 5xx. Clasificar, máximo 637 ms. Confirmar, 2,0 s. Revertir, 1,0 s (local). Los 404 y 409 son las pruebas negativas |
+
+## Plan para Staging (r9), pendiente de autorización
+
+1. **Autorización para aplicar `20261016125500` en Staging.** `db push --dry-run` debe listar solo esa migración, porque Staging ya tiene hasta `125000`. Después se hace la comprobación de huellas, y la feature se mantiene solo en `e2e` y `e2e-import`.
+2. **Preview de #124 con el `HEAD` revisado**, publicada en su rama.
+3. **Archivos de la ronda:** `OUT=/tmp/qa SEED=<nuevo> SUFFIX=-r9 npx tsx e2e/staging/clients-import-files.mts`.
+4. **Ejecución completa contra la preview** (`results.json` con `failures: []`), y medición de los tiempos de páginas, decisiones y confirmación en los logs de Staging.
+5. **Purga:** un operador mueve al pasado la caducidad de `api-orden.csv` y `clientes-revision-r9.csv`. Después se ejecuta `PURGE_ONLY=1 PURGED_BATCH_FILE=api-orden.csv PURGED_REVIEW_FILE=clientes-revision-r9.csv`.
+6. **No se toca nada más:** ni Production, ni otros tenants, ni Presupuestos.
+
 ## Datos que quedan en Staging
 
 Todo es sintético y solo afecta a `e2e` y `e2e-import`:
@@ -126,7 +180,7 @@ La feature sigue activa solo en esos dos tenants. **Production no se ha tocado.*
 
 Requisitos:
 
-- Las migraciones de Migration V1 aplicadas en Staging: las cuatro de #122 y `20261016124000` (#127).
+- Las migraciones de Migration V1 aplicadas en Staging: las cuatro de #122, `20261016124000` (#127) y `20261016125500` (#124).
 - Los tenants `e2e` (owner y viewer) y `e2e-import` (owner `e2e-import-owner@example.com`).
 - Playwright instalado fuera del repositorio.
 - Los secretos en `.env.e2e.local`, que nunca se imprimen.
@@ -140,3 +194,9 @@ set -a && source ../copyflow-e2e/.env.e2e.local && set +a && OUT=/tmp/qa SUFFIX=
 ```
 
 El script se niega a arrancar si la URL no es una preview `*.vercel.app` o si Supabase no es Staging. El resultado queda en `$OUT/results.json`, junto con las capturas.
+
+**En local**, contra `next dev` y una pila Supabase local con los tenants sintéticos `e2e` y `e2e-import`:
+
+```bash
+QA_TARGET=local PREVIEW_URL=http://localhost:3100 E2E_SUPABASE_URL=http://127.0.0.1:<puerto> E2E_SUPABASE_SECRET_KEY=… OUT=/tmp/qa SUFFIX=-local1 E2E_USER_EMAIL=… E2E_USER_PASSWORD=… VIEWER_PW_FILE=… IMPORT_PW_FILE=… PLAYWRIGHT_MODULE=…/playwright/index.mjs npx tsx e2e/staging/clients-import-qa.mts
+```
