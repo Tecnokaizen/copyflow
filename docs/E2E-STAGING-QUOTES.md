@@ -101,10 +101,47 @@ verificada por el operador), `PDFTOTEXT_BIN` (ejecutable compatible con
 con pypdf porque el runtime incluye renderizado Poppler pero no `pdftotext`;
 CI instala `poppler-utils`.
 
-Para repetir las negativas contra un documento existente de otro tenant de
-Staging, el operador puede suministrar `E2E_FOREIGN_QUOTE_ID` y
-`E2E_FOREIGN_VERSION_ID`. Solo se consultan esos IDs mediante el host E2E y
-se exige 404; no se abre una sesión del otro tenant.
+### Aislamiento entre tenants (obligatorio)
+
+Las dos negativas entre tenants se ejecutan siempre. Una ejecución solo
+puede quedar como `passed` si ambas han corrido; si falta alguna, se marca
+como `failed`. Esto lo garantiza `assertForeignControlsRan`, en
+`e2e/staging/foreign-fixtures.ts`.
+
+**Fixture por defecto:** el presupuesto sintético `DEMO-P0001` del tenant
+`demo` de Staging (cliente «Cliente Prueba Staging 001», email `@example`).
+Está fijado en `STAGING_FOREIGN_QUOTE`, con el presupuesto
+`5233bc9f-b4c2-4409-868a-324dab41bed3` y la versión
+`b606a8fe-f951-4690-9859-0978778d9928`. Su existencia se verificó por SQL de
+solo lectura el 17/10/2026. Un 404 sobre un ID inexistente no demostraría
+nada; por eso el fixture está fijado y verificado, en lugar de ser opcional.
+
+**Qué se exige:**
+
+- `GET /api/quotes/:id` del presupuesto ajeno: 404;
+- `GET /api/quotes/:id/versions/:versionId/pdf`: 404;
+- en ambos casos, sin la referencia ni el ID de la versión en el cuerpo.
+
+Solo se consultan esos IDs a través del host E2E; no se abre una sesión del
+otro tenant. El informe JSON registra `foreignFixture` (tenant, referencia y
+origen).
+
+**Cambiar el fixture:** hay que dar las cuatro variables a la vez:
+`E2E_FOREIGN_QUOTE_ID`, `E2E_FOREIGN_VERSION_ID`,
+`E2E_FOREIGN_QUOTE_REFERENCE` y `E2E_FOREIGN_TENANT_SLUG`, que no puede ser
+`e2e`. Un override parcial o mal formado hace fallar la ejecución antes de
+crear datos.
+
+**Si se reinicia la base de Staging**, hay que volver a verificar el fixture
+y actualizar `STAGING_FOREIGN_QUOTE`:
+
+```sql
+select t.slug, q.reference, v.id as version_id
+from public.quotes q
+join public.tenants t on t.id = q.tenant_id
+join public.quote_versions v on v.quote_id = q.id
+where q.id = '5233bc9f-b4c2-4409-868a-324dab41bed3';
+```
 
 Artefactos por ejecución: informe JSON, pasos, red redactada, bloqueos,
 capturas, PDF sintético y texto extraído. Sin trazas, cookies o URLs firmadas

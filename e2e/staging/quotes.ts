@@ -9,19 +9,21 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {resolveStagingTarget,classifyRequest,r2BucketFromUrl} from './guard';
+import {assertForeignControlsRan,isOpaqueDenial,resolveForeignQuoteFixture} from './foreign-fixtures';
 import {Harness} from './harness';
 import {Redactor} from './redact';
 import {requireSyntheticEmail,runId} from './synthetic';
 
 async function main(){
  const target=resolveStagingTarget();
+ const foreign=resolveForeignQuoteFixture();
  requireSyntheticEmail(process.env.E2E_USER_EMAIL);
  assert.ok(process.env.E2E_USER_PASSWORD,'E2E_USER_PASSWORD is required');
  const run=runId();
  const dir=path.join(process.env.E2E_ARTIFACTS_DIR ?? 'e2e-artifacts','quotes-'+run);
  const redactor=new Redactor([process.env.E2E_USER_PASSWORD,process.env.VERCEL_AUTOMATION_BYPASS_SECRET]);
  const h=new Harness(target,redactor,dir,process.env.VERCEL_AUTOMATION_BYPASS_SECRET);
- const result:any={run,baseUrl:target.baseUrl,deploymentSha:process.env.E2E_DEPLOYMENT_SHA ?? null,checks:{}};
+ const result:any={run,baseUrl:target.baseUrl,deploymentSha:process.env.E2E_DEPLOYMENT_SHA ?? null,foreignFixture:{tenant:foreign.tenantSlug,reference:foreign.reference,source:foreign.source},checks:{}};
  const title='E2E Presupuesto '+run;
  const client='E2E Cliente presupuestos '+run;
  const publicNote='PUBLIC-CONDICIONES-'+run;
@@ -49,14 +51,13 @@ async function main(){
    await Promise.all([p.waitForURL((u:URL)=>u.origin===target.baseUrl&&!u.pathname.startsWith('/auth/')),p.getByRole('button',{name:'Login',exact:true}).click()]);
    const c=await call('/api/context');assert.equal(c.status,200);assert.equal(c.body.tenant.slug,'e2e');assert.equal(c.body.features.quotes,true);assert.equal(c.body.membership.role,'owner');
    result.tenantId=c.body.tenant.id;result.checks.tenantAndFlag=true;
-   if(process.env.E2E_FOREIGN_QUOTE_ID){
-    assert.match(process.env.E2E_FOREIGN_QUOTE_ID,/^[a-f0-9-]{36}$/);
-    const denied=await call('/api/quotes/'+process.env.E2E_FOREIGN_QUOTE_ID);assert.equal(denied.status,404);result.checks.foreignTenantQuoteDenied=true;
-    if(process.env.E2E_FOREIGN_VERSION_ID){
-     assert.match(process.env.E2E_FOREIGN_VERSION_ID,/^[a-f0-9-]{36}$/);
-     const pdf=await call(`/api/quotes/${process.env.E2E_FOREIGN_QUOTE_ID}/versions/${process.env.E2E_FOREIGN_VERSION_ID}/pdf`);assert.equal(pdf.status,404);result.checks.foreignTenantPdfDenied=true;
-    }
-   }
+  });
+  // Mandatory: a run never passes without both cross-tenant denials (see foreign-fixtures.ts).
+  await h.step('cross-tenant quote and PDF denied',async()=>{
+   const q=await call('/api/quotes/'+foreign.quoteId);
+   assert.ok(isOpaqueDenial(q.status,JSON.stringify(q.body),foreign),`foreign quote: HTTP ${q.status}`);result.checks.foreignTenantQuoteDenied=true;
+   const pdf=await call(`/api/quotes/${foreign.quoteId}/versions/${foreign.versionId}/pdf`);
+   assert.ok(isOpaqueDenial(pdf.status,JSON.stringify(pdf.body),foreign),`foreign PDF: HTTP ${pdf.status}`);result.checks.foreignTenantPdfDenied=true;
   });
   await h.step('four visible footer lines with formatted HTML',async()=>{
    const current=await call('/api/settings/organization');assert.equal(current.status,200);oldFooter=current.body.quote_footer??null;
@@ -164,7 +165,8 @@ async function main(){
   },180000);
   h.assertNoProductionEgress();
   assert.equal(h.blocked.filter(b=>b.url!=='https://vercel.live/_next-live/feedback/feedback.js').length,0);
-  result.blockedVercelToolbarRequests=h.blocked.length;result.checks.noProductionEgress=true;result.status='passed';
+  result.blockedVercelToolbarRequests=h.blocked.length;result.checks.noProductionEgress=true;
+  assertForeignControlsRan(result.checks);result.status='passed';
  }catch(e){result.status='failed';result.error=redactor.text(e instanceof Error?e.message:String(e));console.error(result.error);}
  finally{
   if(footerChanged){try{const r=await call('/api/settings/organization','PATCH',{quote_footer:oldFooter});assert.equal(r.status,200);result.checks.footerRestored=true;}catch(e){result.status='failed';result.footerRestoreError=redactor.text(String(e));}}
