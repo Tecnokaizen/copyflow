@@ -221,6 +221,7 @@ Una auditoría independiente encontró tres defectos P1. Los tres se reprodujero
 | Gate en local (pila aislada, 78 migraciones) | 22/22, incluida `phase52_order_total_guard` de `main` |
 | Rendimiento (10.000 filas frente a 2.000 clientes, tiempo en base de datos) | `summary` con plan, 19 ms. Páginas de 50 o 200 filas con cualquier filtro, 8–119 ms. Excluir o incluir 2.000 filas, 50–57 ms. Primer tramo de confirmación con filas excluidas, 114 ms |
 | Recuperación | El script deshace las seis migraciones. El esquema vuelve a ser idéntico al anterior a la importación: 72 migraciones frente a 78 más el rollback |
+| Recuperación solo de esta migración | `supabase/rollbacks/20261016125500_clients_import_v1_review.sql` restaura las funciones anteriores y quita lo añadido. Sirve también donde ya hay lotes confirmados, como en Staging, a diferencia del rollback completo. Se niega a ejecutarse si algún usuario ya ha excluido filas, porque esas exclusiones se perderían: entonces hay que corregir hacia delante. Probado en local: con lotes confirmados, el esquema queda idéntico al de las migraciones hasta `125000`, el resumen sigue funcionando y un lote abierto se confirma. Con una fila excluida, se niega y no pierde nada |
 
 ## Gate y despliegue (pendiente de autorización)
 
