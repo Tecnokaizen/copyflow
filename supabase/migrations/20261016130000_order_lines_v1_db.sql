@@ -91,10 +91,10 @@ create table public.order_items (
   order_id uuid not null,
   position integer not null check (position > 0),
   concept text not null
-    check (pg_catalog.char_length(pg_catalog.btrim(concept)) > 0 and pg_catalog.char_length(concept) <= 500),
-  description text check (description is null or pg_catalog.char_length(description) <= 5000),
+    check (pg_catalog.char_length(pg_catalog.btrim(concept)) > 0 and pg_catalog.char_length(concept) <= 2000),
+  description text check (description is null or pg_catalog.char_length(description) <= 10000),
   quantity numeric(18,6) not null check (quantity > 0),
-  unit text check (unit is null or pg_catalog.char_length(unit) <= 40),
+  unit text check (unit is null or pg_catalog.char_length(unit) <= 100),
   unit_price numeric(18,6) not null check (unit_price >= 0),
   discount_percent numeric(9,6) not null default 0 check (discount_percent between 0 and 100),
   tax_rate numeric(9,6) not null default 0 check (tax_rate between 0 and 100),
@@ -404,11 +404,11 @@ as $function$
       where k <> all (array['concept', 'description', 'quantity', 'unit', 'unit_price', 'discount_percent', 'tax_rate'])
     ) then 'unknown_field'
     when pg_catalog.jsonb_typeof(p_item -> 'concept') is distinct from 'string'
-      or pg_catalog.char_length(pg_catalog.btrim(p_item ->> 'concept')) not between 1 and 500 then 'concept'
+      or pg_catalog.char_length(pg_catalog.btrim(p_item ->> 'concept')) not between 1 and 2000 then 'concept'
     when pg_catalog.jsonb_typeof(p_item -> 'description') not in ('string', 'null')
-      or pg_catalog.char_length(coalesce(p_item ->> 'description', '')) > 5000 then 'description'
+      or pg_catalog.char_length(coalesce(p_item ->> 'description', '')) > 10000 then 'description'
     when pg_catalog.jsonb_typeof(p_item -> 'unit') not in ('string', 'null')
-      or pg_catalog.char_length(coalesce(p_item ->> 'unit', '')) > 40 then 'unit'
+      or pg_catalog.char_length(coalesce(p_item ->> 'unit', '')) > 100 then 'unit'
     when pg_catalog.jsonb_typeof(p_item -> 'quantity') not in ('string', 'number')
       or (p_item ->> 'quantity') !~ '^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$'
       or case when (p_item ->> 'quantity') ~ '^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$'

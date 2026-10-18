@@ -1,10 +1,23 @@
 # Order Lines V1 · PR A — capa de base de datos
 
-Fecha: 16/10/2026. ADR: [#104](adr/2026-10-15-order-lines-v1.md) (decisiones A–F aprobadas).
+Fecha: 16/10/2026; actualizado el 18/10/2026. ADR: [#104](adr/2026-10-15-order-lines-v1.md) (estado: propuesto). La conversión con líneas queda fijada por el ADR de Presupuestos V2.1, `docs/adr/2026-10-18-quotes-quantity-options-v2-1.md` (PR #133).
 
-- Base: `main` `a6d1846`.
-- Migración: `20261016130000_order_lines_v1_db.sql`, aditiva. Reversión: `supabase/rollbacks/20261016130000_order_lines_v1_db.sql`.
-- Alcance: solo base de datos. Sin UI, sin API, sin cambios en presupuestos ni en `convert_quote_to_order` (PR B).
+- **Base:** `main` `410228e`, incorporada por merge el 18/10/2026. Base original: `65afb10`.
+- **Migración:** `20261016130000_order_lines_v1_db.sql`, aditiva. **Reversión:** `supabase/rollbacks/20261016130000_order_lines_v1_db.sql`.
+- **Alcance:** solo base de datos. Sin UI, sin API, sin cambios en presupuestos ni en `convert_quote_to_order` (PR B).
+- **Aplicación:** a 18/10/2026 la migración **no está aplicada en ningún entorno compartido**. Staging y Production tienen las 78 migraciones de `main` y no tienen la tabla `order_items`. Por eso se puede corregir en su propio fichero antes del merge.
+
+## Decisiones que implementa esta PR
+
+Respuestas del código a las preguntas 1–4 del ADR #104. La versión anterior de este documento citaba unas «decisiones A–F» que no están registradas en el repositorio.
+
+| Pregunta del ADR | Implementación |
+| --- | --- |
+| 1. Fuente de verdad del total | Por pedido: `total_mode = 'manual'` (por defecto; las líneas son informativas) o `'items'` (el total se deriva de las líneas) |
+| 2. Impuestos y descuentos | Iguales que en presupuestos: `discount_percent` y `tax_rate` por línea, `prices_include_tax` por pedido y `quote_line_amounts_v1` |
+| 3. Conversión | Fuera de esta PR (PR B). Según el ADR de V2.1 (D6, D7): Estándar copia todas las líneas y Por cantidades solo las aceptadas; las líneas guardan una referencia inmutable de origen; el pedido convertido queda en `manual` hasta que exista la interfaz de líneas |
+| 4. Estados que bloquean la edición | Solo `archived_at` (pedido archivado) |
+| Límites de texto | `concept` ≤ 2000, `description` ≤ 10000 y `unit` ≤ 100, **iguales que en presupuestos** (`lib/quotes/payload.ts`). Así la conversión nunca pierde texto. Antes eran 500 / 5000 / 40 |
 
 **No se aplica en Production sin gate y autorización.** Hasta que la API (PR C) la use, ninguna ruta de la aplicación escribe líneas: el comportamiento visible no cambia.
 
@@ -12,7 +25,7 @@ Fecha: 16/10/2026. ADR: [#104](adr/2026-10-15-order-lines-v1.md) (decisiones A�
 
 | Objeto | Detalle |
 | --- | --- |
-| `order_items` | Concepto, descripción, cantidad `numeric(18,6)`, unidad, precio, descuento, IVA e importes calculados por la base de datos. FK compuesta `(tenant_id, order_id)`, `unique (tenant_id, order_id, position)`, RLS de lectura para miembros, **sin** `INSERT/UPDATE/DELETE` para ningún rol de la API |
+| `order_items` | Concepto (≤ 2000), descripción (≤ 10000), cantidad `numeric(18,6)`, unidad (≤ 100), precio, descuento, IVA e importes calculados por la base de datos. Los límites de texto son los mismos que en presupuestos. FK compuesta `(tenant_id, order_id)`, `unique (tenant_id, order_id, position)`, RLS de lectura para miembros, **sin** `INSERT/UPDATE/DELETE` para ningún rol de la API |
 | `orders.total_mode` | `manual` (por defecto, comportamiento actual) o `items` |
 | `orders.prices_include_tax` | IVA incluido o excluido en los precios de **todas** las líneas del pedido (igual que `quote_versions`) |
 | `orders.items_subtotal / items_tax_total / items_total` | Suma de las líneas. Informativos en modo `manual` |
@@ -65,7 +78,7 @@ Al preparar esta PR se detectó que `tg_orders_total_amount_guard` no se aplicab
 
 Esta migración **no redefine la guarda**: depende de ella y se niega a ejecutarse si la guarda no es la versión corregida (precondición al inicio). La reversión de Order Lines no toca la guarda, así que nunca restaura la versión vulnerable (y la del hotfix se niega a revertirse). `phase51` mantiene las pruebas de sesión nueva como regresión.
 
-**Orden obligatorio:** `124000` (importaciones, ya en `main`) → `125000` (hotfix) → `130000` (esta).
+**Orden obligatorio:** `124000` (importaciones) → `125000` (hotfix) → `125500` (revisión de importaciones), todas ya en `main` → `130000` (esta).
 
 ## Rendimiento
 
@@ -83,7 +96,7 @@ Crecimiento lineal (~0,15 ms por línea). Inserción de 500 líneas sin refresco
 
 | Fichero | Cubre |
 | --- | --- |
-| `supabase/tests/phase51_order_lines.sql` | Pedidos históricos intactos, privilegios y RLS, escrituras directas, modo manual, IVA excluido e incluido exactos, modo `items`, cobros (`total_below_paid`, `payment_exceeds_total`), atomicidad, validación de cada campo, límite de 500, archivados, roles (`viewer`, `staff`, `manager`, otro tenant, `anon`, sin sesión), triggers de sentencia, purga y rendimiento con 1, 50 y 500 |
+| `supabase/tests/phase51_order_lines.sql` | Pedidos históricos intactos, privilegios y RLS, escrituras directas, modo manual, IVA excluido e incluido exactos, modo `items`, cobros (`total_below_paid`, `payment_exceeds_total`), atomicidad, validación de cada campo, límites de texto iguales que en presupuestos (concept 2000, description 10000, unit 100, en la RPC y en la tabla), límite de 500 líneas, archivados, roles (`viewer`, `staff`, `manager`, otro tenant, `anon`, sin sesión), triggers de sentencia, purga y rendimiento con 1, 50 y 500 |
 | `supabase/tests/phase51_order_lines_concurrency.sh` | Cinco sesiones con la misma versión (un ganador), carreras cobro/rebaja del total, escrituras paralelas en pedidos distintos, escrituras directas en sesiones nuevas |
 
 Verificados con mutaciones: con el refresco por sentencia sin silenciar, ambas suites fallan; con la guarda anterior al hotfix, la precondición impide aplicar la migración.
@@ -94,4 +107,6 @@ Se niega si existe alguna línea o algún pedido que use líneas (modo `items`, 
 
 ## Coordinación
 
-Las migraciones de importaciones de Claude: `20261016120000`–`123000` ya están en `main`; la `124000` (#127) también. Esta migración usa `20261016130000`: ordena después de todas ellas, de `main` y del hotfix `123500`. Si aparece otra migración posterior antes de integrar, hay que reordenar antes del merge.
+**Migraciones en `main`.** Las de importaciones (`20261016120000`–`125500`) y el hotfix `20261016125000` ya están en `main`. La última es `20261016125500`. Esta migración usa `20261016130000`: ordena después de todas ellas y cumple la regla `migration-order` del Release Gate.
+
+**Orden global del sprint:** #128 (`130000`) → A1 → B1 → C1 → D1 → Presupuestos V2.1 (E1 → E2 → E3; la E3 es la PR B de este documento). Si aparece otra migración posterior antes de integrar, hay que renumerar antes del merge.

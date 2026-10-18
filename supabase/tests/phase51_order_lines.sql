@@ -356,9 +356,27 @@ begin
   perform pg_temp.ok(
     public.order_item_payload_error_v1('{"concept":"x","quantity":1.5,"unit_price":0,"discount_percent":100,"tax_rate":0,"unit":null,"description":null}') is null
     and public.order_item_payload_error_v1('{"concept":"x","quantity":"0.000001","unit_price":"999999999999.999999","discount_percent":"100.000000","tax_rate":"99.999999"}') is null
-    and public.order_item_payload_error_v1(jsonb_build_object('concept', repeat('x', 500), 'quantity', 1, 'unit_price', 1)) is null
-    and public.order_item_payload_error_v1(jsonb_build_object('concept', repeat('x', 501), 'quantity', 1, 'unit_price', 1)) = 'concept',
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', repeat('x', 2000), 'quantity', 1, 'unit_price', 1)) is null
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', repeat('x', 2001), 'quantity', 1, 'unit_price', 1)) = 'concept'
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', '  ' || repeat('x', 2000) || '  ', 'quantity', 1, 'unit_price', 1)) is null,
     'boundary values');
+  -- Text limits match the quote line limits (lib/quotes/payload.ts), so a converted line never loses text.
+  perform pg_temp.ok(
+    public.order_item_payload_error_v1(jsonb_build_object('concept', 'x', 'description', repeat('d', 10000), 'quantity', 1, 'unit_price', 1)) is null
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', 'x', 'description', repeat('d', 10001), 'quantity', 1, 'unit_price', 1)) = 'description'
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', 'x', 'unit', repeat('u', 100), 'quantity', 1, 'unit_price', 1)) is null
+    and public.order_item_payload_error_v1(jsonb_build_object('concept', 'x', 'unit', repeat('u', 101), 'quantity', 1, 'unit_price', 1)) = 'unit',
+    'description and unit limits match quotes (10000 and 100)');
+  perform pg_temp.ok(
+    exists (select 1 from pg_catalog.pg_constraint c where c.conrelid = 'public.order_items'::regclass and c.contype = 'c'
+      and pg_catalog.pg_get_constraintdef(c.oid) ~ 'char_length\(concept\) <= 2000\M')
+    and exists (select 1 from pg_catalog.pg_constraint c where c.conrelid = 'public.order_items'::regclass and c.contype = 'c'
+      and pg_catalog.pg_get_constraintdef(c.oid) ~ 'char_length\(description\) <= 10000\M')
+    and exists (select 1 from pg_catalog.pg_constraint c where c.conrelid = 'public.order_items'::regclass and c.contype = 'c'
+      and pg_catalog.pg_get_constraintdef(c.oid) ~ 'char_length\(unit\) <= 100\M')
+    and not exists (select 1 from pg_catalog.pg_constraint c where c.conrelid = 'public.order_items'::regclass and c.contype = 'c'
+      and pg_catalog.pg_get_constraintdef(c.oid) ~ 'char_length\((concept|description|unit)\) <= (500|5000|40)\M'),
+    'order_items table text limits match quotes (2000 / 10000 / 100)');
   perform pg_temp.as_user(a);
   set local role authenticated;
 
