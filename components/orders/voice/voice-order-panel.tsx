@@ -146,19 +146,28 @@ export function VoiceOrderPanel({
       setPhase("extracting");
       setError(null);
       setDiscardNotice(null);
-      const response = await fetch("/api/ai/voice-orders/drafts", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          request_id: requestId,
-          transcript: text,
-          source,
-          mode,
-          visible_fields: visibleFields,
-        }),
-      });
-      const payload = await response.json();
+      let response: Response;
+      let payload: { error?: string } & Record<string, unknown>;
+      try {
+        response = await fetch("/api/ai/voice-orders/drafts", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            request_id: requestId,
+            transcript: text,
+            source,
+            mode,
+            visible_fields: visibleFields,
+          }),
+        });
+        payload = await response.json();
+      } catch {
+        // Network cut or a non-JSON gateway error: nothing was applied.
+        setError("No se pudo interpretar el dictado. Revisa la conexión y vuelve a intentarlo.");
+        setPhase("error");
+        return;
+      }
       if (!response.ok) {
         if (isSessionExpired(response.status, payload)) {
           onSessionExpired?.(response.status, payload);
@@ -199,12 +208,23 @@ export function VoiceOrderPanel({
       body.append("request_id", requestId);
       body.append("client_duration_ms", "0");
 
-      const response = await fetch("/api/ai/voice-orders/transcriptions", {
-        method: "POST",
-        credentials: "same-origin",
-        body,
-      });
-      const payload = await response.json();
+      let response: Response;
+      let payload: {
+        error?: string;
+        transcript?: { text?: unknown };
+      } & Record<string, unknown>;
+      try {
+        response = await fetch("/api/ai/voice-orders/transcriptions", {
+          method: "POST",
+          credentials: "same-origin",
+          body,
+        });
+        payload = await response.json();
+      } catch {
+        setError("No se pudo transcribir el audio. Revisa la conexión y vuelve a intentarlo.");
+        setPhase("error");
+        return;
+      }
       if (!response.ok) {
         if (isSessionExpired(response.status, payload)) {
           onSessionExpired?.(response.status, payload);
