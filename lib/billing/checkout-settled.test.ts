@@ -1,6 +1,6 @@
 /**
  * Static guards for re-subscribing after cancellation
- * (20261018120000_billing_checkout_attempt_settled_v1.sql): a completed
+ * (20261018160000_billing_checkout_attempt_settled_v1.sql): a completed
  * attempt is settled only once its subscription was recorded and ended, the
  * RPC stays service-only, and the billing SQL suites run in the release gate.
  */
@@ -13,7 +13,7 @@ const root = path.join(import.meta.dirname, "../..");
 const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
 
 const MIGRATION =
-  "supabase/migrations/20261018120000_billing_checkout_attempt_settled_v1.sql";
+  "supabase/migrations/20261018160000_billing_checkout_attempt_settled_v1.sql";
 
 const BILLING_GATE_SUITES = [
   "phase22_tenant_file_limits",
@@ -27,7 +27,8 @@ const BILLING_GATE_SUITES = [
   "phase30_order_statuses_require_initial_security_definer",
   "phase31_tenant_provisioning_state",
   "phase32_stripe_live_hardening",
-  "phase53_billing_checkout_resubscribe",
+  "phase55_billing_checkout_resubscribe",
+  "phase56_billing_storage_capacity",
 ];
 
 describe("checkout attempt settled after cancellation", () => {

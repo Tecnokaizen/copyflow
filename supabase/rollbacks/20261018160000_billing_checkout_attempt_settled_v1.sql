@@ -1,4 +1,4 @@
--- Rollback for 20261018120000_billing_checkout_attempt_settled_v1.sql.
+-- Rollback for 20261018160000_billing_checkout_attempt_settled_v1.sql.
 --
 -- Restores prepare_billing_checkout_attempt_v2 exactly as in
 -- 20260922160000_stripe_live_hardening_v1.sql (re-subscribe after cancellation

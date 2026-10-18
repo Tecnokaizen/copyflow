@@ -37,6 +37,8 @@ sql "do \$\$ begin
  insert into auth.users(id,email,raw_user_meta_data) values('$ACTOR','pdf-concurrency@phase43.test','{}');
  insert into public.profiles(id,full_name) values('$ACTOR','Transition concurrency');
  insert into public.tenants(id,name,slug,active) values('$TENANT','Transition concurrency','phase43conc',true);
+ -- S2: explicit storage capacity (a tenant without subscription has 0 bytes).
+ insert into public.subscriptions(tenant_id,plan_id,provider,status) select '$TENANT',id,'internal','active' from public.plans where code='basic';
  insert into public.memberships(tenant_id,user_id,role,active) values('$TENANT','$ACTOR','owner',true);
  select public.seed_quote_statuses('$TENANT');select public.set_tenant_feature('phase43conc','quotes',true,null);
  insert into public.quotes(id,tenant_id,status_id,description) select '$QUOTE','$TENANT',id,'Transition concurrency' from public.quote_statuses where tenant_id='$TENANT' and code='draft';" >/dev/null

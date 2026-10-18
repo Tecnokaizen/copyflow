@@ -92,14 +92,18 @@ begin
     raise exception 'phase23: mvp altered unexpectedly';
   end if;
 
-  if exists (
+  -- S2: mvp carries an explicit, finite storage_bytes capacity (no implicit
+  -- unlimited); before S2 it had none.
+  if not exists (
     select 1
     from public.plan_features pf
     join public.features f on f.id = pf.feature_id
     where pf.plan_id = v_mvp_id
       and f.code = 'storage_bytes'
+      and pf.enabled
+      and pf.limit_value is not null
   ) then
-    raise exception 'phase23: mvp unexpectedly gained storage_bytes';
+    raise exception 'phase23: mvp must carry an explicit storage_bytes capacity';
   end if;
 
   -- -------------------------------------------------------------------------
