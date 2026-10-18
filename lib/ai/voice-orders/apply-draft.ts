@@ -1,5 +1,7 @@
 import type { QuickOrderField } from "@/lib/settings/quick-order-layout";
 import type { VoiceOrderDraft } from "@/lib/ai/voice-orders/contract";
+import { toDateTimeLocalValue } from "@/lib/orders/format";
+import { appendRichText } from "@/lib/rich-text/html";
 
 export type VoiceFormSnapshot = {
   title: string;
@@ -264,4 +266,95 @@ export function applyVoiceDraft(
   }
 
   return { patch, report };
+}
+
+type VoiceFieldKey = keyof VoiceFormSnapshot;
+
+/** Value each field held before the current voice draft, and the value it wrote. */
+export type VoiceAppliedFields = Partial<
+  Record<VoiceFieldKey, { before: unknown; after: unknown }>
+>;
+
+/** Form values once `patch` is applied to `form`, in the form's own format. */
+export function projectVoicePatch(
+  form: VoiceFormSnapshot,
+  patch: VoiceApplyResult["patch"]
+): Partial<VoiceFormSnapshot> {
+  const next: Partial<VoiceFormSnapshot> = {};
+  if (patch.title !== undefined) next.title = patch.title;
+  if (patch.description !== undefined) {
+    next.description =
+      patch.descriptionMode === "append"
+        ? appendRichText(form.description, patch.description)
+        : patch.description;
+  }
+  if (patch.notes !== undefined) next.notes = patch.notes;
+  if (patch.serviceId !== undefined) next.serviceId = patch.serviceId;
+  if (patch.storeId !== undefined) next.storeId = patch.storeId;
+  if (patch.entryChannelId !== undefined) next.entryChannelId = patch.entryChannelId;
+  if (patch.orderContextId !== undefined) next.orderContextId = patch.orderContextId;
+  if (patch.assignedTeamMemberId !== undefined) {
+    next.assignedTeamMemberId = patch.assignedTeamMemberId;
+  }
+  if (patch.priority !== undefined) next.priority = patch.priority;
+  if (patch.dueAtIso !== undefined) next.dueAt = toDateTimeLocalValue(patch.dueAtIso);
+  if (patch.clientId) next.clientId = patch.clientId;
+  return next;
+}
+
+/**
+ * Adds one application of the current draft. A field keeps the value it had
+ * before the draft's FIRST write, so «Reemplazar» can still be undone.
+ */
+export function recordVoiceApplication(
+  applied: VoiceAppliedFields,
+  form: VoiceFormSnapshot,
+  projected: Partial<VoiceFormSnapshot>
+): VoiceAppliedFields {
+  const next: VoiceAppliedFields = { ...applied };
+  for (const key of Object.keys(projected) as VoiceFieldKey[]) {
+    const after = projected[key];
+    const previous = next[key];
+    if (!previous && after === form[key]) continue;
+    next[key] = { before: previous ? previous.before : form[key], after };
+  }
+  return next;
+}
+
+/**
+ * What «Descartar» puts back: every field the draft wrote and nobody touched
+ * since returns to its previous value; fields edited after the draft are kept.
+ */
+export function buildVoiceRevert(
+  applied: VoiceAppliedFields,
+  current: VoiceFormSnapshot
+): { restore: Partial<VoiceFormSnapshot>; kept: VoiceFieldKey[] } {
+  const restore: Record<string, unknown> = {};
+  const kept: VoiceFieldKey[] = [];
+  for (const key of Object.keys(applied) as VoiceFieldKey[]) {
+    const entry = applied[key];
+    if (!entry) continue;
+    if (current[key] === entry.after) {
+      restore[key] = entry.before;
+    } else if (current[key] !== entry.before) {
+      kept.push(key);
+    }
+  }
+  return { restore: restore as Partial<VoiceFormSnapshot>, kept };
+}
+
+/**
+ * Fields of a restored session draft (#94) that differ from an empty form
+ * with its catalog defaults: the user typed them, so a later voice draft
+ * must not overwrite them silently.
+ */
+export function voiceTouchedFromRestoredDraft(
+  restored: VoiceFormSnapshot,
+  defaults: VoiceFormSnapshot
+): VoiceTouchedFields {
+  const touched: VoiceTouchedFields = {};
+  for (const key of Object.keys(defaults) as VoiceFieldKey[]) {
+    if (restored[key] !== defaults[key]) touched[key] = true;
+  }
+  return touched;
 }

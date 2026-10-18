@@ -1,14 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VoiceRecorder } from "@/components/orders/voice/voice-recorder";
 import { VoiceDraftReview } from "@/components/orders/voice/voice-draft-review";
 import {
   applyVoiceDraft,
+  buildVoiceRevert,
+  projectVoicePatch,
+  recordVoiceApplication,
+  type VoiceAppliedFields,
   type VoiceApplyReportItem,
+  type VoiceApplyResult,
   type VoiceFormSnapshot,
   type VoiceTouchedFields,
 } from "@/lib/ai/voice-orders/apply-draft";
+import { ACCESS_CODES } from "@/lib/tenant/access";
 import type { VoiceOrderDraft } from "@/lib/ai/voice-orders/contract";
 import type { QuickOrderField } from "@/lib/settings/quick-order-layout";
 
@@ -24,11 +30,52 @@ type VoiceOrderPanelProps = {
   visibleFields: QuickOrderField[];
   formSnapshot: VoiceFormSnapshot;
   touchedFields: VoiceTouchedFields;
-  onApplyPatch: (patch: ReturnType<typeof applyVoiceDraft>["patch"]) => void;
+  onApplyPatch: (patch: VoiceApplyResult["patch"]) => void;
+  /** «Descartar»: previous values of the fields the draft wrote. */
+  onRestoreFields: (values: Partial<VoiceFormSnapshot>) => void;
+  /** 401 SESSION_EXPIRED from a voice endpoint (the form keeps its draft). */
+  onSessionExpired?: (status: number, body: unknown) => void;
+};
+
+/** Patch keys written by each report field («Reemplazar» touches one field). */
+const REPORT_FIELD_PATCH_KEYS: Record<string, (keyof VoiceApplyResult["patch"])[]> = {
+  title: ["title"],
+  description: ["description", "descriptionMode"],
+  notes: ["notes"],
+  service: ["serviceId"],
+  store: ["storeId"],
+  entry_channel: ["entryChannelId"],
+  order_context: ["orderContextId"],
+  assigned_team_member: ["assignedTeamMemberId"],
+  priority: ["priority"],
+  due: ["dueAtIso"],
+  client: ["clientId", "openCreateClientName"],
+};
+
+const REPORT_FIELD_TOUCHED_KEY: Record<string, keyof VoiceTouchedFields> = {
+  title: "title",
+  description: "description",
+  notes: "notes",
+  service: "serviceId",
+  store: "storeId",
+  entry_channel: "entryChannelId",
+  order_context: "orderContextId",
+  assigned_team_member: "assignedTeamMemberId",
+  priority: "priority",
+  due: "dueAt",
+  client: "clientId",
 };
 
 function newRequestId() {
   return crypto.randomUUID();
+}
+
+function isSessionExpired(status: number, payload: unknown) {
+  const code =
+    payload && typeof payload === "object"
+      ? (payload as { code?: unknown }).code
+      : null;
+  return status === 401 && code === ACCESS_CODES.sessionExpired;
 }
 
 export function VoiceOrderPanel({
@@ -38,6 +85,8 @@ export function VoiceOrderPanel({
   formSnapshot,
   touchedFields,
   onApplyPatch,
+  onRestoreFields,
+  onSessionExpired,
 }: VoiceOrderPanelProps) {
   const [status, setStatus] = useState<VoiceStatus | null>(null);
   const [phase, setPhase] = useState<
@@ -51,6 +100,13 @@ export function VoiceOrderPanel({
   const [transcriptionRequestId, setTranscriptionRequestId] = useState<string | null>(
     null
   );
+  const [applied, setApplied] = useState<VoiceAppliedFields>({});
+  const [discardNotice, setDiscardNotice] = useState<string | null>(null);
+  // Requests are async: apply against the form as it is when they return.
+  const latest = useRef({ formSnapshot, touchedFields });
+  useEffect(() => {
+    latest.current = { formSnapshot, touchedFields };
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +145,7 @@ export function VoiceOrderPanel({
     async (text: string, source: "audio" | "typed", requestId: string) => {
       setPhase("extracting");
       setError(null);
+      setDiscardNotice(null);
       const response = await fetch("/api/ai/voice-orders/drafts", {
         method: "POST",
         credentials: "same-origin",
@@ -103,24 +160,32 @@ export function VoiceOrderPanel({
       });
       const payload = await response.json();
       if (!response.ok) {
+        if (isSessionExpired(response.status, payload)) {
+          onSessionExpired?.(response.status, payload);
+        }
         setError(payload.error ?? "No se pudo interpretar el dictado");
         setPhase("error");
         return;
       }
 
       const nextDraft = payload as VoiceOrderDraft;
-      const applied = applyVoiceDraft(formSnapshot, nextDraft, {
+      const { formSnapshot: form, touchedFields: touched } = latest.current;
+      const result = applyVoiceDraft(form, nextDraft, {
         mode,
         visibleFields,
-        touchedFields,
+        touchedFields: touched,
         tenantSlug,
       });
       setDraft(nextDraft);
-      setReport(applied.report);
-      onApplyPatch(applied.patch);
+      setReport(result.report);
+      // Each new draft is undone on its own: earlier drafts were kept.
+      setApplied(
+        recordVoiceApplication({}, form, projectVoicePatch(form, result.patch))
+      );
+      onApplyPatch(result.patch);
       setPhase("draft_ready");
     },
-    [formSnapshot, mode, onApplyPatch, tenantSlug, touchedFields, visibleFields]
+    [mode, onApplyPatch, onSessionExpired, tenantSlug, visibleFields]
   );
 
   const transcribeBlob = useCallback(
@@ -141,6 +206,9 @@ export function VoiceOrderPanel({
       });
       const payload = await response.json();
       if (!response.ok) {
+        if (isSessionExpired(response.status, payload)) {
+          onSessionExpired?.(response.status, payload);
+        }
         setError(payload.error ?? "No se pudo transcribir el audio");
         setPhase("error");
         return;
@@ -150,7 +218,7 @@ export function VoiceOrderPanel({
       setTranscript(text);
       setPhase("transcript_ready");
     },
-    []
+    [onSessionExpired]
   );
 
   const visible = useMemo(() => status?.enabled === true, [status]);
@@ -256,42 +324,59 @@ export function VoiceOrderPanel({
         </p>
       ) : null}
 
+      {discardNotice ? (
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {discardNotice}
+        </p>
+      ) : null}
+
       {draft && phase === "draft_ready" ? (
         <VoiceDraftReview
           draft={draft}
           report={report}
           onDiscard={() => {
+            const revert = buildVoiceRevert(applied, latest.current.formSnapshot);
+            onRestoreFields(revert.restore);
+            setDiscardNotice(
+              revert.kept.length > 0
+                ? "Dictado descartado. Se conservan los campos que cambiaste después."
+                : "Dictado descartado. El formulario vuelve a como estaba."
+            );
+            setApplied({});
             setDraft(null);
             setReport([]);
             setTranscript("");
             setPhase("idle");
           }}
           onReplaceField={(field) => {
-            if (!draft) return;
-            const forced: VoiceTouchedFields = { ...touchedFields };
-            const map: Record<string, keyof VoiceTouchedFields> = {
-              title: "title",
-              description: "description",
-              notes: "notes",
-              service: "serviceId",
-              store: "storeId",
-              entry_channel: "entryChannelId",
-              order_context: "orderContextId",
-              assigned_team_member: "assignedTeamMemberId",
-              priority: "priority",
-              due: "dueAt",
-              client: "clientId",
-            };
-            const key = map[field];
-            if (key) forced[key] = false;
-            const applied = applyVoiceDraft(formSnapshot, draft, {
+            const touchedKey = REPORT_FIELD_TOUCHED_KEY[field];
+            const patchKeys = REPORT_FIELD_PATCH_KEYS[field];
+            if (!draft || !touchedKey || !patchKeys) return;
+            const { formSnapshot: form, touchedFields: touched } = latest.current;
+            const result = applyVoiceDraft(form, draft, {
               mode,
               visibleFields,
-              touchedFields: forced,
+              touchedFields: { ...touched, [touchedKey]: false },
               tenantSlug,
             });
-            setReport(applied.report);
-            onApplyPatch(applied.patch);
+            // Only this field: re-applying the rest would append the
+            // description twice or overwrite fields edited meanwhile.
+            const patch: VoiceApplyResult["patch"] = {};
+            for (const key of patchKeys) {
+              if (result.patch[key] !== undefined) {
+                Object.assign(patch, { [key]: result.patch[key] });
+              }
+            }
+            const item = result.report.find((entry) => entry.field === field);
+            setReport((current) =>
+              item
+                ? current.map((entry) => (entry.field === field ? item : entry))
+                : current
+            );
+            setApplied((current) =>
+              recordVoiceApplication(current, form, projectVoicePatch(form, patch))
+            );
+            onApplyPatch(patch);
           }}
         />
       ) : null}

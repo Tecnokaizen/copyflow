@@ -75,8 +75,10 @@ describe("AI provider resolution", () => {
       voiceOrdersProviderConfigured({ ...OPENAI_READY, VERCEL_ENV: "production" }),
       true
     );
-    const { AI_EXTRACTION_MODEL: _omit, ...withoutExtractionModel } = OPENAI_READY;
-    assert.equal(voiceOrdersProviderConfigured(withoutExtractionModel), false);
+    assert.equal(
+      voiceOrdersProviderConfigured({ ...OPENAI_READY, AI_EXTRACTION_MODEL: " " }),
+      false
+    );
   });
 
   it("lets AI_PROVIDER win over per-operation providers and rejects unknown names", () => {

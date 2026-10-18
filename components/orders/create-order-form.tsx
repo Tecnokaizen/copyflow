@@ -67,7 +67,11 @@ import {
   type QuickOrderLayout,
 } from "@/lib/settings/quick-order-layout";
 import { defaultActiveStoreId } from "@/lib/stores/scope";
-import type { VoiceTouchedFields } from "@/lib/ai/voice-orders/apply-draft";
+import {
+  voiceTouchedFromRestoredDraft,
+  type VoiceFormSnapshot,
+  type VoiceTouchedFields,
+} from "@/lib/ai/voice-orders/apply-draft";
 
 type CreateOrderFormProps = {
   mode?: "full" | "quick";
@@ -147,7 +151,9 @@ export function CreateOrderForm({
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
   const [dueAt, setDueAt] = useState("");
-  const [dueAtInvalid, setDueAtInvalid] = useState(false);
+  const [dueAtInvalid, setDueAtInvalidState] = useState(false);
+  // Remounts the picker when voice writes the date, dropping a stale partial.
+  const [dueAtPickerKey, setDueAtPickerKey] = useState(0);
   const [entryChannelId, setEntryChannelId] = useState("");
   const [orderContextId, setOrderContextId] = useState("");
   const [priority, setPriority] = useState<"normal" | "high" | "urgent">(
@@ -164,32 +170,39 @@ export function CreateOrderForm({
     );
   }
 
+  function setDueAtInvalid(invalid: boolean) {
+    // A partial date is the user's input even before it is complete.
+    if (invalid) markTouched("dueAt");
+    setDueAtInvalidState(invalid);
+  }
+
+  function catalogDefaults(nextOptions: OrderOptionsResponse) {
+    return {
+      storeId: defaultActiveStoreId(nextOptions.stores) ?? "",
+      assignedTeamMemberId: isQuick
+        ? suggestedAssigneeId({
+            currentAssigneeId: "",
+            role: nextOptions.actor_role,
+            sessionTeamMemberId: nextOptions.current_team_member?.id,
+            availableMemberIds: nextOptions.team_members.map((member) => member.id),
+          })
+        : "",
+      entryChannelId: isQuick
+        ? defaultSingleCatalogId(nextOptions.entry_channels) ?? ""
+        : "",
+    };
+  }
+
   function applyCatalogDefaults(nextOptions: OrderOptionsResponse) {
-    setStoreId((current) => {
-      if (current) {
-        return current;
-      }
-      return defaultActiveStoreId(nextOptions.stores) ?? "";
-    });
+    const defaults = catalogDefaults(nextOptions);
+    setStoreId((current) => current || defaults.storeId);
 
     if (!isQuick) {
       return;
     }
 
-    setAssignedTeamMemberId((current) =>
-      suggestedAssigneeId({
-        currentAssigneeId: current,
-        role: nextOptions.actor_role,
-        sessionTeamMemberId: nextOptions.current_team_member?.id,
-        availableMemberIds: nextOptions.team_members.map((member) => member.id),
-      })
-    );
-    setEntryChannelId((current) => {
-      if (current) {
-        return current;
-      }
-      return defaultSingleCatalogId(nextOptions.entry_channels) ?? "";
-    });
+    setAssignedTeamMemberId((current) => current || defaults.assignedTeamMemberId);
+    setEntryChannelId((current) => current || defaults.entryChannelId);
   }
 
   function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
@@ -293,6 +306,66 @@ export function CreateOrderForm({
       setDraftNotice(
         "Los archivos adjuntos no se han conservado. Selecciónalos de nuevo."
       );
+    }
+    // What the user typed before the session expired is theirs: a voice
+    // draft must not overwrite it without «Reemplazar».
+    setTouchedFields(
+      voiceTouchedFromRestoredDraft(
+        {
+          title: draft.title,
+          description: draft.description,
+          notes: draft.notes,
+          serviceId: draft.serviceId,
+          storeId: draft.storeId,
+          entryChannelId: draft.entryChannelId,
+          orderContextId: draft.orderContextId,
+          assignedTeamMemberId: draft.assignedTeamMemberId,
+          priority: draft.priority,
+          dueAt: draft.dueAt,
+          clientId: draft.clientId && draft.clientName ? draft.clientId : null,
+        },
+        {
+          title: "",
+          description: "",
+          notes: "",
+          serviceId: "",
+          orderContextId: "",
+          priority: "normal",
+          dueAt: "",
+          clientId: null,
+          ...catalogDefaults(nextOptions),
+        }
+      )
+    );
+  }
+
+  function setDueAtFromVoice(value: string) {
+    setDueAt(value);
+    setDueAtInvalidState(value ? !fromDateTimeLocalValue(value) : false);
+    setDueAtPickerKey((key) => key + 1);
+  }
+
+  function restoreFieldsFromVoice(values: Partial<VoiceFormSnapshot>) {
+    if (values.title !== undefined) setTitle(values.title);
+    if (values.description !== undefined) setDescription(values.description);
+    if (values.notes !== undefined) setNotes(values.notes);
+    if (values.serviceId !== undefined) setServiceId(values.serviceId);
+    if (values.storeId !== undefined) setStoreId(values.storeId);
+    if (values.entryChannelId !== undefined) setEntryChannelId(values.entryChannelId);
+    if (values.orderContextId !== undefined) setOrderContextId(values.orderContextId);
+    if (values.assignedTeamMemberId !== undefined) {
+      setAssignedTeamMemberId(values.assignedTeamMemberId);
+    }
+    if (values.priority !== undefined) setPriority(values.priority);
+    if (values.dueAt !== undefined) setDueAtFromVoice(values.dueAt);
+    if (values.clientId !== undefined) {
+      if (values.clientId) {
+        void selectClientById(values.clientId).catch(() => {
+          setError("No se pudo recuperar el cliente anterior");
+        });
+      } else {
+        setSelectedClient(null);
+      }
     }
   }
 
@@ -752,6 +825,7 @@ export function CreateOrderForm({
       <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
         <DateTimePicker
+          key={dueAtPickerKey}
           value={dueAt}
           disabled={submitting}
           onChange={(value) => {
@@ -1105,7 +1179,7 @@ export function CreateOrderForm({
               }
               if (patch.priority !== undefined) setPriority(patch.priority);
               if (patch.dueAtIso !== undefined) {
-                setDueAt(toDateTimeLocalValue(patch.dueAtIso));
+                setDueAtFromVoice(toDateTimeLocalValue(patch.dueAtIso));
               }
               if (patch.clientId) {
                 void selectClientById(patch.clientId).catch(() => {
@@ -1115,6 +1189,14 @@ export function CreateOrderForm({
               if (patch.openCreateClientName) {
                 openCreateClient(patch.openCreateClientName);
               }
+            }}
+            onRestoreFields={restoreFieldsFromVoice}
+            onSessionExpired={(status, body) => {
+              presentFailure(
+                status,
+                body as { code?: unknown; error?: unknown } | null,
+                "order"
+              );
             }}
           />
           {isQuick ? (
