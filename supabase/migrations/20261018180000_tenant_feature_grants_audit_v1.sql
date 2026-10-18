@@ -31,7 +31,7 @@
 -- Does NOT revoke or expire anything (review_at is a reminder), touch plans,
 -- subscriptions, prices or quotas, change set_tenant_feature or
 -- tenant_has_feature, or grant any feature to any tenant.
--- Rollback: supabase/rollbacks/20261017120000_tenant_feature_grants_audit_v1.sql
+-- Rollback: supabase/rollbacks/20261018180000_tenant_feature_grants_audit_v1.sql
 begin;
 
 -- 1. Terms of the current override ------------------------------------------
@@ -172,7 +172,7 @@ insert into public.tenant_feature_override_events (
 )
 select
   o.tenant_id, t.slug, o.feature_id, f.code, 'baseline', 'migration',
-  'Override present before A1; no recorded reason.', 'migration 20261017120000',
+  'Override present before A1; no recorded reason.', 'migration 20261018180000',
   o.enabled, o.limit_value, session_user, nullif(auth.role(), '')
 from public.tenant_feature_overrides o
 join public.tenants t on t.id = o.tenant_id

@@ -25,9 +25,9 @@ set -euo pipefail
 DB_URL="${1:?usage: phase54_tenant_feature_grants_concurrency.sh <database-url>}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-MIGRATION="$ROOT/supabase/migrations/20261017120000_tenant_feature_grants_audit_v1.sql"
-ROLLBACK="$ROOT/supabase/rollbacks/20261017120000_tenant_feature_grants_audit_v1.sql"
-VERIFY="$ROOT/supabase/rollbacks/verify_20261017120000_tenant_feature_grants_audit_v1.sql"
+MIGRATION="$ROOT/supabase/migrations/20261018180000_tenant_feature_grants_audit_v1.sql"
+ROLLBACK="$ROOT/supabase/rollbacks/20261018180000_tenant_feature_grants_audit_v1.sql"
+VERIFY="$ROOT/supabase/rollbacks/verify_20261018180000_tenant_feature_grants_audit_v1.sql"
 
 OWNER='e5410000-0000-4000-8000-000000000001'
 TENANT='e5410000-0000-4000-8000-000000000011'

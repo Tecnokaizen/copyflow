@@ -1,4 +1,4 @@
--- Post-rollback check for 20261017120000_tenant_feature_grants_audit_v1.sql:
+-- Post-rollback check for 20261018180000_tenant_feature_grants_audit_v1.sql:
 -- no A1 object is left and tenant_feature_overrides is back to its pre-A1
 -- shape, privileges and comments. Read-only.
 \set ON_ERROR_STOP on
@@ -69,6 +69,6 @@ begin
     raise exception 'ROLLBACK FAIL: legacy feature functions changed';
   end if;
 
-  raise notice 'rollback 20261017120000 verified';
+  raise notice 'rollback 20261018180000 verified';
 end;
 $rollback_verify$;

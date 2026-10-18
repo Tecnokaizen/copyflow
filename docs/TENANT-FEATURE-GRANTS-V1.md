@@ -14,8 +14,8 @@ importación de SUR4 (A2/A3), la voz (B1, #90) y la conciliación de Basic/Pro
 
 | Pieza | Cambio |
 | --- | --- |
-| `supabase/migrations/20261017120000_tenant_feature_grants_audit_v1.sql` | Columnas `reason`, `granted_by`, `granted_at` y `review_at` en `tenant_feature_overrides`; tabla `tenant_feature_override_events`; `set_tenant_feature_v2`, `clear_tenant_feature_override` y `list_tenant_feature_reviews_due`; triggers de auditoría; TRUNCATE de los overrides bloqueado. Aditiva y en una transacción |
-| `supabase/rollbacks/20261017120000_tenant_feature_grants_audit_v1.sql` + `verify_…` | Rollback exacto (se niega si perdería historial) y su verificación |
+| `supabase/migrations/20261018180000_tenant_feature_grants_audit_v1.sql` | Columnas `reason`, `granted_by`, `granted_at` y `review_at` en `tenant_feature_overrides`; tabla `tenant_feature_override_events`; `set_tenant_feature_v2`, `clear_tenant_feature_override` y `list_tenant_feature_reviews_due`; triggers de auditoría; TRUNCATE de los overrides bloqueado. Aditiva y en una transacción |
+| `supabase/rollbacks/20261018180000_tenant_feature_grants_audit_v1.sql` + `verify_…` | Rollback exacto (se niega si perdería historial) y su verificación |
 | `supabase/tests/phase54_tenant_feature_grants.sql` | Suite SQL de seguridad y comportamiento, en el Release Gate |
 | `supabase/tests/phase54_tenant_feature_grants_concurrency.sh` | Concurrencia real y ciclo rollback → reaplicación, en `kiosk-supabase.yml` |
 | `lib/features/tenant-feature-grants-guards.test.ts` | Guardas estáticas: hueco de la migración, funciones heredadas intactas, sin concesiones ni caducidad, privilegios, rollback y CI |
@@ -158,11 +158,19 @@ autorización. La concesión de SUR4 (A3) es una operación posterior y separada
 
 ## Compatibilidad
 
-- **#90 (voz, `20261018150000`, phase53):** sigue usando `set_tenant_feature`;
+- **Orden de migraciones:** Staging ya tiene D2/D1 (`20261018160000`, `161000` y
+  `170000`, aplicadas el 18/10 desde #135/#136), así que A1 va **después** de
+  ellas: #128 → D2 → D1 → **A1** (`20261018180000`) → #90 → C1. Consecuencias:
+  - en `main`, #135 y #136 se integran **antes** que A1 (si A1 entrara antes, la
+    guarda de migraciones bloquearía las suyas, que ya no se pueden renumerar);
+  - en Production, D2/D1 se aplican antes que A1 o en el mismo `db push`;
+  - #90 (`20261018150000`) tampoco entra ya en Staging por el procedimiento
+    estándar: hay que renumerarla por encima de A1 (p. ej. `20261018190000`).
+- **#90 (voz, phase53):** sigue usando `set_tenant_feature`;
   funciona igual y queda registrado como `source = set_tenant_feature`. Su
   `phase53_ai_voice_budget_concurrency.sh` borra overrides con `DELETE`
   directo: se registra como `direct_sql`. Sin conflictos de texto
-  (`git merge-tree`). Orden: #128 → **A1** → #90.
+  (`git merge-tree`).
 - **#135/#136 (Billing D2/D1, `20261018160000`–`170000`, phase55–57):** no tocan
   overrides; sin conflictos de texto.
 - **phase47 (acceso anticipado):** pasa sin cambios.
@@ -181,15 +189,20 @@ migraciones desde cero.
 | Release Gate SQL (invariantes + 23 suites, `phase54` incluida) | PASS |
 | Secuencia completa de `kiosk-supabase` (trigger previo a Kiosk, todas las suites y concurrencias, `phase54` .sh, rollback de Kiosk y diff) | PASS de principio a fin en la segunda pasada. En la primera fallaron dos pruebas ajenas a A1: el falso positivo de `phase51_order_lines_concurrency.sh` (corregido en #135; las dos pasadas usan esa corrección en una copia fuera del repo) y la fila huérfana de #137 en `files_private.storage_deletions` |
 | `phase54_tenant_feature_grants_concurrency.sh` repetido 4 veces | PASS (sin intermitencias) |
-| Rollback de A1 frente a `db reset --version 20261016130000` | `pg_dump --schema-only -n public` idéntico (salvo los tokens `\restrict`) |
+| Rollback de A1 frente a `db reset --version 20261018170000` (`main` + D2/D1) | `pg_dump --schema-only -n public` idéntico (salvo los tokens `\restrict`) |
+| Ensayo del procedimiento de Staging en local (BD con el mismo historial que Staging: 82 versiones, md5 `d705e8d1…`) | El `db push --dry-run` estándar lista solo `20261018180000`; `db push` la aplica (83). Con el número anterior (`20261017120000`) el CLI la rechaza y pide `--include-all`; lo mismo le pasa a #90 con `20261018150000`. Desde el árbol de esta PR sin los ficheros de D2/D1, el CLI falla («Remote migration versions not found») |
+| Guarda de migraciones según el orden de integración en `main` (merges simulados) | A1 renumerada después de #135/#136: PASS. #136 después de A1 renumerada: FAIL (sus tres versiones quedarían por debajo). Con `20261017120000`, al revés: solo pasa si A1 entra antes que #135/#136 |
+| `main` + D2/D1 + A1 (`20261018180000`) desde cero | Release Gate SQL de ese árbol (facturación incluida), `phase57` y `phase54` .sh: 40/40 PASS |
 | Migración sobre una BD con overrides previos | un evento `baseline` por override; rollback sin opt-in permitido (solo línea base) |
 | Árboles combinados desde cero (`git merge-tree`): A1 + #90 · A1 + #136 (incluye #135) · A1 + #90 + #136 | 81 · 83 · 84 migraciones; Release Gate SQL de cada árbol más `phase53`/`phase57`/`phase54` .sh: todo PASS |
 | Inyección de fallos (cada una hace fallar `phase54`) | EXECUTE de v2 a `authenticated`; trigger de solo inserción desactivado; SELECT del historial a `service_role`; v2 sin la comprobación interna; `tenant_has_feature` que obedece `review_at`; contexto de retirada que sobrevive a la llamada |
 
 ## Aplicar A1 en Staging (requiere autorización)
 
-Staging (`fmmfsbhcwxkaszrrarpw`) tiene hoy 79 migraciones (última
-`20261016130000`) y los overrides `demo.quotes`, `e2e.quotes`,
+Staging (`fmmfsbhcwxkaszrrarpw`), consultado en solo lectura el 18/10: 82
+migraciones (las 79 de `main` más D2/D1; última `20261018170000`; md5 de la lista
+`d705e8d13773ecf066c9719b6e95b02b`, igual que el árbol de #136), ningún objeto de
+A1 y los overrides `demo.quotes`, `e2e.quotes`,
 `e2e.clients_import` y `e2e-import.clients_import`. No hay datos de SUR4.
 
 1. **Foto previa (solo lectura):** número y md5 de la lista de versiones de
@@ -199,13 +212,18 @@ Staging (`fmmfsbhcwxkaszrrarpw`) tiene hoy 79 migraciones (última
    cada tenant × código del catálogo; hash de suscripciones, planes,
    `plan_features` y `billing_prices`; md5 de `set_tenant_feature` y
    `tenant_has_feature`.
-2. **Dry-run** desde un directorio enlazado a Staging con exactamente las
-   migraciones de esta PR (o de `main` tras el merge):
+2. **Dry-run** desde un directorio enlazado a Staging con exactamente las 82
+   migraciones de Staging más la de A1 (`main` tras integrar #135, #136 y A1;
+   antes, el árbol de #136 más el fichero de A1):
    `npx supabase@2.117.0 db push --linked --dry-run` debe listar **solo**
-   `20261017120000_tenant_feature_grants_audit_v1.sql`. Si lista otra cosa,
-   parar. Nunca `--include-all`.
+   `20261018180000_tenant_feature_grants_audit_v1.sql`. Si lista otra cosa,
+   parar. Nunca `--include-all`. Si responde «Remote migration versions not
+   found in local migrations directory», al directorio le faltan los ficheros
+   de D2/D1: **no** seguir su sugerencia (`migration repair --status reverted …`
+   o `db pull`), que borraría D2/D1 del historial de Staging; parar y corregir
+   el directorio.
 3. **Aplicar:** `npx supabase@2.117.0 db push --linked`.
-4. **Postchecks (solo lectura):** 80 migraciones; tantos eventos `baseline`
+4. **Postchecks (solo lectura):** 83 migraciones; tantos eventos `baseline`
    como overrides y ningún otro; overrides, resolución, hashes de facturación y
    md5 de las dos funciones heredadas idénticos a la foto previa; el historial
    sin privilegios para `anon`/`authenticated`/`service_role`; las tres funciones
@@ -215,14 +233,14 @@ Staging (`fmmfsbhcwxkaszrrarpw`) tiene hoy 79 migraciones (última
 6. **Regresión:** workflow `E2E staging` (V0 y presupuestos) sobre la rama de
    Staging. A1 no cambia código de aplicación: no hace falta desplegar.
 7. **Después:** A2 (ensayo en Staging con tenants sintéticos) y, con su propia
-   autorización, Production con el mismo procedimiento (antes de aplicar #90
-   allí, para conservar el orden).
+   autorización, Production con el mismo procedimiento, después de D2/D1 (o en
+   el mismo `db push`) y antes de #90.
 
 **Si algo falla:** la migración es una única transacción; si falla, no se
 aplica nada. Para revertir una A1 ya aplicada: exportar el historial, aplicar el
 rollback con `PGOPTIONS='-c app.rollback_tenant_feature_grants=discard_history'`
 si hay eventos que no son de línea base, ejecutar el `verify_…` y marcar
-`supabase migration repair --status reverted 20261017120000`. Ningún override
+`supabase migration repair --status reverted 20261018180000`. Ningún override
 cambia de valor al revertir.
 
 ## Pendiente

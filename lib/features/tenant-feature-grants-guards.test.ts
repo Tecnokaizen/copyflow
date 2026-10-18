@@ -13,7 +13,7 @@ import { describe, it } from "node:test";
 const root = path.join(import.meta.dirname, "../..");
 const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
 
-const VERSION = "20261017120000";
+const VERSION = "20261018180000";
 const MIGRATION = `supabase/migrations/${VERSION}_tenant_feature_grants_audit_v1.sql`;
 const ROLLBACK = `supabase/rollbacks/${VERSION}_tenant_feature_grants_audit_v1.sql`;
 const VERIFY = `supabase/rollbacks/verify_${VERSION}_tenant_feature_grants_audit_v1.sql`;
@@ -31,9 +31,9 @@ function stripSqlComments(sql: string) {
 }
 
 describe("Tenant feature grants V1 guards", () => {
-  it("takes the A1 slot: after order lines (#128), before voice orders (#90)", () => {
+  it("takes the A1 slot: after billing D2/D1 (#135/#136, already in Staging)", () => {
     assert.ok(readdirSync(path.join(root, "supabase/migrations")).includes(path.basename(MIGRATION)));
-    assert.ok(VERSION > "20261016130000" && VERSION < "20261018150000");
+    assert.ok(VERSION > "20261018170000");
   });
 
   it("keeps set_tenant_feature and tenant_has_feature as they are", () => {

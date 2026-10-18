@@ -1,4 +1,4 @@
--- Rollback for 20261017120000_tenant_feature_grants_audit_v1.sql (Frente A1).
+-- Rollback for 20261018180000_tenant_feature_grants_audit_v1.sql (Frente A1).
 --
 -- Removes set_tenant_feature_v2, clear_tenant_feature_override,
 -- list_tenant_feature_reviews_due, the history table and its triggers, and the
@@ -16,8 +16,8 @@
 --   PGOPTIONS='-c app.rollback_tenant_feature_grants=discard_history' psql ... -f <this file>
 -- Needs its own diagnosis and authorization in any remote environment.
 -- Verified locally: afterwards the schema equals that of the migrations up to
--- 20261016130000 (supabase/rollbacks/verify_20261017120000_tenant_feature_grants_audit_v1.sql).
--- Then: supabase migration repair --status reverted 20261017120000
+-- 20261018170000 (supabase/rollbacks/verify_20261018180000_tenant_feature_grants_audit_v1.sql).
+-- Then: supabase migration repair --status reverted 20261018180000
 begin;
 
 do $guard$
