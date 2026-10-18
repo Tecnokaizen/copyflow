@@ -1,4 +1,4 @@
--- Rollback for 20261018150000_ai_voice_orders_foundation_v1.sql (#90).
+-- Rollback for 20261018190000_ai_voice_orders_foundation_v1.sql (#90).
 --
 -- Use only if the voice ledger itself must be withdrawn. Rolling back the
 -- APPLICATION alone does not need this script: no other code reads these
@@ -13,7 +13,7 @@
 --     tenant_feature_overrides.
 -- Verified on a database with main + #90: afterwards no ai_* object remains
 -- and the catalog equals that of main.
--- Then: supabase migration repair --status reverted 20261018150000
+-- Then: supabase migration repair --status reverted 20261018190000
 begin;
 
 do $guard$

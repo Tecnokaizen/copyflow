@@ -2,6 +2,34 @@
 
 PR borrador: https://github.com/Tecnokaizen/copyflow/pull/90 · Rama: `feature/ai-voice-orders-v1`.
 
+## Renumeración tras D2/D1 y A1 (18/10/2026, noche)
+
+**Por qué.** Staging (consultado en solo lectura) tiene 83 migraciones:
+- las 79 de `main`;
+- D2/D1: `20261018160000`, `161000` y `170000`;
+- A1: `20261018180000`, aplicada a las 17:49 UTC.
+
+Con `20261018150000` el `db push` estándar rechazaba la migración de voz y pedía `--include-all`. Ahora es **`20261018190000`**. Las suites `phase53_*` no cambian.
+
+**Orden:** #128 → D2 (#135) → D1 (#136) → A1 (#138) → voz (#90) → C1.
+
+| Prueba | Resultado |
+| --- | --- |
+| `check-migrations.ts --base origin/main` | PASS |
+| Guarda con merges simulados de #135, #136 y #138 en `main` | PASS con `…190000`; FAIL con `…150000` |
+| `git merge-tree` con #135, #136 y #138 | Sin conflictos |
+| `TZ=UTC npx tsx --test` · `tsc` · `lint` · `build` | 1336/1336 · OK · 0 errores (4 avisos previos) · OK |
+| Release Gate SQL de esta rama, desde cero (80 migraciones) | Invariantes y 24 suites PASS, `phase53` incluida; `phase53_ai_voice_budget_concurrency.sh` PASS |
+| Secuencia completa de `kiosk-supabase` de esta rama | PASS. Para conseguirlo hubo que sortear tres problemas ajenos a #90: el falso positivo de `phase51` (se usó la corrección de #135 en una copia), la fila huérfana de #137 y los avisos de `date +%N` de macOS en `phase12` |
+| **Árbol combinado de Staging**: `gestcopy-staging` `0346406` (D1) + #138 `aa3bd7f` (A1) + esta rama | 84 migraciones; las primeras 83 son exactamente las de Staging (md5 `84d27df2…`). Fast-forward sobre `gestcopy-staging` |
+| Árbol combinado: app | 1366/1366 · `tsc` · `lint` · `build`, todo OK |
+| Árbol combinado: Release Gate SQL (facturación incluida) | 42/42 PASS: `phase53` a `phase57`, y los `.sh` de `phase53`, `phase54` y `phase57` |
+| Árbol combinado: secuencia completa de `kiosk-supabase` | PASS de una pasada; incluye `phase54` con su ciclo de rollback de A1 ya con la voz aplicada |
+| Ensayo del paso de Staging en local (BD con el historial de Staging, 83 versiones) | El dry-run estándar desde el árbol combinado lista solo `20261018190000`. `db push` la aplica: 84 migraciones, `platform` desactivado, `tenant_default` 2 USD, `user_default` 1 USD y 0 overrides de voz |
+| SQL del runbook (concesión solo a `e2e`, `platform` y cierre), en una transacción revertida | Solo `e2e` resuelve `ai_voice_orders`. Al cerrar, todos `false` y `platform` desactivado. Historial de A1: `created` (v2) y `cleared` (retirada) |
+
+No se ha tocado Staging ni Vercel. G2 (legal) y G5 (móviles) siguen pendientes.
+
 ## Actualización con #128 y E2E de voz (18/10/2026, tarde)
 
 Merge de `main@67543ee` (#128, Order Lines) sin conflictos: las líneas de phase53 de los
@@ -53,7 +81,7 @@ remoto, ninguna variable `AI_*` tocada en Vercel y ningún proveedor real activa
   y validación de fecha incompleta).
 - Catálogo de #105: `ai_voice_orders` (`AI_VOICE_ORDERS_FEATURE_CODE`); la migración
   ya no inserta `voice_orders` (`…0007`). La página Pro sigue en «planned».
-- Migración renumerada a `20261018150000` y suites `phase53_*` (Release Gate y kiosk-supabase).
+- Migración renumerada a `20261018190000` y suites `phase53_*` (Release Gate y kiosk-supabase).
 - Guarda de rutas: `requireVoiceOrdersAccess` sobre `requireCurrentAccess` y las tres
   rutas como delegadas en `ci/release-gate/api-route-guards.test.ts`.
 - Endurecimiento: `fake` bloqueado con `VERCEL_ENV=production`; `openai` exige modelos
@@ -76,7 +104,7 @@ remoto, ninguna variable `AI_*` tocada en Vercel y ningún proveedor real activa
 | Pila Supabase local aislada (CLI 2.117.0): invariantes + 22 suites del Release Gate desde cero | PASS (incluida `phase53_ai_voice_budget`) |
 | Secuencia completa de kiosk-supabase | PASS, salvo la nota de abajo |
 | `phase53_ai_voice_budget_concurrency.sh` ×3 | PASS (una reserva, un `ai_budget_exhausted`, límite de plataforma restaurado) |
-| Rollback `20261018150000` | Se niega con filas en el ledger; sin filas no queda ningún objeto `ai_*` y el catálogo no cambia |
+| Rollback `20261018190000` | Se niega con filas en el ledger; sin filas no queda ningún objeto `ai_*` y el catálogo no cambia |
 
 Nota: en local, `phase46_files_storage_deletion` falló una vez dentro de la secuencia de
 kiosk porque `phase46_payment_receipts_concurrency.sh` dejó una fila huérfana en

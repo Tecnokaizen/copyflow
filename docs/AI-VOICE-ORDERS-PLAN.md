@@ -20,7 +20,7 @@ Implementado, sin integrar ni aplicar:
   guardar. «Descartar» revierte lo aplicado; «Reemplazar» actúa sobre un solo
   campo. La persistencia sigue siendo el `POST /api/orders` del usuario.
 - Presupuesto interno: `ai_usage_limits` y `ai_usage_events` (migración
-  `20261018150000`), con reserva atómica antes de cada llamada de pago.
+  `20261018190000`), con reserva atómica antes de cada llamada de pago.
   Valores iniciales: 60 s/clip, 2 USD/tenant/mes, 1 USD/usuario/mes, 10 USD/mes
   globales y 60 peticiones/usuario/día; función de operador
   `ai_set_voice_usage_limit` (solo `service_role`).
@@ -30,13 +30,15 @@ Implementado, sin integrar ni aplicar:
   modelos explícitos.
 - Privacidad: no se guardan ni audio ni transcripción, y el ledger no contiene texto.
 - Pruebas: `phase53_ai_voice_budget` (Release Gate) y su script de concurrencia
-  (kiosk-supabase); rollback en `supabase/rollbacks/20261018150000_…`.
+  (kiosk-supabase); rollback en `supabase/rollbacks/20261018190000_…`.
 
 ## Bloqueos resueltos el 18/10
 
 1. Código de feature: `ai_voice_orders` (`…0009`) de #105; sin inserción de catálogo.
-2. Migración renumerada `20261012120000` → `20261018150000` (después de #128 `…130000`;
-   A1 debe quedar entre ambas).
+2. Migración renumerada `20261012120000` → `20261018150000` (después de #128 `…130000`)
+   y, el 18/10 por la tarde, → **`20261018190000`**: Staging ya tiene D2/D1
+   (`…160000`, `…161000`, `…170000`) y A1 (`…180000`), así que con `…150000` el `db push`
+   estándar la rechazaba. Orden: #128 → D2 → D1 → A1 → **voz** → C1.
 3. Conflictos con #94, #95, #96, #129, #130 resueltos por merge (sin force push).
 4. `/api/context` sin `features.voice_orders`; las guardas de rutas y
    `early-access-http` vuelven a pasar.
@@ -46,8 +48,9 @@ Implementado, sin integrar ni aplicar:
 - **G2 legal (#82)**: DPA, subencargado, aviso de micrófono y retención 0.
 - **Modelos**: nombres, precios y región sin confirmar con el proveedor. Ya no hay
   modelos por defecto: sin `AI_TRANSCRIPTION_MODEL`/`AI_EXTRACTION_MODEL` la voz queda no disponible.
-- **Staging**: faltan `AI_VOICE_ORDERS_ENABLED=true` y `AI_PROVIDER=fake` en Preview
-  para B3; ninguna variable `AI_*` ni `OPENAI_API_KEY` en Production.
+- **Staging**: A1 aplicada (83 migraciones). Faltan el código en `gestcopy-staging`, la
+  migración `20261018190000` y `AI_VOICE_ORDERS_ENABLED=true`/`AI_PROVIDER=fake` en Preview
+  para B3, todo con autorización. Ninguna variable `AI_*` ni `OPENAI_API_KEY` en Production.
 - **Pro**: `early_access.voice_orders.status` sigue fijo en `planned`.
 
 ## Gates antes de cualquier coste real
@@ -68,8 +71,8 @@ Implementado, sin integrar ni aplicar:
    completa (18/10); falta ejecutarlo en Preview, con los prerrequisitos de Staging autorizados.
 4. Gate legal y confirmación del proveedor.
 5. Piloto en Staging con proveedor real y presupuesto mínimo, solo con un tenant sintético.
-6. Activación por tenant con `set_tenant_feature('<slug>','ai_voice_orders',true)`,
-   con autorización expresa. Pro (#105) no la activa.
+6. Activación por tenant con `set_tenant_feature_v2('<slug>','ai_voice_orders',true,…)`
+   (motivo, operador y `review_at`; A1), con autorización expresa. Pro (#105) no la activa.
 
 ## Lo que no se ha hecho
 
