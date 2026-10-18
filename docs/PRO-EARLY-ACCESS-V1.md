@@ -7,7 +7,7 @@ Implementa el [ADR](adr/2026-10-15-pro-early-access-v1.md) siguiendo la
 
 | Pieza | Cambio |
 | --- | --- |
-| `supabase/migrations/20261015200000_pro_early_access_features_v1.sql` | Inserta `pro_early_access` (`…0008`) y `ai_voice_orders` (`…0009`) en `features`. Sin `plan_features`, sin overrides, sin tocar planes, suscripciones, precios, cuotas ni `quotes`. El id `…0007` queda libre porque la rama sin fusionar `feature/ai-voice-orders-v1` lo usa para `voice_orders`. |
+| `supabase/migrations/20261015200000_pro_early_access_features_v1.sql` | Inserta `pro_early_access` (`…0008`) y `ai_voice_orders` (`…0009`) en `features`. Sin `plan_features`, sin overrides, sin tocar planes, suscripciones, precios, cuotas ni `quotes`. El id `…0007` queda sin usar: la rama de voz (#90) usaba `voice_orders` y desde el 18/10 usa este `ai_voice_orders` sin insertar catálogo. |
 | `lib/features/early-access.ts` | Códigos, política de presentación (`earlyAccessContext`), quién puede leer la página (`canViewProEarlyAccess`: cualquier rol activo con el programa) y lectura fail-closed en el navegador. |
 | `lib/features/early-access-server.ts` | `resolveProEarlyAccess` (cliente de sesión + `tenant_has_feature`; error o excepción ⇒ `false`) y `proEarlyAccessGate` (sesión, tenant activo, membership activa y programa; cualquier fallo deniega). |
 | `app/api/context/route.ts` | Añade `early_access`. Conserva `features.quotes`. Todas las respuestas (también el 403) llevan `Cache-Control: private, no-store, max-age=0, must-revalidate`. Sin cliente admin ni datos comerciales. |

@@ -1,8 +1,8 @@
 -- Gestcopy AI · Pedidos por voz V1 (#90): atomic usage budget ledger.
 -- Expand-only. Does not touch orders, plans, plan_features, prices or Stripe.
 --
--- Feature: reuses the catalog code `ai_voice_orders` (…0009) inserted by
--- 20261015200000_pro_early_access_features_v1 (#105). No catalog insert here.
+-- Feature: reuses the catalog code `ai_voice_orders` (…0009) inserted by the
+-- #105 catalog migration (20261015200000). No catalog insert here.
 --
 -- Limits (internal cost control, not a price):
 --   platform      kill switch + global monthly budget; seeded enabled=false.
@@ -21,7 +21,7 @@ begin;
 do $guard$
 begin
   if not exists (select 1 from public.features where code = 'ai_voice_orders') then
-    raise exception 'ai_voice_orders missing from features (apply 20261015200000 first)';
+    raise exception 'ai_voice_orders missing from features (apply 20261015200000, #105, first)';
   end if;
 end;
 $guard$;
