@@ -2,6 +2,7 @@ import {
   OPERATIVE_ROLES,
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
+import { parseTrustedAuthority } from "@/lib/tenant/trusted-origin";
 
 export const AI_VOICE_MESSAGES = {
   unauthenticated: "No autenticado",
@@ -86,17 +87,46 @@ export function voiceOrdersProviderConfigured(env: AiEnv = process.env) {
   );
 }
 
+function defaultPort(protocol: string) {
+  return protocol === "https:" ? "443" : protocol === "http:" ? "80" : null;
+}
+
+/**
+ * Browser requests must come from the page's own host. Compared with the
+ * Host header (the authority the tenant and the session cookies belong to),
+ * not with request.url: Next may rebuild that URL with another hostname
+ * (e.g. `localhost` for `e2e.localhost`). No Origin (same-origin GET, server
+ * tools) is allowed; the session cookie and the tenant guard still apply.
+ */
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) {
     return true;
   }
 
+  let originUrl: URL;
   try {
-    const requestHost = new URL(request.url).host;
-    const originHost = new URL(origin).host;
-    return requestHost === originHost;
+    originUrl = new URL(origin);
   } catch {
     return false;
   }
+  // Scheme: Vercel reports it in x-forwarded-proto; locally request.url has it.
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase();
+  const expectedProtocol = forwardedProto
+    ? `${forwardedProto}:`
+    : new URL(request.url).protocol;
+  const host = parseTrustedAuthority(request.headers.get("host"));
+  const port = defaultPort(expectedProtocol);
+  if (!host || !port || originUrl.protocol !== expectedProtocol) {
+    return false;
+  }
+
+  return (
+    originUrl.hostname.toLowerCase() === host.hostname &&
+    (originUrl.port || port) === (host.port ?? port)
+  );
 }

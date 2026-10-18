@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  assertSameOrigin,
   canAccessVoiceOrdersModule,
   isProductionDeployment,
   isVoiceOrdersEnvEnabled,
@@ -95,6 +96,62 @@ describe("AI provider resolution", () => {
     assert.equal(resolveAiProviderName("transcription", { AI_PROVIDER: "other" }), null);
     assert.equal(
       voiceOrdersProviderConfigured({ ...OPENAI_READY, AI_PROVIDER: "other" }),
+      false
+    );
+  });
+});
+
+describe("voice orders same-origin check", () => {
+  const request = (headers: Record<string, string>) =>
+    new Request("http://localhost:3791/api/ai/voice-orders/drafts", { method: "POST", headers });
+
+  it("accepts the page's own host even when request.url carries another hostname", () => {
+    assert.equal(
+      assertSameOrigin(request({ host: "e2e.localhost:3791", origin: "http://e2e.localhost:3791" })),
+      true
+    );
+    assert.equal(
+      assertSameOrigin(request({
+        host: "sur4.app.gestcopy.com",
+        "x-forwarded-proto": "https",
+        origin: "https://sur4.app.gestcopy.com",
+      })),
+      true
+    );
+    assert.equal(
+      assertSameOrigin(request({
+        host: "e2e.preview.app.gestcopy.com:443",
+        "x-forwarded-proto": "https",
+        origin: "https://e2e.preview.app.gestcopy.com",
+      })),
+      true
+    );
+  });
+
+  it("allows requests without Origin (same-origin GET, server tools)", () => {
+    assert.equal(assertSameOrigin(request({ host: "e2e.localhost:3791" })), true);
+  });
+
+  it("rejects other hosts, ports, schemes and malformed values", () => {
+    for (const [host, origin] of [
+      ["sur4.app.gestcopy.com", "https://evil.example"],
+      ["sur4.app.gestcopy.com", "https://demo.app.gestcopy.com"],
+      ["e2e.localhost:3791", "http://e2e.localhost:3000"],
+      ["e2e.localhost:3791", "http://localhost:3791"],
+      ["sur4.app.gestcopy.com", "http://sur4.app.gestcopy.com"],
+      ["sur4.app.gestcopy.com", "null"],
+      ["sur4.app.gestcopy.com", "not a url"],
+      ["evil.example, sur4.app.gestcopy.com", "https://sur4.app.gestcopy.com"],
+    ]) {
+      // Vercel adds x-forwarded-proto; next dev on *.localhost does not.
+      const headers: Record<string, string> = host.includes("localhost")
+        ? { host, origin }
+        : { host, origin, "x-forwarded-proto": "https" };
+      assert.equal(assertSameOrigin(request(headers)), false, `${host} ← ${origin}`);
+    }
+    // Local http page posting to itself is fine; an https origin there is not.
+    assert.equal(
+      assertSameOrigin(request({ host: "e2e.localhost:3791", origin: "https://e2e.localhost:3791" })),
       false
     );
   });

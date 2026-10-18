@@ -3,6 +3,22 @@
 import type { VoiceOrderDraft } from "@/lib/ai/voice-orders/contract";
 import type { VoiceApplyReportItem } from "@/lib/ai/voice-orders/apply-draft";
 
+/** Form labels for the report's internal field keys. */
+const FIELD_LABELS: Record<string, string> = {
+  title: "Título",
+  description: "Descripción",
+  notes: "Notas internas",
+  client: "Cliente",
+  service: "Servicio",
+  store: "Tienda",
+  entry_channel: "Canal de entrada",
+  order_context: "Contexto",
+  assigned_team_member: "Responsable",
+  priority: "Prioridad",
+  due: "Entrega prevista",
+  tenant: "Organización",
+};
+
 type VoiceDraftReviewProps = {
   draft: VoiceOrderDraft;
   report: VoiceApplyReportItem[];
@@ -58,12 +74,13 @@ export function VoiceDraftReview({
       <ul className="space-y-1 text-sm">
         {report.map((item) => (
           <li key={`${item.field}-${item.action}-${item.message}`} className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{item.field}</span>
+            <span className="font-medium">{FIELD_LABELS[item.field] ?? item.field}</span>
             <span className="text-muted-foreground">{item.message}</span>
             {item.action === "skipped_touched" && onReplaceField ? (
               <button
                 type="button"
                 className="underline"
+                aria-label={`Reemplazar ${FIELD_LABELS[item.field] ?? item.field}`}
                 onClick={() => onReplaceField(item.field)}
               >
                 Reemplazar
