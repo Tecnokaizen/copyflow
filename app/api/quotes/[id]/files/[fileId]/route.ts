@@ -4,9 +4,11 @@ import {
   filesCapabilityIssuedAtNow,
   requireFilesSigningSecret,
 } from "@/lib/files/capability";
+import { assertQuoteStorageKeyMatchesIds } from "@/lib/files/object-key";
 import { mapOrderFileRpcError } from "@/lib/files/rpc-error";
+import { storageDeletionIdFromRpc } from "@/lib/files/storage-deletion";
+import { finalizeUserFileDeletion } from "@/lib/files/storage-deletion-server";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
-import { deleteObject } from "@/lib/storage/r2";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,24 +45,28 @@ export async function DELETE(
 
   const { data: file, error: fileError } = await supabase
     .from("quote_files")
-    .select("id, storage_key, deleted_at")
+    .select("id, storage_key")
     .eq("id", fileId)
     .eq("quote_id", quoteId)
     .eq("tenant_id", context.tenant.id)
     .maybeSingle();
 
-  if (fileError || !file || typeof file.storage_key !== "string") {
+  if (fileError || !file) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  try {
-    await deleteObject({ key: file.storage_key });
-  } catch {
-    return NextResponse.json({ error: "Could not delete file" }, { status: 502 });
-  }
-
-  if (file.deleted_at) {
-    return new NextResponse(null, { status: 204 });
+  if (
+    typeof file.storage_key !== "string" ||
+    !assertQuoteStorageKeyMatchesIds(file.storage_key, {
+      tenantId: context.tenant.id,
+      quoteId,
+      fileId,
+    })
+  ) {
+    console.error("[DELETE /api/quotes/:id/files/:fileId] storage_key invalid", {
+      file_id: fileId,
+    });
+    return NextResponse.json({ error: "Could not delete file" }, { status: 500 });
   }
 
   const issuedAt = filesCapabilityIssuedAtNow();
@@ -76,17 +82,26 @@ export async function DELETE(
     signingSecret
   );
 
-  const { error: deleteError } = await supabase.rpc("soft_delete_quote_file", {
-    p_quote_id: quoteId,
-    p_file_id: fileId,
-    p_issued_at: capability.issuedAt,
-    p_signature: capability.signature,
-  });
+  // Reserve first. Official PDFs are rejected here, before any R2 call.
+  const { data: deleted, error: deleteError } = await supabase.rpc(
+    "soft_delete_quote_file",
+    {
+      p_quote_id: quoteId,
+      p_file_id: fileId,
+      p_issued_at: capability.issuedAt,
+      p_signature: capability.signature,
+    }
+  );
 
-  if (deleteError) {
+  if (deleteError || !deleted) {
     const mapped = mapOrderFileRpcError(deleteError, "Could not delete file");
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
+
+  await finalizeUserFileDeletion(
+    storageDeletionIdFromRpc(deleted),
+    "[DELETE /api/quotes/:id/files/:fileId]"
+  );
 
   return new NextResponse(null, { status: 204 });
 }

@@ -2,13 +2,18 @@ import "server-only";
 
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { CLEANUP_LIMIT, selectCleanupCandidates } from "@/lib/files/cleanup";
+import { CLEANUP_LIMIT } from "@/lib/files/cleanup";
 import {
-  assertQuoteStorageKeyMatchesIds,
-  assertStorageKeyMatchesIds,
-} from "@/lib/files/object-key";
+  type ClaimedStorageDeletion,
+  STORAGE_DELETION_BATCH_LIMIT,
+  STORAGE_DELETION_WORKER_LEASE_SECONDS,
+  processStorageDeletionBatch,
+} from "@/lib/files/storage-deletion";
+import {
+  claimStorageDeletions,
+  storageDeletionRpcDeps,
+} from "@/lib/files/storage-deletion-server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteObject } from "@/lib/storage/r2";
 
 function requireCronSecret(): string {
   const value = process.env.CRON_SECRET?.trim() ?? "";
@@ -32,6 +37,10 @@ function authorized(request: NextRequest, secret: string): boolean {
   return timingSafeEqual(expectedBytes, actualBytes);
 }
 
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export async function GET(request: NextRequest) {
   let cronSecret: string;
   try {
@@ -51,131 +60,91 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createAdminClient();
-  const now = new Date().toISOString();
+  const log = (message: string, details: Record<string, unknown>) => {
+    console.error(`[GET /api/internal/files/cleanup] ${message}`, details);
+  };
 
-  const { data: rows, error: listError } = await supabase
-    .from("order_files")
-    .select("id, tenant_id, order_id, storage_key, upload_expires_at")
-    .eq("status", "pending")
-    .is("deleted_at", null)
-    .lt("upload_expires_at", now)
-    .order("upload_expires_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(CLEANUP_LIMIT);
+  // 1. Expired pending uploads: metadata removal and R2 task enqueue happen
+  //    atomically in PostgreSQL under row locks. No R2 call happens here.
+  const { data: expired, error: expiredError } = await supabase.rpc(
+    "claim_expired_file_uploads",
+    { p_limit: CLEANUP_LIMIT }
+  );
 
-  const { data: quoteRows, error: quoteListError } = await supabase
-    .from("quote_files")
-    .select("id, tenant_id, quote_id, storage_key, upload_expires_at")
-    .eq("status", "pending")
-    .is("deleted_at", null)
-    .lt("upload_expires_at", now)
-    .order("upload_expires_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(CLEANUP_LIMIT);
-
-  if (listError || quoteListError) {
-    console.error("[GET /api/internal/files/cleanup] list failed", {
-      message: listError?.message ?? quoteListError?.message,
-    });
+  if (expiredError) {
+    log("expired upload claim failed", { message: expiredError.message });
     return NextResponse.json(
-      { error: "Could not list expired uploads" },
+      { error: "Could not reserve expired uploads" },
       { status: 500 }
     );
   }
 
-  let purged = 0;
-  let failed = 0;
-  let skipped = 0;
+  const expiredSummary = (expired ?? {}) as Record<string, unknown>;
 
-  const candidates = selectCleanupCandidates([
-    ...(rows ?? []).map((row) => ({
-      kind: "order" as const,
-      id: String(row.id ?? ""),
-      tenant_id: String(row.tenant_id ?? ""),
-      parent_id: String(row.order_id ?? ""),
-      storage_key: String(row.storage_key ?? ""),
-      upload_expires_at: String(row.upload_expires_at),
-    })),
-    ...(quoteRows ?? []).map((row) => ({
-      kind: "quote" as const,
-      id: String(row.id ?? ""),
-      tenant_id: String(row.tenant_id ?? ""),
-      parent_id: String(row.quote_id ?? ""),
-      storage_key: String(row.storage_key ?? ""),
-      upload_expires_at: String(row.upload_expires_at),
-    })),
-  ]);
-
-  for (const candidate of candidates) {
-    const {
-      kind,
-      id: fileId,
-      tenant_id: tenantId,
-      parent_id: parentId,
-      storage_key: storageKey,
-    } = candidate;
-
-    try {
-      const keyMatches =
-        kind === "order"
-          ? assertStorageKeyMatchesIds(storageKey, {
-              tenantId,
-              orderId: parentId,
-              fileId,
-            })
-          : assertQuoteStorageKeyMatchesIds(storageKey, {
-              tenantId,
-              quoteId: parentId,
-              fileId,
-            });
-      if (!keyMatches) {
-        skipped += 1;
-        console.error("[GET /api/internal/files/cleanup] storage key mismatch", {
-          kind,
-          file_id: fileId,
-        });
-        continue;
-      }
-
-      // R2 first: if object deletion fails, keep metadata so a later run can retry.
-      await deleteObject({ key: storageKey });
-
-      const { data: removed, error: purgeError } =
-        kind === "order"
-          ? await supabase.rpc("purge_expired_order_file", { p_file_id: fileId })
-          : await supabase.rpc("purge_expired_quote_file", { p_file_id: fileId });
-
-      if (purgeError) {
-        failed += 1;
-        console.error("[GET /api/internal/files/cleanup] metadata purge failed", {
-          message: purgeError.message,
-          kind,
-          file_id: fileId,
-        });
-        continue;
-      }
-
-      if (removed === true) {
-        purged += 1;
-      } else {
-        skipped += 1;
-      }
-    } catch (error) {
-      failed += 1;
-      console.error("[GET /api/internal/files/cleanup] item failed", {
-        message: error instanceof Error ? error.message : "unknown",
-        kind,
-        file_id: fileId,
-      });
-    }
+  // 2. Leased R2 deletions (user deletions + expired uploads + retries).
+  let claims: ClaimedStorageDeletion[];
+  try {
+    claims = await claimStorageDeletions(
+      supabase,
+      STORAGE_DELETION_BATCH_LIMIT,
+      STORAGE_DELETION_WORKER_LEASE_SECONDS
+    );
+  } catch (error) {
+    log("storage deletion claim failed", {
+      message: error instanceof Error ? error.message : "unknown",
+    });
+    return NextResponse.json(
+      { error: "Could not claim storage deletions" },
+      { status: 500 }
+    );
   }
+
+  const deletions = await processStorageDeletionBatch(
+    claims,
+    storageDeletionRpcDeps(supabase, log)
+  );
+
+  const { data: backlog, error: backlogError } = await supabase.rpc(
+    "storage_deletion_backlog"
+  );
+  if (backlogError) {
+    log("storage deletion backlog failed", { message: backlogError.message });
+  }
+
+  const backlogSummary = (backlog ?? {}) as Record<string, unknown>;
+  if (count(backlogSummary.failed) > 0) {
+    log("storage deletions require recovery", {
+      failed: count(backlogSummary.failed),
+    });
+  }
+
+  // 3. Client import rows older than 30 days (Migration V1). Independent of
+  //    Files: a failure is logged and never blocks the storage cleanup.
+  const { data: importPurge, error: importPurgeError } = await supabase.rpc(
+    "client_import_purge_expired",
+    { p_limit: 50 }
+  );
+  if (importPurgeError) {
+    log("client import purge failed", { message: importPurgeError.message });
+  }
+
+  const purged = count(expiredSummary.orders) + count(expiredSummary.quotes);
+  const skipped = count(expiredSummary.skipped);
+  const failed =
+    count(expiredSummary.errors) +
+    deletions.retry_scheduled +
+    deletions.failed +
+    deletions.finish_errors;
 
   return NextResponse.json({
     ok: failed === 0,
-    scanned: candidates.length,
+    scanned: purged + skipped + count(expiredSummary.errors),
     purged,
     skipped,
     failed,
     limit: CLEANUP_LIMIT,
+    deletions,
+    backlog: backlogError ? null : backlogSummary,
+    client_import_purge: importPurgeError ? null : importPurge,
   });
 }

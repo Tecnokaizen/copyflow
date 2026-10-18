@@ -13,6 +13,10 @@ export function mapOrderFileRpcError(
 ): { status: number; body: Record<string, unknown> } {
   const message = (error?.message ?? "").toLowerCase();
 
+  if (message.includes("payment_receipt_protected")) {
+    return { status: 409, body: { error: "El justificante forma parte del historial de cobros y no se puede eliminar.", code: "PAYMENT_RECEIPT_PROTECTED" } };
+  }
+
   if (message.includes("upload expired")) {
     return {
       status: 410,
@@ -24,6 +28,16 @@ export function mapOrderFileRpcError(
     return {
       status: 404,
       body: { error: "File not found" },
+    };
+  }
+
+  if (message.includes("official_pdf_protected")) {
+    return {
+      status: 409,
+      body: {
+        error: "Official PDF is protected",
+        code: "OFFICIAL_PDF_PROTECTED",
+      },
     };
   }
 

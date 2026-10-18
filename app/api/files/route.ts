@@ -3,6 +3,11 @@ import {
   toPublicOrderFileDto,
   type PublicTenantFileListItem,
 } from "@/lib/files/dto";
+import {
+  receiptIdsFromRows,
+  receiptSchemaUnavailable,
+  withReceiptMarker,
+} from "@/lib/files/receipt-links";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -178,6 +183,24 @@ export async function GET(request: NextRequest) {
   }
 
   const rows = (data ?? []) as unknown as FileRow[];
+  const fileIds = rows
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string");
+  let linkedReceipts = new Set<string>();
+  if (fileIds.length > 0) {
+    const { data: links, error: linkError } = await supabase
+      .from("order_payments")
+      .select("receipt_file_id")
+      .eq("tenant_id", context.tenant.id)
+      .in("receipt_file_id", fileIds);
+    if (linkError && !receiptSchemaUnavailable(linkError.message)) {
+      console.error("[GET /api/files] receipt links failed", {
+        message: linkError.message,
+      });
+      return NextResponse.json({ error: "Could not list files" }, { status: 500 });
+    }
+    if (!linkError) linkedReceipts = receiptIdsFromRows(links);
+  }
   const uploaderIds = [
     ...new Set(
       rows
@@ -206,7 +229,7 @@ export async function GET(request: NextRequest) {
     const order = unwrapOne(row.orders);
     const client = unwrapOne(order?.clients ?? null);
     const fileDto = toPublicOrderFileDto(
-      row as unknown as Record<string, unknown>,
+      withReceiptMarker(row as unknown as Record<string, unknown>, linkedReceipts),
       row.uploaded_by ? nameByUser.get(row.uploaded_by) ?? null : null
     );
     return {

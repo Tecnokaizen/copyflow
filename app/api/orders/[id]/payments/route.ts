@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { collectionError, mapOrderCollection, withActorNames } from "@/lib/orders/collection";
 import { loadProfileNames } from "@/lib/orders/profile-names";
-import { canonicalMoney } from "@/lib/orders/money";
+import { parsePaymentPayload } from "@/lib/orders/payment-payload";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/team/payload";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -19,6 +19,10 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return operationalJson({ error: "No se encontró el pedido" }, { status: 404 });
   }
   const supabase = await createClient();
+  const { data: order, error: orderError } = await supabase.from("orders")
+    .select("id").eq("id", id).eq("tenant_id", current.tenant.id).maybeSingle();
+  if (orderError) return operationalJson({ error: "No se pudo comprobar el pedido" }, { status: 500 });
+  if (!order) return operationalJson({ error: "No se encontró el pedido" }, { status: 404 });
   const { data, error } = await supabase.rpc("order_collection_v1", { p_order_id: id });
   if (error) {
     return operationalJson({ error: "No se pudo cargar el cobro" }, { status: 500 });
@@ -50,19 +54,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch {
     return operationalJson({ error: "El importe no es válido." }, { status: 422 });
   }
-  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-  const amount = typeof record?.amount === "string" ? canonicalMoney(record.amount, false) : null;
-  const paidAt = typeof record?.paid_at === "string" ? record.paid_at : null;
-  const key = typeof record?.idempotency_key === "string" ? record.idempotency_key : null;
-  if (!amount || !paidAt || !key || !/^[A-Za-z0-9:_-]{8,80}$/.test(key)) {
-    return operationalJson({ error: "El importe no es válido." }, { status: 422 });
+  const payment = parsePaymentPayload(body);
+  if (!payment) {
+    return operationalJson({ error: "Revisa el importe, la fecha, el método de pago y el justificante." }, { status: 422 });
   }
   const supabase = await createClient();
+  const { data: order, error: orderError } = await supabase.from("orders")
+    .select("id").eq("id", id).eq("tenant_id", current.tenant.id).maybeSingle();
+  if (orderError) return operationalJson({ error: "No se pudo comprobar el pedido" }, { status: 500 });
+  if (!order) return operationalJson({ error: "No se encontró el pedido" }, { status: 404 });
   const { data, error } = await supabase.rpc("record_order_payment", {
     p_order_id: id,
-    p_amount: amount,
-    p_paid_at: paidAt,
-    p_idempotency_key: key,
+    p_amount: payment.amount,
+    p_paid_at: payment.paid_at,
+    p_idempotency_key: payment.idempotency_key,
+    p_payment_method: payment.payment_method,
+    p_receipt_file_id: payment.receipt_file_id,
+    p_tenant_id: current.tenant.id,
   });
   if (error) {
     return operationalJson({ error: "No se pudo registrar la entrega" }, { status: 500 });

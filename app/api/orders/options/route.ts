@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { loadOrderOptions } from "@/lib/orders/options-load";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import { requireCurrentAccess } from "@/lib/tenant/access-response";
 
 export async function GET() {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/orders/options");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
+
+  const context = access.context;
 
   const supabase = await createClient();
   const loaded = await loadOrderOptions(supabase, {
@@ -43,6 +42,7 @@ export async function GET() {
     team_members: loaded.data.team_members,
     stores: loaded.data.stores,
     actor_role: loaded.data.actor_role,
+    actor_id: loaded.data.actor_id,
     current_team_member: loaded.data.current_team_member,
     quick_order_layout: loaded.data.quick_order_layout,
   };

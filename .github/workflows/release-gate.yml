@@ -1,0 +1,131 @@
+name: Release gate
+
+# Always-on regression barrier for every change that can reach main.
+# Local only: no secrets, no remote Supabase/Vercel access, read-only token.
+# Feature workflows (pedido-v2, tamara-operativa, kiosk-supabase) keep their
+# deeper path-filtered suites.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (guards, tests, types, lint, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Migration guard (immutable history, ordering, destructive SQL)
+        env:
+          RELEASE_GATE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: npx tsx ci/release-gate/check-migrations.ts
+
+      - name: Unit, contract and production-safety tests
+        run: npx tsx --test
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  database:
+    name: Database (security invariants, tenant isolation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_CLI_VERSION: 2.117.0
+      LOCAL_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      # supabase/config.toml binds fixed host ports (54320-54329) that fall inside
+      # Linux's ephemeral range (32768-60999). Reserve them before any network
+      # traffic so no outgoing connection can grab 54322 ahead of `supabase start`.
+      - name: Reserve local Supabase ports from the ephemeral range
+        run: |
+          before="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports before: '${before}'"
+          sudo sysctl -q -w net.ipv4.ip_local_reserved_ports="${before:+${before},}54320-54329"
+          after="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports after: '${after}'"
+          covered=false
+          IFS=, read -ra ranges <<< "${after}"
+          for r in "${ranges[@]}"; do
+            if [ "${r%-*}" -le 54322 ] && [ "${r#*-}" -ge 54322 ]; then covered=true; fi
+          done
+          if [ "${covered}" != true ]; then echo "::error::port 54322 is not reserved"; exit 1; fi
+          held="$(ss -Htan 'sport >= :54320 and sport <= :54329')"
+          if [ -n "${held}" ]; then echo "::warning::Supabase ports already in use:"; echo "${held}"; fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Start minimal local Supabase and apply all migrations
+        run: |
+          npx supabase@${SUPABASE_CLI_VERSION} start \
+            --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+          npx supabase@${SUPABASE_CLI_VERSION} db reset --local --no-seed
+
+      - name: Catalog security invariants (RLS, grants, SECURITY DEFINER)
+        run: psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/release_gate_security_invariants.sql
+
+      - name: Tenant isolation, roles, lifecycle and files
+        run: |
+          # Rollback-only suites first; suites that commit fixtures run last.
+          for suite in \
+            pedido_v2 \
+            tamara_operational_access \
+            phase17_order_files \
+            phase18_external_folder_url \
+            phase34_quotes_operational_access \
+            phase47_pro_early_access \
+            phase35_quote_files \
+            phase44_quote_creation \
+            phase49_quote_conversion_notes \
+            phase44_quote_client_recovery \
+            phase48_clients_address \
+            phase50_clients_import \
+            phase46_files_storage_deletion \
+            phase46_order_total_validation \
+            phase52_order_total_guard \
+            phase46_payment_receipts \
+            phase13_order_lifecycle \
+            phase14_order_archived_immutability \
+            phase15_order_concurrency \
+            phase16_order_concurrency_cleanup \
+            phase8_invitation_personal
+          do
+            echo "::group::${suite}"
+            psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f "supabase/tests/${suite}.sql"
+            echo "::endgroup::"
+          done
+
+      - name: Stop local Supabase
+        if: always()
+        run: npx supabase@${SUPABASE_CLI_VERSION} stop --no-backup

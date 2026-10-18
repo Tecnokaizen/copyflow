@@ -97,6 +97,7 @@ export async function loadOrderOptions(
       team_members: teamMembersResult.data ?? [],
       stores: storesResult.data ?? [],
       actor_role: input.actorRole,
+      actor_id: input.userId,
       current_team_member: currentTeamMember,
       quick_order_layout: resolveQuickOrderLayout(
         settingsResult.data?.preferences

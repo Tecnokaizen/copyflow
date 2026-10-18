@@ -4,7 +4,11 @@ import { trustedKioskRequestContext } from "@/lib/kiosk/trusted-request";
 import { kioskUnavailableResponse } from "@/lib/kiosk/unavailable-response";
 import { createServerClient } from "@supabase/ssr";
 import { hasEnvVars } from "@/lib/utils";
-import { getSubdomainFromHostname } from "@/lib/tenant/hostname";
+import {
+  classifyRequestHost,
+  isHostGateExemptPath,
+} from "@/lib/tenant/trusted-host";
+import { untrustedHostResponse } from "@/lib/tenant/untrusted-host-response";
 import {
   isTenantAppExemptPath,
   resolveInactiveTenantState,
@@ -33,20 +37,30 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  const sessionResponse = await updateSession(request);
+  // Fail closed on any host that is not explicitly trusted (spoofed or
+  // inconsistent forwarding headers, unknown/custom domains). Runs before any
+  // session or tenant work. Only an explicit list of exact paths is exempt (see
+  // HOST_GATE_EXEMPT_PATHS): each authenticates by signature, secret or its own
+  // stricter validator and never trusts the host.
+  const hostClassification = classifyRequestHost(request.headers, process.env);
+  if (
+    hostClassification.status === "untrusted" &&
+    !isHostGateExemptPath(request.nextUrl.pathname)
+  ) {
+    return untrustedHostResponse();
+  }
+
+  const session = await updateSession(request);
 
   // Central provisioning gate: inactive tenants must not render the app UI.
   if (
     hasEnvVars &&
     !isTenantAppExemptPath(request.nextUrl.pathname) &&
-    sessionResponse.status >= 200 &&
-    sessionResponse.status < 400
+    session.response.status >= 200 &&
+    session.response.status < 400
   ) {
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "";
-    const slug = getSubdomainFromHostname(host);
+    const slug =
+      hostClassification.status === "tenant" ? hostClassification.slug : null;
     if (slug) {
       try {
         const supabase = createServerClient(
@@ -55,10 +69,10 @@ export async function proxy(request: NextRequest) {
           {
             cookies: {
               getAll() {
-                return request.cookies.getAll();
+                return session.getAll();
               },
-              setAll() {
-                // session cookies already applied by updateSession
+              setAll(cookiesToSet, headers) {
+                session.setAll(cookiesToSet, headers);
               },
             },
           }
@@ -69,9 +83,7 @@ export async function proxy(request: NextRequest) {
           url.pathname = "/tenant-inactive";
           url.search = `?reason=${encodeURIComponent(reason)}`;
           const redirect = NextResponse.redirect(url);
-          sessionResponse.cookies.getAll().forEach((cookie) => {
-            redirect.cookies.set(cookie.name, cookie.value);
-          });
+          session.applyTo(redirect);
           return redirect;
         }
       } catch (error) {
@@ -80,7 +92,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  return sessionResponse;
+  return session.response;
 }
 
 export const config = {

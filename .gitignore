@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local browser evidence for payment receipts
+/output/payment-receipts-ui/
+# Staging E2E artifacts (redacted, never committed)
+/e2e-artifacts/

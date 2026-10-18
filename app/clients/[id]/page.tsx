@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
@@ -70,7 +70,7 @@ function DetailRow({
   return (
     <div className="grid gap-1 border-b py-4 last:border-b-0 md:grid-cols-[220px_1fr]">
       <div className="text-sm font-medium text-muted-foreground">{label}</div>
-      <div className="text-sm">{value || "—"}</div>
+      <div className="whitespace-pre-line text-sm">{value || "—"}</div>
     </div>
   );
 }
@@ -88,6 +88,12 @@ function ClientDetailContent() {
   const [editError, setEditError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<ClientDuplicate | null>(null);
   const [activityReload, setActivityReload] = useState(0);
+  // Stable while editing: a new object per render made the form reset to the
+  // stored values whenever the page re-rendered (e.g. while saving).
+  const editInitialValues = useMemo(
+    () => (data?.client ? clientToForm(data.client) : undefined),
+    [data]
+  );
 
   useEffect(() => {
     async function load() {
@@ -249,6 +255,9 @@ function ClientDetailContent() {
         <DetailRow label="NIF/CIF" value={client.tax_id} />
         <DetailRow label="Email" value={client.email} />
         <DetailRow label="Teléfono" value={client.phone} />
+        {client.address !== undefined ? (
+          <DetailRow label="Dirección" value={client.address} />
+        ) : null}
         <DetailRow
           label="Tipo"
           value={client.customer_type_name ?? "Sin definir"}
@@ -341,7 +350,7 @@ function ClientDetailContent() {
         <ClientModal>
           <ClientForm
             title="Editar cliente"
-            initialValues={clientToForm(client)}
+            initialValues={editInitialValues}
             submitting={saving}
             error={editError}
             duplicate={duplicate}

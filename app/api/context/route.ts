@@ -1,22 +1,22 @@
-import { NextResponse } from "next/server";
-import { VOICE_ORDERS_FEATURE_CODE } from "@/lib/ai/voice-orders/feature";
+import { earlyAccessContext } from "@/lib/features/early-access";
+import { resolveProEarlyAccess } from "@/lib/features/early-access-server";
 import { tenantHasFeature } from "@/lib/features/tenant-has-feature";
+import { operationalJson } from "@/lib/http/operational-cache";
 import { QUOTES_FEATURE_CODE } from "@/lib/quotes/access";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { publicOrganizationIdentity } from "@/lib/tenant/branding";
 import { loadOrganizationSettings } from "@/lib/tenant/organization";
-import { getCurrentContext } from "@/lib/tenant/current-context";
+import { requireCurrentAccess } from "@/lib/tenant/access-response";
 
 export async function GET() {
-  const context = await getCurrentContext();
+  const access = await requireCurrentAccess("GET /api/context");
 
-  if (!context) {
-    return NextResponse.json(
-      { error: "Unauthorized or tenant access denied" },
-      { status: 403 }
-    );
+  if (!access.ok) {
+    return access.response;
   }
+
+  const context = access.context;
 
   const supabase = await createClient();
   const teamMember = await resolveCurrentTeamMember(
@@ -24,16 +24,10 @@ export async function GET() {
     context.tenant.id,
     context.user.id
   );
-  const quotes = await tenantHasFeature(
-    supabase,
-    context.tenant.id,
-    QUOTES_FEATURE_CODE
-  );
-  const voice_orders = await tenantHasFeature(
-    supabase,
-    context.tenant.id,
-    VOICE_ORDERS_FEATURE_CODE
-  );
+  const [quotes, proEarlyAccess] = await Promise.all([
+    tenantHasFeature(supabase, context.tenant.id, QUOTES_FEATURE_CODE),
+    resolveProEarlyAccess(supabase, context.tenant.id),
+  ]);
   let settings: Awaited<ReturnType<typeof loadOrganizationSettings>> = null;
   try {
     settings = await loadOrganizationSettings(context.tenant.id);
@@ -46,7 +40,8 @@ export async function GET() {
     branding: settings?.branding,
   });
 
-  return NextResponse.json({
+  // Per-user, per-tenant payload: never cache it in a shared cache.
+  return operationalJson({
     ...context,
     tenant: {
       id: context.tenant.id,
@@ -60,7 +55,7 @@ export async function GET() {
     team_member: teamMember,
     features: {
       quotes,
-      voice_orders,
     },
+    early_access: earlyAccessContext(proEarlyAccess),
   });
 }

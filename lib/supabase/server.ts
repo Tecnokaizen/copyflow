@@ -17,7 +17,7 @@ export async function createClient() {
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options),
@@ -27,6 +27,10 @@ export async function createClient() {
             // This can be ignored if you have proxy refreshing
             // user sessions.
           }
+          // Cache-Control for a refreshed session is applied on the proxy
+          // response. The cookie store cannot set those response headers,
+          // and a later empty header map must not clear them.
+          void headers;
         },
       },
     },

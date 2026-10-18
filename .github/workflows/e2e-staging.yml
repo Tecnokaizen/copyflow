@@ -1,0 +1,77 @@
+name: E2E staging
+
+# Manual only: real browser against the Staging deployment (e2e tenant,
+# Staging Supabase, Staging R2). Never required for PRs, no automatic
+# triggers. Secrets come from the protected GitHub `staging` environment.
+# Release gate exception and rules: docs/E2E-STAGING-V0.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-staging
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: Staging E2E (orders, R2, payments, quotes and PDF privacy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      TZ: UTC
+      E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
+      E2E_SUPABASE_URL: ${{ vars.E2E_SUPABASE_URL }}
+      E2E_R2_BUCKET: ${{ vars.E2E_R2_BUCKET }}
+      E2E_USER_EMAIL: ${{ vars.E2E_USER_EMAIL }}
+      E2E_ARTIFACTS_DIR: ${{ github.workspace }}/e2e-artifacts
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Guard tests (refuse Production / ambiguous targets)
+        run: npx tsx --test e2e/staging/guard.test.ts
+
+      - name: Install Playwright (outside package.json, as feature workflows do)
+        run: |
+          npm install --prefix /tmp/e2e-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
+          node /tmp/e2e-browser/node_modules/playwright/cli.js install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      - name: Run staging E2E
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx tsx e2e/staging/run.ts
+
+      - name: Run quote lifecycle and commercial PDF privacy E2E
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx tsx e2e/staging/quotes.ts
+
+      # Redacted logs, screenshots and synthetic commercial PDFs only.
+      # No Playwright traces: they would embed session tokens and the bypass header.
+      - name: Upload redacted artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-staging-${{ github.run_id }}
+          path: e2e-artifacts/
+          retention-days: 7
+          if-no-files-found: ignore

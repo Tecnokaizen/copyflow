@@ -7,6 +7,9 @@ on:
       - "app/settings/quick-order/**"
       - "components/orders/**"
       - "scripts/quotes-draft-ui-smoke.mjs"
+      - "scripts/payment-receipts-ui-smoke.mjs"
+      - "supabase/tests/phase46_payment_receipts.sql"
+      - "supabase/tests/phase46_payment_receipts_concurrency.sh"
       - "components/clients/**"
       - "components/files/**"
       - "components/settings/quick-order-layout-settings.tsx"
@@ -15,6 +18,7 @@ on:
       - "lib/settings/quick-order-layout*"
       - "supabase/tests/pedido_v2.sql"
       - "scripts/pedido-v2-ui-smoke.mjs"
+      - "scripts/order-collection-ui-smoke.mjs"
       - "scripts/inline-client-ui-smoke.mjs"
       - ".github/workflows/pedido-v2.yml"
   workflow_dispatch:
@@ -29,6 +33,24 @@ jobs:
     env:
       TZ: UTC
     steps:
+      # supabase/config.toml binds fixed host ports (54320-54329) that fall inside
+      # Linux's ephemeral range (32768-60999). Reserve them before any network
+      # traffic so no outgoing connection can grab 54322 ahead of `supabase start`.
+      - name: Reserve local Supabase ports from the ephemeral range
+        run: |
+          before="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports before: '${before}'"
+          sudo sysctl -q -w net.ipv4.ip_local_reserved_ports="${before:+${before},}54320-54329"
+          after="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          echo "ip_local_reserved_ports after: '${after}'"
+          covered=false
+          IFS=, read -ra ranges <<< "${after}"
+          for r in "${ranges[@]}"; do
+            if [ "${r%-*}" -le 54322 ] && [ "${r#*-}" -ge 54322 ]; then covered=true; fi
+          done
+          if [ "${covered}" != true ]; then echo "::error::port 54322 is not reserved"; exit 1; fi
+          held="$(ss -Htan 'sport >= :54320 and sport <= :54329')"
+          if [ -n "${held}" ]; then echo "::warning::Supabase ports already in use:"; echo "${held}"; fi
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
@@ -44,8 +66,10 @@ jobs:
           npm install --prefix /tmp/pedido-v2-browser --no-audit --no-fund --ignore-scripts playwright@1.58.2
           node /tmp/pedido-v2-browser/node_modules/playwright/cli.js install --with-deps chromium
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/pedido-v2-ui-smoke.mjs
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/order-collection-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/inline-client-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/payment-receipts-ui-smoke.mjs
       - name: Start local database with all migrations
         run: |
           npx supabase@2.117.0 start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
