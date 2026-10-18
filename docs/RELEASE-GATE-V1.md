@@ -65,7 +65,8 @@ Fresh local Supabase and all migrations (`db reset`), then:
 2. Billing suites (rollback-only): storage quota `phase22_tenant_file_limits`,
    `phase23`–`phase32` (foundation, checkout and webhook, paid onboarding,
    idempotency, provisioning state, Stripe Test/Live separation) and
-   `phase55_billing_checkout_resubscribe`. `kiosk-supabase.yml` also runs
+   `phase55_billing_checkout_resubscribe`, `phase56_billing_storage_capacity`,
+   `phase57_billing_internal_subscription_guard`. `kiosk-supabase.yml` also runs
    them, but only when its path filter matches, so it cannot be a required
    check.
 3. Existing suites that cover tenant isolation, roles, lifecycle and files:

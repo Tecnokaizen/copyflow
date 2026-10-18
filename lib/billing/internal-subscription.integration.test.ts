@@ -180,6 +180,17 @@ const scenarios = [
     },
   },
   {
+    // App guard saw nothing (row created after it ran); prepare re-checks in-lock.
+    name: "internal-created-after-guard",
+    context: owner,
+    requestBody: validBody,
+    rows: [],
+    prepare: {
+      outcome: "internal_subscription_current",
+      code: "internal_subscription_current",
+    },
+  },
+  {
     name: "lookup-fails",
     context: owner,
     requestBody: validBody,
@@ -303,6 +314,18 @@ describe("internal subscription checkout guard · integration (route → supabas
     assert.equal(entry.status, 409);
     assert.equal(entry.body?.code, "current_subscription_exists");
     assert.equal(entry.requests.length, 2);
+    assert.equal(
+      entry.requests[1]!.path,
+      "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
+    );
+  });
+
+  it("prepare's in-lock internal check also answers 409 internal_subscription_current", () => {
+    const entry = get("internal-created-after-guard");
+    assert.equal(entry.status, 409);
+    assert.equal(entry.body?.code, "internal_subscription_current");
+    assert.equal(entry.requests.length, 2);
+    assertGuardQuery(entry.requests[0]);
     assert.equal(
       entry.requests[1]!.path,
       "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"

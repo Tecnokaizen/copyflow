@@ -205,6 +205,10 @@ export async function createCheckoutSessionForTenant(input: {
       throw new CheckoutConflictError();
     }
 
+    if (prepared.outcome === "internal_subscription_current") {
+      throw new CheckoutInternalSubscriptionError();
+    }
+
     if (prepared.outcome === "checkout_processing") {
       throw new CheckoutProcessingError();
     }

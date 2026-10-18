@@ -15,6 +15,8 @@ import {
 import { stripeCancelAtToIso } from "@/lib/billing/cancellation-display";
 import { resolveTenantIdFromWebhookSources } from "@/lib/billing/tenant-from-webhook";
 import { isRetryableWebhookFailure } from "@/lib/billing/webhook-errors";
+import { INTERNAL_SUBSCRIPTION_CURRENT_CODE } from "@/lib/billing/internal-subscription";
+import { classifySyncResult } from "@/lib/billing/sync-result";
 import { objectLivemodeMatchesEvent } from "@/lib/billing/webhook-mode";
 
 export type WebhookProcessResult = {
@@ -208,12 +210,24 @@ async function syncSubscriptionFromStripe(input: {
     };
   }
 
-  if (
-    data &&
-    typeof data === "object" &&
-    !Array.isArray(data) &&
-    (data as { stale?: boolean }).stale === true
-  ) {
+  const syncOutcome = classifySyncResult(data);
+
+  if (syncOutcome === "held") {
+    // Alert: a paid Stripe subscription is not recorded locally. Ids only.
+    console.error("[billing.webhook] internal subscription held", {
+      code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+      tenantId: tenantResolve.tenantId,
+      providerSubscriptionId: subscription.id,
+      livemode: input.livemode,
+    });
+    return {
+      status: "failed",
+      errorCode: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+      retryable: false,
+    };
+  }
+
+  if (syncOutcome === "stale") {
     return { status: "ignored", errorCode: "stale_event", retryable: false };
   }
 
