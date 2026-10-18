@@ -59,6 +59,58 @@ select public.ai_set_voice_usage_limit('user', '<slug>', '<user_id>', false, nul
   los que el usuario cambió después. Si la sesión caduca durante el dictado, el
   formulario guarda su borrador de sesión como en #94.
 
+## E2E en Preview (proveedor `fake`)
+
+Escenario: `e2e/staging/voice-orders.ts` (flujos en `e2e/staging/voice-flows.ts`), con el
+mismo guard, interlock de egress y redacción que el resto de E2E de Staging. El runner
+nunca recibe `service_role`: el operador prepara cada estado antes de lanzarlo.
+
+**Prerrequisitos (requieren autorización; hoy no están hechos):**
+
+1. Migración `20261018150000` aplicada en Staging, respetando el orden #128 → A1 → voz
+   (si A1 no está, decidir si se renumera A1 o se espera; nunca `--include-all`).
+2. `gestcopy-staging` (dominio `e2e.preview.app.gestcopy.com`) con el código de #90.
+3. Variables de Vercel **Preview** (nunca Production): `AI_VOICE_ORDERS_ENABLED=true`, `AI_PROVIDER=fake`.
+4. En Staging, como operador: `set_tenant_feature('e2e','ai_voice_orders',true,null)` y
+   `ai_set_voice_usage_limit('platform', null, null, true, 10000000, 60, 60, 3000000)`.
+
+**Estados y comando** (`E2E_VOICE_EXPECT`, o la entrada `voice_expect` del workflow manual «E2E staging»):
+
+| Estado | Preparación del operador en Staging | Qué comprueba |
+| --- | --- | --- |
+| `on` | prerrequisitos 1–4 | contratos de API (origen, validación, tenant fijado, caché); dictado escrito + «Descartar» a 1440 px y a 390 px táctil; campo tecleado conservado, «Reemplazar» y «Descartar»; grabación (micrófono sintético) → transcripción → borrador; un único pedido al pulsar «Crear pedido»; viewer sin módulo (solo por CLI) |
+| `budget_exhausted` | `ai_set_voice_usage_limit('user','e2e',<id del owner e2e>,true,0,null,null,null)` | 429 y ningún campo cambia |
+| `kill_switch` | `ai_set_voice_usage_limit('platform',null,null,false,10000000,60,60,3000000)` | panel oculto, sin micrófono, API 429 |
+| `off` | `set_tenant_feature('e2e','ai_voice_orders',false,null)` | panel oculto, sin micrófono, API 404/503 |
+
+Después de cada estado, volver al de `on` (para el usuario: los mismos valores con `NULL`).
+En todos los flujos se comprueba que ninguna petición escribe en `/api/orders` antes del clic.
+
+```bash
+E2E_VOICE_EXPECT=on PLAYWRIGHT_MODULE=… E2E_BASE_URL=https://e2e.preview.app.gestcopy.com \
+E2E_SUPABASE_URL=… E2E_R2_BUCKET=gestcopy-files-staging E2E_USER_EMAIL=… E2E_USER_PASSWORD=… \
+[E2E_VIEWER_EMAIL=… E2E_VIEWER_PASSWORD=…] VERCEL_AUTOMATION_BYPASS_SECRET=… \
+npx tsx e2e/staging/voice-orders.ts
+```
+
+## Pruebas en dispositivos móviles (gate G5)
+
+El E2E cubre 390 px táctil en Chromium con un micrófono sintético. En dispositivos reales,
+con Preview y proveedor `fake`, hay que comprobar:
+
+| Caso | iPhone (Safari iOS 17+) | Android (Chrome) |
+| --- | --- | --- |
+| Primer uso: el sistema pide el micrófono; aceptar → graba | ☐ | ☐ |
+| Permiso denegado → mensaje y «Escribir en lugar de dictar» | ☐ | ☐ |
+| Sin micrófono / navegador sin `MediaRecorder` → solo texto | ☐ | ☐ |
+| Formato: iOS graba `audio/mp4`, Android `audio/webm` → transcripción OK | ☐ | ☐ |
+| Pantalla bloqueada o app en segundo plano durante la grabación → se cancela sin enviar | ☐ | ☐ |
+| Corte de red al transcribir o interpretar → error y reintento, nada aplicado | ☐ | ☐ |
+| Límite de 60 s → se detiene sola | ☐ | ☐ |
+| Revisión legible a 320–390 px, sin scroll horizontal; «Descartar» deja el formulario como estaba | ☐ | ☐ |
+| Nunca se guarda un pedido sin pulsar «Crear pedido» | ☐ | ☐ |
+| PWA instalada (si aplica): mismo comportamiento | ☐ | ☐ |
+
 ## Privacidad
 
 Audio y transcript no se persisten. El ledger no guarda texto. Aviso visible en la UI.

@@ -64,8 +64,8 @@ Implementado, sin integrar ni aplicar:
 
 1. ~~Rebase funcional de #90 sobre `main`~~ (B1, 18/10).
 2. B2: asistencia contextual por campo (sugerencias aceptables una a una; nunca crea el pedido).
-3. B3: `e2e/staging/voice-orders.ts` con proveedor `fake` (feature on/off, viewer,
-   otro tenant, kill switch, presupuesto agotado, sin clic no hay pedido).
+3. B3: `e2e/staging/voice-orders.ts` con proveedor `fake`. Escrito y en verde en una pila local
+   completa (18/10); falta ejecutarlo en Preview, con los prerrequisitos de Staging autorizados.
 4. Gate legal y confirmación del proveedor.
 5. Piloto en Staging con proveedor real y presupuesto mínimo, solo con un tenant sintético.
 6. Activación por tenant con `set_tenant_feature('<slug>','ai_voice_orders',true)`,
