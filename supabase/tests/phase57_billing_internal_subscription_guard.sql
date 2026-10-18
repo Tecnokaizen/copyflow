@@ -306,6 +306,64 @@ begin
   end if;
 
   -- -------------------------------------------------------------------------
+  -- I (option C): an internal row marked ready_for_checkout lets Checkout
+  --    through and is converted by the sync, with an audit trail. Any other
+  --    billing_activation value keeps holding (A).
+  -- -------------------------------------------------------------------------
+  update public.subscriptions
+  set metadata = metadata || '{"billing_activation":"stripe_checkout_pending"}'::jsonb
+  where id = v_internal;
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant, v_basic_id, 'stripe', 'cus_phase54', 'sub_phase54_a', 'active',
+    now(), now() + interval '30 days', false, '{}'::jsonb,
+    now() - interval '1 minute', null, true
+  );
+  if v_sync ->> 'outcome' is distinct from 'held' then
+    raise exception 'phase54 I: only ready_for_checkout converts, got %', v_sync;
+  end if;
+
+  update public.subscriptions
+  set metadata = metadata || '{"billing_activation":"ready_for_checkout"}'::jsonb
+  where id = v_internal;
+
+  v_prep := public.prepare_billing_checkout_attempt_v2(v_tenant, 'basic', 'month', 'billing', true);
+  if v_prep ->> 'outcome' <> 'reserved' then
+    raise exception 'phase54 I: ready_for_checkout must allow Checkout, got %', v_prep;
+  end if;
+
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant, v_basic_id, 'stripe', 'cus_phase54', 'sub_phase54_a', 'active',
+    now(), now() + interval '30 days', false, '{}'::jsonb,
+    now() - interval '1 minute', null, true
+  );
+  if v_sync ->> 'outcome' = 'held' or v_sync ->> 'status' <> 'active' then
+    raise exception 'phase54 I: ready internal row must be converted, got %', v_sync;
+  end if;
+
+  select * into v_after from public.subscriptions where id = v_internal;
+  if v_after.status <> 'canceled'
+     or v_after.metadata ->> 'billing_activation' <> 'converted_to_stripe'
+     or v_after.metadata ->> 'converted_to_provider_subscription_id' <> 'sub_phase54_a'
+     or (v_after.metadata ->> 'converted_livemode')::boolean is not true
+     or v_after.metadata ->> 'internal_closed_at' is null
+     or v_after.metadata ->> 'source' <> 'phase54'
+  then
+    raise exception 'phase54 I: conversion audit trail wrong: %', v_after.metadata;
+  end if;
+
+  select count(*) into v_count
+  from public.subscriptions
+  where tenant_id = v_tenant and status in ('trialing', 'active', 'past_due');
+  if v_count <> 1
+     or not exists (
+       select 1 from public.subscriptions
+       where provider_subscription_id = 'sub_phase54_a' and status = 'active' and livemode
+     )
+  then
+    raise exception 'phase54 I: Stripe row must be the only current one';
+  end if;
+
+  -- -------------------------------------------------------------------------
   -- H: DEMO/SUR4 untouched.
   -- -------------------------------------------------------------------------
   if (select s.status from public.subscriptions s join public.tenants t on t.id = s.tenant_id

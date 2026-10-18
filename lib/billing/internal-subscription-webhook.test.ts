@@ -72,6 +72,20 @@ describe("webhook guard for current internal subscriptions", () => {
     );
   });
 
+  it("option C: converts only rows an operator marked ready_for_checkout, in sync and prepare", () => {
+    const sql = stripSqlComments(read(MIGRATION));
+    assert.match(
+      sql,
+      /if found\s+and coalesce\(v_internal\.metadata ->> 'billing_activation', ''\) = 'ready_for_checkout'/
+    );
+    assert.match(sql, /'billing_activation', 'converted_to_stripe'/);
+    assert.match(sql, /'converted_to_provider_subscription_id', p_provider_subscription_id/);
+    assert.match(
+      sql,
+      /coalesce\(s\.metadata ->> 'billing_activation', ''\) <> 'ready_for_checkout'/
+    );
+  });
+
   it("keeps the RPCs service-only", () => {
     const sql = read(MIGRATION);
     for (const fn of [

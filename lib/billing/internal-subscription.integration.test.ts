@@ -155,6 +155,8 @@ const scenarios = [
         metadata: { billing_activation: "ready_for_checkout" },
       },
     ],
+    // Stop before Stripe: only checks that the guard lets it reach prepare.
+    prepare: { outcome: "checkout_processing", code: "checkout_processing" },
   },
   {
     name: "provider-null-past-due",
@@ -260,7 +262,7 @@ function assertGuardQuery(request: ProbeRequest | undefined) {
   assert.equal(request.method, "GET");
   assert.equal(request.path, "/rest/v1/subscriptions");
   assert.deepEqual(request.query, {
-    select: "provider,status",
+    select: "provider,status,metadata",
     tenant_id: `eq.${HOST_TENANT}`,
     status: "in.(trialing,active,past_due)",
   });
@@ -275,11 +277,7 @@ describe("internal subscription checkout guard · integration (route → supabas
     return entry;
   }
 
-  for (const name of [
-    "internal-expired-period",
-    "internal-ready-for-checkout",
-    "provider-null-past-due",
-  ]) {
+  for (const name of ["internal-expired-period", "provider-null-past-due"]) {
     it(`${name}: 409 internal_subscription_current before any checkout attempt`, () => {
       const entry = get(name);
       assert.equal(entry.status, 409);
@@ -288,6 +286,16 @@ describe("internal subscription checkout guard · integration (route → supabas
       assertGuardQuery(entry.requests[0]);
     });
   }
+
+  it("internal row marked ready_for_checkout reaches the prepare RPC (D1 option C)", () => {
+    const entry = get("internal-ready-for-checkout");
+    assert.equal(entry.requests.length, 2, JSON.stringify(entry.requests));
+    assertGuardQuery(entry.requests[0]);
+    assert.equal(
+      entry.requests[1]!.path,
+      "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
+    );
+  });
 
   it("guard query carries no date, provider or mode filter", () => {
     const query = get("internal-expired-period").requests[0]!.query;

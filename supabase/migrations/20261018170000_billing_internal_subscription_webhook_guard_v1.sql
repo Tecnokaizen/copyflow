@@ -7,7 +7,13 @@
 -- stops new sessions; sessions opened before it, or subscriptions created in
 -- Stripe outside the app with metadata tenant_id, still reach the webhook.
 --
--- Option B (hold with alert), implemented here:
+-- Option C (convert only when ready) on top of option B (hold with alert):
+--   * a current non-Stripe row whose metadata.billing_activation is
+--     'ready_for_checkout' (set by an operator) lets Checkout through and is
+--     canceled by the sync as 'converted_to_stripe', with an audit trail;
+--   * any other current non-Stripe row is held as described below.
+--
+-- Option B (hold with alert):
 --   * sync never cancels a current non-Stripe row: it writes nothing and
 --     returns outcome 'held'; the webhook records the event as failed without
 --     retry (internal_subscription_current) and logs an alert;
@@ -141,8 +147,9 @@ begin
 
   if v_is_current then
     -- A provider sync never cancels a current non-Stripe row (internal trial or
-    -- pilot, mvp, NULL provider). Hold: nothing is written, the caller records
-    -- the event as failed without retry and alerts an operator.
+    -- pilot, mvp, NULL provider) unless it is marked ready_for_checkout.
+    -- Hold: nothing is written, the caller records the event as failed without
+    -- retry and alerts an operator.
     select * into v_internal
     from public.subscriptions s
     where s.tenant_id = p_tenant_id
@@ -151,7 +158,23 @@ begin
     limit 1
     for update;
 
-    if found then
+    if found
+       and coalesce(v_internal.metadata ->> 'billing_activation', '') = 'ready_for_checkout'
+    then
+      -- Option C: an operator marked this internal row for conversion. The
+      -- Stripe subscription replaces it; the row keeps an audit trail.
+      update public.subscriptions s
+      set
+        status = 'canceled',
+        metadata = s.metadata || pg_catalog.jsonb_build_object(
+          'billing_activation', 'converted_to_stripe',
+          'internal_closed_at', pg_catalog.now(),
+          'converted_to_provider_subscription_id', p_provider_subscription_id,
+          'converted_livemode', v_livemode
+        ),
+        updated_at = pg_catalog.now()
+      where s.id = v_internal.id;
+    elsif found then
       return pg_catalog.jsonb_build_object(
         'outcome', 'held',
         'code', 'internal_subscription_current',
@@ -251,7 +274,7 @@ $function$;
 comment on function public.sync_billing_subscription_v1(
   uuid, uuid, text, text, text, text, timestamptz, timestamptz, boolean, jsonb, timestamptz, timestamptz, boolean
 ) is
-  'DEFINER service-only: sync provider subscription atomically under the shared tenant billing lock (key 31). Persists livemode; rejects moving a provider_subscription_id between Test and Live. Persists cancel_at. Rejects stale provider_event_created_at. Never cancels a current non-Stripe subscription: returns outcome held (code internal_subscription_current) without writing.';
+  'DEFINER service-only: sync provider subscription atomically under the shared tenant billing lock (key 31). Persists livemode; rejects moving a provider_subscription_id between Test and Live. Persists cancel_at. Rejects stale provider_event_created_at. Never cancels a current non-Stripe subscription unless its metadata.billing_activation is ready_for_checkout (then canceled as converted_to_stripe); otherwise returns outcome held (code internal_subscription_current) without writing.';
 
 revoke all on function public.sync_billing_subscription_v1(
   uuid, uuid, text, text, text, text, timestamptz, timestamptz, boolean, jsonb, timestamptz, timestamptz, boolean
@@ -303,14 +326,16 @@ begin
   );
 
   -- A current non-Stripe subscription (internal trial or pilot, mvp, NULL
-  -- provider) blocks Checkout in every mode. Same check as the app guard
-  -- (lib/billing/current-subscription.ts), here under the shared tenant lock.
+  -- provider) blocks Checkout in every mode unless it is marked
+  -- ready_for_checkout. Same rule as the app guard
+  -- (lib/billing/internal-subscription.ts), here under the shared tenant lock.
   if exists (
     select 1
     from public.subscriptions s
     where s.tenant_id = p_tenant_id
       and s.provider is distinct from 'stripe'
       and s.status in ('trialing', 'active', 'past_due')
+      and coalesce(s.metadata ->> 'billing_activation', '') <> 'ready_for_checkout'
   ) then
     return pg_catalog.jsonb_build_object(
       'outcome', 'internal_subscription_current',
@@ -453,7 +478,7 @@ end;
 $function$;
 
 comment on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) is
-  'Service-only: reserve checkout attempt scoped by livemode. creating stays resumable until provider expiry (+ grace). completed blocks (checkout_processing) until its subscription is recorded and ended, then becomes settled. Test current/attempt does not block Live Checkout. A current non-Stripe subscription blocks every mode (internal_subscription_current). Shares the tenant billing lock (key 31) with sync_billing_subscription_v1.';
+  'Service-only: reserve checkout attempt scoped by livemode. creating stays resumable until provider expiry (+ grace). completed blocks (checkout_processing) until its subscription is recorded and ended, then becomes settled. Test current/attempt does not block Live Checkout. A current non-Stripe subscription blocks every mode (internal_subscription_current) unless marked ready_for_checkout. Shares the tenant billing lock (key 31) with sync_billing_subscription_v1.';
 
 revoke all on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) from public;
 revoke all on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) from anon;
