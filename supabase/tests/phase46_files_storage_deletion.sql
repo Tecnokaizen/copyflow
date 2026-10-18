@@ -134,6 +134,10 @@ begin
     (owner_a, 'Owner A'), (staff_a, 'Staff A'), (viewer_a, 'Viewer A'), (owner_b, 'Owner B');
   insert into public.tenants (id, name, slug, active) values
     (ta, 'Phase46 A', 'phase46a', true), (tb, 'Phase46 B', 'phase46b', true);
+  -- S2: explicit storage capacity (a tenant without subscription has 0 bytes).
+  insert into public.subscriptions (tenant_id, plan_id, provider, status)
+  select fx.tid, pl.id, 'internal', 'active'
+  from (values (ta), (tb)) as fx(tid) cross join public.plans pl where pl.code = 'basic';
   insert into public.memberships (tenant_id, user_id, role, active) values
     (ta, owner_a, 'owner', true), (ta, staff_a, 'staff', true),
     (ta, viewer_a, 'viewer', true), (tb, owner_b, 'owner', true);

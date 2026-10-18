@@ -59,14 +59,19 @@ begin
     raise exception 'phase24: basic storage_bytes expected 5368709120, got %', v_limit;
   end if;
 
-  if exists (
+  -- S2: the internal mvp plan has an explicit capacity equal to Basic's
+  -- (before S2 it had none, i.e. implicit unlimited).
+  if not exists (
     select 1
     from public.plan_features pf
     join public.features f on f.id = pf.feature_id
+    join public.plan_features bpf on bpf.feature_id = pf.feature_id and bpf.plan_id = v_basic_id
     where pf.plan_id = v_mvp_id
       and f.code = 'storage_bytes'
+      and pf.enabled
+      and pf.limit_value = bpf.limit_value
   ) then
-    raise exception 'phase24: mvp must not have storage_bytes';
+    raise exception 'phase24: mvp must have an explicit storage_bytes capacity equal to basic';
   end if;
 
   -- provider_event_created_at column exists
@@ -104,6 +109,33 @@ begin
     v_tenant, v_mvp_id, 'internal', 'active', false
   )
   returning id into v_sub_mvp;
+
+  -- D1: a current internal row holds the sync and stays current.
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    now() + interval '30 days',
+    false,
+    '{}'::jsonb,
+    v_new
+  );
+
+  if v_sync ->> 'outcome' is distinct from 'held'
+     or not exists (
+       select 1 from public.subscriptions
+       where id = v_sub_mvp and status = 'active'
+     )
+  then
+    raise exception 'phase24: internal current must hold the sync, got %', v_sync;
+  end if;
+
+  -- Operator closes the internal row (cutover); the event then applies.
+  update public.subscriptions set status = 'canceled' where id = v_sub_mvp;
 
   -- newer event wins
   v_sync := public.sync_billing_subscription_v1(

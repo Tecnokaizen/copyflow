@@ -206,31 +206,56 @@ commit; -- tras comprobar la fila como en B
    - Recorrido checkout → webhook → suscripción en un tenant de verificación, no en SUR4.
    - En Live supone un cobro real, que después se reembolsa.
 
-**Paso de SUR4:** como la suscripción interna vigente oculta «Contratar», hay dos formas:
+**Paso de SUR4 (actualizado el 18/10/2026: D1 B + C y S2 aprobados).**
 
-- **D1, sin código:**
-  1. Justo antes de que Tamara contrate, cerrar la fila interna con el borrador de abajo.
-  2. Tamara completa el checkout en Ajustes → Facturación.
-  3. El webhook crea la suscripción Stripe (`sync_billing_subscription_v1`), que además cancela cualquier otra vigente.
-  - Mientras tanto no se corta el acceso; solo deja de aplicarse la cuota de almacenamiento hasta que llega la suscripción Stripe.
-- **D2, con una PR pequeña (recomendada si habrá más tenants en piloto):**
-  - Mostrar «Activar facturación» al owner cuando la suscripción interna vigente tenga `billing_activation = 'ready_for_checkout'`.
-  - Así no hace falta cerrar la fila a mano.
+Desde la migración `20261018170000`, el webhook ya no cancela una suscripción interna vigente:
 
-```sql
--- BORRADOR D1. Solo con Stripe Live verificado y Tamara lista para contratar.
-update public.subscriptions s
-set status = 'canceled',
-    metadata = s.metadata || jsonb_build_object(
-      'billing_activation', 'stripe_checkout_pending',
-      'internal_closed_at', to_jsonb(pg_catalog.now()))
-from public.tenants t
-where t.id = s.tenant_id and t.slug = 'sur4'
-  and s.provider = 'internal' and s.status in ('trialing', 'active');
--- Debe afectar exactamente a 1 fila.
--- Vuelta atrás, si el checkout no se completa: devolverla a su estado anterior.
--- El índice único "una vigente por tenant" impide que convivan dos.
-```
+- Si no está marcada, el pago se **retiene** para conciliarlo.
+- Si está marcada `ready_for_checkout`, la **convierte**.
+
+El antiguo borrador manual D1 (cerrar la fila antes del checkout) queda **retirado**. Dejaba a SUR4 sin suscripción vigente entre el cierre y el webhook. Con S2 ya no supone almacenamiento ilimitado: conserva la última capacidad contratada.
+
+Pasos, solo con Stripe Live verificado y Tamara lista para contratar:
+
+1. **Comprobación previa (solo lectura).**
+   - `select public.list_billing_reconciliation_v1();` no debe tener entradas de `sur4`.
+   - SUR4 no debe tener checkout attempts abiertos.
+2. **Marcar la fila interna**, con la RPC auditada: toma el lock del tenant y registra el motivo y quién autoriza.
+
+   ```sql
+   select public.set_internal_billing_activation_v1(
+     (select id from public.tenants where slug = 'sur4'),
+     'ready_for_checkout',
+     'Paso de SUR4 a Stripe Basic acordado con Tamara (#35)',
+     '<propietario>'
+   );
+   ```
+
+3. **Tamara pulsa «Activar facturación con Stripe»** en Ajustes → Facturación y completa el pago.
+4. **El webhook convierte la fila interna.**
+   - La fila interna queda `canceled` con `billing_activation = converted_to_stripe`.
+   - La suscripción de Stripe pasa a ser la vigente.
+   - El servicio no se interrumpe y la capacidad sigue en 5 GiB.
+   - Todo queda en `billing_private.internal_subscription_audit` (`via = stripe_conversion`).
+5. **Si Tamara no paga**, se vuelve a proteger la fila sin tocar su estado:
+
+   ```sql
+   select public.set_internal_billing_activation_v1(
+     (select id from public.tenants where slug = 'sur4'),
+     'deferred_until_go_live', 'Checkout no completado; se mantiene la prueba', '<propietario>'
+   );
+   ```
+
+   Si la respuesta indica `open_checkout_attempts > 0`, cualquier pago tardío de esa sesión quedará retenido (paso 6).
+6. **Si un pago queda retenido** (sesión antigua o suscripción creada fuera de la app), la app bloquea nuevos checkouts con `subscription_pending_reconciliation`.
+   - El aviso llega al log `[billing.reconciliation]` y, si está configurado, a `BILLING_ALERT_EMAIL`.
+   - Para **adoptarlo**:
+     1. marcar `ready_for_checkout` (paso 2);
+     2. ejecutar `select public.requeue_billing_subscription_hold_v1('<hold_id>', '<motivo>', '<propietario>');`;
+     3. hacer «Resend» de esos eventos en Stripe.
+   - Para **descartarlo**: reembolsar y cancelar en Stripe y después ejecutar `select public.resolve_billing_subscription_hold_v1('<hold_id>', '<motivo>', '<propietario>');`.
+
+Las prórrogas B siguen siendo válidas. Desde S2 quedan registradas en la auditoría como `update`, con `via = direct`.
 
 ## 6. Tenant de verificación y tenants de prueba en Production
 
@@ -259,4 +284,4 @@ Production tiene seis tenants activos: `sur4`, `demo` (interna, `active`) y cuat
 2. Condiciones comerciales de SUR4 (#35).
 3. Tenant de verificación: cuál y con qué usuario.
 4. Tenants de prueba en Production: conservar o desactivar.
-5. Para D: D1 (manual) o D2 (PR).
+5. Para D: resuelto el 18/10 (D1 B + C, «Activar facturación» incluido); queda solo verificar Stripe Live.

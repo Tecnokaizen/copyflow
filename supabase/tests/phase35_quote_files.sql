@@ -71,6 +71,9 @@ begin
   insert into public.tenants (id, name, slug, active) values
     (v_tenant_a, 'Phase35 A', 'phase35-a', true),
     (v_tenant_b, 'Phase35 B', 'phase35-b', true);
+  -- S2: explicit storage capacity (a tenant without subscription has 0 bytes).
+  insert into public.subscriptions (tenant_id, plan_id, provider, status)
+  select v_tenant_a, pl.id, 'internal', 'active' from public.plans pl where pl.code = 'basic';
 
   insert into public.memberships (tenant_id, user_id, role, active) values
     (v_tenant_a, v_owner_a, 'owner', true),
@@ -304,6 +307,9 @@ begin
   values (v_plan, 'phase35_quota', 'Phase35', true, 99, 0, 0);
   insert into public.plan_features (plan_id, feature_id, enabled, limit_value)
   values (v_plan, v_feature, true, 10000);
+  -- The commercial capacity below replaces the explicit internal one.
+  update public.subscriptions set status = 'canceled'
+  where tenant_id = v_tenant_a and provider = 'internal';
   insert into public.subscriptions (
     id, tenant_id, plan_id, status, current_period_start, current_period_end
   ) values (
