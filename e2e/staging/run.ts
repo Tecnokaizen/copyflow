@@ -147,6 +147,9 @@ async function flowOrders(page: Page) {
     const body = await apiJson(await created, 200);
     const client = body.client as { id: string; name: string };
     assert.equal(client.name, state.clientName);
+    // Clients are paginated alphabetically. A new synthetic client may be on a
+    // later page once this persistent test tenant has accumulated prior runs.
+    await page.getByPlaceholder(/^Buscar por nombre, empresa, contacto/).fill(state.clientName);
     await page.getByRole("link", { name: state.clientName }).waitFor();
   });
 
