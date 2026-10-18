@@ -62,7 +62,13 @@ Fresh local Supabase and all migrations (`db reset`), then:
    every SECURITY DEFINER routine pins `search_path`; anon can execute only
    the 4 allowlisted public RPCs (invitation preview, kiosk); private schemas
    are closed to API roles.
-2. Existing suites that cover tenant isolation, roles, lifecycle and files:
+2. Billing suites (rollback-only): storage quota `phase22_tenant_file_limits`,
+   `phase23`–`phase32` (foundation, checkout and webhook, paid onboarding,
+   idempotency, provisioning state, Stripe Test/Live separation) and
+   `phase53_billing_checkout_resubscribe`. `kiosk-supabase.yml` also runs
+   them, but only when its path filter matches, so it cannot be a required
+   check.
+3. Existing suites that cover tenant isolation, roles, lifecycle and files:
    `pedido_v2`, `tamara_operational_access`, `phase17`, `phase18`,
    `phase34`, `phase35`, `phase44` (×2), `phase46`, `phase13`–`phase16`,
    `phase8`. Before this gate, 9 of them were never run in CI.
