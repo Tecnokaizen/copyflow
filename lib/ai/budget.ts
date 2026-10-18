@@ -2,10 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { operationalJson } from "@/lib/http/operational-cache";
-import {
-  AI_VOICE_MESSAGES,
-  VOICE_ORDERS_FEATURE_CODE,
-} from "@/lib/ai/voice-orders/feature";
+import { AI_VOICE_MESSAGES } from "@/lib/ai/voice-orders/feature";
+import { AI_VOICE_ORDERS_FEATURE_CODE } from "@/lib/features/early-access";
 
 export type AiOperation = "transcription" | "extraction";
 
@@ -56,6 +54,13 @@ export function mapAiBudgetError(error: {
     );
   }
 
+  if (text.includes("request id already used")) {
+    return operationalJson(
+      { error: AI_VOICE_MESSAGES.requestConflict, code: "ai_request_conflict" },
+      { status: 409 }
+    );
+  }
+
   if (text.includes("feature disabled")) {
     return operationalJson(
       { error: AI_VOICE_MESSAGES.notFound, code: "feature_disabled" },
@@ -82,7 +87,7 @@ export async function reserveAiUsage(
 ) {
   const { data, error } = await supabase.rpc("ai_reserve_usage", {
     p_tenant_id: input.tenantId,
-    p_feature: VOICE_ORDERS_FEATURE_CODE,
+    p_feature: AI_VOICE_ORDERS_FEATURE_CODE,
     p_operation: input.operation,
     p_request_id: input.requestId,
     p_estimated_micros: input.estimatedMicros,

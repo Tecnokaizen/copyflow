@@ -15,6 +15,15 @@ function openAiBaseUrl() {
   );
 }
 
+function requireModel(name: "AI_TRANSCRIPTION_MODEL" | "AI_EXTRACTION_MODEL") {
+  // No default model: names and prices are not confirmed with the provider yet.
+  const model = process.env[name]?.trim();
+  if (!model) {
+    throw new Error(`${name} missing`);
+  }
+  return model;
+}
+
 function requireApiKey() {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
@@ -24,7 +33,7 @@ function requireApiKey() {
 }
 
 export function createOpenAiTranscriptionProvider(): TranscriptionProvider {
-  const model = process.env.AI_TRANSCRIPTION_MODEL?.trim() || "gpt-transcribe";
+  const model = requireModel("AI_TRANSCRIPTION_MODEL");
 
   return {
     name: "openai",
@@ -70,7 +79,7 @@ export function createOpenAiTranscriptionProvider(): TranscriptionProvider {
 }
 
 export function createOpenAiExtractionProvider(): ExtractionProvider {
-  const model = process.env.AI_EXTRACTION_MODEL?.trim() || "gpt-6-luna";
+  const model = requireModel("AI_EXTRACTION_MODEL");
 
   return {
     name: "openai",

@@ -3,8 +3,6 @@ import {
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 
-export const VOICE_ORDERS_FEATURE_CODE = "voice_orders";
-
 export const AI_VOICE_MESSAGES = {
   unauthenticated: "No autenticado",
   unauthorized: "No autorizado",
@@ -12,6 +10,7 @@ export const AI_VOICE_MESSAGES = {
   unavailable: "Pedidos por voz no disponibles",
   budgetExhausted: "Presupuesto de IA agotado",
   rateLimited: "Límite diario de peticiones de IA alcanzado",
+  requestConflict: "Petición de IA duplicada",
   invalidOrigin: "Origen no permitido",
   invalidAudio: "Audio no válido",
   audioTooLarge: "Audio demasiado grande",
@@ -20,8 +19,13 @@ export const AI_VOICE_MESSAGES = {
   providerTimeout: "El proveedor de IA superó el tiempo de espera",
 } as const;
 
-export function isVoiceOrdersEnvEnabled() {
-  return process.env.AI_VOICE_ORDERS_ENABLED === "true";
+type AiEnv = Record<string, string | undefined>;
+
+export type AiProviderName = "fake" | "openai";
+export type AiProviderKind = "transcription" | "extraction";
+
+export function isVoiceOrdersEnvEnabled(env: AiEnv = process.env) {
+  return env.AI_VOICE_ORDERS_ENABLED === "true";
 }
 
 export function canAccessVoiceOrdersModule(
@@ -31,24 +35,55 @@ export function canAccessVoiceOrdersModule(
   return featureEnabled && hasMembershipRole(role, OPERATIVE_ROLES);
 }
 
-export function voiceOrdersProviderConfigured() {
-  const provider = (
-    process.env.AI_PROVIDER ??
-    process.env.AI_TRANSCRIPTION_PROVIDER ??
-    ""
-  )
-    .trim()
-    .toLowerCase();
+/** Vercel Production deployment (not Preview/Staging, not local). */
+export function isProductionDeployment(env: AiEnv = process.env) {
+  return env.VERCEL_ENV === "production";
+}
 
-  if (provider === "fake") {
-    return true;
+function normalized(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+/**
+ * Provider for one operation, or null when it must not run. Fail-closed:
+ * - AI_PROVIDER wins over AI_TRANSCRIPTION_PROVIDER / AI_EXTRACTION_PROVIDER;
+ * - `fake` never runs on Vercel Production (canned drafts would look real);
+ * - `openai` (explicit, or implied by a key) needs OPENAI_API_KEY and an
+ *   explicit model: provider model names are not confirmed yet (gate G2);
+ * - nothing configured, or an unknown name, means unavailable.
+ */
+export function resolveAiProviderName(
+  kind: AiProviderKind,
+  env: AiEnv = process.env
+): AiProviderName | null {
+  const requested =
+    normalized(env.AI_PROVIDER) ||
+    normalized(
+      kind === "transcription"
+        ? env.AI_TRANSCRIPTION_PROVIDER
+        : env.AI_EXTRACTION_PROVIDER
+    );
+
+  if (requested === "fake") {
+    return isProductionDeployment(env) ? null : "fake";
   }
 
-  if (provider === "openai" || provider === "") {
-    return Boolean(process.env.OPENAI_API_KEY?.trim());
+  if (requested === "openai" || requested === "") {
+    const model =
+      kind === "transcription"
+        ? env.AI_TRANSCRIPTION_MODEL
+        : env.AI_EXTRACTION_MODEL;
+    return env.OPENAI_API_KEY?.trim() && model?.trim() ? "openai" : null;
   }
 
-  return false;
+  return null;
+}
+
+export function voiceOrdersProviderConfigured(env: AiEnv = process.env) {
+  return (
+    resolveAiProviderName("transcription", env) !== null &&
+    resolveAiProviderName("extraction", env) !== null
+  );
 }
 
 export function assertSameOrigin(request: Request) {

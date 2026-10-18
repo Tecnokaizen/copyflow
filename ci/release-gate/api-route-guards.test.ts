@@ -36,6 +36,11 @@ const OTHER_GUARDS: Record<string, RegExp> = {
  * `public`: reason the route is intentionally unauthenticated.
  */
 const EXCEPTIONS: Record<string, { delegate: string } | { public: string }> = {
+  // requireVoiceOrdersAccess = requireCurrentAccess + ai_voice_orders grant +
+  // operative role + platform switches (#90).
+  "ai/voice-orders/drafts/route.ts": { delegate: "lib/ai/access.ts" },
+  "ai/voice-orders/status/route.ts": { delegate: "lib/ai/access.ts" },
+  "ai/voice-orders/transcriptions/route.ts": { delegate: "lib/ai/access.ts" },
   "quotes/[id]/accept/route.ts": { delegate: "lib/quotes/transitions.ts" },
   "quotes/[id]/reject/route.ts": { delegate: "lib/quotes/transitions.ts" },
   "quotes/[id]/send/route.ts": { delegate: "lib/quotes/transitions.ts" },

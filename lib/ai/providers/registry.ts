@@ -12,38 +12,26 @@ import type {
   ExtractionProvider,
   TranscriptionProvider,
 } from "@/lib/ai/providers/types";
+import { resolveAiProviderName } from "@/lib/ai/voice-orders/feature";
 
-function resolveProviderName(kind: "transcription" | "extraction") {
-  const shared = process.env.AI_PROVIDER?.trim().toLowerCase();
-  if (shared === "fake" || shared === "openai") {
-    return shared;
+// Routes check voiceOrdersProviderConfigured() first (503 otherwise); this
+// throw is the last barrier, e.g. against `fake` on Vercel Production.
+function requireProvider(kind: "transcription" | "extraction") {
+  const name = resolveAiProviderName(kind);
+  if (!name) {
+    throw new Error(`ai_provider_unavailable:${kind}`);
   }
-
-  const specific =
-    kind === "transcription"
-      ? process.env.AI_TRANSCRIPTION_PROVIDER
-      : process.env.AI_EXTRACTION_PROVIDER;
-
-  const value = specific?.trim().toLowerCase();
-  if (value === "fake" || value === "openai") {
-    return value;
-  }
-
-  if (process.env.OPENAI_API_KEY?.trim()) {
-    return "openai";
-  }
-
-  return "fake";
+  return name;
 }
 
 export function getTranscriptionProvider(): TranscriptionProvider {
-  return resolveProviderName("transcription") === "openai"
+  return requireProvider("transcription") === "openai"
     ? createOpenAiTranscriptionProvider()
     : createFakeTranscriptionProvider();
 }
 
 export function getExtractionProvider(): ExtractionProvider {
-  return resolveProviderName("extraction") === "openai"
+  return requireProvider("extraction") === "openai"
     ? createOpenAiExtractionProvider()
     : createFakeExtractionProvider();
 }

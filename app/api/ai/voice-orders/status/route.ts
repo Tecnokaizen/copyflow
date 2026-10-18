@@ -20,22 +20,22 @@ export async function GET(request: Request) {
     );
   }
 
-  const access = await requireVoiceOrdersAccess();
+  const access = await requireVoiceOrdersAccess("GET /api/ai/voice-orders/status");
   if (!access.ok) {
-    // Soft status for UI: feature off → disabled panel without hard error UX.
-    if (access.response.status === 404 || access.response.status === 503) {
-      return operationalJson({
-        enabled: false,
-        reason:
-          access.response.status === 503 ? "ai_unavailable" : "feature_disabled",
-        limits: {
-          max_clip_seconds: DEFAULT_MAX_CLIP_SECONDS,
-          max_audio_bytes: DEFAULT_MAX_AUDIO_BYTES,
-        },
-        remaining: { user_requests_today: null },
-      });
+    // Session/tenant failures keep their 401/403/503 so the form can react.
+    if (access.denial === "access") {
+      return access.response;
     }
-    return access.response;
+    // Feature off, non-operative role or AI switched off: hidden panel, no error UX.
+    return operationalJson({
+      enabled: false,
+      reason: access.denial,
+      limits: {
+        max_clip_seconds: DEFAULT_MAX_CLIP_SECONDS,
+        max_audio_bytes: DEFAULT_MAX_AUDIO_BYTES,
+      },
+      remaining: { user_requests_today: null },
+    });
   }
 
   const status = await loadAiVoiceStatus(access.supabase, access.context.tenant.id);

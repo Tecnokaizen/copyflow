@@ -32,7 +32,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const access = await requireVoiceOrdersAccess();
+  const access = await requireVoiceOrdersAccess(
+    "POST /api/ai/voice-orders/transcriptions"
+  );
   if (!access.ok) {
     return access.response;
   }
