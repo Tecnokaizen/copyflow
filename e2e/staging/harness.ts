@@ -23,6 +23,11 @@ type BrowserContext = any;
 
 export type NetworkEntry = { method: string; url: string; status: number | null; ms: number | null; failure?: string };
 
+/** Optional extra browser context options (e.g. a mobile viewport with touch). */
+export type HarnessOptions = {
+  context?: Record<string, unknown>;
+};
+
 export class Harness {
   readonly steps: string[] = [];
   readonly network: NetworkEntry[] = [];
@@ -46,7 +51,7 @@ export class Harness {
     console.log(line);
   }
 
-  async start(playwrightModule: string) {
+  async start(playwrightModule: string, options: HarnessOptions = {}) {
     await mkdir(this.artifactsDir, { recursive: true });
     const { chromium } = await import(playwrightModule);
     this.browser = await chromium.launch({ headless: process.env.E2E_HEADED !== "1" });
@@ -55,6 +60,7 @@ export class Harness {
       locale: "es-ES",
       timezoneId: "Europe/Madrid",
       acceptDownloads: true,
+      ...options.context,
     });
 
     await this.context.route("**/*", async (route: any) => {

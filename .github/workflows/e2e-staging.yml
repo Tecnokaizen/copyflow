@@ -7,6 +7,12 @@ name: E2E staging
 
 on:
   workflow_dispatch:
+    inputs:
+      voice_expect:
+        description: "Pedidos por voz (#90): state the operator prepared in Staging, or skip"
+        type: choice
+        default: skip
+        options: [skip, "on", "off", kill_switch, budget_exhausted]
 
 permissions:
   contents: read
@@ -64,6 +70,19 @@ jobs:
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npx tsx e2e/staging/quotes.ts
+
+      # Optional: needs the voice migration in Staging, AI_VOICE_ORDERS_ENABLED=true
+      # and AI_PROVIDER=fake in Preview, and the operator state for the chosen
+      # expectation (docs/VOICE-ORDERS-AI-V1.md, «E2E en Preview»). Owner only:
+      # the viewer case runs from a terminal (no extra secrets in this workflow).
+      - name: Run voice orders E2E (provider fake)
+        if: ${{ !cancelled() && inputs.voice_expect != 'skip' }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          E2E_VOICE_EXPECT: ${{ inputs.voice_expect }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx tsx e2e/staging/voice-orders.ts
 
       # Redacted logs, screenshots and synthetic commercial PDFs only.
       # No Playwright traces: they would embed session tokens and the bypass header.

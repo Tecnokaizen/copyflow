@@ -18,6 +18,8 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 6. Opcional: responsable, notas, archivos u otros campos visibles.
 7. Guarda el pedido.
 
+Si tu organización tiene activados los **pedidos por voz**, puedes dictar o escribir el pedido: Gestcopy propone un borrador en el mismo formulario. El audio se envía a un proveedor de IA para transcribirlo y no se guarda. Revisa siempre los datos y pulsa **Crear pedido** tú; la IA no crea el pedido sola.
+
 ## Qué ocurre después
 
 El pedido aparece en las listas y en el panel con el estado inicial configurado. Si asignaste responsable, cuenta en su carga.

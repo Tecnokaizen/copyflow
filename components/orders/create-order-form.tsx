@@ -51,12 +51,15 @@ import {
   suggestedAssigneeId,
 } from "@/lib/orders/create-form-layout";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
+import { VoiceOrderPanel } from "@/components/orders/voice/voice-order-panel";
 import {
   fromDateTimeLocalValue,
   MISSING_LOCAL_HOUR_MESSAGE,
+  toDateTimeLocalValue,
 } from "@/lib/orders/format";
 import type { OrderOptionsResponse } from "@/lib/orders/types";
 import { fetchLive } from "@/lib/refresh/fetch-live";
+import { appendRichText } from "@/lib/rich-text/html";
 import {
   DEFAULT_QUICK_ORDER_LAYOUT,
   fieldsForPlacement,
@@ -64,6 +67,11 @@ import {
   type QuickOrderLayout,
 } from "@/lib/settings/quick-order-layout";
 import { defaultActiveStoreId } from "@/lib/stores/scope";
+import {
+  voiceTouchedFromRestoredDraft,
+  type VoiceFormSnapshot,
+  type VoiceTouchedFields,
+} from "@/lib/ai/voice-orders/apply-draft";
 
 type CreateOrderFormProps = {
   mode?: "full" | "quick";
@@ -143,7 +151,9 @@ export function CreateOrderForm({
   const [serviceId, setServiceId] = useState("");
   const [description, setDescription] = useState("");
   const [dueAt, setDueAt] = useState("");
-  const [dueAtInvalid, setDueAtInvalid] = useState(false);
+  const [dueAtInvalid, setDueAtInvalidState] = useState(false);
+  // Remounts the picker when voice writes the date, dropping a stale partial.
+  const [dueAtPickerKey, setDueAtPickerKey] = useState(0);
   const [entryChannelId, setEntryChannelId] = useState("");
   const [orderContextId, setOrderContextId] = useState("");
   const [priority, setPriority] = useState<"normal" | "high" | "urgent">(
@@ -152,33 +162,47 @@ export function CreateOrderForm({
   const [assignedTeamMemberId, setAssignedTeamMemberId] = useState("");
   const [storeId, setStoreId] = useState("");
   const [notes, setNotes] = useState("");
+  const [touchedFields, setTouchedFields] = useState<VoiceTouchedFields>({});
+
+  function markTouched(field: keyof VoiceTouchedFields) {
+    setTouchedFields((current) =>
+      current[field] ? current : { ...current, [field]: true }
+    );
+  }
+
+  function setDueAtInvalid(invalid: boolean) {
+    // A partial date is the user's input even before it is complete.
+    if (invalid) markTouched("dueAt");
+    setDueAtInvalidState(invalid);
+  }
+
+  function catalogDefaults(nextOptions: OrderOptionsResponse) {
+    return {
+      storeId: defaultActiveStoreId(nextOptions.stores) ?? "",
+      assignedTeamMemberId: isQuick
+        ? suggestedAssigneeId({
+            currentAssigneeId: "",
+            role: nextOptions.actor_role,
+            sessionTeamMemberId: nextOptions.current_team_member?.id,
+            availableMemberIds: nextOptions.team_members.map((member) => member.id),
+          })
+        : "",
+      entryChannelId: isQuick
+        ? defaultSingleCatalogId(nextOptions.entry_channels) ?? ""
+        : "",
+    };
+  }
 
   function applyCatalogDefaults(nextOptions: OrderOptionsResponse) {
-    setStoreId((current) => {
-      if (current) {
-        return current;
-      }
-      return defaultActiveStoreId(nextOptions.stores) ?? "";
-    });
+    const defaults = catalogDefaults(nextOptions);
+    setStoreId((current) => current || defaults.storeId);
 
     if (!isQuick) {
       return;
     }
 
-    setAssignedTeamMemberId((current) =>
-      suggestedAssigneeId({
-        currentAssigneeId: current,
-        role: nextOptions.actor_role,
-        sessionTeamMemberId: nextOptions.current_team_member?.id,
-        availableMemberIds: nextOptions.team_members.map((member) => member.id),
-      })
-    );
-    setEntryChannelId((current) => {
-      if (current) {
-        return current;
-      }
-      return defaultSingleCatalogId(nextOptions.entry_channels) ?? "";
-    });
+    setAssignedTeamMemberId((current) => current || defaults.assignedTeamMemberId);
+    setEntryChannelId((current) => current || defaults.entryChannelId);
   }
 
   function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
@@ -204,6 +228,7 @@ export function CreateOrderForm({
     setCollectionActive(false);
     setCollectionMessage(null);
     setSubmitting(false);
+    setTouchedFields({});
     if (nextOptions) {
       applyCatalogDefaults(nextOptions);
     }
@@ -281,6 +306,66 @@ export function CreateOrderForm({
       setDraftNotice(
         "Los archivos adjuntos no se han conservado. Selecciónalos de nuevo."
       );
+    }
+    // What the user typed before the session expired is theirs: a voice
+    // draft must not overwrite it without «Reemplazar».
+    setTouchedFields(
+      voiceTouchedFromRestoredDraft(
+        {
+          title: draft.title,
+          description: draft.description,
+          notes: draft.notes,
+          serviceId: draft.serviceId,
+          storeId: draft.storeId,
+          entryChannelId: draft.entryChannelId,
+          orderContextId: draft.orderContextId,
+          assignedTeamMemberId: draft.assignedTeamMemberId,
+          priority: draft.priority,
+          dueAt: draft.dueAt,
+          clientId: draft.clientId && draft.clientName ? draft.clientId : null,
+        },
+        {
+          title: "",
+          description: "",
+          notes: "",
+          serviceId: "",
+          orderContextId: "",
+          priority: "normal",
+          dueAt: "",
+          clientId: null,
+          ...catalogDefaults(nextOptions),
+        }
+      )
+    );
+  }
+
+  function setDueAtFromVoice(value: string) {
+    setDueAt(value);
+    setDueAtInvalidState(value ? !fromDateTimeLocalValue(value) : false);
+    setDueAtPickerKey((key) => key + 1);
+  }
+
+  function restoreFieldsFromVoice(values: Partial<VoiceFormSnapshot>) {
+    if (values.title !== undefined) setTitle(values.title);
+    if (values.description !== undefined) setDescription(values.description);
+    if (values.notes !== undefined) setNotes(values.notes);
+    if (values.serviceId !== undefined) setServiceId(values.serviceId);
+    if (values.storeId !== undefined) setStoreId(values.storeId);
+    if (values.entryChannelId !== undefined) setEntryChannelId(values.entryChannelId);
+    if (values.orderContextId !== undefined) setOrderContextId(values.orderContextId);
+    if (values.assignedTeamMemberId !== undefined) {
+      setAssignedTeamMemberId(values.assignedTeamMemberId);
+    }
+    if (values.priority !== undefined) setPriority(values.priority);
+    if (values.dueAt !== undefined) setDueAtFromVoice(values.dueAt);
+    if (values.clientId !== undefined) {
+      if (values.clientId) {
+        void selectClientById(values.clientId).catch(() => {
+          setError("No se pudo recuperar el cliente anterior");
+        });
+      } else {
+        setSelectedClient(null);
+      }
     }
   }
 
@@ -612,7 +697,10 @@ export function CreateOrderForm({
           value={entryChannelId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setEntryChannelId}
+          onChange={(value) => {
+            markTouched("entryChannelId");
+            setEntryChannelId(value);
+          }}
         >
           <option value="">Sin canal</option>
           {options?.entry_channels.map((channel) => (
@@ -637,7 +725,10 @@ export function CreateOrderForm({
           value={storeId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setStoreId}
+          onChange={(value) => {
+            markTouched("storeId");
+            setStoreId(value);
+          }}
         >
           <option value="">Sin tienda</option>
           {options?.stores.map((store) => (
@@ -658,7 +749,10 @@ export function CreateOrderForm({
           value={selectedClient}
           disabled={submitting}
           allowNoClient
-          onChange={setSelectedClient}
+          onChange={(client) => {
+            markTouched("clientId");
+            setSelectedClient(client);
+          }}
           onCreateNew={openCreateClient}
         />
         <span className="text-xs font-normal text-muted-foreground">
@@ -676,7 +770,10 @@ export function CreateOrderForm({
           value={serviceId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setServiceId}
+          onChange={(value) => {
+            markTouched("serviceId");
+            setServiceId(value);
+          }}
         >
           <option value="">Sin servicio</option>
           {options?.services.map((service) => (
@@ -697,7 +794,10 @@ export function CreateOrderForm({
           ariaLabel="Descripción"
           value={description}
           disabled={submitting}
-          onChange={setDescription}
+          onChange={(value) => {
+            markTouched("description");
+            setDescription(value);
+          }}
         />
       </div>
     );
@@ -711,7 +811,10 @@ export function CreateOrderForm({
           ariaLabel="Instrucciones"
           value={description}
           disabled={submitting}
-          onChange={setDescription}
+          onChange={(value) => {
+            markTouched("description");
+            setDescription(value);
+          }}
         />
       </div>
     );
@@ -721,7 +824,16 @@ export function CreateOrderForm({
     return (
       <div className="grid gap-2 text-sm font-medium text-foreground">
         Entrega prevista
-        <DateTimePicker value={dueAt} disabled={submitting} onChange={setDueAt} onValidityChange={setDueAtInvalid} />
+        <DateTimePicker
+          key={dueAtPickerKey}
+          value={dueAt}
+          disabled={submitting}
+          onChange={(value) => {
+            markTouched("dueAt");
+            setDueAt(value);
+          }}
+          onValidityChange={setDueAtInvalid}
+        />
       </div>
     );
   }
@@ -734,7 +846,10 @@ export function CreateOrderForm({
           value={assignedTeamMemberId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setAssignedTeamMemberId}
+          onChange={(value) => {
+            markTouched("assignedTeamMemberId");
+            setAssignedTeamMemberId(value);
+          }}
         >
           <option value="">Sin asignar</option>
           {options?.team_members.map((member) => (
@@ -755,9 +870,10 @@ export function CreateOrderForm({
           value={priority}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={(value) =>
-            setPriority(value as "normal" | "high" | "urgent")
-          }
+          onChange={(value) => {
+            markTouched("priority");
+            setPriority(value as "normal" | "high" | "urgent");
+          }}
         >
           <option value="normal">Normal</option>
           <option value="high">Alta</option>
@@ -776,7 +892,10 @@ export function CreateOrderForm({
           disabled={submitting}
           placeholder="Ej. 200 tarjetas de visita"
           className="max-w-none text-base"
-          onChange={setTitle}
+          onChange={(value) => {
+            markTouched("title");
+            setTitle(value);
+          }}
         />
         {title.trim() ? null : (
           <span className="text-xs font-normal text-muted-foreground">
@@ -799,7 +918,10 @@ export function CreateOrderForm({
           value={orderContextId}
           disabled={submitting}
           className="max-w-none text-base"
-          onChange={setOrderContextId}
+          onChange={(value) => {
+            markTouched("orderContextId");
+            setOrderContextId(value);
+          }}
         >
           <option value="">Sin contexto</option>
           {options?.order_contexts.map((context) => (
@@ -820,7 +942,10 @@ export function CreateOrderForm({
           ariaLabel="Notas internas"
           value={notes}
           disabled={submitting}
-          onChange={setNotes}
+          onChange={(value) => {
+            markTouched("notes");
+            setNotes(value);
+          }}
         />
       </div>
     );
@@ -995,6 +1120,85 @@ export function CreateOrderForm({
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-5">
+          <VoiceOrderPanel
+            mode={isQuick ? "quick" : "full"}
+            tenantSlug={options?.tenant ?? ""}
+            visibleFields={
+              isQuick
+                ? ([...quickPrimaryFields, ...quickMoreFields, "title"] as QuickOrderField[])
+                : ([
+                    "client",
+                    "service",
+                    "description",
+                    "store",
+                    "due_at",
+                    "priority",
+                    "assigned_team_member",
+                    "entry_channel",
+                    "title",
+                    "order_context",
+                    "notes",
+                  ] as QuickOrderField[])
+            }
+            formSnapshot={{
+              title,
+              description,
+              notes,
+              serviceId,
+              storeId,
+              entryChannelId,
+              orderContextId,
+              assignedTeamMemberId,
+              priority,
+              dueAt,
+              clientId: selectedClient?.id ?? null,
+            }}
+            touchedFields={touchedFields}
+            onApplyPatch={(patch) => {
+              if (patch.title !== undefined) setTitle(patch.title);
+              if (patch.description !== undefined) {
+                if (patch.descriptionMode === "append") {
+                  setDescription((current) =>
+                    appendRichText(current, patch.description)
+                  );
+                } else {
+                  setDescription(patch.description);
+                }
+              }
+              if (patch.notes !== undefined) setNotes(patch.notes);
+              if (patch.serviceId !== undefined) setServiceId(patch.serviceId);
+              if (patch.storeId !== undefined) setStoreId(patch.storeId);
+              if (patch.entryChannelId !== undefined) {
+                setEntryChannelId(patch.entryChannelId);
+              }
+              if (patch.orderContextId !== undefined) {
+                setOrderContextId(patch.orderContextId);
+              }
+              if (patch.assignedTeamMemberId !== undefined) {
+                setAssignedTeamMemberId(patch.assignedTeamMemberId);
+              }
+              if (patch.priority !== undefined) setPriority(patch.priority);
+              if (patch.dueAtIso !== undefined) {
+                setDueAtFromVoice(toDateTimeLocalValue(patch.dueAtIso));
+              }
+              if (patch.clientId) {
+                void selectClientById(patch.clientId).catch(() => {
+                  setError("No se pudo cargar el cliente propuesto");
+                });
+              }
+              if (patch.openCreateClientName) {
+                openCreateClient(patch.openCreateClientName);
+              }
+            }}
+            onRestoreFields={restoreFieldsFromVoice}
+            onSessionExpired={(status, body) => {
+              presentFailure(
+                status,
+                body as { code?: unknown; error?: unknown } | null,
+                "order"
+              );
+            }}
+          />
           {isQuick ? (
             <>
               <div
