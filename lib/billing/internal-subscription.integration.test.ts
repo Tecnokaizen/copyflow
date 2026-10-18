@@ -193,6 +193,17 @@ const scenarios = [
     },
   },
   {
+    // A paid Stripe subscription is held: prepare refuses any new Checkout.
+    name: "pending-reconciliation",
+    context: owner,
+    requestBody: validBody,
+    rows: [],
+    prepare: {
+      outcome: "subscription_pending_reconciliation",
+      code: "subscription_pending_reconciliation",
+    },
+  },
+  {
     name: "lookup-fails",
     context: owner,
     requestBody: validBody,
@@ -338,6 +349,13 @@ describe("internal subscription checkout guard · integration (route → supabas
       entry.requests[1]!.path,
       "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
     );
+  });
+
+  it("a held Stripe subscription answers 409 subscription_pending_reconciliation", () => {
+    const entry = get("pending-reconciliation");
+    assert.equal(entry.status, 409);
+    assert.equal(entry.body?.code, "subscription_pending_reconciliation");
+    assert.equal(entry.requests.length, 2);
   });
 
   it("fails closed when the guard lookup errors", () => {

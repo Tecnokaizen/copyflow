@@ -22,3 +22,18 @@ export function classifySyncResult(data: unknown): SyncResultOutcome {
 
   return "synced";
 }
+
+/** Hold id and whether this sync opened (or reopened) the hold. */
+export function heldSyncDetails(data: unknown): {
+  holdId: string | null;
+  holdCreated: boolean;
+} {
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as { hold_id?: unknown; hold_created?: unknown })
+      : {};
+  return {
+    holdId: typeof record.hold_id === "string" ? record.hold_id : null,
+    holdCreated: record.hold_created === true,
+  };
+}

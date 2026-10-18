@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
+import { READY_FOR_CHECKOUT } from "@/lib/billing/internal-subscription";
 import {
   getStripeMode,
   stripeModeToLivemode,
@@ -29,6 +30,7 @@ type SubscriptionRow = {
   current_period_start: string | null;
   current_period_end: string | null;
   provider_customer_id: string | null;
+  metadata: Record<string, unknown> | null;
   plans:
     | {
         code: string;
@@ -55,6 +57,7 @@ const SUBSCRIPTION_SELECT = `
   current_period_start,
   current_period_end,
   provider_customer_id,
+  metadata,
   plans (
     code,
     name,
@@ -166,6 +169,11 @@ export async function GET() {
   }
 
   const isStripe = display?.provider === "stripe";
+  // Only the boolean leaves the server, never the metadata.
+  const billingActivationReady =
+    !isStripe &&
+    Boolean(display && (CURRENT as readonly string[]).includes(display.status)) &&
+    display?.metadata?.billing_activation === READY_FOR_CHECKOUT;
 
   return json({
     tenant: {
@@ -184,6 +192,7 @@ export async function GET() {
           has_stripe_customer: isStripe
             ? Boolean(display.provider_customer_id)
             : false,
+          billing_activation_ready: billingActivationReady,
           plan: plan
             ? {
                 code: plan.code,

@@ -16,7 +16,8 @@ import { stripeCancelAtToIso } from "@/lib/billing/cancellation-display";
 import { resolveTenantIdFromWebhookSources } from "@/lib/billing/tenant-from-webhook";
 import { isRetryableWebhookFailure } from "@/lib/billing/webhook-errors";
 import { INTERNAL_SUBSCRIPTION_CURRENT_CODE } from "@/lib/billing/internal-subscription";
-import { classifySyncResult } from "@/lib/billing/sync-result";
+import { classifySyncResult, heldSyncDetails } from "@/lib/billing/sync-result";
+import { notifyBillingReconciliation } from "@/lib/billing/reconciliation-alert";
 import { objectLivemodeMatchesEvent } from "@/lib/billing/webhook-mode";
 
 export type WebhookProcessResult = {
@@ -117,6 +118,7 @@ async function tenantExists(tenantId: string): Promise<boolean> {
 async function syncSubscriptionFromStripe(input: {
   subscription: Stripe.Subscription;
   livemode: boolean;
+  eventId: string;
   eventCreatedAt: Date | null;
   sessionClientReferenceId?: string | null;
   sessionMetadataTenantId?: string | null;
@@ -192,6 +194,8 @@ async function syncSubscriptionFromStripe(input: {
     p_metadata: {
       stripe_status: subscription.status,
       plan_code: plan.planCode,
+      // Traceability of held events; not stored on the subscription row.
+      stripe_event_id: input.eventId,
     },
     p_provider_event_created_at: input.eventCreatedAt?.toISOString() ?? null,
     p_cancel_at: stripeCancelAtToIso(subscription.cancel_at),
@@ -213,12 +217,16 @@ async function syncSubscriptionFromStripe(input: {
   const syncOutcome = classifySyncResult(data);
 
   if (syncOutcome === "held") {
-    // Alert: a paid Stripe subscription is not recorded locally. Ids only.
-    console.error("[billing.webhook] internal subscription held", {
-      code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+    // A paid Stripe subscription is pending reconciliation. Ids only.
+    const hold = heldSyncDetails(data);
+    await notifyBillingReconciliation({
+      kind: "subscription_held",
       tenantId: tenantResolve.tenantId,
       providerSubscriptionId: subscription.id,
       livemode: input.livemode,
+      eventId: input.eventId,
+      holdId: hold.holdId,
+      firstOccurrence: hold.holdCreated,
     });
     return {
       status: "failed",
@@ -338,6 +346,7 @@ export async function processStripeEvent(input: {
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
+        eventId: event.id,
         eventCreatedAt,
         sessionClientReferenceId: session.client_reference_id,
         sessionMetadataTenantId: session.metadata?.tenant_id,
@@ -362,6 +371,7 @@ export async function processStripeEvent(input: {
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
+        eventId: event.id,
         eventCreatedAt,
       });
     }
@@ -411,6 +421,7 @@ export async function processStripeEvent(input: {
       return syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
+        eventId: event.id,
         eventCreatedAt,
       });
     }

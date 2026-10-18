@@ -66,7 +66,8 @@ Fresh local Supabase and all migrations (`db reset`), then:
    `phase23`–`phase32` (foundation, checkout and webhook, paid onboarding,
    idempotency, provisioning state, Stripe Test/Live separation) and
    `phase55_billing_checkout_resubscribe`, `phase56_billing_storage_capacity`,
-   `phase57_billing_internal_subscription_guard`. `kiosk-supabase.yml` also runs
+   `phase57_billing_internal_subscription_guard`, and the two-session lock test
+   `phase57_billing_lock_concurrency.sh`. `kiosk-supabase.yml` also runs
    them, but only when its path filter matches, so it cannot be a required
    check.
 3. Existing suites that cover tenant isolation, roles, lifecycle and files:

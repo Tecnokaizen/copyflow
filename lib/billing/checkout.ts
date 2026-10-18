@@ -57,6 +57,18 @@ export class CheckoutInternalSubscriptionError extends Error {
   }
 }
 
+export const SUBSCRIPTION_PENDING_RECONCILIATION_CODE =
+  "subscription_pending_reconciliation";
+
+export class CheckoutPendingReconciliationError extends Error {
+  readonly code = SUBSCRIPTION_PENDING_RECONCILIATION_CODE;
+
+  constructor() {
+    super("A Stripe subscription is pending reconciliation");
+    this.name = "CheckoutPendingReconciliationError";
+  }
+}
+
 export class CheckoutProcessingError extends Error {
   readonly code = CHECKOUT_PROCESSING_CODE;
 
@@ -207,6 +219,10 @@ export async function createCheckoutSessionForTenant(input: {
 
     if (prepared.outcome === "internal_subscription_current") {
       throw new CheckoutInternalSubscriptionError();
+    }
+
+    if (prepared.outcome === "subscription_pending_reconciliation") {
+      throw new CheckoutPendingReconciliationError();
     }
 
     if (prepared.outcome === "checkout_processing") {

@@ -1,35 +1,77 @@
--- Billing internal subscription webhook guard V1 · D1 (DRAFT, owner decision pending)
+-- Billing internal subscription webhook guard V1 · D1 options B + C (approved 18/10/2026)
 -- Does NOT modify DEMO/SUR4 rows. Changes no existing row at migration time.
 --
--- Problem: sync_billing_subscription_v1 ("one current") cancels ANY current row
--- of the tenant when a current Stripe subscription arrives, including internal
--- trials and pilots (SUR4: internal trialing). The checkout guard of #132 only
--- stops new sessions; sessions opened before it, or subscriptions created in
--- Stripe outside the app with metadata tenant_id, still reach the webhook.
+-- Problem: sync_billing_subscription_v1 ("one current") canceled ANY current
+-- row of the tenant when a current Stripe subscription arrived, including
+-- internal trials and pilots (SUR4: internal trialing). The checkout guard of
+-- #132 only stops new sessions; sessions opened before it, or subscriptions
+-- created in Stripe outside the app with metadata tenant_id, still reach the
+-- webhook.
 --
--- Option C (convert only when ready) on top of option B (hold with alert):
---   * a current non-Stripe row whose metadata.billing_activation is
---     'ready_for_checkout' (set by an operator) lets Checkout through and is
---     canceled by the sync as 'converted_to_stripe', with an audit trail;
---   * any other current non-Stripe row is held as described below.
+-- Option B, hold with alert:
+--   * sync never cancels a protected current non-Stripe row: it writes no
+--     subscription and records a hold in billing_private.subscription_holds
+--     (Stripe ids, mode, events); the webhook marks the event as failed
+--     without retry (internal_subscription_current) and alerts;
+--   * while a hold is pending, prepare refuses any new Checkout
+--     (subscription_pending_reconciliation) and no internal grant is allowed;
+--   * recovery is idempotent and traced: requeue_billing_subscription_hold_v1
+--     (after closing the internal row or marking it ready) makes its events
+--     retryable for a Stripe resend; the next sync that records the
+--     subscription reconciles the hold; resolve_billing_subscription_hold_v1
+--     dismisses it after verifying Stripe (refund/cancel);
+--   * list_billing_reconciliation_v1 lists pending holds, paid checkouts with
+--     no recorded subscription and direct internal grants.
+-- Option C, convert only when ready: a current internal row whose
+-- metadata.billing_activation is 'ready_for_checkout' (set with
+-- set_internal_billing_activation_v1) lets Checkout through and the sync
+-- closes it as 'converted_to_stripe', audited.
+-- Shared tenant billing lock (key 31): prepare, sync (was 4242), the internal
+-- grant, the activation RPC and the hold RPCs.
 --
--- Option B (hold with alert):
---   * sync never cancels a current non-Stripe row: it writes nothing and
---     returns outcome 'held'; the webhook records the event as failed without
---     retry (internal_subscription_current) and logs an alert;
---   * sync and prepare share the tenant billing lock (key 31, was 4242 in
---     sync); prepare also refuses Checkout while a current non-Stripe row
---     exists, so the app guard of #132 now has an authoritative twin in-lock;
---   * requeue_billing_webhook_event_v1 lets an operator make a held event
---     retryable again once the internal row is closed, so a Stripe "Resend"
---     reprocesses it.
---
--- Effect in Stripe (unchanged by this migration, see the D1 decision doc): the
--- customer was charged and the Stripe subscription stays active until an
--- operator either closes the internal row and requeues, or cancels/refunds in
--- Stripe. Stripe does not retry the held event.
+-- Effect in Stripe: a held subscription was paid; nothing here refunds or
+-- cancels it. Stripe does not retry the held event.
 
 begin;
+
+-- ---------------------------------------------------------------------------
+-- billing_private.subscription_holds · Stripe subscriptions pending reconciliation
+-- ---------------------------------------------------------------------------
+create table if not exists billing_private.subscription_holds (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null,
+  provider text not null default 'stripe' check (provider = 'stripe'),
+  provider_subscription_id text not null,
+  provider_customer_id text,
+  livemode boolean not null,
+  plan_id uuid,
+  internal_subscription_id uuid,
+  last_status text not null,
+  status text not null default 'held'
+    check (status = any (array['held', 'reconciled', 'dismissed']::text[])),
+  event_ids text[] not null default '{}'::text[],
+  hold_count integer not null default 1,
+  first_held_at timestamptz not null default pg_catalog.now(),
+  last_held_at timestamptz not null default pg_catalog.now(),
+  resolved_at timestamptz,
+  resolution text,
+  resolution_reason text,
+  resolved_by text,
+  history jsonb not null default '[]'::jsonb
+);
+
+create unique index if not exists subscription_holds_provider_subscription_idx
+  on billing_private.subscription_holds (provider, provider_subscription_id);
+create index if not exists subscription_holds_pending_idx
+  on billing_private.subscription_holds (tenant_id)
+  where status = 'held';
+
+alter table billing_private.subscription_holds enable row level security;
+revoke all on table billing_private.subscription_holds
+  from public, anon, authenticated, service_role;
+
+comment on table billing_private.subscription_holds is
+  'Stripe subscriptions held because a protected internal subscription was current. held → reconciled (recorded by a later sync) | dismissed (operator, after verifying Stripe). A held row blocks new Checkout for the tenant.';
 
 -- ---------------------------------------------------------------------------
 -- sync_billing_subscription_v1 · hold instead of canceling internal rows
@@ -65,6 +107,18 @@ declare
   v_provider text;
   v_livemode boolean := coalesce(p_livemode, false);
   v_internal public.subscriptions%rowtype;
+  -- The webhook passes the Stripe event id in p_metadata for traceability; it
+  -- is not stored in subscriptions.metadata.
+  v_event_id text := case
+    when pg_catalog.jsonb_typeof(p_metadata) = 'object'
+      then nullif(pg_catalog.btrim(coalesce(p_metadata ->> 'stripe_event_id', '')), '')
+  end;
+  v_meta jsonb := case
+    when pg_catalog.jsonb_typeof(p_metadata) = 'object' then p_metadata - 'stripe_event_id'
+    else coalesce(p_metadata, '{}'::jsonb)
+  end;
+  v_hold billing_private.subscription_holds%rowtype;
+  v_hold_created boolean := false;
 begin
   if p_tenant_id is null then
     raise exception 'invalid value'
@@ -163,6 +217,18 @@ begin
     then
       -- Option C: an operator marked this internal row for conversion. The
       -- Stripe subscription replaces it; the row keeps an audit trail.
+      perform pg_catalog.set_config('app.billing_internal_via', 'stripe_conversion', true);
+      perform pg_catalog.set_config(
+        'app.billing_internal_reason',
+        'Converted to Stripe subscription ' || coalesce(p_provider_subscription_id, '?')
+          || case when v_livemode then ' (live)' else ' (test)' end,
+        true
+      );
+      perform pg_catalog.set_config(
+        'app.billing_internal_authorized_by',
+        coalesce(v_internal.metadata ->> 'billing_activation_authorized_by', 'ready_for_checkout'),
+        true
+      );
       update public.subscriptions s
       set
         status = 'canceled',
@@ -174,7 +240,58 @@ begin
         ),
         updated_at = pg_catalog.now()
       where s.id = v_internal.id;
+      perform pg_catalog.set_config('app.billing_internal_via', '', true);
+      perform pg_catalog.set_config('app.billing_internal_reason', '', true);
+      perform pg_catalog.set_config('app.billing_internal_authorized_by', '', true);
     elsif found then
+      -- Record (or reopen) the hold: the subscription stays pending
+      -- reconciliation and blocks new Checkout until it is resolved.
+      if nullif(pg_catalog.btrim(coalesce(p_provider_subscription_id, '')), '') is not null then
+        select * into v_hold
+        from billing_private.subscription_holds h
+        where h.provider = 'stripe'
+          and h.provider_subscription_id = p_provider_subscription_id
+        for update;
+
+        if not found then
+          insert into billing_private.subscription_holds (
+            tenant_id, provider_subscription_id, provider_customer_id, livemode,
+            plan_id, internal_subscription_id, last_status, event_ids, history
+          ) values (
+            p_tenant_id, p_provider_subscription_id, p_provider_customer_id, v_livemode,
+            p_plan_id, v_internal.id, p_status,
+            case when v_event_id is null then '{}'::text[] else array[v_event_id] end,
+            pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+              'at', pg_catalog.now(), 'action', 'held', 'status', p_status, 'event_id', v_event_id))
+          )
+          returning * into v_hold;
+          v_hold_created := true;
+        else
+          v_hold_created := v_hold.status <> 'held';
+          update billing_private.subscription_holds h
+          set
+            status = 'held',
+            last_status = p_status,
+            provider_customer_id = coalesce(p_provider_customer_id, h.provider_customer_id),
+            plan_id = p_plan_id,
+            internal_subscription_id = v_internal.id,
+            last_held_at = pg_catalog.now(),
+            hold_count = h.hold_count + 1,
+            event_ids = case
+              when v_event_id is null or v_event_id = any (h.event_ids) then h.event_ids
+              else h.event_ids || v_event_id
+            end,
+            resolved_at = case when v_hold_created then null else h.resolved_at end,
+            resolution = case when v_hold_created then null else h.resolution end,
+            history = h.history || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+              'at', pg_catalog.now(),
+              'action', case when v_hold_created then 'reopened' else 'held_again' end,
+              'previous_status', v_hold.status, 'status', p_status, 'event_id', v_event_id))
+          where h.id = v_hold.id
+          returning * into v_hold;
+        end if;
+      end if;
+
       return pg_catalog.jsonb_build_object(
         'outcome', 'held',
         'code', 'internal_subscription_current',
@@ -185,7 +302,9 @@ begin
         'provider', v_provider,
         'provider_subscription_id', p_provider_subscription_id,
         'status', p_status,
-        'livemode', v_livemode
+        'livemode', v_livemode,
+        'hold_id', v_hold.id,
+        'hold_created', v_hold_created
       );
     end if;
 
@@ -217,7 +336,7 @@ begin
       cancel_at_period_end = coalesce(p_cancel_at_period_end, false),
       cancel_at = p_cancel_at,
       livemode = v_livemode,
-      metadata = coalesce(p_metadata, '{}'::jsonb),
+      metadata = v_meta,
       provider_event_created_at = coalesce(
         p_provider_event_created_at,
         s.provider_event_created_at
@@ -253,13 +372,31 @@ begin
       coalesce(p_cancel_at_period_end, false),
       p_cancel_at,
       v_livemode,
-      coalesce(p_metadata, '{}'::jsonb),
+      v_meta,
       p_provider_event_created_at
     )
     returning id into v_id;
   end if;
 
+  -- The subscription is recorded: a pending hold for it is reconciled.
+  update billing_private.subscription_holds h
+  set
+    status = 'reconciled',
+    last_status = p_status,
+    resolved_at = pg_catalog.now(),
+    resolution = 'synced',
+    resolution_reason = 'subscription recorded with status ' || p_status,
+    resolved_by = 'sync_billing_subscription_v1',
+    history = h.history || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'at', pg_catalog.now(), 'action', 'reconciled', 'status', p_status,
+      'subscription_id', v_id, 'event_id', v_event_id))
+  where h.provider = 'stripe'
+    and h.provider_subscription_id = p_provider_subscription_id
+    and h.status = 'held'
+  returning h.id into v_hold.id;
+
   return pg_catalog.jsonb_build_object(
+    'reconciled_hold_id', v_hold.id,
     'subscription_id', v_id,
     'tenant_id', p_tenant_id,
     'plan_id', p_plan_id,
@@ -340,6 +477,20 @@ begin
     return pg_catalog.jsonb_build_object(
       'outcome', 'internal_subscription_current',
       'code', 'internal_subscription_current'
+    );
+  end if;
+
+  -- A Stripe subscription pending reconciliation (held, already paid) blocks
+  -- every new Checkout for the tenant: a second one would charge twice.
+  if exists (
+    select 1
+    from billing_private.subscription_holds h
+    where h.tenant_id = p_tenant_id
+      and h.status = 'held'
+  ) then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'subscription_pending_reconciliation',
+      'code', 'subscription_pending_reconciliation'
     );
   end if;
 
@@ -478,7 +629,7 @@ end;
 $function$;
 
 comment on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) is
-  'Service-only: reserve checkout attempt scoped by livemode. creating stays resumable until provider expiry (+ grace). completed blocks (checkout_processing) until its subscription is recorded and ended, then becomes settled. Test current/attempt does not block Live Checkout. A current non-Stripe subscription blocks every mode (internal_subscription_current) unless marked ready_for_checkout. Shares the tenant billing lock (key 31) with sync_billing_subscription_v1.';
+  'Service-only: reserve checkout attempt scoped by livemode. creating stays resumable until provider expiry (+ grace). completed blocks (checkout_processing) until its subscription is recorded and ended, then becomes settled. Test current/attempt does not block Live Checkout. A current non-Stripe subscription blocks every mode (internal_subscription_current) unless marked ready_for_checkout; a held Stripe subscription blocks every new Checkout (subscription_pending_reconciliation). Shares the tenant billing lock (key 31) with sync_billing_subscription_v1.';
 
 revoke all on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) from public;
 revoke all on function public.prepare_billing_checkout_attempt_v2(uuid, text, text, text, boolean) from anon;
@@ -488,10 +639,12 @@ grant execute on function public.prepare_billing_checkout_attempt_v2(uuid, text,
   to postgres, service_role;
 
 -- ---------------------------------------------------------------------------
--- requeue_billing_webhook_event_v1 · operator path for held events
+-- requeue_billing_subscription_hold_v1 · idempotent recovery of held events
 -- ---------------------------------------------------------------------------
-create or replace function public.requeue_billing_webhook_event_v1 (
-  p_provider_event_id text
+create or replace function public.requeue_billing_subscription_hold_v1 (
+  p_hold_id uuid,
+  p_reason text,
+  p_requested_by text
 )
   returns jsonb
   language plpgsql
@@ -499,74 +652,475 @@ create or replace function public.requeue_billing_webhook_event_v1 (
   set search_path to ''
   as $function$
 declare
-  v_event_id text := nullif(pg_catalog.btrim(coalesce(p_provider_event_id, '')), '');
-  v_row public.billing_webhook_events%rowtype;
+  v_reason text := nullif(pg_catalog.btrim(coalesce(p_reason, '')), '');
+  v_by text := nullif(pg_catalog.btrim(coalesce(p_requested_by, '')), '');
+  v_hold billing_private.subscription_holds%rowtype;
+  v_marked integer;
 begin
-  if v_event_id is null then
+  if p_hold_id is null then
     return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'missing_identity');
   end if;
+  if v_reason is null or pg_catalog.length(v_reason) < 10 then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'reason_required');
+  end if;
+  if v_by is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'authorization_required');
+  end if;
 
-  -- Same key as claim_billing_webhook_event_v1.
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('stripe:' || v_event_id, 23)
-  );
-
-  select * into v_row
-  from public.billing_webhook_events e
-  where e.provider = 'stripe'
-    and e.provider_event_id = v_event_id
-  for update;
-
+  select * into v_hold from billing_private.subscription_holds h where h.id = p_hold_id;
   if not found then
     return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'not_found');
   end if;
 
-  -- Only events held by the internal-subscription guard. Other deterministic
-  -- failures keep their current handling.
-  if v_row.status <> 'failed'
-     or v_row.error_code is distinct from 'internal_subscription_current'
-  then
-    return pg_catalog.jsonb_build_object(
-      'outcome', 'rejected',
-      'reason', 'not_held',
-      'status', v_row.status,
-      'error_code', v_row.error_code
-    );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_hold.tenant_id::text, 31)
+  );
+  select * into v_hold from billing_private.subscription_holds h where h.id = p_hold_id for update;
+
+  if v_hold.status <> 'held' then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'not_held', 'status', v_hold.status);
   end if;
 
-  if v_row.retryable then
-    return pg_catalog.jsonb_build_object(
-      'outcome', 'requeued',
-      'provider_event_id', v_row.provider_event_id,
-      'idempotent', true
-    );
+  -- A resend would be held again: close the internal row or mark it ready first.
+  if exists (
+    select 1 from public.subscriptions s
+    where s.tenant_id = v_hold.tenant_id
+      and s.provider is distinct from 'stripe'
+      and s.status = any (array['trialing', 'active', 'past_due']::text[])
+      and coalesce(s.metadata ->> 'billing_activation', '') <> 'ready_for_checkout'
+  ) then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'internal_subscription_current');
   end if;
 
-  update public.billing_webhook_events e
+  -- Same key as claim_billing_webhook_event_v1, per event, in a stable order.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('stripe:' || e, 23))
+  from pg_catalog.unnest(v_hold.event_ids) as e
+  order by e;
+
+  update public.billing_webhook_events ev
   set
     retryable = true,
-    metadata = e.metadata || pg_catalog.jsonb_build_object(
+    metadata = ev.metadata || pg_catalog.jsonb_build_object(
       'requeued_at', pg_catalog.now(),
-      'requeue_count', coalesce((e.metadata ->> 'requeue_count')::integer, 0) + 1
+      'requeue_hold_id', v_hold.id,
+      'requeue_count', coalesce((ev.metadata ->> 'requeue_count')::integer, 0) + 1
     )
-  where e.id = v_row.id;
+  where ev.provider = 'stripe'
+    and ev.provider_event_id = any (v_hold.event_ids)
+    and ev.status = 'failed'
+    and ev.error_code = 'internal_subscription_current'
+    and ev.retryable is not true;
+  get diagnostics v_marked = row_count;
+
+  update billing_private.subscription_holds h
+  set history = h.history || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'at', pg_catalog.now(), 'action', 'requeue', 'reason', v_reason,
+    'requested_by', v_by, 'events_marked', v_marked))
+  where h.id = v_hold.id;
 
   return pg_catalog.jsonb_build_object(
     'outcome', 'requeued',
-    'provider_event_id', v_row.provider_event_id,
-    'idempotent', false
+    'hold_id', v_hold.id,
+    'events_marked', v_marked,
+    'event_ids', pg_catalog.to_jsonb(v_hold.event_ids),
+    'idempotent', v_marked = 0
   );
 end;
 $function$;
 
-comment on function public.requeue_billing_webhook_event_v1(text) is
-  'Service-only operator path: marks a webhook event held by the internal-subscription guard (failed, internal_subscription_current) as retryable so a provider resend reprocesses it. Run only after closing the internal row.';
+comment on function public.requeue_billing_subscription_hold_v1(uuid, text, text) is
+  'Service-only operator recovery: once the internal row is closed or marked ready_for_checkout, marks the held events of a subscription retryable so a Stripe resend reprocesses them. Idempotent; reason and requester recorded in the hold history.';
 
-revoke all on function public.requeue_billing_webhook_event_v1(text) from public;
-revoke all on function public.requeue_billing_webhook_event_v1(text) from anon;
-revoke all on function public.requeue_billing_webhook_event_v1(text) from authenticated;
+revoke all on function public.requeue_billing_subscription_hold_v1(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.requeue_billing_subscription_hold_v1(uuid, text, text) to postgres, service_role;
 
-grant execute on function public.requeue_billing_webhook_event_v1(text)
+-- ---------------------------------------------------------------------------
+-- resolve_billing_subscription_hold_v1 · dismiss after verifying Stripe
+-- ---------------------------------------------------------------------------
+create or replace function public.resolve_billing_subscription_hold_v1 (
+  p_hold_id uuid,
+  p_reason text,
+  p_resolved_by text
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+  as $function$
+declare
+  v_reason text := nullif(pg_catalog.btrim(coalesce(p_reason, '')), '');
+  v_by text := nullif(pg_catalog.btrim(coalesce(p_resolved_by, '')), '');
+  v_hold billing_private.subscription_holds%rowtype;
+begin
+  if p_hold_id is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'missing_identity');
+  end if;
+  if v_reason is null or pg_catalog.length(v_reason) < 10 then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'reason_required');
+  end if;
+  if v_by is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'authorization_required');
+  end if;
+
+  select * into v_hold from billing_private.subscription_holds h where h.id = p_hold_id;
+  if not found then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'not_found');
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_hold.tenant_id::text, 31)
+  );
+  select * into v_hold from billing_private.subscription_holds h where h.id = p_hold_id for update;
+
+  if v_hold.status = 'dismissed' then
+    return pg_catalog.jsonb_build_object('outcome', 'dismissed', 'hold_id', v_hold.id, 'idempotent', true);
+  end if;
+  if v_hold.status = 'reconciled' then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'already_reconciled');
+  end if;
+
+  update billing_private.subscription_holds h
+  set
+    status = 'dismissed',
+    resolved_at = pg_catalog.now(),
+    resolution = 'dismissed',
+    resolution_reason = v_reason,
+    resolved_by = v_by,
+    history = h.history || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'at', pg_catalog.now(), 'action', 'dismissed', 'reason', v_reason, 'resolved_by', v_by))
+  where h.id = v_hold.id;
+
+  return pg_catalog.jsonb_build_object('outcome', 'dismissed', 'hold_id', v_hold.id, 'idempotent', false);
+end;
+$function$;
+
+comment on function public.resolve_billing_subscription_hold_v1(uuid, text, text) is
+  'Service-only: dismisses a held Stripe subscription after an operator verified it in Stripe (canceled/refunded). Idempotent; a new current event for the same subscription reopens the hold.';
+
+revoke all on function public.resolve_billing_subscription_hold_v1(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.resolve_billing_subscription_hold_v1(uuid, text, text) to postgres, service_role;
+
+-- ---------------------------------------------------------------------------
+-- set_internal_billing_activation_v1 · ready_for_checkout and back, audited
+-- ---------------------------------------------------------------------------
+create or replace function public.set_internal_billing_activation_v1 (
+  p_tenant_id uuid,
+  p_billing_activation text,
+  p_reason text,
+  p_authorized_by text
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+  as $function$
+declare
+  v_value text := nullif(pg_catalog.btrim(coalesce(p_billing_activation, '')), '');
+  v_reason text := nullif(pg_catalog.btrim(coalesce(p_reason, '')), '');
+  v_by text := nullif(pg_catalog.btrim(coalesce(p_authorized_by, '')), '');
+  v_row public.subscriptions%rowtype;
+  v_previous text;
+  v_open integer;
+begin
+  if p_tenant_id is null
+     or v_value is null
+     or v_value <> all (array['ready_for_checkout', 'deferred_until_go_live', 'internal_pilot']::text[])
+  then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'invalid_input');
+  end if;
+  if v_reason is null or pg_catalog.length(v_reason) < 10 then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'reason_required');
+  end if;
+  if v_by is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'authorization_required');
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_tenant_id::text, 31)
+  );
+
+  select * into v_row
+  from public.subscriptions s
+  where s.tenant_id = p_tenant_id
+    and s.provider is distinct from 'stripe'
+    and s.status = any (array['trialing', 'active', 'past_due']::text[])
+  for update;
+  if not found then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'no_internal_subscription');
+  end if;
+
+  v_previous := v_row.metadata ->> 'billing_activation';
+  if v_previous is not distinct from v_value then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'unchanged', 'subscription_id', v_row.id, 'billing_activation', v_value
+    );
+  end if;
+
+  -- Allowed with a pending hold: marking ready is how an operator adopts the
+  -- held (already paid) subscription through requeue + resend. New Checkout
+  -- stays blocked by the hold in prepare.
+  perform pg_catalog.set_config('app.billing_internal_via', 'activation_rpc', true);
+  perform pg_catalog.set_config('app.billing_internal_reason', v_reason, true);
+  perform pg_catalog.set_config('app.billing_internal_authorized_by', v_by, true);
+
+  update public.subscriptions s
+  set
+    metadata = s.metadata || pg_catalog.jsonb_build_object(
+      'billing_activation', v_value,
+      'billing_activation_authorized_by', v_by,
+      'billing_activation_history',
+        coalesce(s.metadata -> 'billing_activation_history', '[]'::jsonb)
+        || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+             'from', v_previous, 'to', v_value, 'at', pg_catalog.now(),
+             'reason', v_reason, 'authorized_by', v_by))
+    ),
+    updated_at = pg_catalog.now()
+  where s.id = v_row.id;
+
+  perform pg_catalog.set_config('app.billing_internal_via', '', true);
+  perform pg_catalog.set_config('app.billing_internal_reason', '', true);
+  perform pg_catalog.set_config('app.billing_internal_authorized_by', '', true);
+
+  -- Leaving ready_for_checkout while a Checkout can still be paid: that payment
+  -- would be held. Reported, not refused, so the protection applies at once.
+  select count(*) into v_open
+  from public.billing_checkout_attempts a
+  where a.tenant_id = p_tenant_id
+    and a.status = any (array['creating'::text, 'open'::text])
+    and a.expires_at + interval '2 minutes' > pg_catalog.now();
+
+  return pg_catalog.jsonb_build_object(
+    'outcome', 'updated',
+    'subscription_id', v_row.id,
+    'previous', v_previous,
+    'billing_activation', v_value,
+    'open_checkout_attempts', v_open
+  );
+end;
+$function$;
+
+comment on function public.set_internal_billing_activation_v1(uuid, text, text, text) is
+  'Service-only: sets metadata.billing_activation of the current internal subscription (ready_for_checkout | deferred_until_go_live | internal_pilot) under the shared tenant billing lock, with reason and authorizer, audited as activation_rpc.';
+
+revoke all on function public.set_internal_billing_activation_v1(uuid, text, text, text) from public, anon, authenticated;
+grant execute on function public.set_internal_billing_activation_v1(uuid, text, text, text) to postgres, service_role;
+
+-- ---------------------------------------------------------------------------
+-- list_billing_reconciliation_v1 · what needs an operator
+-- ---------------------------------------------------------------------------
+create or replace function public.list_billing_reconciliation_v1()
+  returns jsonb
+  language sql
+  stable
+  security definer
+  set search_path to ''
+  as $function$
+  select coalesce(pg_catalog.jsonb_agg(x.item order by x.since), '[]'::jsonb)
+  from (
+    select h.first_held_at as since, pg_catalog.jsonb_build_object(
+      'kind', 'subscription_held',
+      'tenant_id', h.tenant_id,
+      'tenant_slug', t.slug,
+      'hold_id', h.id,
+      'provider_subscription_id', h.provider_subscription_id,
+      'livemode', h.livemode,
+      'last_status', h.last_status,
+      'hold_count', h.hold_count,
+      'event_ids', pg_catalog.to_jsonb(h.event_ids),
+      'since', h.first_held_at
+    ) as item
+    from billing_private.subscription_holds h
+    left join public.tenants t on t.id = h.tenant_id
+    where h.status = 'held'
+    union all
+    select a.updated_at, pg_catalog.jsonb_build_object(
+      'kind', 'checkout_completed_unrecorded',
+      'tenant_id', a.tenant_id,
+      'tenant_slug', t.slug,
+      'attempt_id', a.id,
+      'provider_session_id', a.provider_session_id,
+      'livemode', a.livemode,
+      'since', a.updated_at
+    )
+    from public.billing_checkout_attempts a
+    left join public.tenants t on t.id = a.tenant_id
+    where a.status = 'completed'
+      and a.updated_at < pg_catalog.now() - interval '15 minutes'
+      and not exists (
+        select 1 from public.subscriptions s
+        where s.tenant_id = a.tenant_id
+          and s.provider = 'stripe'
+          and s.livemode = a.livemode
+          and s.created_at >= a.created_at
+      )
+    union all
+    select au.created_at, pg_catalog.jsonb_build_object(
+      'kind', 'internal_grant_direct',
+      'tenant_id', au.tenant_id,
+      'tenant_slug', t.slug,
+      'subscription_id', au.subscription_id,
+      'action', au.action,
+      'actor_role', au.actor_role,
+      'since', au.created_at
+    )
+    from billing_private.internal_subscription_audit au
+    left join public.tenants t on t.id = au.tenant_id
+    where au.via = 'direct'
+      and au.action = any (array['grant', 'reactivate']::text[])
+      and au.created_at > pg_catalog.now() - interval '30 days'
+  ) x;
+$function$;
+
+comment on function public.list_billing_reconciliation_v1() is
+  'Service-only operator read model: held Stripe subscriptions, paid checkouts with no recorded subscription after 15 minutes, and internal grants made outside the RPC in the last 30 days.';
+
+revoke all on function public.list_billing_reconciliation_v1() from public, anon, authenticated;
+grant execute on function public.list_billing_reconciliation_v1() to postgres, service_role;
+
+-- ---------------------------------------------------------------------------
+-- grant_internal_subscription_v1 · also refuses while a hold is pending
+-- ---------------------------------------------------------------------------
+create or replace function public.grant_internal_subscription_v1(
+  p_tenant_id uuid,
+  p_plan_code text,
+  p_status text,
+  p_current_period_end timestamptz,
+  p_reason text,
+  p_authorized_by text,
+  p_metadata jsonb default '{}'::jsonb
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+  as $function$
+declare
+  v_reason text := nullif(pg_catalog.btrim(coalesce(p_reason, '')), '');
+  v_authorized_by text := nullif(pg_catalog.btrim(coalesce(p_authorized_by, '')), '');
+  v_plan_id uuid;
+  v_id uuid;
+  v_open integer;
+begin
+  if p_tenant_id is null
+     or p_status is null
+     or p_status <> all (array['trialing', 'active']::text[])
+     or (p_metadata is not null and pg_catalog.jsonb_typeof(p_metadata) <> 'object')
+  then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'invalid_input');
+  end if;
+
+  if v_reason is null or pg_catalog.length(v_reason) < 10 then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'reason_required');
+  end if;
+
+  if v_authorized_by is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'authorization_required');
+  end if;
+
+  if p_current_period_end is not null and p_current_period_end <= pg_catalog.now() then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'period_end_in_past');
+  end if;
+
+  select p.id into v_plan_id
+  from public.plans p
+  where p.code = pg_catalog.btrim(coalesce(p_plan_code, ''))
+    and p.active is true;
+  if v_plan_id is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'plan_not_found');
+  end if;
+
+  if not exists (select 1 from public.tenants t where t.id = p_tenant_id) then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'tenant_not_found');
+  end if;
+
+  -- Shared tenant billing lock (prepare_billing_checkout_attempt_v2, sync).
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_tenant_id::text, 31)
+  );
+
+  if exists (
+    select 1 from public.subscriptions s
+    where s.tenant_id = p_tenant_id
+      and s.status = any (array['trialing', 'active', 'past_due']::text[])
+  ) then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'current_subscription_exists');
+  end if;
+
+  -- A Stripe subscription pending reconciliation must be resolved first.
+  if exists (
+    select 1 from billing_private.subscription_holds h
+    where h.tenant_id = p_tenant_id and h.status = 'held'
+  ) then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'subscription_pending_reconciliation');
+  end if;
+
+  -- A Checkout Session that can still be paid, or a paid one whose
+  -- subscription is not recorded yet, would compete with the grant.
+  select count(*) into v_open
+  from public.billing_checkout_attempts a
+  where a.tenant_id = p_tenant_id
+    and (
+      (
+        a.status = any (array['creating'::text, 'open'::text])
+        and a.expires_at + interval '2 minutes' > pg_catalog.now()
+      )
+      or (
+        a.status = 'completed'
+        and not exists (
+          select 1 from public.subscriptions s
+          where s.tenant_id = a.tenant_id
+            and s.provider = 'stripe'
+            and s.livemode = a.livemode
+            and s.created_at >= a.created_at
+        )
+      )
+    );
+  if v_open > 0 then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'rejected', 'reason', 'checkout_in_progress', 'attempts', v_open
+    );
+  end if;
+
+  perform pg_catalog.set_config('app.billing_internal_via', 'grant_rpc', true);
+  perform pg_catalog.set_config('app.billing_internal_reason', v_reason, true);
+  perform pg_catalog.set_config('app.billing_internal_authorized_by', v_authorized_by, true);
+
+  insert into public.subscriptions (
+    tenant_id, plan_id, provider, status,
+    current_period_start, current_period_end, cancel_at_period_end, livemode, metadata
+  ) values (
+    p_tenant_id, v_plan_id, 'internal', p_status,
+    pg_catalog.now(), p_current_period_end, false, false,
+    coalesce(p_metadata, '{}'::jsonb) || pg_catalog.jsonb_build_object(
+      'source', 'grant_internal_subscription_v1',
+      'granted_at', pg_catalog.now(),
+      'grant_reason', v_reason,
+      'granted_by', v_authorized_by
+    )
+  )
+  returning id into v_id;
+
+  perform pg_catalog.set_config('app.billing_internal_via', '', true);
+  perform pg_catalog.set_config('app.billing_internal_reason', '', true);
+  perform pg_catalog.set_config('app.billing_internal_authorized_by', '', true);
+
+  return pg_catalog.jsonb_build_object(
+    'outcome', 'granted',
+    'subscription_id', v_id,
+    'tenant_id', p_tenant_id,
+    'plan_code', pg_catalog.btrim(p_plan_code),
+    'status', p_status,
+    'capacity', public.resolve_tenant_storage_capacity_v1(p_tenant_id)
+  );
+end;
+$function$;
+
+comment on function public.grant_internal_subscription_v1(uuid, text, text, timestamptz, text, text, jsonb) is
+  'Service-only: grants an internal subscription (trialing/active) with a reason (>= 10 chars) and an authorizer, under the shared tenant billing lock. Refuses when a subscription is current, a Checkout can still be paid or a Stripe subscription is pending reconciliation. Audited as grant_rpc.';
+
+revoke all on function public.grant_internal_subscription_v1(uuid, text, text, timestamptz, text, text, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.grant_internal_subscription_v1(uuid, text, text, timestamptz, text, text, jsonb)
   to postgres, service_role;
 
 commit;
