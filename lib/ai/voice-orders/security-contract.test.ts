@@ -33,6 +33,28 @@ describe("voice orders security contracts", () => {
     }
   });
 
+  it("AI code only reads tables and calls the ledger and lookup RPCs", () => {
+    const files = [
+      ...walk(path.join(process.cwd(), "app/api/ai")),
+      ...walk(path.join(process.cwd(), "lib/ai")),
+    ].filter((file) => !file.endsWith(".test.ts"));
+    const allowedRpcs = new Set([
+      "ai_reserve_usage",
+      "ai_settle_usage",
+      "ai_voice_status",
+      "search_clients",
+    ]);
+
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.equal(/\.(insert|update|upsert|delete)\(/.test(source), false, file);
+      assert.equal(/\.from\("orders"\)/.test(source), false, file);
+      for (const match of source.matchAll(/\.rpc\(\s*"([a-z0-9_]+)"/g)) {
+        assert.ok(allowedRpcs.has(match[1]), `${file} calls rpc ${match[1]}`);
+      }
+    }
+  });
+
   it("no NEXT_PUBLIC AI or OpenAI secrets", () => {
     const envFiles = [
       ".env",

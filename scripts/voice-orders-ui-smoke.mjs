@@ -26,6 +26,8 @@ const checks = [
   [panel.includes("/api/ai/voice-orders/transcriptions"), "Panel posts transcriptions"],
   [panel.includes("/api/ai/voice-orders/drafts"), "Panel posts drafts"],
   [!panel.includes("/api/orders"), "Panel does not create orders"],
+  [panel.includes("buildVoiceRevert") && form.includes("onRestoreFields"), "Descartar restores the fields the draft wrote"],
+  [form.includes("voiceTouchedFromRestoredDraft"), "Restored session draft counts as touched"],
   [createForm.includes("buildCreateOrderPayload"), "create-form contract unchanged"],
 ];
 
