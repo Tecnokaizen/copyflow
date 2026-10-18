@@ -1,29 +1,38 @@
--- AI Voice Orders V1 foundation: feature flag + atomic usage budget ledger.
--- Expand-only. Does not touch orders schema, plan_features, or Stripe.
--- Platform limit is seeded with enabled=false (fail-closed kill switch).
+-- Gestcopy AI · Pedidos por voz V1 (#90): atomic usage budget ledger.
+-- Expand-only. Does not touch orders, plans, plan_features, prices or Stripe.
+--
+-- Feature: reuses the catalog code `ai_voice_orders` (…0009) inserted by
+-- 20261015200000_pro_early_access_features_v1 (#105). No catalog insert here.
+--
+-- Limits (internal cost control, not a price):
+--   platform      kill switch + global monthly budget; seeded enabled=false.
+--   tenant_default / user_default
+--                 budgets every tenant / user gets unless an operator sets a
+--                 specific row (pilot values: 2 USD/tenant/month,
+--                 1 USD/user/month).
+--   tenant / user specific rows, written only by ai_set_voice_usage_limit
+--                 (service_role / database owner). A NULL column inherits the
+--                 default; enabled=false switches that tenant or user off.
+-- Every resolved budget is checked against its own spend, inside the same
+-- advisory locks, before any paid provider call.
 
 begin;
 
-insert into public.features (id, code, name, description)
-values (
-  '31000000-0000-4000-8000-000000000007',
-  'voice_orders',
-  'Pedidos por voz',
-  'Dictado e interpretación de pedidos con aprobación humana. Control interno de coste; preparado para add-on.'
-)
-on conflict (code) do update
-set
-  name = excluded.name,
-  description = excluded.description,
-  updated_at = pg_catalog.now();
+do $guard$
+begin
+  if not exists (select 1 from public.features where code = 'ai_voice_orders') then
+    raise exception 'ai_voice_orders missing from features (apply 20261015200000 first)';
+  end if;
+end;
+$guard$;
 
 create table public.ai_usage_limits (
   id uuid primary key default gen_random_uuid(),
   scope text not null
-    check (scope in ('platform', 'tenant', 'user')),
+    check (scope in ('platform', 'tenant_default', 'user_default', 'tenant', 'user')),
   tenant_id uuid references public.tenants (id) on delete cascade,
   user_id uuid,
-  feature_code text not null default 'voice_orders',
+  feature_code text not null default 'ai_voice_orders',
   enabled boolean not null default true,
   monthly_budget_micros bigint check (monthly_budget_micros is null or monthly_budget_micros >= 0),
   daily_request_limit integer check (daily_request_limit is null or daily_request_limit >= 0),
@@ -36,7 +45,8 @@ create table public.ai_usage_limits (
   created_at timestamptz not null default pg_catalog.now(),
   updated_at timestamptz not null default pg_catalog.now(),
   constraint ai_usage_limits_scope_ids_check check (
-    (scope = 'platform' and tenant_id is null and user_id is null)
+    (scope in ('platform', 'tenant_default', 'user_default')
+      and tenant_id is null and user_id is null)
     or (scope = 'tenant' and tenant_id is not null and user_id is null)
     or (scope = 'user' and tenant_id is not null and user_id is not null)
   ),
@@ -46,7 +56,7 @@ create table public.ai_usage_limits (
 );
 
 comment on table public.ai_usage_limits is
-  'AI spend gates (platform/tenant/user). Internal cost control for voice_orders; not Stripe pricing. Access via DEFINER RPCs only.';
+  'AI spend gates (platform, defaults, tenant, user) for ai_voice_orders. Internal cost control; not Stripe pricing. Access via DEFINER RPCs only.';
 
 alter table public.ai_usage_limits enable row level security;
 
@@ -57,7 +67,7 @@ create table public.ai_usage_events (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
   user_id uuid not null,
-  feature_code text not null default 'voice_orders',
+  feature_code text not null default 'ai_voice_orders',
   operation text not null
     check (operation in ('transcription', 'extraction')),
   request_id uuid not null,
@@ -104,22 +114,11 @@ insert into public.ai_usage_limits (
   max_clip_seconds,
   max_audio_bytes
 )
-values (
-  'platform',
-  'voice_orders',
-  false,
-  10000000,
-  60,
-  60,
-  3000000
-)
-on conflict on constraint ai_usage_limits_scope_unique do update
-set
-  monthly_budget_micros = excluded.monthly_budget_micros,
-  daily_request_limit = excluded.daily_request_limit,
-  max_clip_seconds = excluded.max_clip_seconds,
-  max_audio_bytes = excluded.max_audio_bytes,
-  updated_at = pg_catalog.now();
+values
+  ('platform', 'ai_voice_orders', false, 10000000, 60, 60, 3000000),
+  ('tenant_default', 'ai_voice_orders', true, 2000000, null, null, null),
+  ('user_default', 'ai_voice_orders', true, 1000000, null, null, null)
+on conflict on constraint ai_usage_limits_scope_unique do nothing;
 
 create or replace function public.ai_expire_stale_reservations (
   p_tenant_id uuid,
@@ -145,8 +144,10 @@ begin
 end;
 $function$;
 
-revoke all on function public.ai_expire_stale_reservations(uuid, uuid, text) from public;
+revoke all on function public.ai_expire_stale_reservations(uuid, uuid, text) from public, anon, authenticated;
 
+-- Effective limits for one user of one tenant. Internal: only reachable from
+-- the DEFINER RPCs below.
 create or replace function public.ai_resolve_limits (
   p_tenant_id uuid,
   p_user_id uuid,
@@ -154,7 +155,9 @@ create or replace function public.ai_resolve_limits (
 )
   returns table (
     enabled boolean,
-    monthly_budget_micros bigint,
+    platform_budget_micros bigint,
+    tenant_budget_micros bigint,
+    user_budget_micros bigint,
     daily_request_limit integer,
     max_clip_seconds integer,
     max_audio_bytes integer,
@@ -167,10 +170,12 @@ create or replace function public.ai_resolve_limits (
 as $function$
 declare
   v_platform public.ai_usage_limits%rowtype;
+  v_tenant_default public.ai_usage_limits%rowtype;
+  v_user_default public.ai_usage_limits%rowtype;
   v_tenant public.ai_usage_limits%rowtype;
   v_user public.ai_usage_limits%rowtype;
-  v_enabled boolean;
-  v_budget bigint;
+  v_tenant_enabled boolean;
+  v_user_enabled boolean;
   v_daily integer;
   v_clip integer;
   v_bytes integer;
@@ -179,12 +184,13 @@ begin
   select * into v_platform
   from public.ai_usage_limits l
   where l.scope = 'platform'
-    and l.feature_code = p_feature
-  limit 1;
+    and l.feature_code = p_feature;
 
   if not found then
     return query select
       false,
+      null::bigint,
+      null::bigint,
       null::bigint,
       null::integer,
       null::integer,
@@ -193,72 +199,74 @@ begin
     return;
   end if;
 
+  select * into v_tenant_default
+  from public.ai_usage_limits l
+  where l.scope = 'tenant_default'
+    and l.feature_code = p_feature;
+
+  select * into v_user_default
+  from public.ai_usage_limits l
+  where l.scope = 'user_default'
+    and l.feature_code = p_feature;
+
   select * into v_tenant
   from public.ai_usage_limits l
   where l.scope = 'tenant'
     and l.tenant_id = p_tenant_id
-    and l.feature_code = p_feature
-  limit 1;
+    and l.feature_code = p_feature;
 
   select * into v_user
   from public.ai_usage_limits l
   where l.scope = 'user'
     and l.tenant_id = p_tenant_id
     and l.user_id = p_user_id
-    and l.feature_code = p_feature
-  limit 1;
+    and l.feature_code = p_feature;
 
-  v_enabled := v_platform.enabled
-    and coalesce(v_tenant.enabled, true)
-    and coalesce(v_user.enabled, true);
+  v_tenant_enabled := coalesce(v_tenant.enabled, v_tenant_default.enabled, true);
+  v_user_enabled := coalesce(v_user.enabled, v_user_default.enabled, true);
 
   if not v_platform.enabled then
     v_reason := 'platform_disabled';
-  elsif v_tenant.enabled is false then
+  elsif not v_tenant_enabled then
     v_reason := 'tenant_disabled';
-  elsif v_user.enabled is false then
+  elsif not v_user_enabled then
     v_reason := 'user_disabled';
   else
     v_reason := null;
   end if;
 
-  v_budget := v_platform.monthly_budget_micros;
-  if v_tenant.monthly_budget_micros is not null then
-    v_budget := least(coalesce(v_budget, v_tenant.monthly_budget_micros), v_tenant.monthly_budget_micros);
-  end if;
-  if v_user.monthly_budget_micros is not null then
-    v_budget := least(coalesce(v_budget, v_user.monthly_budget_micros), v_user.monthly_budget_micros);
-  end if;
+  -- Request and audio limits: the strictest configured value wins.
+  select min(x) into v_daily from unnest(array[
+    v_platform.daily_request_limit,
+    coalesce(v_tenant.daily_request_limit, v_tenant_default.daily_request_limit),
+    coalesce(v_user.daily_request_limit, v_user_default.daily_request_limit)
+  ]) as x;
 
-  v_daily := v_platform.daily_request_limit;
-  if v_tenant.daily_request_limit is not null then
-    v_daily := least(coalesce(v_daily, v_tenant.daily_request_limit), v_tenant.daily_request_limit);
-  end if;
-  if v_user.daily_request_limit is not null then
-    v_daily := least(coalesce(v_daily, v_user.daily_request_limit), v_user.daily_request_limit);
-  end if;
+  select min(x) into v_clip from unnest(array[
+    v_platform.max_clip_seconds,
+    coalesce(v_tenant.max_clip_seconds, v_tenant_default.max_clip_seconds),
+    coalesce(v_user.max_clip_seconds, v_user_default.max_clip_seconds)
+  ]) as x;
 
-  v_clip := v_platform.max_clip_seconds;
-  if v_tenant.max_clip_seconds is not null then
-    v_clip := least(coalesce(v_clip, v_tenant.max_clip_seconds), v_tenant.max_clip_seconds);
-  end if;
-  if v_user.max_clip_seconds is not null then
-    v_clip := least(coalesce(v_clip, v_user.max_clip_seconds), v_user.max_clip_seconds);
-  end if;
+  select min(x) into v_bytes from unnest(array[
+    v_platform.max_audio_bytes,
+    coalesce(v_tenant.max_audio_bytes, v_tenant_default.max_audio_bytes),
+    coalesce(v_user.max_audio_bytes, v_user_default.max_audio_bytes)
+  ]) as x;
 
-  v_bytes := v_platform.max_audio_bytes;
-  if v_tenant.max_audio_bytes is not null then
-    v_bytes := least(coalesce(v_bytes, v_tenant.max_audio_bytes), v_tenant.max_audio_bytes);
-  end if;
-  if v_user.max_audio_bytes is not null then
-    v_bytes := least(coalesce(v_bytes, v_user.max_audio_bytes), v_user.max_audio_bytes);
-  end if;
-
-  return query select v_enabled, v_budget, v_daily, v_clip, v_bytes, v_reason;
+  return query select
+    v_platform.enabled and v_tenant_enabled and v_user_enabled,
+    v_platform.monthly_budget_micros,
+    coalesce(v_tenant.monthly_budget_micros, v_tenant_default.monthly_budget_micros),
+    coalesce(v_user.monthly_budget_micros, v_user_default.monthly_budget_micros),
+    v_daily,
+    v_clip,
+    v_bytes,
+    v_reason;
 end;
 $function$;
 
-revoke all on function public.ai_resolve_limits(uuid, uuid, text) from public;
+revoke all on function public.ai_resolve_limits(uuid, uuid, text) from public, anon, authenticated;
 
 create or replace function public.ai_usage_charged_micros (
   p_scope text,
@@ -285,7 +293,7 @@ as $function$
     );
 $function$;
 
-revoke all on function public.ai_usage_charged_micros(text, uuid, uuid, text, date) from public;
+revoke all on function public.ai_usage_charged_micros(text, uuid, uuid, text, date) from public, anon, authenticated;
 
 create or replace function public.ai_reserve_usage (
   p_tenant_id uuid,
@@ -329,6 +337,13 @@ begin
      or p_estimated_micros < 0
   then
     raise exception 'invalid arguments'
+      using errcode = '22023';
+  end if;
+
+  -- The ledger only serves Pedidos por voz: another feature code must never
+  -- borrow its budget or its rate limit.
+  if p_feature is distinct from 'ai_voice_orders' then
+    raise exception 'invalid feature'
       using errcode = '22023';
   end if;
 
@@ -376,10 +391,24 @@ begin
   from public.ai_usage_events e
   where e.tenant_id = p_tenant_id
     and e.request_id = p_request_id
-    and e.operation = p_operation;
+    and e.operation = p_operation
+    and e.user_id = v_user_id;
 
   if v_existing is not null then
     return v_existing;
+  end if;
+
+  -- Same request id from another member of the tenant: never hand out
+  -- someone else's reservation.
+  if exists (
+    select 1
+    from public.ai_usage_events e
+    where e.tenant_id = p_tenant_id
+      and e.request_id = p_request_id
+      and e.operation = p_operation
+  ) then
+    raise exception 'request id already used'
+      using errcode = '23505';
   end if;
 
   perform public.ai_expire_stale_reservations(p_tenant_id, v_user_id, p_feature);
@@ -403,34 +432,13 @@ begin
     'user', p_tenant_id, v_user_id, p_feature, v_period_month
   );
 
-  -- Each scope is checked against its own configured budget (internal cost control).
-  if exists (
-    select 1
-    from public.ai_usage_limits l
-    where l.scope = 'platform'
-      and l.feature_code = p_feature
-      and l.monthly_budget_micros is not null
-      and v_platform_spent + p_estimated_micros > l.monthly_budget_micros
-  )
-  or exists (
-    select 1
-    from public.ai_usage_limits l
-    where l.scope = 'tenant'
-      and l.tenant_id = p_tenant_id
-      and l.feature_code = p_feature
-      and l.monthly_budget_micros is not null
-      and v_tenant_spent + p_estimated_micros > l.monthly_budget_micros
-  )
-  or exists (
-    select 1
-    from public.ai_usage_limits l
-    where l.scope = 'user'
-      and l.tenant_id = p_tenant_id
-      and l.user_id = v_user_id
-      and l.feature_code = p_feature
-      and l.monthly_budget_micros is not null
-      and v_user_spent + p_estimated_micros > l.monthly_budget_micros
-  )
+  -- Each scope is checked against its own resolved budget.
+  if (v_limits.platform_budget_micros is not null
+        and v_platform_spent + p_estimated_micros > v_limits.platform_budget_micros)
+     or (v_limits.tenant_budget_micros is not null
+        and v_tenant_spent + p_estimated_micros > v_limits.tenant_budget_micros)
+     or (v_limits.user_budget_micros is not null
+        and v_user_spent + p_estimated_micros > v_limits.user_budget_micros)
   then
     raise exception 'ai_budget_exhausted'
       using errcode = 'P0001';
@@ -486,9 +494,9 @@ end;
 $function$;
 
 comment on function public.ai_reserve_usage(uuid, text, text, uuid, bigint, text, text, text) is
-  'Atomic AI budget reservation. Fail-closed without platform row. Expired reservations still count.';
+  'Atomic AI budget reservation for ai_voice_orders. Fail-closed without platform row. Expired reservations still count.';
 
-revoke all on function public.ai_reserve_usage(uuid, text, text, uuid, bigint, text, text, text) from public;
+revoke all on function public.ai_reserve_usage(uuid, text, text, uuid, bigint, text, text, text) from public, anon;
 grant execute on function public.ai_reserve_usage(uuid, text, text, uuid, bigint, text, text, text) to authenticated;
 
 create or replace function public.ai_settle_usage (
@@ -557,7 +565,7 @@ $function$;
 comment on function public.ai_settle_usage(uuid, text, bigint, numeric, integer, integer, text) is
   'Settle a reserved AI usage event as committed or released. Idempotent for non-reserved rows.';
 
-revoke all on function public.ai_settle_usage(uuid, text, bigint, numeric, integer, integer, text) from public;
+revoke all on function public.ai_settle_usage(uuid, text, bigint, numeric, integer, integer, text) from public, anon;
 grant execute on function public.ai_settle_usage(uuid, text, bigint, numeric, integer, integer, text) to authenticated;
 
 create or replace function public.ai_voice_status (
@@ -594,16 +602,16 @@ begin
       using errcode = '42501';
   end if;
 
-  v_feature := public.tenant_has_feature(p_tenant_id, 'voice_orders');
+  v_feature := public.tenant_has_feature(p_tenant_id, 'ai_voice_orders');
 
   select * into v_limits
-  from public.ai_resolve_limits(p_tenant_id, v_user_id, 'voice_orders');
+  from public.ai_resolve_limits(p_tenant_id, v_user_id, 'ai_voice_orders');
 
   select count(*)::integer into v_user_requests
   from public.ai_usage_events e
   where e.tenant_id = p_tenant_id
     and e.user_id = v_user_id
-    and e.feature_code = 'voice_orders'
+    and e.feature_code = 'ai_voice_orders'
     and e.status in ('reserved', 'committed', 'expired')
     and e.created_at >= v_day_start
     and e.created_at < v_day_end;
@@ -631,9 +639,134 @@ end;
 $function$;
 
 comment on function public.ai_voice_status(uuid) is
-  'Voice orders status for UI hints. Does not expose dollar amounts to operative roles.';
+  'Voice orders status for UI hints. Does not expose budgets or spend to operative roles.';
 
-revoke all on function public.ai_voice_status(uuid) from public;
+revoke all on function public.ai_voice_status(uuid) from public, anon;
 grant execute on function public.ai_voice_status(uuid) to authenticated;
+
+-- Operator path for every limit row (kill switch, defaults, one tenant, one
+-- user). Idempotent upsert; NULL values inherit (see header). Tenant by slug,
+-- like set_tenant_feature; a user row requires an active membership.
+create or replace function public.ai_set_voice_usage_limit (
+  p_scope text,
+  p_tenant_slug text,
+  p_user_id uuid,
+  p_enabled boolean,
+  p_monthly_budget_micros bigint,
+  p_daily_request_limit integer,
+  p_max_clip_seconds integer,
+  p_max_audio_bytes integer
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+as $function$
+declare
+  v_role text := coalesce(auth.role(), '');
+  v_tenant uuid;
+  v_row public.ai_usage_limits%rowtype;
+begin
+  -- Same operator rule as tenant_has_feature: service_role, or a direct
+  -- postgres/supabase_admin session without JWT claims. The EXECUTE grant
+  -- (service_role only) is the first barrier; this is the second.
+  if not (
+    v_role = 'service_role'
+    or (v_role = '' and session_user in ('postgres', 'supabase_admin'))
+  ) then
+    raise exception 'forbidden'
+      using errcode = '42501';
+  end if;
+
+  if p_scope is null
+     or p_scope not in ('platform', 'tenant_default', 'user_default', 'tenant', 'user')
+     or p_enabled is null
+  then
+    raise exception 'invalid arguments'
+      using errcode = '22023';
+  end if;
+
+  if p_scope in ('platform', 'tenant_default', 'user_default') then
+    if p_tenant_slug is not null or p_user_id is not null then
+      raise exception 'scope % takes no tenant or user', p_scope
+        using errcode = '22023';
+    end if;
+  else
+    select t.id into v_tenant
+    from public.tenants t
+    where t.slug = p_tenant_slug;
+
+    if v_tenant is null then
+      raise exception 'tenant not found'
+        using errcode = 'P0002';
+    end if;
+
+    if p_scope = 'tenant' and p_user_id is not null then
+      raise exception 'scope tenant takes no user'
+        using errcode = '22023';
+    end if;
+
+    if p_scope = 'user' and not exists (
+      select 1
+      from public.memberships m
+      where m.tenant_id = v_tenant
+        and m.user_id = p_user_id
+        and m.active is true
+    ) then
+      raise exception 'active membership not found'
+        using errcode = 'P0002';
+    end if;
+  end if;
+
+  insert into public.ai_usage_limits (
+    scope,
+    tenant_id,
+    user_id,
+    feature_code,
+    enabled,
+    monthly_budget_micros,
+    daily_request_limit,
+    max_clip_seconds,
+    max_audio_bytes
+  ) values (
+    p_scope,
+    v_tenant,
+    case when p_scope = 'user' then p_user_id end,
+    'ai_voice_orders',
+    p_enabled,
+    p_monthly_budget_micros,
+    p_daily_request_limit,
+    p_max_clip_seconds,
+    p_max_audio_bytes
+  )
+  on conflict on constraint ai_usage_limits_scope_unique do update
+  set
+    enabled = excluded.enabled,
+    monthly_budget_micros = excluded.monthly_budget_micros,
+    daily_request_limit = excluded.daily_request_limit,
+    max_clip_seconds = excluded.max_clip_seconds,
+    max_audio_bytes = excluded.max_audio_bytes,
+    updated_at = pg_catalog.now()
+  returning * into v_row;
+
+  return pg_catalog.jsonb_build_object(
+    'scope', v_row.scope,
+    'tenant_id', v_row.tenant_id,
+    'user_id', v_row.user_id,
+    'enabled', v_row.enabled,
+    'monthly_budget_micros', v_row.monthly_budget_micros,
+    'daily_request_limit', v_row.daily_request_limit,
+    'max_clip_seconds', v_row.max_clip_seconds,
+    'max_audio_bytes', v_row.max_audio_bytes,
+    'updated_at', v_row.updated_at
+  );
+end;
+$function$;
+
+comment on function public.ai_set_voice_usage_limit(text, text, uuid, boolean, bigint, integer, integer, integer) is
+  'Operator upsert of ai_voice_orders limits (platform, defaults, tenant, user). service_role or database owner only.';
+
+revoke all on function public.ai_set_voice_usage_limit(text, text, uuid, boolean, bigint, integer, integer, integer) from public, anon, authenticated;
+grant execute on function public.ai_set_voice_usage_limit(text, text, uuid, boolean, bigint, integer, integer, integer) to service_role;
 
 commit;
