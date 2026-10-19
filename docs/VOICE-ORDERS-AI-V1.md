@@ -68,11 +68,27 @@ nunca recibe `service_role`: el operador prepara cada estado antes de lanzarlo. 
 desde un terminal de confianza: el workflow «E2E staging» solo corre sobre `main`, que aún
 no tiene este script.
 
-**Estado de partida (18/10, solo lectura):** Staging tiene 83 migraciones, la última A1
-`20261018180000`, aplicada a las 17:49 UTC. La rama `gestcopy-staging` está en `0346406`
-(código de D1) y no lleva A1, que no tiene código de aplicación. Sin datos de SUR4.
+**Estado previo (18/10, antes del paso 1; histórico):** Staging tenía 83 migraciones, la
+última A1 `20261018180000`, aplicada a las 17:49 UTC. La rama `gestcopy-staging` estaba en
+`0346406` (código de D1) y no llevaba A1, que no tiene código de aplicación. Sin datos de SUR4.
 
-**Prerrequisitos (cada uno requiere autorización expresa):**
+**Resultado (18–19/10).** Detalle en `VOICE-ORDERS-AI-V1-VALIDATION.md` y en el registro de
+Staging de la descripción de #90.
+
+- **Prerrequisitos 1–4, completados.** `gestcopy-staging` `0346406..392eebc` (fast-forward,
+  18/10, 18:26 UTC). `20261018190000` aplicada con `db push` el 18/10 a las 18:41 UTC: el
+  dry-run listó solo esa versión y Staging queda con **84 migraciones**. Variables de Preview
+  y redeploy el 19/10 a las 11:49 UTC; puertas solo para `e2e` a las 11:50 UTC.
+- **E2E en Preview, 19/10: 5/5 PASS.** `on` 2/2, `budget_exhausted` 1/1, `kill_switch` 1/1 y
+  `off` 1/1, en cuatro ejecuciones con salida 0. Un solo pedido (`E2E-0058`), por clic humano.
+- **Cierre de seguridad de Staging, 19/10 a las 15:04 UTC.** `platform` desactivado, 0
+  concesiones `ai_voice_orders` y 0 filas `tenant`/`user`; el resto de Staging, igual que
+  antes (84 migraciones).
+- **Production:** migración pendiente y sin variables de voz.
+
+**Prerrequisitos (cada uno requiere autorización expresa).** Los pasos 1–3 ya están hechos y
+las variables del paso 3 siguen en Preview hasta terminar G5. Para reabrir las puertas
+durante G5 basta el paso 4 (`~/copyflow-ops/voice-e2e/README.md`, «Reabrir las puertas»).
 
 1. **Código en Preview.** `gestcopy-staging` pasa a un commit de merge (fast-forward, sin
    force) que contiene el código de D1 (`0346406`), los ficheros de A1 (#138) y esta PR.
@@ -122,7 +138,8 @@ npx tsx e2e/staging/voice-orders.ts
 1. Cerrar las puertas: `platform` desactivado;
    `clear_tenant_feature_override('e2e','ai_voice_orders','<motivo>','<operador>')`, que
    devuelve la ausencia de override; borrar las filas `user` del estado
-   `budget_exhausted`.
+   `budget_exhausted`. Hecho el 19/10: fila `user` retirada a las 14:28 UTC, override
+   retirado con el estado `off` y `platform` desactivado en el cierre de las 15:04 UTC.
 2. Las variables de Preview se mantienen solo mientras dure G5 (móviles).
 
 G2 (legal) y G5 (móviles) siguen pendientes: ningún proveedor real ni tenant real.
