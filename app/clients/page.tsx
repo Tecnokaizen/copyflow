@@ -22,6 +22,7 @@ import {
   type ClientListResponse,
 } from "@/lib/clients/types";
 import { canManageClientImport, canWriteClients } from "@/lib/auth/membership-roles";
+import { createLatestRequest, fetchLatestJson } from "@/lib/refresh/latest-request";
 
 type CustomerTypeOption = {
   id: string;
@@ -64,6 +65,9 @@ export default function ClientsPage() {
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<ClientDuplicate | null>(null);
+  // Only the latest list request may apply: a slow older response must never
+  // overwrite a newer search (e.g. the unfiltered refresh after a create).
+  const [listRequest] = useState(createLatestRequest);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -106,6 +110,8 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
+    const ticket = listRequest.start();
+
     async function loadClients() {
       setLoading(true);
       setError(null);
@@ -125,24 +131,32 @@ export default function ClientsPage() {
           params.set("customer_type_id", customerTypeId);
         }
 
-        const response = await fetch(`/api/clients/list?${params.toString()}`);
-        const result = await response.json();
+        const loaded = await fetchLatestJson(ticket, `/api/clients/list?${params.toString()}`);
+        if (!loaded) {
+          return;
+        }
 
-        if (!response.ok) {
+        if (!loaded.response.ok) {
           throw new Error("No se pudieron cargar los clientes");
         }
 
-        setData(result);
+        setData(loaded.body as ClientListResponse);
       } catch {
+        if (!ticket.isCurrent()) {
+          return;
+        }
         setData(null);
         setError("No se pudieron cargar los clientes");
       } finally {
-        setLoading(false);
+        if (ticket.isCurrent()) {
+          setLoading(false);
+        }
       }
     }
 
     loadClients();
-  }, [search, customerTypeId, active, page, reloadToken]);
+    return () => listRequest.abort();
+  }, [listRequest, search, customerTypeId, active, page, reloadToken]);
 
   const total = data?.total ?? 0;
   const clients = data?.clients ?? [];
@@ -160,6 +174,7 @@ export default function ClientsPage() {
   const to = Math.min(currentPage * pageSize, total);
 
   async function refreshList() {
+    const ticket = listRequest.start();
     const params = new URLSearchParams({
       page: String(page),
       page_size: "25",
@@ -174,10 +189,16 @@ export default function ClientsPage() {
       params.set("customer_type_id", customerTypeId);
     }
 
-    const response = await fetch(`/api/clients/list?${params.toString()}`);
-    const result = await response.json();
-    if (response.ok) {
-      setData(result);
+    try {
+      const loaded = await fetchLatestJson(ticket, `/api/clients/list?${params.toString()}`);
+      if (loaded?.response.ok) {
+        setData(loaded.body as ClientListResponse);
+      }
+    } finally {
+      // It may have superseded a load that showed the spinner.
+      if (ticket.isCurrent()) {
+        setLoading(false);
+      }
     }
   }
 
