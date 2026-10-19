@@ -48,9 +48,10 @@ Implementado, sin integrar ni aplicar:
 - **G2 legal (#82)**: DPA, subencargado, aviso de micrófono y retención 0.
 - **Modelos**: nombres, precios y región sin confirmar con el proveedor. Ya no hay
   modelos por defecto: sin `AI_TRANSCRIPTION_MODEL`/`AI_EXTRACTION_MODEL` la voz queda no disponible.
-- **Staging**: A1 aplicada (83 migraciones). Faltan el código en `gestcopy-staging`, la
-  migración `20261018190000` y `AI_VOICE_ORDERS_ENABLED=true`/`AI_PROVIDER=fake` en Preview
-  para B3, todo con autorización. Ninguna variable `AI_*` ni `OPENAI_API_KEY` en Production.
+- **Staging**: A1 y la migración de voz `20261018190000` aplicadas (84 migraciones). B3 se pasó en Preview el
+  19/10 (5/5) y las puertas se volvieron a cerrar a las 15:04 UTC: interruptor apagado y sin concesiones.
+  `AI_VOICE_ORDERS_ENABLED=true`/`AI_PROVIDER=fake` siguen solo en Preview para G5. Ninguna variable `AI_*` ni
+  `OPENAI_API_KEY` en Production.
 - **Pro**: `early_access.voice_orders.status` sigue fijo en `planned`.
 
 ## Gates antes de cualquier coste real
@@ -67,8 +68,8 @@ Implementado, sin integrar ni aplicar:
 
 1. ~~Rebase funcional de #90 sobre `main`~~ (B1, 18/10).
 2. B2: asistencia contextual por campo (sugerencias aceptables una a una; nunca crea el pedido).
-3. B3: `e2e/staging/voice-orders.ts` con proveedor `fake`. Escrito y en verde en una pila local
-   completa (18/10); falta ejecutarlo en Preview, con los prerrequisitos de Staging autorizados.
+3. ~~B3: `e2e/staging/voice-orders.ts` con proveedor `fake`~~: en verde en local (18/10) y en Preview (19/10, 5/5;
+   puertas cerradas después). Pendiente: el caso viewer en Staging.
 4. Gate legal y confirmación del proveedor.
 5. Piloto en Staging con proveedor real y presupuesto mínimo, solo con un tenant sintético.
 6. Activación por tenant con `set_tenant_feature_v2('<slug>','ai_voice_orders',true,…)`

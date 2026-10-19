@@ -2,6 +2,68 @@
 
 PR borrador: https://github.com/Tecnokaizen/copyflow/pull/90 · Rama: `feature/ai-voice-orders-v1`.
 
+## E2E en Preview y cierre de seguridad en Staging (19/10/2026)
+
+**Entorno.** Preview `e2e.preview.app.gestcopy.com` (rama `gestcopy-staging` con D1 + A1 + #90),
+Supabase Staging con la migración `20261018190000`, tenant sintético `e2e` y proveedor `fake`.
+Las variables `AI_VOICE_ORDERS_ENABLED=true` y `AI_PROVIDER=fake` solo están en Preview / `gestcopy-staging`.
+La concesión se hizo con `set_tenant_feature_v2` (A1), solo para `e2e` y con `review_at` el 26/10.
+Lo ejecutó el owner desde su terminal con `~/copyflow-ops/voice-e2e/run-voice-e2e.sh`: `op run` inyecta los dos
+secretos en memoria y el harness redacta y escanea los artefactos.
+
+| Escenario (preparado por el operador) | Ejecución | Sesiones | Resultado |
+| --- | --- | --- | --- |
+| `on` | `20261019T132917Z-9f1b` (13:29 UTC) | owner 1440 px (6 pasos) · owner 390 px táctil (2 pasos) | 2/2 PASS · un pedido, `E2E-0058`, creado por el clic del usuario |
+| `budget_exhausted` (presupuesto de usuario 0) | `20261019T142558Z-2968` (14:25 UTC) | owner (3 pasos) | 1/1 PASS · 429 y ningún campo cambia |
+| `kill_switch` (`platform` desactivado) | `20261019T145222Z-899d` (14:52 UTC) | owner (4 pasos) | 1/1 PASS · panel oculto, sin micrófono, API 429 |
+| `off` (concesión retirada con `clear_tenant_feature_override`) | `20261019T150022Z-8cf7` (15:00 UTC) | owner (4 pasos) | 1/1 PASS · panel oculto, sin micrófono, API 404 |
+
+**Total: 5/5 PASS en cuatro ejecuciones, todas con salida 0.** Los artefactos redactados están en
+`~/copyflow-ops/voice-e2e/artifacts/<fecha>-<estado>/`, fuera del repositorio.
+- Egress: las únicas peticiones bloqueadas fueron 17 a `vercel.live` (la barra de Vercel de Preview), que el
+  interlock trata como ajenas. No hubo ninguna petición a Production.
+- Consola: solo esos bloqueos y el 429 esperado de `budget_exhausted`.
+
+**Limitaciones de la prueba.**
+- Siempre con proveedor `fake`: no valida la calidad de la transcripción ni de la interpretación (gate G4),
+  ni los modelos y precios reales.
+- Micrófono sintético (tono de Web Audio) en Chromium headless. Quedan sin cubrir el micrófono real, Safari/iOS,
+  Android y los permisos del sistema (gate G5, plan en VOICE-ORDERS-AI-V1.md).
+- No se ejecutó el caso viewer en Staging: la contraseña del viewer sintético no está guardada. Sí pasó en la pila local.
+- Un único tenant sintético. El aislamiento entre tenants lo cubren `phase53` (SQL) y el contrato de API
+  (tenant fijado por la sesión), no el navegador.
+- Se lanzó desde un terminal, no desde CI: el entorno `staging` de GitHub solo admite `main` y sus secretos no
+  se pueden leer.
+- `voice-orders.ts` usa `await` de nivel superior y el repo no declara `"type": "module"`, así que `npx tsx` lo
+  compila como CJS y falla. El script operativo lo ejecuta desde una copia temporal ESM. Mejora pendiente:
+  envolverlo en una función `main` o pasarlo a `.mts`.
+- Con el interruptor apagado, `POST /drafts` responde 429 `ai_budget_exhausted`, igual que con el presupuesto
+  agotado. Solo `/status` lo distingue (`reason: platform_disabled`). Mejora pendiente: un código propio.
+- El alias de dominio de Preview no se pudo verificar por API (403 de Vercel). La versión servida se dedujo de
+  `/api/ai/voice-orders/status`.
+- El gate legal G2 (#82) sigue pendiente. Nada de esto autoriza datos reales ni un proveedor de pago.
+
+**Cierre de seguridad en Staging (autorizado por el owner, solo Supabase Staging).** Lo ejecutó la sesión de A1
+el 19/10 a las 15:04:00 UTC. Bitácora: `voz-90-staging-procedimiento.md`, sección «CIERRE DE SEGURIDAD DE VOZ EN STAGING».
+
+| Comprobación | Resultado |
+| --- | --- |
+| Interruptor global | `ai_set_voice_usage_limit('platform', …, false, 10000000, 60, 60, 3000000)`: `enabled=false` con los mismos límites (10 USD/mes, 60 peticiones/día, 60 s, 3 MB). `tenant_default` 2 USD y `user_default` 1 USD sin cambios |
+| Concesiones `ai_voice_orders` | 0 overrides; `audit`, `demo`, `e2e` y `e2e-import` resuelven `false`; ningún plan la incluye; 0 revisiones pendientes |
+| Límites temporales | 0 filas `tenant`/`user` en `ai_usage_limits` (la fila de `budget_exhausted` se retiró a las 14:28 UTC) |
+| Auditoría A1 | 6 eventos antes y después, misma huella (`ca0ee771…`): 4 de base, nº 7 `created` y nº 8 `cleared` |
+| Ledger | 6 eventos `committed` antes y después, misma huella (`d6b41ea7…`): 1.750 µUSD sintéticos |
+| Resto de Staging | Igual antes y después: overrides `da887ff2…` (la original, sin voz), resolución `f8b0e27f…`, facturación `2f563e1d…`, catálogo `89daec89…`, 84 migraciones |
+
+**Estado final de seguridad.**
+- La voz está cerrada en Staging por dos vías: sin concesión y con el interruptor apagado.
+- `AI_VOICE_ORDERS_ENABLED=true` y `AI_PROVIDER=fake` siguen solo en Preview / `gestcopy-staging`, para preparar
+  G5. Con las puertas cerradas no activan nada; se quitan al terminar G5.
+- Production y SUR4 no se han tocado. No hay migraciones nuevas. #90 sigue en Draft y sin merge.
+- Quedan, sin efecto: los 6 eventos sintéticos del ledger, el pedido `E2E-0058` del tenant `e2e`, la migración
+  expand-only `20261018190000` y el código de `gestcopy-staging` (`392eebc`).
+- Para reabrir durante G5 se sigue `~/copyflow-ops/voice-e2e/README.md` («Reabrir las puertas»), con autorización.
+
 ## Renumeración tras D2/D1 y A1 (18/10/2026, noche)
 
 **Por qué.** Staging (consultado en solo lectura) tiene 83 migraciones:
