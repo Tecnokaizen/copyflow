@@ -46,22 +46,62 @@ Control **interno** de coste y base para un futuro add-on. No es pricing comerci
 Cada presupuesto se compara con su propio gasto del mes, dentro de los mismos
 advisory locks (global → tenant → usuario). Las reservas caducadas siguen contando.
 
-**Duración del clip en el servidor.** El navegador corta la grabación en `max_clip_seconds`.
-El servidor no lee la duración del fichero porque no es fiable: Chrome escribe el WebM de
-`MediaRecorder` como flujo en vivo, sin `Duration` en la cabecera; un MP4 fragmentado puede
-declarar 0; y la cabecera la pone el cliente. En su lugar, `POST .../transcriptions` limita el
-tamaño (`maxAudioBytesForClip`, en `lib/ai/voice-orders/audio.ts`):
+**Duración del clip en el servidor.** El navegador corta la grabación en `max_clip_seconds`, pero
+el servidor no se fía: mide la duración real antes de llamar al proveedor y de reservar en el ledger
+(`measureAudioDuration`, en `lib/ai/voice-orders/audio-duration.ts`).
+
+- **Qué mide:** la duración que el proveedor decodificará, a partir de los paquetes:
+  - Opus: la duración que declara el byte TOC de cada paquete (RFC 6716);
+  - AAC: el número de tramas × 1024 (o 960) / frecuencia de muestreo.
+- **Qué ignora:** la duración de la cabecera, que escribe el cliente y que `MediaRecorder` ya escribe
+  mal: Firefox pone `Duration` 0, WebKit no la escribe, Chrome se desvía unos 60 ms y los MP4 de
+  WebKit declaran 0.
+- **Línea de tiempo:** las marcas de tiempo del contenedor son una segunda cota. Solo pueden provocar
+  un rechazo, nunca una aceptación.
+- **Criterio:** se acepta si las dos medidas son ≤ `max_clip_seconds` + 1 s. Si no: 422
+  `audio_too_long`. El rechazo se registra con un código estructural, sin audio ni texto, y no
+  consume presupuesto.
+- **Ledger:** la duración medida se guarda en `audio_seconds` cuando el proveedor no la devuelve.
+
+| Contenedor / códec | Quién lo graba con la app | Decisión |
+| --- | --- | --- |
+| WebM / Opus | Chrome, Edge, Firefox, Safari 18.4 o posterior | Se acepta |
+| MP4 fragmentado / AAC-LC (mono o estéreo, ≤ 48 kHz) | Safari anterior a 18.4 | Se acepta |
+| MP4 / Opus, Ogg / Opus | Nadie: la app pide WebM antes | 415 `unsupported_audio` |
+| MP4 sin fragmentar, HE-AAC u otros perfiles, Vorbis | Ningún navegador probado | 415 `unsupported_audio` |
+| Varias pistas, lacing, cifrado, adjuntos, cajas o elementos desconocidos | — | 415 `unsupported_audio` |
+| Ficheros truncados o con bytes sobrantes; MP4 con bytes de `mdat` que no son de ninguna muestra | — | 422 `invalid_audio` |
+
+**Límites del analizador.**
+- Tiempo lineal: cada paso consume bytes y se corta en cuanto el clip supera el límite.
+- Paquetes como máximo: `max_clip_seconds` × 400 (Opus admite paquetes de 2,5 ms; WebKit graba
+  24.000 por minuto).
+- Ninguna reserva de memoria a partir de tamaños declarados.
+- Coste medido: 0,1 a 5 ms por grabación real; 3 MB en el peor caso, por debajo de 250 ms.
+
+**Probado con grabaciones reales** de Chromium 145, Firefox 146 y WebKit 26 (tono, sin voz), y con
+casos adversariales generados. Detalle en `lib/ai/voice-orders/__fixtures__/audio/README.md`.
+
+**Limitaciones:**
+- Falta probar en dispositivos reales (G5): iPhone con Safari 18.4 o posterior, iPhone anterior a
+  18.4 y Android. WebKit 26 en macOS usa el mismo motor, pero no es iOS.
+- Un MP4 sin fragmentar se rechaza hasta tener una muestra real.
+- La garantía es sobre el audio decodificado: un cliente que acelere la voz antes de codificarla
+  mete más habla en 60 s, y ningún método del servidor lo impide.
+
+**Tope de bytes (segunda barrera).** Antes de analizar nada, `maxAudioBytesForClip` (en
+`lib/ai/voice-orders/audio.ts`) limita el tamaño:
 
 ```text
-min(max_audio_bytes, (max_clip_seconds + 2 s) × 128 kbps / 8 + 16 KiB)
+min(max_audio_bytes, (max_clip_seconds + 2 s) × 256 kbps / 8 + 16 KiB)
 ```
 
-- Con 60 s salen 1.008.384 bytes (antes, 3 MB). Por encima: 413 `audio_too_large`.
-- 128 kbps es 2,7 veces la tasa que pide la grabadora (48 kbps). Deja margen para el AAC de
-  Safari hasta que G5 lo mida. Los 2 s cubren el temporizador y el último fragmento.
-- Limita bytes, no segundos: a los 48 kbps de la grabadora caben unos 168 s, y un cliente que
-  codifique a menos tasa mete más. Bajar `max_clip_seconds` endurece el límite.
-- Límites inválidos (no finitos o ≤ 0) vuelven a los valores por defecto, no desactivan la comprobación.
+- Con 60 s salen 2.000.384 bytes. Por encima: 413 `audio_too_large`.
+- Se usan 256 kbps porque WebKit graba el AAC a unos 146 kbps aunque se le pidan 48: una grabación de
+  59 s ocupa 1.091.808 bytes. Con 128 kbps (`9f3117e`) se habrían rechazado los clips de Safari en MP4
+  a partir de unos 54 s.
+- Los límites inválidos (no finitos o ≤ 0) vuelven a los valores por defecto; no desactivan la
+  comprobación.
 
 Operador (solo `service_role` o sesión `postgres` sin JWT):
 

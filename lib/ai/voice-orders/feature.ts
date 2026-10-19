@@ -16,6 +16,7 @@ export const AI_VOICE_MESSAGES = {
   invalidOrigin: "Origen no permitido",
   invalidAudio: "Audio no válido",
   audioTooLarge: "Audio demasiado grande",
+  audioTooLong: "El audio supera la duración máxima",
   invalidTranscript: "Transcripción no válida",
   providerFailed: "El proveedor de IA no respondió",
   providerTimeout: "El proveedor de IA superó el tiempo de espera",

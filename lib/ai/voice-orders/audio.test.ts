@@ -35,23 +35,25 @@ describe("voice order clip length bound on the server", () => {
   const clipBytes = (seconds: number, bitsPerSecond: number) =>
     Math.ceil((seconds * bitsPerSecond) / 8) + 4_096;
 
-  it("caps the default 60 s clip well below the 3 MB size limit", () => {
+  it("caps the default 60 s clip below the 3 MB size limit", () => {
     const cap = maxAudioBytesForClip(DEFAULT_MAX_CLIP_SECONDS, DEFAULT_MAX_AUDIO_BYTES);
-    assert.equal(cap, 1_008_384);
-    assert.ok(cap < DEFAULT_MAX_AUDIO_BYTES / 2);
+    assert.equal(cap, 2_000_384);
+    assert.ok(cap < DEFAULT_MAX_AUDIO_BYTES);
   });
 
   it("accepts a full honest clip, with the timer's overshoot", () => {
     const cap = maxAudioBytesForClip(60, DEFAULT_MAX_AUDIO_BYTES);
     assert.ok(clipBytes(61, RECORDER_AUDIO_BITS_PER_SECOND) <= cap);
+    // WebKit's AAC ignores the 48 kbps request: ~146 kbps measured over 59 s.
+    assert.ok(clipBytes(61, 146_000) <= cap);
     assert.ok(clipBytes(61, MAX_AUDIO_BITS_PER_SECOND) <= cap);
-    assert.ok(MAX_AUDIO_BITS_PER_SECOND >= 2 * RECORDER_AUDIO_BITS_PER_SECOND);
+    assert.ok(MAX_AUDIO_BITS_PER_SECOND >= 5 * RECORDER_AUDIO_BITS_PER_SECOND);
   });
 
-  it("rejects audio far past the clip at the recorder's bitrate", () => {
+  it("bounds bytes only: the seconds are measured from the packets", () => {
     const cap = maxAudioBytesForClip(60, DEFAULT_MAX_AUDIO_BYTES);
-    assert.ok(clipBytes(180, RECORDER_AUDIO_BITS_PER_SECOND) > cap);
     assert.ok(clipBytes(70, MAX_AUDIO_BITS_PER_SECOND) > cap);
+    assert.ok(clipBytes(400, RECORDER_AUDIO_BITS_PER_SECOND) > cap);
   });
 
   it("follows max_clip_seconds and never exceeds max_audio_bytes", () => {

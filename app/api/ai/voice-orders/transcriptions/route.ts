@@ -18,6 +18,10 @@ import {
   maxAudioBytesForClip,
   validateAudioBytes,
 } from "@/lib/ai/voice-orders/audio";
+import {
+  CLIP_DURATION_TOLERANCE_SECONDS,
+  measureAudioDuration,
+} from "@/lib/ai/voice-orders/audio-duration";
 import { loadAiVoiceStatus } from "@/lib/ai/budget";
 
 export const maxDuration = 30;
@@ -71,7 +75,7 @@ export async function POST(request: Request) {
     access.context.tenant.id
   );
   const maxClip = status?.limits.max_clip_seconds ?? DEFAULT_MAX_CLIP_SECONDS;
-  // The browser stops at max_clip_seconds; the server bounds it by size.
+  // Second barrier: the real duration is measured below, from the packets.
   const maxBytes = maxAudioBytesForClip(
     maxClip,
     status?.limits.max_audio_bytes ?? DEFAULT_MAX_AUDIO_BYTES
@@ -101,6 +105,37 @@ export async function POST(request: Request) {
         code: validation.reason === "mime" ? "unsupported_mime" : "invalid_audio",
       },
       { status: validation.reason === "mime" ? 415 : 422 }
+    );
+  }
+
+  // Before any provider call or budget reservation (G2 audit, M2).
+  const duration = measureAudioDuration(bytes, {
+    maxSeconds: maxClip + CLIP_DURATION_TOLERANCE_SECONDS,
+  });
+  if (!duration.ok) {
+    console.info(
+      JSON.stringify({
+        scope: "ai_voice_orders",
+        operation: "transcription",
+        tenant_id: access.context.tenant.id,
+        request_id: requestId,
+        status: "rejected",
+        error_code: `audio_${duration.reason}`,
+        detail: duration.detail,
+      })
+    );
+    if (duration.reason === "too_long") {
+      return operationalJson(
+        { error: AI_VOICE_MESSAGES.audioTooLong, code: "audio_too_long" },
+        { status: 422 }
+      );
+    }
+    return operationalJson(
+      {
+        error: AI_VOICE_MESSAGES.invalidAudio,
+        code: duration.reason === "unsupported" ? "unsupported_audio" : "invalid_audio",
+      },
+      { status: duration.reason === "unsupported" ? 415 : 422 }
     );
   }
 
@@ -137,8 +172,8 @@ export async function POST(request: Request) {
       signal: controller,
     });
 
-    audioSeconds = result.audioSecondsEstimate;
-    actualMicros = transcriptionActualMicros(audioSeconds ?? maxClip);
+    audioSeconds = result.audioSecondsEstimate ?? duration.seconds;
+    actualMicros = transcriptionActualMicros(audioSeconds);
     settleStatus = "committed";
 
     console.info(

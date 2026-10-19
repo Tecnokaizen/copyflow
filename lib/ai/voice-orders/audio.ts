@@ -7,16 +7,14 @@ export const DEFAULT_MAX_CLIP_SECONDS = 60;
 export const RECORDER_AUDIO_BITS_PER_SECOND = 48_000;
 
 /**
- * Server-side bound for max_clip_seconds (G2 audit, M2). The server does not
- * read a duration from the file: Chrome writes MediaRecorder WebM as a live
- * stream with no Duration in its header, fragmented MP4 may declare 0, and
- * any header is set by the client. Instead it caps the upload at the bytes
- * an honest recorder produces in max_clip_seconds at up to this bitrate:
- * 2.7x what the recorder asks for, room for Safari's AAC until G5 measures it.
- * This bounds bytes, not seconds: a client that encodes below 128 kbps fits
- * more audio (about 168 s at the recorder's 48 kbps for a 60 s clip).
+ * Second barrier behind the real duration check (audio-duration.ts): caps
+ * the upload at the bytes an honest recorder produces in max_clip_seconds at
+ * up to this bitrate. Browsers do not all honour the 48 kbps they are asked
+ * for: WebKit records AAC in MP4 at ~146 kbps (59 s: 1,091,808 bytes), so
+ * 256 kbps leaves room for it. It bounds bytes, not seconds; the seconds are
+ * measured from the codec packets.
  */
-export const MAX_AUDIO_BITS_PER_SECOND = 128_000;
+export const MAX_AUDIO_BITS_PER_SECOND = 256_000;
 /** Recorder timer tick (200 ms) plus the final flush after stop(). */
 export const CLIP_SECONDS_TOLERANCE = 2;
 /** EBML/Tracks or ftyp/moov headers and per-cluster/fragment framing. */
