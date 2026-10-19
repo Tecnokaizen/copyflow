@@ -9,7 +9,7 @@
 
 **Pendiente:** no hay despliegue en Production hasta superar las verificaciones.
 
-**Migraciones, en orden, tras #90 (`20261018150000`):**
+**Migraciones, en orden, tras #128 (`20261016130000`, ya en `main`):**
 
 | Migración | PR | Contenido |
 | --- | --- | --- |
@@ -18,6 +18,8 @@
 | `20261018170000_billing_internal_subscription_webhook_guard_v1` | D1 | Retención, conciliación y conversión |
 
 Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de suscripciones al aplicarse.
+
+Después van A1 (#138, `20261018180000`) y la voz (#90, `20261018190000`). Orden de merge: #128 (ya en `main`) → #135 → #136 → #138 → #90 → C1. El estado por entorno está en el [registro de migraciones](#registro-de-migraciones).
 
 ## Problema
 
@@ -100,7 +102,7 @@ Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de 
 | 5 | Derechos internos legítimos | Sin cancelaciones por la sync; `mvp` con capacidad explícita; SUR4 sigue en 5 GiB | phase57 A y L, phase56 |
 | 6 | Sin cobros nuevos con un Stripe pendiente | `subscription_pending_reconciliation` también tras cerrar la fila interna; `completed` sin registro sigue en `checkout_processing` | phase57 G e I, phase55 C |
 | 7 | Plan de SUR4 y documentación | `SUR4-FIN-PRUEBA-OCT-2026.md` §5 D, este documento, `RELEASE-GATE-V1.md`, `E2E-STAGING-V0.md` | — |
-| 8 | Colisiones | Renumerado tras #90: migraciones `…160000`, `…161000`, `…170000`; tests phase55–57 (#90 usa phase53) | Guarda de migraciones |
+| 8 | Colisiones | Migraciones `…160000`, `…161000`, `…170000`, antes de A1 (`…180000`) y de la voz (`…190000`, renumerada el 18/10); tests phase55–57 (A1 usa phase54 y #90, phase53) | Guarda de migraciones |
 | 9 | Pruebas desde una base limpia | `db reset` y todas las suites del Release Gate y de `kiosk-supabase.yml` | Ver la PR |
 
 ## Efectos en Stripe
@@ -186,6 +188,7 @@ Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de 
    - dry-run con solo `…170000`;
    - `db push`;
    - comprobación: SUR4 y demo intactos, 0 retenciones, `list_billing_reconciliation_v1()` vacía.
+7. **Después**, cada una con su merge, su dry-run (que liste solo su versión) y su autorización: #138 (A1, `…180000`) y #90 (voz, `…190000`).
 
 **Si hay que volver atrás:**
 - **Código:** «Instant Rollback» de Vercel al deployment anterior.
@@ -222,13 +225,17 @@ where provider = 'stripe' and provider_event_id = '<evt_…>' and status = 'fail
 
 ## Registro de migraciones
 
-| Versión | Contenido | Staging | Production |
-| --- | --- | --- | --- |
-| `20261018160000` | `settled` | 18/10 16:41 UTC | Pendiente (paso 3) |
-| `20261018161000` | Capacidad explícita, concesiones, auditoría | 18/10 16:41 UTC | Pendiente (paso 3) |
-| `20261018170000` | Retenciones, conciliación, conversión C, lock 31 | 18/10 16:45 UTC | Pendiente (paso 6) |
+| Versión | PR | Contenido | Staging | Production |
+| --- | --- | --- | --- | --- |
+| `20261018160000` | #135 (D2) | `settled` | 18/10 16:41 UTC | Pendiente (paso 3) |
+| `20261018161000` | #135 (D2) | Capacidad explícita, concesiones, auditoría | 18/10 16:41 UTC | Pendiente (paso 3) |
+| `20261018170000` | #136 (D1) | Retenciones, conciliación, conversión C, lock 31 | 18/10 16:45 UTC | Pendiente (paso 6) |
+| `20261018180000` | #138 (A1) | Concesiones auditables por tenant | 18/10 17:49 UTC | Pendiente, después de D1 |
+| `20261018190000` | #90 (voz) | Ledger y presupuesto de IA | 18/10 18:41 UTC | Pendiente, después de A1 |
 
-La PR #90 (`20261018150000`) debe renumerarse por encima de `20261018170000` si entra después. Se validó en local la combinación D1 + #90 renumerada: Release Gate y suites `phase53` en verde.
+Staging tiene 84 migraciones (las 79 de `main` más estas cinco). Production tiene 79 (última `20261016130000`) y ninguna de estas.
+
+La voz (#90) ya está renumerada a `20261018190000`, por encima de D1 y de A1; antes usaba `20261018150000`. Se validó en local la combinación D1 + #90 renumerada: Release Gate y suites `phase53` en verde.
 
 ## Antes de desplegar en Production
 
