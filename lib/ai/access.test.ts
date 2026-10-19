@@ -82,6 +82,21 @@ describe("AI provider resolution", () => {
     );
   });
 
+  it("makes openai unavailable with a base URL off the allowlist", () => {
+    const eu = { ...OPENAI_READY, AI_PROVIDER_BASE_URL: "https://eu.api.openai.com/v1" };
+    assert.equal(resolveAiProviderName("transcription", eu), "openai");
+    assert.equal(voiceOrdersProviderConfigured(eu), true);
+
+    const proxy = { ...OPENAI_READY, AI_PROVIDER_BASE_URL: "https://proxy.example.com/v1" };
+    assert.equal(resolveAiProviderName("transcription", proxy), null);
+    assert.equal(resolveAiProviderName("extraction", proxy), null);
+    assert.equal(voiceOrdersProviderConfigured(proxy), false);
+    assert.equal(
+      resolveAiProviderName("transcription", { ...proxy, AI_PROVIDER: "fake" }),
+      "fake"
+    );
+  });
+
   it("lets AI_PROVIDER win over per-operation providers and rejects unknown names", () => {
     const env = {
       ...OPENAI_READY,

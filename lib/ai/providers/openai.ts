@@ -1,5 +1,6 @@
 import "server-only";
 
+import { resolveOpenAiBaseUrl } from "@/lib/ai/providers/base-url";
 import type {
   ExtractionProvider,
   TranscriptionProvider,
@@ -8,11 +9,14 @@ import { EXTRACTION_JSON_SCHEMA } from "@/lib/ai/voice-orders/extraction-schema"
 import { buildExtractionSystemPrompt } from "@/lib/ai/voice-orders/prompt";
 import { parseModelExtraction } from "@/lib/ai/voice-orders/parse-extraction";
 
-function openAiBaseUrl() {
-  return (
-    process.env.AI_PROVIDER_BASE_URL?.replace(/\/$/, "") ||
-    "https://api.openai.com/v1"
-  );
+// Checked when the provider is created, before any audio or text is sent.
+function requireBaseUrl() {
+  const baseUrl = resolveOpenAiBaseUrl(process.env.AI_PROVIDER_BASE_URL);
+  if (!baseUrl) {
+    // The value is not echoed: a proxy URL may carry credentials.
+    throw new Error("AI_PROVIDER_BASE_URL not allowed");
+  }
+  return baseUrl;
 }
 
 function requireModel(name: "AI_TRANSCRIPTION_MODEL" | "AI_EXTRACTION_MODEL") {
@@ -33,6 +37,7 @@ function requireApiKey() {
 }
 
 export function createOpenAiTranscriptionProvider(): TranscriptionProvider {
+  const baseUrl = requireBaseUrl();
   const model = requireModel("AI_TRANSCRIPTION_MODEL");
 
   return {
@@ -49,7 +54,7 @@ export function createOpenAiTranscriptionProvider(): TranscriptionProvider {
         form.append("language", input.language);
       }
 
-      const response = await fetch(`${openAiBaseUrl()}/audio/transcriptions`, {
+      const response = await fetch(`${baseUrl}/audio/transcriptions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${requireApiKey()}`,
@@ -79,13 +84,14 @@ export function createOpenAiTranscriptionProvider(): TranscriptionProvider {
 }
 
 export function createOpenAiExtractionProvider(): ExtractionProvider {
+  const baseUrl = requireBaseUrl();
   const model = requireModel("AI_EXTRACTION_MODEL");
 
   return {
     name: "openai",
     model,
     async extract(input) {
-      const response = await fetch(`${openAiBaseUrl()}/responses`, {
+      const response = await fetch(`${baseUrl}/responses`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${requireApiKey()}`,

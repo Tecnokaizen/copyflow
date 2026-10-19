@@ -1,3 +1,4 @@
+import { resolveOpenAiBaseUrl } from "@/lib/ai/providers/base-url";
 import {
   OPERATIVE_ROLES,
   hasMembershipRole,
@@ -51,6 +52,7 @@ function normalized(value: string | undefined) {
  * - `fake` never runs on Vercel Production (canned drafts would look real);
  * - `openai` (explicit, or implied by a key) needs OPENAI_API_KEY and an
  *   explicit model: provider model names are not confirmed yet (gate G2);
+ *   AI_PROVIDER_BASE_URL, when set, must be on the OpenAI allowlist;
  * - nothing configured, or an unknown name, means unavailable.
  */
 export function resolveAiProviderName(
@@ -74,7 +76,11 @@ export function resolveAiProviderName(
       kind === "transcription"
         ? env.AI_TRANSCRIPTION_MODEL
         : env.AI_EXTRACTION_MODEL;
-    return env.OPENAI_API_KEY?.trim() && model?.trim() ? "openai" : null;
+    return env.OPENAI_API_KEY?.trim() &&
+      model?.trim() &&
+      resolveOpenAiBaseUrl(env.AI_PROVIDER_BASE_URL)
+      ? "openai"
+      : null;
   }
 
   return null;

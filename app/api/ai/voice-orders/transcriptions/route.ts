@@ -15,6 +15,7 @@ import {
   DEFAULT_MAX_AUDIO_BYTES,
   DEFAULT_MAX_CLIP_SECONDS,
   audioFilenameForMime,
+  maxAudioBytesForClip,
   validateAudioBytes,
 } from "@/lib/ai/voice-orders/audio";
 import { loadAiVoiceStatus } from "@/lib/ai/budget";
@@ -69,8 +70,12 @@ export async function POST(request: Request) {
     access.supabase,
     access.context.tenant.id
   );
-  const maxBytes = status?.limits.max_audio_bytes ?? DEFAULT_MAX_AUDIO_BYTES;
   const maxClip = status?.limits.max_clip_seconds ?? DEFAULT_MAX_CLIP_SECONDS;
+  // The browser stops at max_clip_seconds; the server bounds it by size.
+  const maxBytes = maxAudioBytesForClip(
+    maxClip,
+    status?.limits.max_audio_bytes ?? DEFAULT_MAX_AUDIO_BYTES
+  );
 
   if (!status?.budget_enabled) {
     return operationalJson(

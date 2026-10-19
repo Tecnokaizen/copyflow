@@ -17,6 +17,10 @@ Estado y gates: [AI-VOICE-ORDERS-PLAN.md](./AI-VOICE-ORDERS-PLAN.md). Validació
   - `fake` **nunca** se ejecuta en Vercel Production (`VERCEL_ENV=production`).
   - `openai` exige `OPENAI_API_KEY` **y** `AI_TRANSCRIPTION_MODEL` / `AI_EXTRACTION_MODEL`
     explícitos: no hay modelos por defecto mientras no estén confirmados con el proveedor.
+  - `AI_PROVIDER_BASE_URL` solo admite `https://api.openai.com/v1` y `https://eu.api.openai.com/v1`
+    (`lib/ai/providers/base-url.ts`). Con cualquier otro valor la voz queda no disponible y el
+    proveedor falla al crearse, antes de enviar nada. Sin definir: `https://api.openai.com/v1`;
+    la región la decide el propietario (G2).
   - Sin configuración, o con un nombre desconocido: no disponible (503 `ai_unavailable`).
 
 ## Puertas de seguridad (todas cerradas por defecto)
@@ -41,6 +45,23 @@ Control **interno** de coste y base para un futuro add-on. No es pricing comerci
 
 Cada presupuesto se compara con su propio gasto del mes, dentro de los mismos
 advisory locks (global → tenant → usuario). Las reservas caducadas siguen contando.
+
+**Duración del clip en el servidor.** El navegador corta la grabación en `max_clip_seconds`.
+El servidor no lee la duración del fichero porque no es fiable: Chrome escribe el WebM de
+`MediaRecorder` como flujo en vivo, sin `Duration` en la cabecera; un MP4 fragmentado puede
+declarar 0; y la cabecera la pone el cliente. En su lugar, `POST .../transcriptions` limita el
+tamaño (`maxAudioBytesForClip`, en `lib/ai/voice-orders/audio.ts`):
+
+```text
+min(max_audio_bytes, (max_clip_seconds + 2 s) × 128 kbps / 8 + 16 KiB)
+```
+
+- Con 60 s salen 1.008.384 bytes (antes, 3 MB). Por encima: 413 `audio_too_large`.
+- 128 kbps es 2,7 veces la tasa que pide la grabadora (48 kbps). Deja margen para el AAC de
+  Safari hasta que G5 lo mida. Los 2 s cubren el temporizador y el último fragmento.
+- Limita bytes, no segundos: a los 48 kbps de la grabadora caben unos 168 s, y un cliente que
+  codifique a menos tasa mete más. Bajar `max_clip_seconds` endurece el límite.
+- Límites inválidos (no finitos o ≤ 0) vuelven a los valores por defecto, no desactivan la comprobación.
 
 Operador (solo `service_role` o sesión `postgres` sin JWT):
 
@@ -166,6 +187,16 @@ con Preview y proveedor `fake`, hay que comprobar:
 
 Audio y transcript no se persisten. El ledger no guarda texto. Aviso visible en la UI.
 Piloto con datos sintéticos hasta el gate legal (DPA / subencargado, #82).
+
+**Comentario del ledger, pendiente de corregir.** En `20261018190000` el comentario de
+`ai_usage_events` dice «without transcript, audio, or PII text». Es impreciso: la tabla no
+guarda texto, pero `user_id` es un dato personal seudonimizado (identifica al usuario si se
+cruza con la tabla de usuarios). Además, no tiene FK, así que sobrevive al borrado del usuario
+(auditoría G2, B4). No se corrige en esa migración porque ya está aplicada en Staging y la CLI
+no vuelve a ejecutar una versión aplicada. Si se cambiara el fichero, Staging conservaría el
+comentario antiguo, distinto del repositorio y del que recibiría Production. Se corregirá con un
+`comment on table` en la migración que fije la retención del ledger, cuando el propietario
+decida el plazo.
 
 ## Rollback
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RECORDER_AUDIO_BITS_PER_SECOND } from "@/lib/ai/voice-orders/audio";
 
 export type VoiceRecorderPhase =
   | "idle"
@@ -86,7 +87,7 @@ export function useVoiceRecorder(maxClipSeconds: number) {
       chunksRef.current = [];
       const recorder = new MediaRecorder(stream, {
         mimeType: type,
-        audioBitsPerSecond: 48_000,
+        audioBitsPerSecond: RECORDER_AUDIO_BITS_PER_SECOND,
       });
       mediaRecorderRef.current = recorder;
       setMimeType(type);
