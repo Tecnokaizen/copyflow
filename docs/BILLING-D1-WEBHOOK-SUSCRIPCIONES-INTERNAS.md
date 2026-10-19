@@ -158,9 +158,53 @@ Después van A1 (#138, `20261018180000`) y la voz (#90, `20261018190000`). Orden
 - `e2e`: 5 GiB, concedida.
 - `demo`, `audit` y `e2e-import`: 0. No tienen suscripción; si hace falta, se les da capacidad con `grant_internal_subscription_v1`.
 
-**Pendiente: Stripe Test (D3).**
-- Staging no tiene `billing_prices` ni claves de Stripe Test: la ruta de checkout responde `503 Billing is not configured` antes de la guarda.
-- Las pruebas funcionales de checkout → webhook → alta, cancelar y volver a contratar, retención → «Resend» y conversión C con Stripe Test necesitan que el propietario configure D3.
+## D3 · Stripe Test en Staging (19/10/2026)
+
+**Entorno:**
+
+- Stripe Test, sandbox `acct_1UIZG9PvaU0aOV2Q`. Vercel Preview usa la misma cuenta: el checkout de onboarding se creó con el precio del bootstrap.
+- `gestcopy-staging` en `392eebc` (D1 + A1 + voz; contiene el código de facturación de D1 sin cambios).
+- BD de Staging con las migraciones de `20261018160000` a `20261018190000`.
+
+**Configuración comprobada o completada:**
+
+| Elemento | Resultado |
+| --- | --- |
+| Catálogo | `bootstrap-stripe-catalog --create --confirm-test`: `prod_VTFcxkmdG5EHGU` / `price_1USJ7jPvaU0aOV2QgaozsWJl`, Basic, 3.900 EUR al mes. Mapeo en `billing_prices` de Staging |
+| Webhook | El sandbox **no tenía endpoint**. Se creó `we_1USJUVPvaU0aOV2Q4m63zxCm` hacia `e2e.preview.app.gestcopy.com/api/webhooks/stripe?x-vercel-protection-bypass=…`, con los 6 eventos que procesa la app y API `2026-08-26.dahlia`. El propietario puso su secreto en Vercel Preview y redesplegó |
+| Firma | Firma de una sonda: el secreto nuevo da 200; el anterior, 400 |
+| Protección de Vercel | Sin bypass, 401. Por eso el bypass va como parámetro en la URL del endpoint |
+
+**Escenarios.** Cada uno usa un tenant sintético propio; `e2e` no se toca.
+
+| Tenant | Escenario | Resultado con eventos reales de Stripe Test |
+| --- | --- | --- |
+| `d3-retencion` | Suscripción creada fuera de la app (trial sin método de pago, sin cobro) con interna protegida | `customer.subscription.created` e `invoice.paid` quedan `failed/internal_subscription_current` sin reintento. Una retención con 2 eventos; la fila interna, intacta. Checkout por HTTP → `409 internal_subscription_current` |
+| `d3-retencion` | Adopción: `set_internal_billing_activation_v1` (ready) → `requeue` → «Resend» | Con la fila lista, checkout → **`409 subscription_pending_reconciliation`**. El primer `requeue` marca 2 eventos; el segundo es idempotente. El reenvío procesa los eventos en el intento 2: la fila interna pasa a `converted_to_stripe` y Stripe queda vigente. Retención `reconciled`. Auditoría `grant` → `activation_rpc` → `stripe_conversion`. Checkout → `409 current_subscription_exists` |
+| `d3-retencion` | Cancelación | `customer.subscription.deleted` procesado. Capacidad `last_contracted`, 5 GiB |
+| `d3-pendiente` | Retención y cierre manual de la interna (auditado como `direct`) | Sin suscripción vigente, checkout por HTTP → **`409 subscription_pending_reconciliation`** |
+| `d3-pendiente` | Cancelación en Stripe | La retención se concilia sola (`synced`, `canceled`). El checkout vuelve a estar permitido (`200`) |
+| `d3-alta` | **Onboarding con pago 1** (tarjeta 4242, propietario) | `pending_billing` → `active/ready`, con owner, estados y Basic. Eventos procesados aunque llegaron desordenados. 5 GiB `current_plan` |
+| `d3-alta` | Cancelación en Test | Capacidad `last_contracted`, 5 GiB. El tenant sigue activo |
+| `d3-alta` | **Volver a contratar con pago 2** | El intento anterior pasa a **`settled`** y se abre uno nuevo (antes daba 409 para siempre). Pago correcto, mismo customer de Stripe. Stripe `active`, 5 GiB. Checkout → `409 current_subscription_exists` |
+
+**Cierre:**
+
+- Lista de conciliación vacía.
+- E2E de `e2e`: `run.ts` 3/3 y `quotes.ts` 22/22.
+- Production y SUR4 sin cambios.
+- 0 secretos en artefactos y registros.
+- Credenciales temporales borradas; quedan solo las de Vercel.
+
+**Estado final del sandbox:**
+
+- `d3-alta` mantiene una suscripción Test **activa**. Sirve de fixture «contratado con Stripe» y se puede cancelar en el panel de Stripe.
+- El checkout abierto de `d3-pendiente` caduca solo.
+
+**Pendientes, fuera de D3:**
+
+- No se han podido leer los avisos (`[billing.reconciliation]` en los logs de Vercel, porque el conector da 403, y `BILLING_ALERT_EMAIL`).
+- En Preview, la página de retorno del checkout de facturación apunta al subdominio del tenant, que no existe. Es solo cosmético.
 
 ## Secuencia de despliegue coordinada (Production)
 
