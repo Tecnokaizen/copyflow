@@ -1,11 +1,12 @@
 # B1.3 · Recuperación completa con los esquemas privados (19/10/2026)
 
-**Estado:**
+**Estado (20/10/2026):**
 
-- Corrección del código en la PR de B1.3, con Release Gate y simulacros locales en verde.
-- **Pendiente de despliegue:** el runner de Coolify y un lote nuevo.
+- Corrección integrada en `main` con #141 (`f2fa8c6`) y Release Gate en verde.
+- Primer lote v2 de Production generado.
+- **Recuperación SQL validada** con el simulacro real (§ 6).
+- **Recuperación funcional completa del servicio: no validada.** Depende de requisitos externos al volcado (§ 7).
 - Production no se ha modificado.
-- #135 y #136 siguen bloqueadas hasta acreditar una recuperación completa con un lote nuevo.
 
 ## 1. Diagnóstico
 
@@ -151,3 +152,55 @@ Lo ejecuta el propietario, porque requiere acceso a Coolify.
 7. **Con D2 en Production:** `billing_private` aparece solo en el siguiente lote. Comprobarlo en el manifiesto antes de dar por buena la secuencia de D2/D1.
 
 **Riesgo hasta el primer lote v2:** los lotes de B2 no permiten una recuperación completa (§ 1). Conviene desplegar el runner corregido cuanto antes.
+
+## 6. Simulacro real con el primer lote v2 (20/10/2026)
+
+**Ejecución:** el propietario, en la pila local aislada `restore-drill`, con Supabase CLI 2.121.0 y la identidad `age` original.
+
+- **Lote:** `database/2026/10/20/20261020T121407Z` de Production.
+- **Herramientas:** `run-drill.sh`, con la imagen del runner construida desde `f2fa8c6`.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Restauración | `RESTORE_DATABASE_ISOLATED_SUCCESS` |
+| Huella de recuperación de `public`, `files_private`, `imports_private` y `kiosk_private` | Coincide en los cuatro esquemas: filas, RLS, políticas, ACL, SECURITY DEFINER, triggers, FK e índices |
+| Migraciones | 79, igual que Production |
+| RLS en `public` | 0 tablas sin RLS |
+| Políticas / funciones de `public` | 69 / 192 |
+| Datos | 6 tenants, 21 usuarios de Auth, 132 clientes y 323 pedidos |
+| RLS automático (`ensure_rls`) | Restaurado tras la restauración (requisito externo `supabase-automatic-rls`). Prueba de creación de tabla con RLS automático superada y revertida |
+
+**Conclusión:**
+
+- La recuperación **SQL** de la base de datos de Production desde la copia externa en B2 queda acreditada: estructura, datos, seguridad a nivel de fila, permisos y trazabilidad de migraciones.
+- B1.3 queda cerrado en su alcance SQL.
+
+## 7. Recuperación SQL frente a recuperación funcional del servicio
+
+El simulacro acredita la **base de datos**. Para que el **servicio** funcione sobre un proyecto restaurado faltan piezas que, por diseño, no están en el volcado.
+
+No se ha ejecutado ni modificado ninguna en Production. Este documento no contiene valores.
+
+| Pieza | Por qué no está en el volcado | Qué hace falta en una recuperación funcional | Estado |
+| --- | --- | --- | --- |
+| **Vault: `files_signing_secret`** | La clave raíz de Vault es del proyecto | Reinyectarlo desde la fuente segura. Debe coincidir con `FILES_SIGNING_SECRET` de la app, o rotar ambos a la vez | No validado |
+| **Vault: `kiosk_signing_secret`** | Ídem | Reinyectarlo. Debe coincidir con `KIOSK_SIGNING_SECRET` de la app, o rotar ambos | No validado |
+| **Configuración de Auth** (Site URL, redirecciones `*.app.gestcopy.com`, SMTP con Resend, plantillas, límites) | Vive en el panel de Supabase, no en SQL | Reconfigurar en el proyecto nuevo (`OPS-CIERRE-P0` § 4.1) | No validado |
+| **API del proyecto** (URL, clave publicable, clave secreta) | Cada proyecto tiene las suyas | Actualizar `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` y `SUPABASE_SECRET_KEY` en Vercel, y redesplegar | No validado |
+| **Files** (objetos en R2) | Están fuera de la BD; B1.2 los copia a `B2/files/` | Volver a copiar a R2 (o a un bucket nuevo) con `rclone copy`, sin `sync`. Las claves `orders/{tenant}/{order}/{file}` deben coincidir con las filas restauradas. Probar subida y descarga firmadas | No validado |
+| **Kiosk** | Depende de `kiosk_signing_secret` y de la URL pública | Tras reinyectar el secreto, probar el envío desde el kiosco de un tenant | No validado |
+| **RLS automático** (`ensure_rls`) | Trigger de eventos global, fuera de `public` | Reactivarlo y comprobarlo (README del runner) | ✅ Validado en el simulacro |
+| **Extensiones** (`pg_trgm` en `extensions`, `pgcrypto`) | Las gestiona el proyecto | Requisito previo del script de restauración | ✅ Validado en el simulacro |
+| **Stripe** (endpoint del webhook, claves) | Externo; apunta al dominio de la app | Sin cambios si la app mantiene su dominio. Comprobar la firma del webhook | No validado |
+| **Cron de Files** (`/api/internal/files/cleanup`) | Configuración de Vercel (`vercel.json`, `CRON_SECRET`) | Sin cambios si la app se mantiene | No aplica |
+
+**Para declarar la recuperación funcional completa** hace falta un ensayo aparte sobre un proyecto Supabase de pruebas, sin tocar Production:
+
+1. restaurar un lote v2;
+2. reinyectar los dos secretos de Vault en ese proyecto;
+3. configurar Auth y la API;
+4. apuntar a él una app de Preview;
+5. copiar una muestra de Files;
+6. probar inicio de sesión, la subida y descarga firmadas y el kiosco.
+
+Se planificará con autorización del propietario.
