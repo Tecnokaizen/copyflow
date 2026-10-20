@@ -54,6 +54,24 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupFiles, /set -Eeuo pipefail/);
   });
 
+  // B2 bills one Class C transaction per folder listed; the hourly copy must list
+  // the tree recursively (--fast-list) and still compare every object each run.
+  it("Files copy and verify list B2 with --fast-list and keep full coverage", () => {
+    for (const [name, source, command] of [
+      ["backup-files.sh", backupFiles, /\brclone copy\b[\s\S]*?--log-level INFO/],
+      ["verify-files.sh", verifyFiles, /\brclone check\b[\s\S]*?--log-level INFO/],
+    ] as const) {
+      const invocation = stripComments(source).match(command)?.[0] ?? "";
+      assert.ok(invocation, `${name}: rclone invocation missing`);
+      assert.match(invocation, /^\s*--fast-list \\$/m, `${name}: --fast-list missing`);
+      assert.doesNotMatch(
+        invocation,
+        /--(?:no-traverse|max-age|min-age|files-from|include|exclude|filter)\b/,
+        `${name}: must not narrow what each run compares`
+      );
+    }
+  });
+
   it("verify-files uses rclone check one-way download", () => {
     assert.match(verifyFiles, /\brclone check\b/);
     assert.match(verifyFiles, /--one-way/);
@@ -324,5 +342,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /EXTERNAL RECOVERY REQUIREMENTS/);
     assert.match(readme, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
     assert.doesNotMatch(readme, /--skip-auth/);
+    assert.match(readme, /B2 transaction budget/);
+    assert.match(readme, /transaction_cap_exceeded/);
+    assert.match(readme, /Class C/);
+    assert.match(readme, /`rclone copy --fast-list` R2/);
+    assert.match(readme, /Do not add `--max-age`/);
+    assert.match(readme, /Do not add `--no-traverse`/);
   });
 });
