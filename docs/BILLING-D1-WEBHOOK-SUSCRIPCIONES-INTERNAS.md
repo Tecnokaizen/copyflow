@@ -208,37 +208,72 @@ Después van A1 (#138, `20261018180000`) y la voz (#90, `20261018190000`). Orden
 
 ## Secuencia de despliegue coordinada (Production)
 
+Plan final, revisado el 20/10/2026 después de B1.3.
+
 **Hechos:**
-- Cada merge en `main` despliega Production automáticamente en Vercel, unos 2 minutos después.
+- Cada merge en `main` despliega Production automáticamente en Vercel, unos 5 minutos después: #141 tardó 12 minutos desde el merge hasta `success`.
 - Las migraciones **no** se aplican de forma automática: son siempre `db push --linked` desde `~/copyflow-ops/production-link`, con dry-run.
 - El código D2 y el D1 son compatibles con la BD sin migrar: no llaman a ningún RPC nuevo. Se comprobó en Staging (paso A).
 - En Production no hay filas `ready_for_checkout`, checkouts pagables ni webhooks pendientes.
+- **Production (lectura, 20/10):**
+  - 79 migraciones, la última `20261016130000`, igual que `main` (`f2fa8c6`);
+  - 6 tenants, sin altas desde la auditoría del 18/10;
+  - un precio Live activo en `billing_prices`.
+- **Backups:** desde B1.3 incluyen todos los esquemas de aplicación. `billing_private` entrará automáticamente en el primer lote posterior a las migraciones de D2, sin tocar el runner.
+
+**Precondiciones:**
+
+| # | Precondición | Estado |
+| --- | --- | --- |
+| 1 | D3 con Stripe Test | ✅ 19/10 |
+| 2 | Simulacro de recuperación SQL completo con un lote v2 real | ✅ 20/10, lote `2026/10/20/20261020T121407Z` |
+| 3 | #135 y #136 actualizadas con `main` (B1.3) y Release Gate en verde, incluido `Backup recovery (B1.3)` | ✅ actualizadas el 20/10, sin force. CI: ver PR |
+| 4 | Variables de Stripe Live en Vercel Production (`STRIPE_MODE=live`, clave Live, secreto del endpoint Live; `BILLING_ALERT_EMAIL` opcional) | ⛔ **Sin acreditar:** el conector de Vercel da 403. Lo revisa el propietario en el panel, sin mostrar valores |
+| 5 | Lote v2 reciente como punto de restauración, justo antes del paso 3 | ⛔ Al ejecutar. Requiere margen en el límite diario de transacciones de B2 (el 19/10 se alcanzó: `403 transaction_cap_exceeded`) |
+| 6 | Permiso para operar la BD de Production desde esta sesión (`db push --linked`) | ⛔ Lo decide el propietario. El modo automático bloqueó lecturas y el merge; si no se concede, ejecuta el propietario |
 
 **Pasos:**
 
-1. **Requisitos:**
-   - D3 hecho y pruebas de Stripe Test en verde;
-   - simulacro de restauración `full` comprobado (identidad `age` del propietario);
-   - variables de Vercel Production revisadas (`STRIPE_MODE`, claves y webhook, `BILLING_ALERT_EMAIL` opcional).
-2. **Merge de #135** (squash). Esperar a que el deployment de Production quede en `success` y hacer la comprobación HTTP sin sesión. Production no cambia de comportamiento.
+1. **Lote v2 previo:**
+   - ejecutar «Gestcopy Database Backup» manualmente en Coolify, fuera del minuto :17;
+   - `run-drill.sh verify` debe mostrar `manifiesto v2 · esquemas: files_private, imports_private, kiosk_private, public`;
+   - anotar el prefijo: es el punto de restauración de los pasos 3 y 6.
+2. **Merge de #135** (squash). Esperar el deployment de Production en `success` y hacer la comprobación HTTP sin sesión. Production no cambia de comportamiento.
 3. **Migraciones de D2 en Production:**
-   - foto previa (recuentos y capacidad por tenant);
+   - foto previa: recuentos y capacidad por tenant;
    - `db push --dry-run --linked`, que debe listar solo `…160000` y `…161000`;
    - `db push`;
-   - comprobación posterior: capacidad de `sur4` 5 GiB; `demo` 5 GiB; `billing-sandbox` 5 GiB; `tenant-prueba`, `copisteria-caprichos` y `prueba-final` 0, sin archivos; suscripciones sin cambios.
-4. **Actualizar #136** con `main` (merge, sin force) y esperar el CI en verde.
-5. **Merge de #136.** Deployment `success` y comprobación HTTP.
-6. **Migración de D1 en Production:**
+   - comprobación posterior:
+     - capacidad de `sur4` 5 GiB, `demo` 5 GiB y `billing-sandbox` 5 GiB;
+     - `tenant-prueba`, `copisteria-caprichos` y `prueba-final` a 0, sin archivos;
+     - suscripciones sin cambios.
+4. **Backup posterior a D2:**
+   - otro lote manual, cuyo manifiesto debe incluir **`billing_private`** en `application_schemas` y en `recovery_contract`;
+   - si no aparece, parar antes de D1.
+5. **Actualizar #136** con `main` (merge, sin force) y esperar el CI en verde.
+6. **Merge de #136.** Deployment en `success` y comprobación HTTP.
+7. **Migración de D1 en Production:**
    - dry-run con solo `…170000`;
    - `db push`;
-   - comprobación: SUR4 y demo intactos, 0 retenciones, `list_billing_reconciliation_v1()` vacía.
-7. **Después**, cada una con su merge, su dry-run (que liste solo su versión) y su autorización: #138 (A1, `…180000`) y #90 (voz, `…190000`).
+   - comprobación:
+     - SUR4 y demo intactos;
+     - 0 retenciones;
+     - `list_billing_reconciliation_v1()` vacía;
+     - `billing_private` con `internal_subscription_audit` y `subscription_holds`.
+8. **Después**, cada una con su merge, su dry-run (que liste solo su versión) y su autorización: #138 (A1, `…180000`) y #90 (voz, `…190000`).
 
-**Si hay que volver atrás:**
-- **Código:** «Instant Rollback» de Vercel al deployment anterior.
-  - Sirve con D2 migrado: el código anterior no depende de D2.
-  - Con D1 migrado, el código anterior falla de forma cerrada: `prepare` devuelve resultados que no conoce (500) y la sync retenida se registra como procesada. Con D1 en la BD, conviene volver atrás también la migración (`supabase/rollbacks/…170000`) o volver a desplegar el código.
-- **BD:** las vueltas atrás de `supabase/rollbacks/` conservan auditoría y retenciones.
+**Vuelta atrás operativa** (de menor a mayor alcance):
+
+1. **Código:** «Instant Rollback» de Vercel al deployment anterior.
+   - Sirve con D2 migrado: el código anterior no depende de D2.
+   - Con D1 migrado, el código anterior falla de forma cerrada: `prepare` devuelve resultados que no conoce (500) y la sync retenida se registra como procesada. Con D1 en la BD, hay que volver atrás también la migración (paso 2) o volver a desplegar el código.
+2. **BD:** las vueltas atrás de `supabase/rollbacks/` en orden inverso: `…170000`, `…161000` y `…160000`.
+   - Conservan la auditoría y las retenciones.
+   - Se aplican con autorización, tras una foto previa.
+   - Cada una tiene su comprobación.
+3. **Datos:** el lote v2 del paso 1 (o el del paso 4) **no** se restaura sobre Production; el script se niega con su ref.
+   - Ante una pérdida o corrupción, se restaura en un proyecto aislado con `run-drill.sh full`.
+   - Los datos afectados se recuperan desde allí de forma controlada.
 
 ## Runbook de conciliación
 
@@ -277,7 +312,7 @@ where provider = 'stripe' and provider_event_id = '<evt_…>' and status = 'fail
 | `20261018180000` | #138 (A1) | Concesiones auditables por tenant | 18/10 17:49 UTC | Pendiente, después de D1 |
 | `20261018190000` | #90 (voz) | Ledger y presupuesto de IA | 18/10 18:41 UTC | Pendiente, después de A1 |
 
-Staging tiene 84 migraciones (las 79 de `main` más estas cinco). Production tiene 79 (última `20261016130000`) y ninguna de estas.
+Staging tiene 84 migraciones (las 79 de `main` más estas cinco). Production tiene 79 (última `20261016130000`, comprobado el 20/10) y ninguna de estas.
 
 La voz (#90) ya está renumerada a `20261018190000`, por encima de D1 y de A1; antes usaba `20261018150000`. Se validó en local la combinación D1 + #90 renumerada: Release Gate y suites `phase53` en verde.
 
@@ -289,7 +324,7 @@ La voz (#90) ya está renumerada a `20261018190000`, por encima de D1 y de A1; a
    - ejecutar el seed E2E con `E2E_CAPACITY_AUTHORIZED_BY`, que concede Basic interna al tenant `e2e`;
    - E2E completo;
    - con Stripe Test (D3), probar la retención → `requeue` → «Resend», la conversión C y cancelar y volver a contratar.
-3. **Production (auditoría de solo lectura del 18/10):**
+3. **Production (auditoría de solo lectura del 18/10, confirmada el 20/10: mismos 6 tenants, sin archivos en los tres de capacidad 0):**
 
    | Tenant | Archivos | Capacidad hoy | Con S2 |
    | --- | --- | --- | --- |
