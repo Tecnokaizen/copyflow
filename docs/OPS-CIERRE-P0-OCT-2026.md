@@ -301,5 +301,5 @@ La implementación de la PR 2 empieza el 16/10, en una rama propia. No se aplica
 3. **Migration V1, PR 2**: en desarrollo según el ADR cerrado. Su gate se presentará antes de cualquier merge o migración en Production.
 4. **SMTP con Resend** y URL Configuration de Auth (§4.1).
 5. **Supabase Pro** y **Vercel Pro** (§4.2 y §4.3): decisión y compra.
-6. **Simulacro de restauración completo** con la identidad `age` (§3).
+6. ~~**Simulacro de restauración completo**~~ con la identidad `age` (§3). **Recuperación SQL validada el 20/10** con el lote v2 `20261020T121407Z` (`docs/BACKUP-B13-ESQUEMAS-PRIVADOS-OCT-2026.md` § 6). La recuperación funcional completa (Vault, Auth/API, Files, Kiosk) sigue pendiente (§ 7).
 7. **Contract de #95**: sigue sin iniciarse.
