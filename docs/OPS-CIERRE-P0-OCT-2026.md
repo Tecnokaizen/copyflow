@@ -71,6 +71,12 @@ Verificado el 16/10, en solo lectura, con `rclone` sobre el bucket `gestcopy-bac
 
 ### Simulacro de restauración aislada (preparado)
 
+> **19/10/2026: el simulacro `full` falló por el defecto B1.3.**
+> - El volcado de aplicación solo incluía `public`, sin `imports_private`, `files_private` ni `kiosk_private`.
+> - Los lotes de B2 anteriores a la corrección (manifiesto `version: "1"`) no permiten una recuperación completa.
+> - Diagnóstico, corrección, validación y despliegue: `docs/BACKUP-B13-ESQUEMAS-PRIVADOS-OCT-2026.md`.
+> - `run-drill.sh` ya exige un lote v2 y pasa el manifiesto al script de restauración.
+
 **Ubicación:** `~/copyflow-ops/restore-drill/`, fuera del repositorio. Contiene `run-drill.sh` y la configuración de una pila Supabase local desechable (`restore-drill`, base de datos en `127.0.0.1:56832`).
 
 **Modos:**

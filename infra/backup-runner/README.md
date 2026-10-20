@@ -27,7 +27,7 @@ Cloudflare R2 (gestcopy-files)          Supabase / PostgreSQL (shared)
 Backblaze B2 (gestcopy-backups-prod-eu)
         ├── files/orders/{tenant_id}/{order_id}/{file_id}
         └── database/YYYY/MM/DD/{TIMESTAMP}/
-              ├── gestcopy-application.dump.age
+              ├── gestcopy-application.dump.age   (public + private schemas)
               ├── gestcopy-auth.dump.age
               ├── gestcopy-migrations.dump.age
               └── manifest.json
@@ -117,9 +117,43 @@ Do **not** ship one raw whole-database dump as the sole artifact. Produce three 
 
 | Artifact | Scope | Flags (base) |
 |----------|--------|--------------|
-| `gestcopy-application.dump.age` | schema `public` (tables, data, indexes, constraints, functions, triggers, views, RLS, sequences, **ACL/GRANT/REVOKE**) | `--format=custom --no-owner --no-subscriptions --schema=public` (**no** `--no-privileges`) |
+| `gestcopy-application.dump.age` | **every application schema**: `public` and the Gestcopy private schemas (`files_private`, `imports_private`, `kiosk_private`, and later ones such as `billing_private`), with tables, data, indexes, constraints, functions, triggers, views, RLS, sequences and **ACL/GRANT/REVOKE** | `--format=custom --no-owner --no-subscriptions --strict-names --schema=<each application schema>` (**no** `--no-privileges`) |
 | `gestcopy-auth.dump.age` | schema `auth` **data only**, except `auth.schema_migrations` | `--format=custom --data-only --no-owner --no-privileges --schema=auth --exclude-table-data=auth.schema_migrations` |
 | `gestcopy-migrations.dump.age` | complete `supabase_migrations` schema **and data** | `--format=custom --no-owner --no-privileges --schema=supabase_migrations` |
+
+### Application schemas (B1.3 fix, October 2026)
+
+Until October 2026 the application dump selected `--schema=public` only. The
+private schemas created by later migrations were therefore missing from every
+recovery set, and the 19/10/2026 drill failed in application post-data:
+`public.clients` has the trigger `clients_import_origin_guard`, which runs
+`imports_private.guard_client_origin()`, and a foreign key to
+`imports_private.client_import_batches`. Those sets (manifest `version: "1"`)
+also lack all private-table data. The restore helper rejects them.
+
+`scripts/recovery-contract.sh` (sourced by both scripts) now defines the set:
+
+- **Discovery, never a fixed subset.** Inside the snapshot transaction, every
+  schema except PostgreSQL's own (`pg_*`, `information_schema`) and the listed
+  Supabase platform schemas (`auth`, `storage`, `extensions`, `realtime`,
+  `_realtime`, `vault`, `supabase_migrations`, `supabase_functions`, …) is an
+  application schema and is dumped. A schema added by a future migration is
+  included without changing the runner.
+- **Required baseline.** `public`, `files_private`, `imports_private` and
+  `kiosk_private` exist in Production; a source without any of them fails before
+  `pg_dump`.
+- **Recovery fingerprint.** In the same snapshot, per application schema: exact
+  row counts, RLS flags, policies, functions (and how many are SECURITY
+  DEFINER), triggers, constraints (and FKs), indexes, views, types, sequences and
+  the ACL entries of every role other than the owner, `postgres`,
+  `supabase_admin` and `pg_database_owner` (those are reassigned by
+  `--no-owner`). Definitions are compared as MD5 hashes of the fully qualified
+  deparse; extension objects are excluded. Only aggregate counts and hashes are
+  stored, no row data.
+- **Archive check before encryption.** The application archive must define
+  exactly the discovered schemas and the same number of tables per schema as the
+  catalog. Otherwise the run fails before `age`, before any upload, and without
+  a manifest.
 
 ### Shared exported snapshot
 
@@ -139,8 +173,11 @@ After all three custom archives are created, and **before** age encryption or an
 
 Manifest fields include:
 
+- `version: "2"` (multi-schema recovery set)
 - `consistency: "postgresql-exported-snapshot"`
 - `status: "complete"`
+- `application_schemas`: the schemas in the application archive
+- `recovery_contract`: the recovery fingerprint (`fingerprint_version: 1`)
 - non-secret `external_recovery_requirements` identifiers for Vault, Auth configuration, extensions, and Supabase Automatic RLS
 
 **Auth caveats (documented, not automated away):**
@@ -222,46 +259,57 @@ Rejects **before** target mutation when:
 
 Errors mention Production project-ref resolution; they never print full connection strings or credentials. Project-ref guards remain effective even if `GESTCOPY_DATABASE_URL` is absent.
 
-The helper requires already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies every selected artifact exists, is non-empty, and is a readable custom archive using `pg_restore --list`. The application archive must contain the `public` schema definition; the migrations archive must contain both the `supabase_migrations` schema and its `schema_migrations` table data. Any failure exits before target `psql`, before `DROP`, and before restore.
+The helper requires the set's `--manifest PATH` and the already-decrypted `--application PATH`, `--auth PATH`, and (for a full drill) `--migrations PATH`. Before connecting destructively to the target, it verifies:
 
-Before `DROP public`, the helper makes a **read-only** target check for the B1.3 recovery contract `pg_trgm@extensions`. This is required because the canonical application archive references `extensions.gin_trgm_ops`. If `pg_trgm` is absent or installed in another schema, the helper stops before any mutation; it never runs `CREATE EXTENSION` automatically.
+- the manifest is complete, `version: "2"`, and declares the required application schemas with a recovery fingerprint for each of them; a `version: "1"` (public-only) set is rejected;
+- every artifact exists, is non-empty, and is a readable custom archive (`pg_restore --list`);
+- the application archive defines exactly the declared schemas (including `public`), with the declared number of tables in each;
+- the migrations archive contains both the `supabase_migrations` schema and its `schema_migrations` table data.
+
+Any failure exits before target `psql`, before `DROP`, and before restore.
+
+Before `DROP public`, the helper makes **read-only** target checks: the B1.3 recovery contract `pg_trgm@extensions` (the canonical application archive references `extensions.gin_trgm_ops`), and the PostgreSQL major version, which must equal the source's (the fingerprint compares deparsed definitions). If either fails, the helper stops before any mutation; it never runs `CREATE EXTENSION` automatically.
 
 The target must be a **disposable, isolated, Supabase-compatible project**. Vanilla PostgreSQL is not a supported full-recovery target because `public.profiles(id)` references `auth.users(id)` and recovery depends on compatible Supabase Auth objects and users.
 
-After every guard, archive preflight, and read-only extension check passes, the helper runs:
+After every guard, archive preflight, and read-only target check passes, the helper resets every application schema in one transaction:
 
 ```sql
 DROP SCHEMA IF EXISTS public CASCADE;
+DROP SCHEMA IF EXISTS files_private CASCADE;   -- every other declared schema
+CREATE SCHEMA public;
+GRANT USAGE ON SCHEMA public TO PUBLIC;
 ```
 
-It does **not** recreate `public` manually: application pre-data recreates it from the archive. The helper therefore destroys/resets `public` only on the explicitly confirmed isolated target. Never use it on a persistent or Production project.
+`public` is recreated with the privilege PostgreSQL 15+ records as its initial privilege (`pg_init_privs`). `pg_dump` never emits that grant and dumps the ACL of `public` relative to it, so a schema recreated from the archive alone would lose it. Pre-data restores everything else (including the archive's own `public` grants and any REVOKE). `GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only` confirms this reset of `public` and the private schemas; it happens only on the explicitly confirmed isolated target. Never use it on a persistent or Production project.
 
 ### Restore order (sectioned)
 
 Schema inspection shows `public.profiles(id)` has `FOREIGN KEY … REFERENCES auth.users(id)`. Membership and invitation RPCs also join `auth.users`. Therefore restore applies application constraints **after** auth data:
 
-1. reset `public` on the confirmed isolated target
-2. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`), which recreates `public`
+1. reset every application schema on the confirmed isolated target and recreate `public` with its initial privilege
+2. application `--section=pre-data` (`--no-owner`, **no** `--no-privileges`), which recreates the private schemas and every object, in dependency order across schemas
 3. application `--section=data`
 4. mandatory auth data (`--data-only --no-owner --no-privileges`), using an explicit filtered restore list which always excludes `auth.schema_migrations` (including for a legacy archive)
 5. `supabase_migrations` schema + data unless `--skip-migrations`, so a newly created Supabase project without that schema can recover the migration history
 6. application `--section=post-data` (FKs / indexes / triggers / ACL) through a filtered TOC that excludes only `supabase_admin` `DEFAULT ACL` entries
 7. read-only semantic validation: `public` exists, has tables, every public table has RLS, public policies exist, and `supabase_migrations.schema_migrations` exists unless `--skip-migrations` was requested
+8. recovery fingerprint: recomputed on the target for every declared schema and compared with the manifest; any difference is listed (schema, metric, expected, restored)
 
-The success marker is printed only after that validation succeeds. Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
+The success marker is printed only after both validations succeed. Auth is mandatory for full recovery. `--skip-migrations` remains available only for a data recovery that intentionally omits Supabase CLI migration history; that mode is **not** a full recovery drill. Full recovery onto a new Supabase project still requires validating Auth schema compatibility before applying the auth dump.
 
 ## EXTERNAL RECOVERY REQUIREMENTS
 
-The logical dumps do **not** contain the Supabase Vault root encryption key. Gestcopy's `files_signing_secret` must remain external to B2, the manifest, Git, Coolify database-backup environment variables, and logs. This PR deliberately does not automate secret injection.
+The logical dumps do **not** contain the Supabase Vault root encryption key. Gestcopy's `files_signing_secret` and `kiosk_signing_secret` must remain external to B2, the manifest, Git, Coolify database-backup environment variables, and logs. This PR deliberately does not automate secret injection.
 
 After restoring a new isolated Supabase instance:
 
 1. Reconfigure Supabase Auth/API settings that live outside the logical dump.
 2. Verify the required Supabase/PostgreSQL extensions. For B1.3, `pg_trgm` must be installed in `extensions` before invoking the helper.
-3. Reinject `files_signing_secret` into Supabase Vault from the approved external secure source.
-4. Verify it matches the secret expected by the Gestcopy application/configuration.
+3. Reinject `files_signing_secret` and `kiosk_signing_secret` into Supabase Vault from the approved external secure source.
+4. Verify they match the secrets expected by the Gestcopy application/configuration.
 5. Re-enable and separately verify Supabase Automatic RLS as described below.
-6. Exercise Files signed-upload/download flows before declaring recovery complete.
+6. Exercise Files signed-upload/download and kiosk flows before declaring recovery complete.
 
 ### Supabase Automatic RLS is external to the logical recovery set
 
@@ -279,7 +327,7 @@ The expected enabled trigger is `ensure_rls` running the intended RLS auto-enabl
 
 ### Recovery-drill validation baseline
 
-The helper's final validation intentionally checks semantic invariants rather than hardcoding a schema version. For the canonical B1.3.1 recovery set (`database/2026/09/20/20260920T185408Z`), the independent drill baseline is **27 public tables with RLS enabled (27/27)** and **60 public policies**. Run the following after a clean isolated restore and before declaring the drill complete:
+Since manifest version 2 the baseline travels with each recovery set: the helper compares the restored target with the set's own `recovery_contract` (exact rows, RLS, policies, ACL, SECURITY DEFINER functions, triggers, FKs and indexes per application schema) and refuses success on any difference. No schema version is hardcoded. Historic reference: the B1.3.1 set `database/2026/09/20/20260920T185408Z` had **27 public tables with RLS enabled (27/27)** and **60 public policies**, before the private schemas existed. Also run the following after a clean isolated restore and before declaring the drill complete:
 
 ```sql
 SELECT
@@ -298,11 +346,12 @@ SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL
   AS migrations_history_exists;
 ```
 
-For a future schema version, investigate deviations from its expected baseline rather than changing the helper's generic checks. Also verify Automatic RLS separately with the query above: existing restored tables retain their RLS state, while Automatic RLS governs future table creation.
+Investigate any fingerprint mismatch rather than changing the helper's checks. Also verify Automatic RLS separately with the query above: existing restored tables retain their RLS state, while Automatic RLS governs future table creation.
 
 `manifest.json` contains only these non-secret requirement identifiers:
 
 - `supabase-vault:files_signing_secret`
+- `supabase-vault:kiosk_signing_secret`
 - `supabase-auth-config`
 - `supabase-extensions`
 - `supabase-automatic-rls`
@@ -337,6 +386,14 @@ docker run --rm --network none \
   gestcopy-backup-runner:db-v1 \
   bash /tests/backup-runner.runtime.test.sh
 ```
+
+End-to-end recovery drill with real PostgreSQL tools (Docker + Supabase CLI; two disposable local stacks, a throwaway age key and an rclone local remote; no secrets). It backs up a migrated and seeded source with the real image, proves that sets missing a private schema are rejected before the target changes, restores into an empty Supabase project and compares the fingerprints of source and target independently:
+
+```bash
+bash infra/backup-runner/backup-runner.recovery.test.sh
+```
+
+The Release Gate runs it on every pull request (job `Backup recovery (B1.3)`).
 
 Do **not** commit secrets. Do **not** run live dumps against Production Supabase from this documentation alone.
 
