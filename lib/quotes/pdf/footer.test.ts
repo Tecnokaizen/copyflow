@@ -104,6 +104,25 @@ describe("tenant quote footer in the PDF", () => {
     });
   });
 
+  it("keeps each tenant's footer in its own PDF, also when tenants render at the same time", async () => {
+    const tenants: [string, string[]][] = [
+      ["<p>Empresa A S.L.</p><p>Calle A 1 · 28000 Madrid</p>", ["Empresa A S.L.", "Calle A 1 · 28000 Madrid"]],
+      ["<p>Empresa B S.A. · CIF B11111111 · Avenida B 22, 08000 Barcelona · Tel. 930 000 000 · info@b.example</p>",
+        ["Empresa B S.A. · CIF B11111111 · Avenida B 22, 08000 Barcelona · Tel. 930 000 000 · info@b.example"]],
+      ["", []],
+      ["<p><strong>Empresa C</strong></p><p></p><p>Línea C3<br>Línea C4</p>", ["Empresa C", "", "Línea C3", "Línea C4"]],
+    ];
+    const models = tenants.map(([footer]) => modelWithFooter(footer));
+    const alone: Buffer[] = [];
+    for (const model of models) alone.push(await renderQuotePdf(model));
+    const together = await Promise.all(models.map((model) => renderQuotePdf(model)));
+    for (const [index, [, lines]] of tenants.entries()) {
+      assert.deepEqual(together[index], alone[index], `tenant ${index}: same bytes alone and concurrently`);
+      const pdf = await PDFDocument.load(together[index]);
+      assert.deepEqual(footerBand(drawnLines(pdf, pdf.getPage(0)), lines.length).map((line) => line.text.trim()), lines);
+    }
+  });
+
   it("stays byte-identical across retries with wrapped lines", async () => {
     const model = modelWithFooter(`<p>${"Texto largo de prueba ".repeat(12)}</p>`);
     assert.deepEqual(await renderQuotePdf(model), await renderQuotePdf(model));

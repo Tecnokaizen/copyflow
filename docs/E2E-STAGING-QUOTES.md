@@ -101,6 +101,23 @@ verificada por el operador), `PDFTOTEXT_BIN` (ejecutable compatible con
 con pypdf porque el runtime incluye renderizado Poppler pero no `pdftotext`;
 CI instala `poppler-utils`.
 
+### Pie de presupuestos (#144)
+
+`e2e/staging/quote-footer.ts` comprueba que el PDF imprime el pie tal como lo
+configura el tenant. Mismo guard, harness y variables; solo `e2e`. Recorre
+pies de 1, 2, 3 y 4 líneas, líneas largas, pie vacío y un presupuesto de
+varias páginas. Lee el PDF descargado de R2 Staging con
+`lib/quotes/pdf/pdf-inspect.ts`, sin Poppler. Restaura el pie de `e2e` al
+terminar, también si falla. No se ejecuta en el workflow manual.
+
+```sh
+PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs \
+  npx tsx e2e/staging/quote-footer.ts
+```
+
+Ejecución `20261021T142649Z-5a0a` contra `aceaefb`: 7/7. Detalle en
+[QUOTE-PDF-FOOTER-HOTFIX.md](QUOTE-PDF-FOOTER-HOTFIX.md).
+
 ### Aislamiento entre tenants (obligatorio)
 
 Las dos negativas entre tenants se ejecutan siempre. Una ejecución solo
