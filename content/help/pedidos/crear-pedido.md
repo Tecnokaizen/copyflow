@@ -20,6 +20,17 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 
 Si tu organización tiene activados los **pedidos por voz**, puedes dictar o escribir el pedido: Gestcopy propone un borrador en el mismo formulario. El audio se envía a un proveedor de IA para transcribirlo y no se guarda. Revisa siempre los datos y pulsa **Crear pedido** tú; la IA no crea el pedido sola.
 
+## Destacar información importante
+
+En **Instrucciones** (o **Descripción** en el pedido rápido) y en **Notas internas** puedes cambiar el tamaño y el color de una parte del texto, por ejemplo para que «NO CORTAR» destaque en grande y en rojo.
+
+1. Selecciona el texto.
+2. En la barra del editor, abre **Tamaño del texto** (icono «Aa») y elige Pequeño, Normal, Grande o Muy grande.
+3. Abre **Color del texto** (icono «A») y elige Rojo, Naranja, Verde, Azul o Morado.
+4. Para volver al formato normal, elige **Normal** o **Predeterminado**, o pulsa **Quitar formato**.
+
+El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo, al añadir notas y en la versión imprimible. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños ni colores.
+
 ## Qué ocurre después
 
 El pedido aparece en las listas y en el panel con el estado inicial configurado. Si asignaste responsable, cuenta en su carga.

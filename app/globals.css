@@ -35,6 +35,12 @@
     --gc-danger: 0 72% 51%;
     --gc-info: 199 89% 42%;
     --gc-urgent: 346 77% 50%;
+    /* Rich text colors (lib/rich-text/text-styles.ts): >= 4.5:1 on light surfaces. */
+    --gc-text-red: 0 74% 42%;
+    --gc-text-orange: 17 88% 40%;
+    --gc-text-green: 163 94% 24%;
+    --gc-text-blue: 224 76% 48%;
+    --gc-text-purple: 272 72% 47%;
   }
   .dark {
     /* Navy / indigo surfaces with a cyan accent. Light tokens stay in :root. */
@@ -67,6 +73,12 @@
     --gc-danger: 0 72% 58%;
     --gc-info: 199 89% 58%;
     --gc-urgent: 346 77% 64%;
+    /* Lighter tones keep >= 4.5:1 on the dark surfaces, editor included. */
+    --gc-text-red: 0 91% 71%;
+    --gc-text-orange: 27 96% 61%;
+    --gc-text-green: 158 64% 52%;
+    --gc-text-blue: 213 94% 68%;
+    --gc-text-purple: 270 95% 75%;
   }
 }
 
@@ -191,6 +203,42 @@
   .gc-picker-panel {
     @apply z-50 rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-xl;
   }
+}
+
+/*
+ * Rich text styles (lib/rich-text/text-styles.ts). Only the sanitizer's tokens
+ * reach the DOM; sizes are relative to the surrounding text so they scale with
+ * each surface, and colors follow the theme tokens above (print.css pins them).
+ */
+[data-text-size="small"] {
+  font-size: 0.875em;
+}
+[data-text-size="large"] {
+  font-size: 1.25em;
+}
+[data-text-size="xlarge"] {
+  font-size: 1.5em;
+}
+[data-text-color="red"] {
+  color: hsl(var(--gc-text-red));
+}
+[data-text-color="orange"] {
+  color: hsl(var(--gc-text-orange));
+}
+[data-text-color="green"] {
+  color: hsl(var(--gc-text-green));
+}
+[data-text-color="blue"] {
+  color: hsl(var(--gc-text-blue));
+}
+[data-text-color="purple"] {
+  color: hsl(var(--gc-text-purple));
+}
+.gc-text-swatch {
+  background-color: hsl(var(--foreground));
+}
+.gc-text-swatch[data-text-color] {
+  background-color: currentColor;
 }
 
 /* Scoped overrides outside layers keep vendor defaults from overriding Gestcopy. */

@@ -20,6 +20,7 @@ export function OrderNotes({
       <SectionCard title="Notas internas" bodyClassName="px-5 py-5 sm:px-6">
         <RichTextEditor
           ariaLabel="Notas internas"
+          textStyles
           value={draft.notes}
           onChange={(value) => onDraftChange({ notes: value })}
         />
@@ -34,6 +35,7 @@ export function OrderNotes({
       ) : (
         <RichTextContent
           value={order.notes}
+          textStyles
           className="text-sm leading-relaxed text-foreground"
         />
       )}

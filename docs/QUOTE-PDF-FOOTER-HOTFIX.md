@@ -21,8 +21,8 @@ Fecha: 21 de octubre de 2026. Validado en Staging; Production sin cambios.
   instantánea; cambiar Ajustes después no altera presupuestos preparados.
 - **Líneas.** `richTextLines` convierte el HTML en líneas: cada párrafo o
   `<br>` es una línea, la línea en blanco entre textos se conserva y las del
-  principio y el final se descartan. Los espacios repetidos se muestran como
-  uno, igual que el editor de Ajustes al recargar.
+  principio y el final se descartan. El HTML guardado conserva los espacios
+  repetidos que escribe el tenant (p. ej. `Ciudad   -   Tel.:  900…`).
 - **Documento.** El PDF se genera una sola vez y se guarda en R2; los
   reintentos devuelven ese objeto (`generateQuotePdf`, `replayed`).
 
@@ -37,6 +37,13 @@ Guardado y lectura eran correctos. El fallo estaba en el render.
 2. **Línea `referencia · moneda`.** El render pintaba en todas las páginas
    `{reference}{revision} · {currency}` justo debajo del pie, con el mismo
    gris y tamaño, y parecía parte de él.
+3. **Espacios colapsados.** `richTextLines` reduce cualquier secuencia de
+   espacios a uno. Un pie que separa los campos con varios espacios perdía
+   esa separación en el PDF.
+
+Confirmado con el pie real de SUR4 (ver «Validación con el pie de SUR4»): con
+el código de `main`, sus 2 líneas salen en 4, una de ellas cortada en mitad
+de un teléfono, sin la separación entre campos y con `SUR4-P0029 · EUR`.
 
 ## Corrección
 
@@ -50,7 +57,12 @@ Guardado y lectura eran correctos. El fallo estaba en el render.
   altura de las líneas impresas.
 - Se elimina la línea `referencia · moneda`. La referencia sigue en la
   cabecera de cada página y la numeración `n / N` no cambia.
-- El render no fija textos, direcciones ni número de líneas.
+- El pie conserva los espacios escritos dentro de cada línea
+  (`richTextLines(…, { preserveSpaces: true })`). Saltos y tabuladores del
+  código HTML cuentan como un espacio. Los contadores y límites de Ajustes
+  siguen colapsando espacios, así que ningún pie guardado pasa a ser inválido.
+- El render no fija textos, direcciones ni número de líneas. Solo parte una
+  línea cuando no cabe en el ancho físico de la página.
 
 ## Pruebas
 
@@ -75,11 +87,14 @@ posición y su borde derecho, y decodifica ligaduras como «fi».
   mismos bytes que por separado, y cada PDF lleva solo su pie.
 - Pie congelado: cambiar Ajustes después de preparar no altera el pie del
   presupuesto (prueba existente en `pdf.test.ts`).
+- Espacios: un pie con campos separados por 2 y 3 espacios se imprime con esa
+  separación; `richTextLines` solo los conserva con `preserveSpaces` y los
+  contadores de Ajustes cuentan igual que antes (`lines.test.ts`).
 - Unidad de `wrapFooterLine`: corte por espacio, palabra larga, marcas a
   ambos lados del corte, línea en blanco y pares sustitutos.
 
 Validación local: `tsc --noEmit`, `eslint`, `TZ=UTC npx tsx --test`
-(1336/1336) y `next build`.
+(1338/1338) y `next build`.
 
 ## CI: fallo intermitente de Kiosk (#145)
 
@@ -117,6 +132,35 @@ Todos sin `referencia · EUR`, con la referencia en la cabecera de cada página
 y numeración `n / N`. Revisados también visualmente. El pie de `e2e` estaba
 vacío y se dejó vacío (comprobado por hash). Sin tráfico a Production.
 
+Tras conservar los espacios (`6de90b8`), `gestcopy-staging` avanzó por
+fast-forward `aceaefb..ac5e372` (Vercel `dpl_4X4UNKtVU2ZpovBQxkL3uiEZeG3S`,
+READY, mismos alias). Los 7 casos se repitieron sobre ese deployment: 7/7
+(`20261021T162059Z-6f6a`, E2E-P0027…E2E-P0033), con el mismo resultado.
+
+## Validación con el pie de SUR4
+
+- **Lectura.** Una única consulta de solo lectura en Production, autorizada
+  por el owner el 21/10/2026 y limitada al tenant SUR4: el pie guardado en
+  `tenant_settings.branding` y el congelado en `seller_snapshot` de
+  SUR4-P0029 (versión 1, enviada). Coinciden. Sin escrituras. El contenido
+  no se copia al repositorio, a la PR ni a los informes de la ejecución.
+- **Estructura.** Dos líneas unidas por un salto de línea (`<br>`), con los
+  campos separados por secuencias de 2 y 3 espacios. Cada línea cabe en el
+  ancho de la página.
+- **Antes (código de `main`).** 4 líneas, una cortada en mitad de un
+  teléfono, espacios colapsados y `SUR4-P0029 · EUR` debajo.
+- **Después, en Staging.** `E2E_FOOTER_FILE` con el pie guardado, tenant
+  `e2e`, ejecución `20261021T162207Z-af91`: E2E-P0034, 1 página, las 2 líneas
+  impresas tal como están configuradas, con sus espacios y sin líneas
+  añadidas por el ancho; sin `referencia · EUR`. El pie de `e2e` se guardó en
+  disco con su hash antes del cambio, se restauró y el hash coincide.
+- **Referencia de SUR4.** Con el código del PR y la referencia SUR4-P0029
+  (render local), la referencia sigue en la cabecera y desaparece la línea
+  inferior.
+
+La evidencia visual con los datos reales queda fuera de git, en
+`e2e-artifacts/pie-presupuestos-20261021/sur4/`.
+
 ## Despliegue y vuelta atrás
 
 - Sin migraciones, variables de entorno ni dependencias nuevas.
@@ -138,5 +182,10 @@ vacío y se dejó vacío (comprobado por hash). Sin tráfico a Production.
 ## Fuera de alcance
 
 - Límite de 4 líneas y 400 caracteres de Ajustes.
+- **Editor de Ajustes y espacios repetidos.** El editor (TipTap) carga el
+  contenido guardado con el análisis por defecto de ProseMirror, que colapsa
+  los espacios repetidos. El valor guardado no cambia, pero Ajustes lo
+  muestra con un solo espacio y, si el tenant vuelve a guardar, la separación
+  se pierde. El editor es compartido por otros campos; se tratará aparte.
 - Título largo del presupuesto: al ocupar dos líneas se solapan (estilo
   `title`). Ya existía; se tratará aparte.
