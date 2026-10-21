@@ -68,4 +68,15 @@ describe("quote footer rich text", () => {
     assert.equal(runs.find((run) => run.text === "Mal")?.href, undefined);
     assert.equal(runs.find((run) => run.text === "Web")?.href, "https://example.org/?a=1&b=2");
   });
+  it("keeps typed runs of spaces only when asked, and counts as before (#144)", () => {
+    const footer = "<p>Calle A, 1  Ciudad   -   Tel.:  900 000 000<br>Calle B, 2\n\t  Ciudad\u00a0\u00a0-\u00a0Tel. 900 000 001</p>";
+    const text = (lines: ReturnType<typeof richTextLines>) => lines.map((line) => line.map((run) => run.text).join(""));
+    assert.deepEqual(text(richTextLines(footer, { preserveSpaces: true })), [
+      "Calle A, 1  Ciudad   -   Tel.:  900 000 000",
+      "Calle B, 2 Ciudad  - Tel. 900 000 001",
+    ]);
+    assert.deepEqual(text(richTextLines(footer)), ["Calle A, 1 Ciudad - Tel.: 900 000 000", "Calle B, 2 Ciudad - Tel. 900 000 001"]);
+    // Settings limits keep counting collapsed spaces, so no saved footer becomes invalid.
+    assert.deepEqual(richTextLineStats(footer), { chars: text(richTextLines(footer)).join("\n").length, lines: 2 });
+  });
 });
