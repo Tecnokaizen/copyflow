@@ -10,10 +10,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Playwright is loaded at runtime, outside package.json. */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { drawnLines, type DrawnLine } from "../../lib/quotes/pdf/pdf-inspect";
+import { quoteFooterLines } from "../../lib/quotes/pdf/render";
+import { quoteFooterFromBranding } from "../../lib/tenant/branding";
 import { classifyRequest, r2BucketFromUrl, resolveStagingTarget } from "./guard";
 import { Harness } from "./harness";
 import { Redactor } from "./redact";
@@ -37,6 +39,20 @@ const CASES: FooterCase[] = [
 ];
 const PAGE_LABEL = /^\d+ \/ \d+$/;
 const RIGHT_EDGE = 595.28 - 40;
+
+/**
+ * Optional: E2E_FOOTER_FILE runs a single case with a footer exactly as a
+ * tenant saved it (raw `branding.quote_footer`), read from a local file kept
+ * outside git. The expected printed lines come from the server's own parser
+ * and renderer, so the check does not depend on any tenant-specific format.
+ */
+async function savedFooterCase(file: string): Promise<FooterCase> {
+  const raw = await readFile(file, "utf8");
+  const footer = quoteFooterFromBranding({ quote_footer: raw });
+  assert.ok(footer, "E2E_FOOTER_FILE: the saved footer is empty or not accepted by Settings");
+  const lines = (await quoteFooterLines(footer)).map((runs) => runs.map((run) => run.text).join("").trim());
+  return { name: "configuracion-guardada", footer: raw, lines };
+}
 
 /** Footer lines, top to bottom: from the bottom margin up, one line height apart (the body sits ≥ 18 pt higher). */
 function footerBand(lines: DrawnLine[]) {
@@ -78,6 +94,8 @@ async function main() {
       const current = await call("/api/settings/organization"); assert.equal(current.status, 200);
       oldFooter = current.body.quote_footer || null;
       result.originalFooterSha256 = createHash("sha256").update(oldFooter ?? "").digest("hex");
+      // Kept on disk before any change, so it can be restored by hand if the process dies.
+      await writeFile(path.join(dir, "e2e-footer-original.json"), JSON.stringify({ sha256: result.originalFooterSha256, quote_footer: oldFooter }, null, 2));
     });
     const client = await h.step("synthetic client", async () => {
       const r = await call("/api/clients", "POST", { name: "E2E Cliente pie " + run, email: `e2e-footer-${run.toLowerCase()}@example.com` });
@@ -85,7 +103,8 @@ async function main() {
     });
     const today = new Date().toISOString().slice(0, 10);
     const validUntil = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-    for (const c of CASES) {
+    const cases = process.env.E2E_FOOTER_FILE ? [await savedFooterCase(process.env.E2E_FOOTER_FILE)] : CASES;
+    for (const c of cases) {
       await h.step(`footer case ${c.name}`, async () => {
         const saved = await call("/api/settings/organization", "PATCH", { quote_footer: c.footer });
         assert.equal(saved.status, 200, JSON.stringify(saved.body)); footerChanged = true;
@@ -112,7 +131,10 @@ async function main() {
         const pdf = await PDFDocument.load(bytes);
         const pages = pdf.getPages().map((page) => drawnLines(pdf, page));
         const footers = pages.map((lines) => footerBand(lines).map((line) => line.text.trim()));
-        const report: any = { name: c.name, reference, pages: pages.length, sha256: createHash("sha256").update(bytes).digest("hex"), printed: footers[0] };
+        // A footer saved by a real tenant stays in the PDF only: the report keeps line hashes.
+        const printed = c.name === "configuracion-guardada"
+          ? footers[0].map((line) => createHash("sha256").update(line).digest("hex").slice(0, 16)) : footers[0];
+        const report: any = { name: c.name, reference, pages: pages.length, sha256: createHash("sha256").update(bytes).digest("hex"), printedLines: footers[0].length, printed };
         pages.forEach((lines, index) => {
           const texts = lines.map((line) => line.text);
           assert.equal(texts.some((text) => text.includes(`${reference} · EUR`)), false, `${c.name}: no reference · currency line`);
@@ -140,7 +162,8 @@ async function main() {
       try {
         const r = await call("/api/settings/organization", "PATCH", { quote_footer: oldFooter }); assert.equal(r.status, 200);
         const check = await call("/api/settings/organization");
-        assert.equal(createHash("sha256").update(check.body.quote_footer || "").digest("hex"), result.originalFooterSha256);
+        result.restoredFooterSha256 = createHash("sha256").update(check.body.quote_footer || "").digest("hex");
+        assert.equal(result.restoredFooterSha256, result.originalFooterSha256);
         result.checks.footerRestored = true;
       } catch (e) { result.status = "failed"; result.footerRestoreError = redactor.text(String(e)); }
     }

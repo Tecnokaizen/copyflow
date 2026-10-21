@@ -45,7 +45,7 @@ export function wrapFooterLine(runs: RichTextRun[], maxWidth: number, measure: F
   return printed;
 }
 
-/** Printed footer lines, in the order and with the line breaks the tenant configured. */
+/** Printed footer lines, in the order and with the line breaks and spacing the tenant configured. */
 export function footerPrintedLines(footer: string, maxWidth: number, measure: FooterMeasure): RichTextRun[][] {
-  return footer ? richTextLines(footer).flatMap((runs) => wrapFooterLine(runs, maxWidth, measure)) : [];
+  return footer ? richTextLines(footer, { preserveSpaces: true }).flatMap((runs) => wrapFooterLine(runs, maxWidth, measure)) : [];
 }

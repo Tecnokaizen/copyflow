@@ -51,6 +51,14 @@ describe("tenant quote footer in the PDF", () => {
     }
   });
 
+  it("prints the spacing typed between fields, not collapsed", async () => {
+    const lines = ["Calle Mayor, 12  Ciudad (Provincia)   -   Tel.:  900 000 000   -   info@example.org",
+      "Avenida B, 4  Ciudad (Provincia)   -   Tel.: 900 000 001   -   ventas@example.org"];
+    const { band, texts } = await printedFooter(modelWithFooter(`<p>${lines[0]}<br>${lines[1]}</p>`));
+    assert.deepEqual(texts, lines);
+    for (const line of band) assert.ok(line.right <= PAGE_RIGHT_EDGE);
+  });
+
   it("keeps a line that fits the page width on one line (it used to be cut at 60 characters)", async () => {
     const line = "Empresa Ejemplo S.L. · CIF B00000000 · Calle Mayor 123, bajo izquierda · 28000 Madrid (España)";
     assert.ok(line.length > 60);
