@@ -174,3 +174,48 @@ PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e
    tokens se guarda sin ellos.
 
 Resultado de la ejecución: ver la sección «Ejecución en Staging» al final.
+
+## Ejecución en Staging (21/10/2026)
+
+- `gestcopy-staging` avanzó por fast-forward `ac5e372..3a0d2d9`: merge normal
+  de `d37c3e6` sobre la rama de Staging, sin force push. Conflictos solo en
+  documentos y en el E2E del pie (#144, se tomó la versión final de `main`) y
+  en la ayuda «Crear un pedido» (se conservó el párrafo de pedidos por voz).
+  Antes de publicar, el árbol fusionado pasó 1409/1409 pruebas, `tsc`,
+  `next build` y la prueba en navegador.
+- Vercel `dpl_2hnNFj1YBMe82ASoytb7UNsYHcuQ`, READY, alias
+  `e2e.preview.app.gestcopy.com`.
+- `e2e/staging/order-rich-text.ts`, ejecución `20261021T183214Z-2db7`,
+  tenant sintético `e2e`: **11/11 pasos**.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Pedidos existentes de `e2e` | 60 listados, 17 con instrucciones o notas: los 17 se pintan igual que con el código anterior |
+| Pedido completo con estilos desde la barra | E2E-0061: «NO CORTAR» muy grande y rojo, «Papel 350 g.» verde; nota azul y grande |
+| Ficha en claro | Rojo con contraste 6,42:1, tamaño 1,5× |
+| Edición tras recargar | Color predeterminado conserva el tamaño; naranja nuevo; guardado y recargado idéntico |
+| «+ Añadir nota» | Nota roja añadida; la nota azul anterior conserva su formato |
+| Impresión | Estilos presentes; paleta clara también con la app en oscuro |
+| Modo oscuro | Rojo 5,43:1 en la ficha; naranja 6,04:1 dentro del editor |
+| 390 px | Sin desplazamiento horizontal; menú dentro de la pantalla |
+| Pedido rápido | E2E-0062 con «Urgente» en rojo |
+| HTML manipulado con la sesión | Guardado sin `style`, eventos, `img`, `script` ni valores fuera de lista |
+| Otro tenant (`DEMO-0001`, `demo`) | Lectura 404, escritura 404 |
+| Presupuesto con tokens | E2E-P0035 guardado sin tokens |
+| Tráfico a Production | Ninguno. Las 27 peticiones bloqueadas son la barra de Vercel (`vercel.live`) |
+
+Base de datos de Staging, solo lectura: la huella de los 61 pedidos
+anteriores sigue siendo `8823086f0b2e5194ab1a54d22b96a288` después de la
+ejecución, `DEMO-0001` no cambió y solo se añadieron E2E-0061 y E2E-0062.
+
+Capturas en `e2e-artifacts/order-rich-text-20261021T183214Z-2db7/` (fuera de
+git): ficha clara y oscura, editor oscuro con el menú de color, impresión
+clara y con la app en oscuro, 390 px con el menú de tamaño, pedido rápido y
+pedido completo.
+
+### Pendiente antes del merge
+
+- Validación visual de SUR4. Staging no tiene tenant `sur4`; la revisión se
+  hizo con el tenant sintético `e2e` y textos de producción genéricos.
+- Entrada en Novedades (`lib/help/changelog.ts`) con la fecha del merge.
+- Autorización explícita del owner para fusionar.
