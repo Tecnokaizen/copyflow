@@ -105,6 +105,7 @@ jobs:
             phase18_external_folder_url \
             phase34_quotes_operational_access \
             phase47_pro_early_access \
+            phase54_tenant_feature_grants \
             phase35_quote_files \
             phase44_quote_creation \
             phase49_quote_conversion_notes \
