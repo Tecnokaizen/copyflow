@@ -51,6 +51,14 @@ describe("tenant quote footer in the PDF", () => {
     }
   });
 
+  it("prints the spacing typed between fields, not collapsed", async () => {
+    const lines = ["Calle Mayor, 12  Ciudad (Provincia)   -   Tel.:  900 000 000   -   info@example.org",
+      "Avenida B, 4  Ciudad (Provincia)   -   Tel.: 900 000 001   -   ventas@example.org"];
+    const { band, texts } = await printedFooter(modelWithFooter(`<p>${lines[0]}<br>${lines[1]}</p>`));
+    assert.deepEqual(texts, lines);
+    for (const line of band) assert.ok(line.right <= PAGE_RIGHT_EDGE);
+  });
+
   it("keeps a line that fits the page width on one line (it used to be cut at 60 characters)", async () => {
     const line = "Empresa Ejemplo S.L. · CIF B00000000 · Calle Mayor 123, bajo izquierda · 28000 Madrid (España)";
     assert.ok(line.length > 60);
@@ -102,6 +110,25 @@ describe("tenant quote footer in the PDF", () => {
       assert.ok(texts.includes(`${index + 1} / ${count}`), "page number");
       assert.deepEqual(footerBand(lines, 2).map((line) => line.text), ["Empresa Ejemplo S.L.", "Calle Mayor 123 · 28000 Madrid"]);
     });
+  });
+
+  it("keeps each tenant's footer in its own PDF, also when tenants render at the same time", async () => {
+    const tenants: [string, string[]][] = [
+      ["<p>Empresa A S.L.</p><p>Calle A 1 · 28000 Madrid</p>", ["Empresa A S.L.", "Calle A 1 · 28000 Madrid"]],
+      ["<p>Empresa B S.A. · CIF B11111111 · Avenida B 22, 08000 Barcelona · Tel. 930 000 000 · info@b.example</p>",
+        ["Empresa B S.A. · CIF B11111111 · Avenida B 22, 08000 Barcelona · Tel. 930 000 000 · info@b.example"]],
+      ["", []],
+      ["<p><strong>Empresa C</strong></p><p></p><p>Línea C3<br>Línea C4</p>", ["Empresa C", "", "Línea C3", "Línea C4"]],
+    ];
+    const models = tenants.map(([footer]) => modelWithFooter(footer));
+    const alone: Buffer[] = [];
+    for (const model of models) alone.push(await renderQuotePdf(model));
+    const together = await Promise.all(models.map((model) => renderQuotePdf(model)));
+    for (const [index, [, lines]] of tenants.entries()) {
+      assert.deepEqual(together[index], alone[index], `tenant ${index}: same bytes alone and concurrently`);
+      const pdf = await PDFDocument.load(together[index]);
+      assert.deepEqual(footerBand(drawnLines(pdf, pdf.getPage(0)), lines.length).map((line) => line.text.trim()), lines);
+    }
   });
 
   it("stays byte-identical across retries with wrapped lines", async () => {
