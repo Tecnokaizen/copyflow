@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { resolveMaxFileBytesFromPreferences } from "@/lib/settings/files";
+import { loadOrderOptions } from "@/lib/orders/options-load";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentAccess } from "@/lib/tenant/access-response";
-import { resolveCurrentTeamMember } from "@/lib/team/current-member";
-import { resolveQuickOrderLayout } from "@/lib/settings/quick-order-layout";
 
 export async function GET() {
   const access = await requireCurrentAccess("GET /api/orders/options");
@@ -15,78 +13,17 @@ export async function GET() {
   const context = access.context;
 
   const supabase = await createClient();
-  const tenantId = context.tenant.id;
-  const currentTeamMember = await resolveCurrentTeamMember(
-    supabase,
-    tenantId,
-    context.user.id
-  );
+  const loaded = await loadOrderOptions(supabase, {
+    tenantId: context.tenant.id,
+    tenantSlug: context.tenant.slug,
+    userId: context.user.id,
+    actorRole: context.membership.role,
+  });
 
-  const [
-    servicesResult,
-    entryChannelsResult,
-    orderContextsResult,
-    teamMembersResult,
-    storesResult,
-    settingsResult,
-    fileStatusesResult,
-  ] = await Promise.all([
-    supabase
-      .from("services")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("name", { ascending: true }),
-    supabase
-      .from("entry_channels")
-      .select("id, code, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("order_contexts")
-      .select("id, code, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("team_members")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("name", { ascending: true }),
-    supabase
-      .from("stores")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("name", { ascending: true }),
-    supabase
-      .from("tenant_settings")
-      .select("preferences")
-      .eq("tenant_id", tenantId)
-      .maybeSingle(),
-    supabase
-      .from("file_statuses")
-      .select("id, code, name")
-      .eq("tenant_id", tenantId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true }),
-  ]);
-
-  const firstError =
-    servicesResult.error ??
-    entryChannelsResult.error ??
-    orderContextsResult.error ??
-    teamMembersResult.error ??
-    storesResult.error ??
-    settingsResult.error ??
-    fileStatusesResult.error;
-
-  if (firstError) {
+  if (!loaded.ok) {
     console.error("[GET /api/orders/options] Could not load order options", {
-      tenantId,
-      error: firstError,
+      tenantId: context.tenant.id,
+      error: loaded.error,
     });
 
     return NextResponse.json(
@@ -95,29 +32,24 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json(
-    {
-      tenant: context.tenant.slug,
-      services: servicesResult.data ?? [],
-      file_statuses: fileStatusesResult.data ?? [],
-      max_file_bytes: resolveMaxFileBytesFromPreferences(
-        settingsResult.data?.preferences
-      ),
-      entry_channels: entryChannelsResult.data ?? [],
-      order_contexts: orderContextsResult.data ?? [],
-      team_members: teamMembersResult.data ?? [],
-      stores: storesResult.data ?? [],
-      actor_role: context.membership.role,
-      actor_id: context.user.id,
-      current_team_member: currentTeamMember,
-      quick_order_layout: resolveQuickOrderLayout(
-        settingsResult.data?.preferences
-      ),
+  const publicPayload = {
+    tenant: loaded.data.tenant,
+    services: loaded.data.services,
+    file_statuses: loaded.data.file_statuses,
+    max_file_bytes: loaded.data.max_file_bytes,
+    entry_channels: loaded.data.entry_channels,
+    order_contexts: loaded.data.order_contexts,
+    team_members: loaded.data.team_members,
+    stores: loaded.data.stores,
+    actor_role: loaded.data.actor_role,
+    actor_id: loaded.data.actor_id,
+    current_team_member: loaded.data.current_team_member,
+    quick_order_layout: loaded.data.quick_order_layout,
+  };
+
+  return NextResponse.json(publicPayload, {
+    headers: {
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
     },
-    {
-      headers: {
-        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-      },
-    }
-  );
+  });
 }

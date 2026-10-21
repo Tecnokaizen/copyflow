@@ -11,8 +11,11 @@ import { isMembershipRole } from "@/lib/auth/membership-roles";
 export const PRO_EARLY_ACCESS_FEATURE_CODE = "pro_early_access";
 
 /**
- * Reserved code for «Gestcopy AI — Pedidos por voz». V1 never resolves it:
- * availability stays "planned" even if the flag is granted by mistake.
+ * Catalog code for «Gestcopy AI — Pedidos por voz». The Pro page never
+ * resolves it: availability stays "planned" even if the flag is granted.
+ * The draft-only voice module (#90, lib/ai/access.ts) gates on it together
+ * with AI_VOICE_ORDERS_ENABLED, a provider allowed in this environment and
+ * the platform kill switch in ai_usage_limits.
  */
 export const AI_VOICE_ORDERS_FEATURE_CODE = "ai_voice_orders";
 
