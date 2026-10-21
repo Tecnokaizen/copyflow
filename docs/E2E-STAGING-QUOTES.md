@@ -115,8 +115,17 @@ PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs \
   npx tsx e2e/staging/quote-footer.ts
 ```
 
-Ejecución `20261021T142649Z-5a0a` contra `aceaefb`: 7/7. Detalle en
-[QUOTE-PDF-FOOTER-HOTFIX.md](QUOTE-PDF-FOOTER-HOTFIX.md).
+Antes de cambiar nada guarda en los artefactos el pie original de `e2e` y su
+hash, y al restaurarlo comprueba que el hash coincide.
+
+Para validar el pie tal como lo guardó un tenant, `E2E_FOOTER_FILE` apunta a
+un fichero local fuera de git con el HTML guardado. Se ejecuta solo ese caso;
+las líneas esperadas salen del propio parser del servidor y el informe guarda
+hashes de esas líneas, no su texto.
+
+Ejecuciones: `20261021T142649Z-5a0a` contra `aceaefb` (7/7);
+`20261021T162059Z-6f6a` (7/7) y `20261021T162207Z-af91` (pie de SUR4) contra
+`ac5e372`. Detalle en [QUOTE-PDF-FOOTER-HOTFIX.md](QUOTE-PDF-FOOTER-HOTFIX.md).
 
 ### Aislamiento entre tenants (obligatorio)
 

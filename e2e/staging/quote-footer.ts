@@ -14,14 +14,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { drawnLines, type DrawnLine } from "../../lib/quotes/pdf/pdf-inspect";
-import { quoteFooterLines } from "../../lib/quotes/pdf/render";
+import { richTextLines } from "../../lib/rich-text/lines";
 import { quoteFooterFromBranding } from "../../lib/tenant/branding";
 import { classifyRequest, r2BucketFromUrl, resolveStagingTarget } from "./guard";
 import { Harness } from "./harness";
 import { Redactor } from "./redact";
 import { requireSyntheticEmail, runId } from "./synthetic";
 
-type FooterCase = { name: string; footer: string | null; lines?: string[]; items?: number };
+type FooterCase = { name: string; footer: string | null; lines?: string[]; items?: number; configured?: string[] };
 // Generic data only: no real tenant text, address or format.
 const CASES: FooterCase[] = [
   { name: "1-una-linea", footer: "<p>Empresa Ejemplo S.L. · CIF B00000000 · Calle Mayor 123, 28000 Madrid · Tel. 900 000 000</p>",
@@ -43,15 +43,42 @@ const RIGHT_EDGE = 595.28 - 40;
 /**
  * Optional: E2E_FOOTER_FILE runs a single case with a footer exactly as a
  * tenant saved it (raw `branding.quote_footer`), read from a local file kept
- * outside git. The expected printed lines come from the server's own parser
- * and renderer, so the check does not depend on any tenant-specific format.
+ * outside git. The configured lines come from the server's own parser, so the
+ * check does not depend on any tenant-specific format.
  */
 async function savedFooterCase(file: string): Promise<FooterCase> {
   const raw = await readFile(file, "utf8");
   const footer = quoteFooterFromBranding({ quote_footer: raw });
   assert.ok(footer, "E2E_FOOTER_FILE: the saved footer is empty or not accepted by Settings");
-  const lines = (await quoteFooterLines(footer)).map((runs) => runs.map((run) => run.text).join("").trim());
-  return { name: "configuracion-guardada", footer: raw, lines };
+  const configured = richTextLines(footer, { preserveSpaces: true }).map((runs) => runs.map((run) => run.text).join("").trim());
+  return { name: "configuracion-guardada", footer: raw, configured };
+}
+
+/**
+ * Printed lines reproduce each configured line in order. A configured line
+ * may only continue on the next printed line where it does not fit the page:
+ * at a run of spaces, or inside a word wider than the line. Returns how many
+ * extra lines the page width required.
+ */
+function assertReproduces(configured: string[], printed: string[], label: string) {
+  let next = 0;
+  for (const line of configured) {
+    let rebuilt: string | null = null;
+    while (rebuilt !== line) {
+      const part = printed[next++];
+      assert.ok(part !== undefined, `${label}: missing printed text for «${line.slice(0, 20)}…»`);
+      if (rebuilt === null) {
+        assert.ok(line === "" ? part === "" : part !== "" && line.startsWith(part), `${label}: printed line does not start a configured line`);
+        rebuilt = part;
+      } else {
+        const rest = line.slice(rebuilt.length), gap = rest.match(/^ */)![0];
+        assert.ok(rest.slice(gap.length).startsWith(part) && part, `${label}: printed continuation does not follow the configured line`);
+        rebuilt += gap + part;
+      }
+    }
+  }
+  assert.equal(next, printed.length, `${label}: printed lines that are not in the configuration`);
+  return printed.length - configured.length;
 }
 
 /** Footer lines, top to bottom: from the bottom margin up, one line height apart (the body sits ≥ 18 pt higher). */
@@ -143,7 +170,8 @@ async function main() {
           assert.deepEqual(footers[index], footers[0], `${c.name}: same footer on every page`);
           for (const line of footerBand(lines)) assert.ok(line.right <= RIGHT_EDGE, `${c.name}: ${line.right} inside the right margin`);
         });
-        if (c.lines) assert.deepEqual(footers[0], c.lines, `${c.name}: printed as configured`);
+        if (c.configured) report.extraLinesForPageWidth = assertReproduces(c.configured, footers[0], c.name);
+        else if (c.lines) assert.deepEqual(footers[0], c.lines, `${c.name}: printed as configured`);
         else {
           // Long lines: every character once, in order, and wrapped only where needed.
           const typed = (c.footer ?? "").replace(/<[^>]+>/g, "").replace(/\s/g, "");
