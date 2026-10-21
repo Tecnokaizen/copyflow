@@ -16,8 +16,13 @@ export type RichTextRun = {
  * pretty-printed HTML) is not a line, and empty lines before the first or
  * after the last visible line (e.g. Enter after the last line) are dropped.
  * Blank lines between visible lines are kept and counted.
+ *
+ * `preserveSpaces` keeps runs of spaces typed inside a line (e.g. "a   -   b"),
+ * for documents that must print the configured text as typed. Line breaks and
+ * tabs inside the HTML source still read as one space. The default collapses
+ * them, which is what the Settings counters and limits use.
  */
-export function richTextLines(value: string): RichTextRun[][] {
+export function richTextLines(value: string, options: { preserveSpaces?: boolean } = {}): RichTextRun[][] {
   const html = normalizeRichText(value);
   if (!html) return [];
   const lines: RichTextRun[][] = [];
@@ -75,7 +80,10 @@ export function richTextLines(value: string): RichTextRun[][] {
     textFilter(escaped) {
       // sanitize-html already decoded every entity, then escaped these three for HTML.
       const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">" };
-      const text = escaped.replace(/&(amp|lt|gt);/g, (entity) => entities[entity]).replace(/\s+/g, " ");
+      const decoded = escaped.replace(/&(amp|lt|gt);/g, (entity) => entities[entity]);
+      const text = options.preserveSpaces
+        ? decoded.replace(/\s*[^\S  ]\s*/g, " ").replace(/ /g, " ")
+        : decoded.replace(/\s+/g, " ");
       // Whitespace-only text with nothing on the current line sits between blocks.
       if (text && (text.trim() || current.length)) {
         current.push({

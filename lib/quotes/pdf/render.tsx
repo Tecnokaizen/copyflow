@@ -4,7 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { join } from "node:path";
 import { Document, Font, Image, Link, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { richTextToPlainText } from "@/lib/rich-text/html";
-import { richTextLines, type RichTextRun } from "@/lib/rich-text/lines";
+import { type RichTextRun } from "@/lib/rich-text/lines";
+import { footerPrintedLines, type FooterMeasure } from "./footer";
 import { documentDate, documentMoney, documentUnitPrice, documentNumber, type DocumentParty, type QuoteDocumentModel } from "./model";
 
 Font.register({ family: "Noto Sans", fonts: [
@@ -38,32 +39,27 @@ const s = StyleSheet.create({
   quoteFooterLine: { fontSize: 8, color: "#62717d" },
 });
 
-// Conservative width also fits the widest bold glyphs. Reserve every wrapped line.
-const FOOTER_WRAP_CHARS = 60;
-function wrapFooterLine(runs: RichTextRun[]): RichTextRun[][] {
-  const line = runs.map((run) => run.text).join("");
-  if (!line) return [[{ text: " " }]];
-  if (line.length <= FOOTER_WRAP_CHARS) return [runs];
-  const wrapped: string[] = [];
-  let rest = line;
-  while (rest.length > FOOTER_WRAP_CHARS) {
-    const space = rest.lastIndexOf(" ", FOOTER_WRAP_CHARS);
-    const cut = space > 0 ? space : FOOTER_WRAP_CHARS;
-    wrapped.push(rest.slice(0, cut));
-    rest = rest.slice(cut).trimStart();
-  }
-  if (rest) wrapped.push(rest);
-  let cursor = 0;
-  return wrapped.map((part) => {
-    const start = line.indexOf(part, cursor), end = start + part.length;
-    cursor = end;
-    let offset = 0;
-    return runs.flatMap((run) => {
-      const from = Math.max(start - offset, 0), to = Math.min(end - offset, run.text.length);
-      offset += run.text.length;
-      return to > from ? [{ ...run, text: run.text.slice(from, to) }] : [];
-    });
-  });
+// The footer box spans the page between the side margins (A4: 595.28pt wide).
+export const FOOTER_BOX_WIDTH = 595.28 - 2 * 40;
+// Lines are measured with the same fonts react-pdf draws with. The small
+// margin absorbs kerning between runs, so react-pdf never wraps a line again.
+export const FOOTER_WRAP_WIDTH = FOOTER_BOX_WIDTH - 4;
+const FOOTER_FONT_SIZE = 8;
+type MeasuredFont = { unitsPerEm: number; layout: (text: string) => { advanceWidth: number } };
+const footerFont = (run: RichTextRun) => ({
+  fontFamily: "Noto Sans", fontWeight: run.bold ? 700 : 400, fontStyle: run.italic ? "italic" as const : "normal" as const,
+});
+
+/** Printed footer lines exactly as they are drawn in the PDF. */
+export async function quoteFooterLines(footer: string): Promise<RichTextRun[][]> {
+  if (!footer) return [];
+  const variants = [{}, { bold: true }, { italic: true }, { bold: true, italic: true }].map((marks) => footerFont({ text: "", ...marks }));
+  await Promise.all(variants.map((variant) => Font.load(variant)));
+  const measure: FooterMeasure = (text, run) => {
+    const font = Font.getFont(footerFont(run)).data as unknown as MeasuredFont;
+    return font.layout(text).advanceWidth * FOOTER_FONT_SIZE / font.unitsPerEm;
+  };
+  return footerPrintedLines(footer, FOOTER_WRAP_WIDTH, measure);
 }
 
 function FooterRun({ run }: { run: RichTextRun }) {
@@ -86,9 +82,7 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
   const { version: v } = model;
   const revision = v.version_number > 1 ? ` · Revisión ${v.version_number}` : "";
   const money = (value: string) => documentMoney(value, v.currency);
-  const footerLines = model.footer
-    ? richTextLines(model.footer).flatMap(wrapFooterLine)
-    : [];
+  const footerLines = await quoteFooterLines(model.footer);
   const footerHeight = footerLines.length * 12;
   const pageStyle = footerHeight
     ? [s.page, { paddingBottom: 58 + footerHeight }]
@@ -124,13 +118,12 @@ export async function renderQuotePdf(model: QuoteDocumentModel, logo?: Buffer): 
       {footerLines.length ? (
         <View fixed style={[s.quoteFooter, { bottom: 40 }]}>
           {footerLines.map((line, index) => (
-            <Text key={index} style={[s.quoteFooterLine, { width: 515 }]}>
+            <Text key={index} style={[s.quoteFooterLine, { width: FOOTER_BOX_WIDTH }]}>
               {line.map((run, runIndex) => <FooterRun key={runIndex} run={run} />)}
             </Text>
           ))}
         </View>
       ) : null}
-      <Text fixed style={{ position: "absolute", bottom: 25, left: 40, width: 400, fontSize: 8, color: "#62717d" }}>{model.reference}{revision} · {v.currency}</Text>
     </Page>
   </Document>);
   // React PDF's dynamic fixed Text reproduces invalid coordinates / missing text
