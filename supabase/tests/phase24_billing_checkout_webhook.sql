@@ -59,14 +59,19 @@ begin
     raise exception 'phase24: basic storage_bytes expected 5368709120, got %', v_limit;
   end if;
 
-  if exists (
+  -- S2: the internal mvp plan has an explicit capacity equal to Basic's
+  -- (before S2 it had none, i.e. implicit unlimited).
+  if not exists (
     select 1
     from public.plan_features pf
     join public.features f on f.id = pf.feature_id
+    join public.plan_features bpf on bpf.feature_id = pf.feature_id and bpf.plan_id = v_basic_id
     where pf.plan_id = v_mvp_id
       and f.code = 'storage_bytes'
+      and pf.enabled
+      and pf.limit_value = bpf.limit_value
   ) then
-    raise exception 'phase24: mvp must not have storage_bytes';
+    raise exception 'phase24: mvp must have an explicit storage_bytes capacity equal to basic';
   end if;
 
   -- provider_event_created_at column exists

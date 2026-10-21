@@ -10,6 +10,13 @@
  * (service_role only), which creates tenant, owner membership, settings and
  * default catalogs in one transaction. Re-running only re-syncs the password.
  * Nothing is deleted; DEMO, AUDIT and any other tenant are never read or written.
+ *
+ * Storage capacity (S2): a tenant without a subscription has 0 bytes, so the
+ * upload steps need an explicit internal Basic subscription. When the tenant
+ * has no current subscription the seed grants one through the audited
+ * `grant_internal_subscription_v1`, which requires an authorizer:
+ *
+ *   E2E_CAPACITY_AUTHORIZED_BY=<who authorizes> npx tsx e2e/staging/seed.ts
  */
 import { createClient } from "@supabase/supabase-js";
 import { E2E_TENANT_SLUG, resolveStagingTarget } from "./guard";
@@ -105,6 +112,39 @@ async function main() {
   if (statuses.filter((s) => s.is_initial && s.active).length !== 1) {
     throw new Error("e2e tenant must have exactly one active initial order status");
   }
+
+  // 4. Explicit storage capacity: internal Basic subscription, granted once.
+  const { data: current, error: currentError } = await admin
+    .from("subscriptions")
+    .select("id, provider, status")
+    .eq("tenant_id", tenantId)
+    .in("status", ["trialing", "active", "past_due"]);
+  if (currentError) throw new Error(`subscription lookup failed: ${currentError.message}`);
+  if (current.length === 0) {
+    const authorizedBy = (process.env.E2E_CAPACITY_AUTHORIZED_BY ?? "").trim();
+    if (!authorizedBy) {
+      throw new Error(
+        "e2e tenant has no subscription (storage capacity 0); set E2E_CAPACITY_AUTHORIZED_BY to grant the internal Basic one"
+      );
+    }
+    const { data: grant, error: grantError } = await admin.rpc("grant_internal_subscription_v1", {
+      p_tenant_id: tenantId,
+      p_plan_code: "basic",
+      p_status: "active",
+      p_current_period_end: null,
+      p_reason: "Staging e2e synthetic tenant: explicit Basic storage capacity (S2)",
+      p_authorized_by: authorizedBy,
+      p_metadata: { source_detail: "e2e_seed", billing_activation: "internal_pilot" },
+    });
+    const outcome = (grant as { outcome?: string; reason?: string } | null) ?? null;
+    if (grantError || outcome?.outcome !== "granted") {
+      throw new Error(`grant_internal_subscription_v1 failed: ${grantError?.message ?? outcome?.reason ?? "unknown"}`);
+    }
+    log("internal Basic subscription granted (audited)");
+  } else {
+    log(`current subscription present (${current[0].provider ?? "internal"}, ${current[0].status})`);
+  }
+
   log(`ready: owner membership ok, ${statuses.length} order statuses`);
 }
 
