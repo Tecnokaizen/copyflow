@@ -7,7 +7,7 @@ import { quoteDocumentModel, type QuoteDocumentModel } from "./model";
 import { drawnLines, type DrawnLine } from "./pdf-inspect";
 import { FOOTER_BOX_WIDTH, quoteFooterLines, renderQuotePdf } from "./render";
 
-// Generic tenant data only. Avoids "fi"/"fl": the font draws them as ligatures.
+// Generic tenant data only.
 const PAGE_RIGHT_EDGE = 40 + FOOTER_BOX_WIDTH;
 const PAGE_LABEL = /^\d+ \/ \d+$/;
 
@@ -35,8 +35,8 @@ describe("tenant quote footer in the PDF", () => {
       ["<p>Empresa Ejemplo S.L.</p><p>Calle Mayor 123 · 28000 Madrid</p>", ["Empresa Ejemplo S.L.", "Calle Mayor 123 · 28000 Madrid"]],
       ["<p>Línea A<br>Línea B<br>Línea C</p>", ["Línea A", "Línea B", "Línea C"]],
       ["Primera línea\nSegunda línea\nTercera línea", ["Primera línea", "Segunda línea", "Tercera línea"]],
-      ["<p><strong>Primera</strong></p><p></p><p>Tercera tras una línea en blanco</p><p><em>Cuarta</em> · <a href=\"https://example.org\">web</a></p>",
-        ["Primera", "", "Tercera tras una línea en blanco", "Cuarta · web"]],
+      ["<p><strong>Empresa Ejemplo S.L.</strong> · oficina</p><p></p><p>Tercera tras una línea en blanco</p><p><em>Cuarta</em> · <a href=\"https://example.org\">web</a></p>",
+        ["Empresa Ejemplo S.L. · oficina", "", "Tercera tras una línea en blanco", "Cuarta · web"]],
     ];
     for (const [footer, lines] of cases) {
       const { band, texts } = await printedFooter(modelWithFooter(footer));

@@ -17,8 +17,9 @@ function streamText(pdf: PDFDocument, value: unknown): string {
   return object instanceof PDFRawStream ? Buffer.from(decodePDFRawStream(object).decode()).toString("latin1") : "";
 }
 
+// Ligatures map to several code units written with spaces, e.g. <0066 0069> for "fi".
 function utf16(hex: string) {
-  return Buffer.from(hex, "hex").swap16().toString("utf16le");
+  return Buffer.from(hex.replace(/\s/g, ""), "hex").swap16().toString("utf16le");
 }
 
 function fontInfo(pdf: PDFDocument, dict: PDFDict): FontInfo {
@@ -32,7 +33,7 @@ function fontInfo(pdf: PDFDocument, dict: PDFDict): FontInfo {
     for (const block of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
       for (const [, from, to, target] of block[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*(\[[^\]]*\]|<[0-9a-fA-F]+>)/g)) {
         const start = parseInt(from, 16), end = parseInt(to, 16);
-        const values = target.startsWith("[") ? [...target.matchAll(/<([0-9a-fA-F]+)>/g)].map((m) => utf16(m[1])) : null;
+        const values = target.startsWith("[") ? [...target.matchAll(/<([0-9a-fA-F\s]+)>/g)].map((m) => utf16(m[1])) : null;
         for (let code = start; code <= end; code++) {
           if (values) unicode.set(code, values[code - start] ?? "");
           else unicode.set(code, String.fromCodePoint(parseInt(target.slice(1, -1), 16) + code - start));
