@@ -212,8 +212,8 @@ Deep hash verification without re-download remains deferred to recovery drills.
 
 | Script | Role |
 |--------|------|
-| `/app/scripts/backup-files.sh` | `rclone copy` R2 → B2/`files` |
-| `/app/scripts/verify-files.sh` | `rclone check --one-way --download` (read-only) |
+| `/app/scripts/backup-files.sh` | `rclone copy --fast-list` R2 → B2/`files` |
+| `/app/scripts/verify-files.sh` | `rclone check --one-way --download --fast-list` (read-only) |
 | `/app/scripts/backup-all.sh` | Files copy **only** (hourly). Does **not** run DB backup. |
 | `/app/scripts/backup-database.sh` | pg_dump ×3 → age → B2/`database/...` |
 | `/app/scripts/restore-database-local.sh` | Isolated restore helper (manual; never scheduled) |
@@ -236,6 +236,28 @@ Copy, verification, and database backup share an exclusive, non-blocking `flock`
 Default lock file: `/tmp/gestcopy-backup-runner.lock`. Override with `GESTCOPY_BACKUP_LOCK_FILE` for tests (all jobs must share the same path).
 
 Run exactly **one** runner container.
+
+### B2 transaction budget (Caps & Alerts)
+
+Backblaze bills API calls in three classes. Class A (uploads) is free. Class B (downloads and `HEAD`) and Class C (`b2_authorize_account`, `b2_list_buckets`, `b2_list_file_names`, `b2_create_bucket`, `b2_copy_file`) each include 2,500 free calls per day. The daily caps under **Caps & Alerts** reset at 00:00 UTC. Once a cap is reached, every call of that class fails with `403 transaction_cap_exceeded` until the reset, including the database backup's size checks.
+
+Without `--fast-list`, rclone lists B2 one folder at a time, one `b2_list_file_names` per folder. Files are stored as `files/orders/{tenant_id}/{order_id}/{file_id}`, so the hourly copy paid one Class C call per order folder, every hour. The Class C cap was spent by 22:19 UTC on 19/10/2026: at about 106 calls per run, the 23 hourly runs since midnight account for about 2,440 of the 2,500.
+
+Calls per run, measured with this image's rclone (v1.74.1) against a B2 API stub that counts them. T = tenant folders, O = order folders, N = objects under `files/`. The key is restricted to the backup bucket; an unrestricted key adds `b2_list_buckets` (+1 Class C per rclone run) and, on uploads, `b2_create_bucket` (+1 more per `copyto`).
+
+| Job | Runs per day | Class C before | Class C now | Class B |
+|-----|--------------|----------------|-------------|---------|
+| Files hourly copy | 24 | 3 + T + O | 1 + ⌈N/1000⌉ | 1 |
+| Files weekly verify | 1 a week | 3 + T + O | 1 + ⌈N/1000⌉ | 1 + N (downloads every object) |
+| Database backup (4 × `copyto`, 4 × `lsjson`) | 4 | 12 | 12 (unchanged) | 12 |
+
+For example, 130 objects in 100 order folders of 3 tenants: about 2,600 Class C per day before (24 × 106 + 4 × 12), about 100 now (24 × 2 + 4 × 12).
+
+- Keep `--fast-list` on every recursive B2 listing: copy, check, and manual `rclone ls`/`lsf -R`. It holds the listing in memory, which is negligible at this size.
+- Do not add `--max-age`, `--min-age` or other filters to the hourly copy. Every run must compare every object, so the next run catches up after a gap (exit 75, a cap error, downtime). The weekly verify reports differences but copies nothing.
+- Do not add `--no-traverse` to the hourly copy. It replaces the listing with one `HEAD` per object: 24 × (N + 1) Class B per day, over the Class B cap at today's size.
+- `copyto` never lists the destination; `--no-traverse` changes nothing there.
+- The weekly verify downloads every object once. Above about 2,400 objects it alone exceeds the 2,500 free Class B calls on Sundays; raise the Class B cap before then.
 
 ## Isolated restore helper
 

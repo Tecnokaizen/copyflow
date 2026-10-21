@@ -46,6 +46,7 @@ case "$1" in
     if [[ "$2" == "R2:fixture-origin" && "$3" == "B2:fixture-backups/files" ]]; then
       [[ " $* " != *" --download "* ]]
       [[ " $* " != *"--delete"* ]]
+      printf '%s\n' "$*" >>"${FAKE_RCLONE_ARGS:?}"
       printf '%s|%s|%s|%s\n' "$1" "${RCLONE_CONFIG_R2_REGION-unset}" \
         "${RCLONE_CONFIG_R2_NO_CHECK_BUCKET-unset}" "${RCLONE_CONFIG_B2_HARD_DELETE-unset}" >>"${FAKE_RCLONE_CALLS}"
       if [[ "${FAKE_RCLONE_HOLD:-false}" == "true" ]]; then
@@ -93,6 +94,7 @@ case "$1" in
     [[ "$3" == "B2:fixture-backups/files" ]]
     [[ " $* " == *" --one-way "* && " $* " == *" --download "* ]]
     [[ " $* " != *"--delete"* ]]
+    printf '%s\n' "$*" >>"${FAKE_RCLONE_ARGS:?}"
     printf '%s|%s|%s|%s\n' "$1" "${RCLONE_CONFIG_R2_REGION-unset}" \
       "${RCLONE_CONFIG_R2_NO_CHECK_BUCKET-unset}" "${RCLONE_CONFIG_B2_HARD_DELETE-unset}" >>"${FAKE_RCLONE_CALLS}"
     if [[ "${FAKE_RCLONE_HOLD:-false}" == "true" ]]; then
@@ -434,7 +436,8 @@ run_script() {
     RCLONE_CONFIG_B2_ACCOUNT=fixture RCLONE_CONFIG_B2_KEY=fixture \
     GESTCOPY_R2_BUCKET=fixture-origin GESTCOPY_B2_BUCKET=fixture-backups \
     GESTCOPY_B2_FILES_PREFIX=files GESTCOPY_BACKUP_LOCK_FILE="${FIXTURE}/runner.lock" \
-    FAKE_RCLONE_CALLS="${FIXTURE}/calls" FAKE_RCLONE_READY="${FIXTURE}/ready" \
+    FAKE_RCLONE_CALLS="${FIXTURE}/calls" FAKE_RCLONE_ARGS="${FIXTURE}/rclone-args" \
+    FAKE_RCLONE_READY="${FIXTURE}/ready" \
     FAKE_RCLONE_RELEASE="${FIXTURE}/release" FAKE_RCLONE_STORE="${FIXTURE}/remote" \
     FAKE_PSQL_CALLS="${FIXTURE}/psql-calls" FAKE_PG_DUMP_CALLS="${FIXTURE}/pgdump-calls" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
@@ -489,9 +492,17 @@ for script in backup-files.sh verify-files.sh; do
   action=copy
   [[ "${script}" != verify-files.sh ]] || action=check
   : >"${FIXTURE}/calls"
+  : >"${FIXTURE}/rclone-args"
   run_script "${script}" >"${FIXTURE}/output"
   [[ "$(cat "${FIXTURE}/calls")" == "${action}|auto|true|false" ]]
   pass "${script}: omitted defaults reach the child process"
+
+  # B2 bills one Class C call per listed folder; --fast-list lists the tree in
+  # one recursive call per 1,000 objects. Coverage must stay complete.
+  [[ "$(wc -l <"${FIXTURE}/rclone-args")" -eq 1 ]]
+  grep -Eq -- '(^| )--fast-list( |$)' "${FIXTURE}/rclone-args"
+  refute grep -Eq -- '--(no-traverse|max-age|min-age|files-from|include|exclude|filter)' "${FIXTURE}/rclone-args"
+  pass "${script}: one recursive B2 listing (--fast-list), no age filter or --no-traverse"
 
   : >"${FIXTURE}/calls"
   run_script "${script}" RCLONE_CONFIG_R2_REGION= RCLONE_CONFIG_R2_NO_CHECK_BUCKET= \
@@ -517,8 +528,10 @@ done
 
 : >"${FIXTURE}/calls"
 : >"${FIXTURE}/age-calls"
+: >"${FIXTURE}/rclone-args"
 run_script backup-all.sh >"${FIXTURE}/output"
 [[ "$(cat "${FIXTURE}/calls")" == 'copy|auto|true|false' ]]
+grep -Eq -- '(^| )--fast-list( |$)' "${FIXTURE}/rclone-args"
 grep -q BACKUP_ALL_SUCCESS "${FIXTURE}/output"
 refute grep -qx DATABASE_BACKUP_SUCCESS "${FIXTURE}/output"
 pass 'hourly orchestrator only copies Files, without database backup'
