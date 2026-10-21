@@ -13,6 +13,7 @@ import {
 } from "@/lib/orders/list-search";
 import { normalizePlainTitle } from "@/lib/orders/create";
 import { persistRichText } from "@/lib/rich-text/html";
+import { ORDER_RICH_TEXT } from "@/lib/orders/rich-text";
 import {
   requireCurrentAccess,
   roleDeniedResponse,
@@ -1158,10 +1159,12 @@ export async function POST(request: NextRequest) {
   const assignedTeamMemberId = emptyToNull(payload.assigned_team_member_id);
   const storeIdResult = parseOptionalStoreId(payload.store_id);
   const description = persistRichText(
-    typeof payload.description === "string" ? payload.description : null
+    typeof payload.description === "string" ? payload.description : null,
+    ORDER_RICH_TEXT
   );
   const notes = persistRichText(
-    typeof payload.notes === "string" ? payload.notes : null
+    typeof payload.notes === "string" ? payload.notes : null,
+    ORDER_RICH_TEXT
   );
   if (
     payload.file_status_id != null &&
