@@ -36,14 +36,18 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "backup-files: start ${STARTED_AT} UTC"
 echo "backup-files: source R2:${GESTCOPY_R2_BUCKET}"
 echo "backup-files: dest   B2:${GESTCOPY_B2_BUCKET}/${GESTCOPY_B2_FILES_PREFIX}"
-echo "backup-files: mode   rclone copy (additive; no delete)"
+echo "backup-files: mode   rclone copy --fast-list (additive; no delete)"
 
 # Intentionally NO --delete-* flags and NOT rclone sync.
 # Paths under the bucket remain orders/{tenant_id}/{order_id}/{file_id}
 # and land under ${GESTCOPY_B2_FILES_PREFIX}/orders/... on B2.
+# --fast-list: one recursive B2 listing per 1,000 objects instead of one
+# b2_list_file_names (Class C) per folder, which spent the daily Class C cap.
+# Every run still compares every object: no age filters, no --no-traverse.
 rclone copy \
   "R2:${GESTCOPY_R2_BUCKET}" \
   "B2:${GESTCOPY_B2_BUCKET}/${GESTCOPY_B2_FILES_PREFIX}" \
+  --fast-list \
   --stats 30s \
   --stats-one-line \
   --log-level INFO
