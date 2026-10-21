@@ -73,17 +73,28 @@ describe("internal subscription checkout guard · decision", () => {
     }
   });
 
-  it("has no billing_activation exception: conversion needs its own flow", () => {
+  it("only billing_activation ready_for_checkout lets Checkout through (D1 option C)", () => {
     for (const billing_activation of [
-      "ready_for_checkout",
+      "deferred_until_go_live",
       "internal_pilot",
       "stripe_checkout_pending",
+      "READY_FOR_CHECKOUT",
+      "",
     ]) {
       const row = { ...sur4Trial, metadata: { billing_activation } };
       assert.equal(
         hasCurrentNonStripeSubscription([row]),
         true,
         billing_activation
+      );
+    }
+    const ready = { ...sur4Trial, metadata: { billing_activation: "ready_for_checkout" } };
+    assert.equal(hasCurrentNonStripeSubscription([ready]), false);
+    for (const metadata of [null, [], "ready_for_checkout", { billing_activation: ["ready_for_checkout"] }]) {
+      assert.equal(
+        hasCurrentNonStripeSubscription([{ ...sur4Trial, metadata }]),
+        true,
+        JSON.stringify(metadata)
       );
     }
   });
@@ -177,7 +188,8 @@ describe("internal subscription checkout guard · wiring", () => {
     assert.ok(start > 0);
     const guard = current.slice(start, current.indexOf("\n}\n", start));
     assert.match(guard, /\.from\("subscriptions"\)/);
-    assert.match(guard, /\.select\("provider, status"\)/);
+    // metadata only for the ready_for_checkout exception (D1 option C).
+    assert.match(guard, /\.select\("provider, status, metadata"\)/);
     assert.match(guard, /\.eq\("tenant_id", tenantId\)/);
     assert.match(guard, /\.in\("status", \[\.\.\.CURRENT_SUBSCRIPTION_STATUSES\]\)/);
     assert.match(guard, /hasCurrentNonStripeSubscription/);

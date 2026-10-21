@@ -155,6 +155,8 @@ const scenarios = [
         metadata: { billing_activation: "ready_for_checkout" },
       },
     ],
+    // Stop before Stripe: only checks that the guard lets it reach prepare.
+    prepare: { outcome: "checkout_processing", code: "checkout_processing" },
   },
   {
     name: "provider-null-past-due",
@@ -177,6 +179,28 @@ const scenarios = [
     prepare: {
       outcome: "current_subscription_exists",
       code: "current_subscription_exists",
+    },
+  },
+  {
+    // App guard saw nothing (row created after it ran); prepare re-checks in-lock.
+    name: "internal-created-after-guard",
+    context: owner,
+    requestBody: validBody,
+    rows: [],
+    prepare: {
+      outcome: "internal_subscription_current",
+      code: "internal_subscription_current",
+    },
+  },
+  {
+    // A paid Stripe subscription is held: prepare refuses any new Checkout.
+    name: "pending-reconciliation",
+    context: owner,
+    requestBody: validBody,
+    rows: [],
+    prepare: {
+      outcome: "subscription_pending_reconciliation",
+      code: "subscription_pending_reconciliation",
     },
   },
   {
@@ -249,7 +273,7 @@ function assertGuardQuery(request: ProbeRequest | undefined) {
   assert.equal(request.method, "GET");
   assert.equal(request.path, "/rest/v1/subscriptions");
   assert.deepEqual(request.query, {
-    select: "provider,status",
+    select: "provider,status,metadata",
     tenant_id: `eq.${HOST_TENANT}`,
     status: "in.(trialing,active,past_due)",
   });
@@ -264,11 +288,7 @@ describe("internal subscription checkout guard · integration (route → supabas
     return entry;
   }
 
-  for (const name of [
-    "internal-expired-period",
-    "internal-ready-for-checkout",
-    "provider-null-past-due",
-  ]) {
+  for (const name of ["internal-expired-period", "provider-null-past-due"]) {
     it(`${name}: 409 internal_subscription_current before any checkout attempt`, () => {
       const entry = get(name);
       assert.equal(entry.status, 409);
@@ -277,6 +297,16 @@ describe("internal subscription checkout guard · integration (route → supabas
       assertGuardQuery(entry.requests[0]);
     });
   }
+
+  it("internal row marked ready_for_checkout reaches the prepare RPC (D1 option C)", () => {
+    const entry = get("internal-ready-for-checkout");
+    assert.equal(entry.requests.length, 2, JSON.stringify(entry.requests));
+    assertGuardQuery(entry.requests[0]);
+    assert.equal(
+      entry.requests[1]!.path,
+      "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
+    );
+  });
 
   it("guard query carries no date, provider or mode filter", () => {
     const query = get("internal-expired-period").requests[0]!.query;
@@ -307,6 +337,25 @@ describe("internal subscription checkout guard · integration (route → supabas
       entry.requests[1]!.path,
       "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
     );
+  });
+
+  it("prepare's in-lock internal check also answers 409 internal_subscription_current", () => {
+    const entry = get("internal-created-after-guard");
+    assert.equal(entry.status, 409);
+    assert.equal(entry.body?.code, "internal_subscription_current");
+    assert.equal(entry.requests.length, 2);
+    assertGuardQuery(entry.requests[0]);
+    assert.equal(
+      entry.requests[1]!.path,
+      "/rest/v1/rpc/prepare_billing_checkout_attempt_v2"
+    );
+  });
+
+  it("a held Stripe subscription answers 409 subscription_pending_reconciliation", () => {
+    const entry = get("pending-reconciliation");
+    assert.equal(entry.status, 409);
+    assert.equal(entry.body?.code, "subscription_pending_reconciliation");
+    assert.equal(entry.requests.length, 2);
   });
 
   it("fails closed when the guard lookup errors", () => {
