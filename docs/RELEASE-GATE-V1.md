@@ -75,11 +75,28 @@ Fresh local Supabase and all migrations (`db reset`), then:
    `phase34`, `phase35`, `phase44` (×2), `phase46`, `phase13`–`phase16`,
    `phase8`. Before this gate, 9 of them were never run in CI.
 
+## Job `recovery`
+
+Backup runner (`infra/backup-runner`, B1.3):
+
+1. Behaviour tests with fake tools inside the runner image, without network
+   (`backup-runner.runtime.test.sh`).
+2. End-to-end recovery drill with real `pg_dump`/`pg_restore`
+   (`backup-runner.recovery.test.sh`). The source is a local stack with every
+   migration and a fixture in `public` and each private schema. It is backed up
+   with the real image, and sets that omit a private schema must be rejected
+   before the target changes. The set is then restored into an empty local
+   Supabase project, and the source and target fingerprints must match.
+
+Because it runs on every PR, a migration that adds a schema or a cross-schema
+dependency is also checked for recoverability.
+
 ## Recommended GitHub setting (manual, repository admin)
 
 Branch protection on `main`: require the checks
-`Release gate / App (guards, tests, types, lint, build)` and
-`Release gate / Database (security invariants, tenant isolation)`.
+`Release gate / App (guards, tests, types, lint, build)`,
+`Release gate / Database (security invariants, tenant isolation)` and
+`Release gate / Backup recovery (B1.3)`.
 
 ## Known gaps
 

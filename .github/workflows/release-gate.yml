@@ -159,3 +159,31 @@ jobs:
       - name: Stop local Supabase
         if: always()
         run: npx supabase@${SUPABASE_CLI_VERSION} stop --no-backup
+
+  recovery:
+    name: Backup recovery (B1.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_CLI_VERSION: 2.117.0
+    steps:
+      # Two disposable stacks (source 581xx, target 582xx); keep their fixed host
+      # ports out of the ephemeral range, as the database job does for 543xx.
+      - name: Reserve recovery-drill ports from the ephemeral range
+        run: |
+          before="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+          sudo sysctl -q -w net.ipv4.ip_local_reserved_ports="${before:+${before},}58120-58129,58220-58229"
+          sysctl -n net.ipv4.ip_local_reserved_ports
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Runner behaviour with fake tools (no network)
+        run: |
+          docker build -q -t gestcopy-backup-runner:recovery-test infra/backup-runner
+          docker run --rm --network none -v "$PWD/infra/backup-runner:/tests:ro" \
+            gestcopy-backup-runner:recovery-test bash /tests/backup-runner.runtime.test.sh
+
+      - name: End-to-end recovery drill (real pg_dump/pg_restore, all migrations)
+        run: bash infra/backup-runner/backup-runner.recovery.test.sh
