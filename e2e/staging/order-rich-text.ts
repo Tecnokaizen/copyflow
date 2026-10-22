@@ -178,27 +178,35 @@ async function main() {
 
     await h.step("existing orders render exactly as before", async () => {
       const list = await call("/api/orders?filter=all&page_size=100"); assert.equal(list.status, 200);
-      let checked = 0, withContent = 0;
+      let checked = 0, withContent = 0, fromEarlierRuns = 0;
       for (const row of list.body.orders as any[]) {
         const detail = await call(`/api/orders/${row.id}`); assert.equal(detail.status, 200);
         const order = detail.body.order;
         if (!order.description && !order.notes) continue;
         withContent++;
-        for (const field of ["description", "notes"] as const) {
-          const raw = order[field] ?? "";
-          assert.equal(raw.includes("data-text-"), false, `${order.reference}: no stored tokens before this change`);
-          assert.equal(normalizeRichText(raw, ORDER_RICH_TEXT), normalizeRichText(raw), `${order.reference} ${field}: same canonical HTML`);
+        const styled = `${order.description ?? ""}${order.notes ?? ""}`.includes("data-text-");
+        if (styled) {
+          // Only orders this script created on an earlier run may carry tokens.
+          const ownOrder = order.title?.startsWith("E2E Formato ") || order.title?.startsWith("Urgente: plastificar ");
+          assert.ok(ownOrder, `${order.reference}: tokens in an order this E2E did not create`);
+          fromEarlierRuns++;
+        } else {
+          for (const field of ["description", "notes"] as const) {
+            const raw = order[field] ?? "";
+            assert.equal(normalizeRichText(raw, ORDER_RICH_TEXT), normalizeRichText(raw), `${order.reference} ${field}: same canonical HTML`);
+          }
         }
         await openDetail(row.id);
         const shown = await renderedContent();
         for (const field of ["description", "notes"] as const) {
-          const before = normalizeRichText(order[field]); // what the previous code rendered
-          assert.equal(shown[field], before ? await canonical(before) : null, `${order.reference} ${field}: rendered as before`);
+          // Historical orders: what the previous code rendered. Earlier E2E orders: their styles.
+          const expected = styled ? normalizeRichText(order[field], ORDER_RICH_TEXT) : normalizeRichText(order[field]);
+          assert.equal(shown[field], expected ? await canonical(expected) : null, `${order.reference} ${field}: rendered as expected`);
         }
         checked++;
       }
-      assert.ok(checked > 0, "at least one existing order with content");
-      result.checks.historical = { orders: list.body.orders.length, withContent, renderedIdentically: checked };
+      assert.ok(checked - fromEarlierRuns > 0, "at least one historical order with content");
+      result.checks.historical = { orders: list.body.orders.length, withContent, renderedIdentically: checked - fromEarlierRuns, earlierE2EOrders: fromEarlierRuns };
     }, 600000);
 
     const fullId = await h.step("full order: styled instructions and notes", async () => {
