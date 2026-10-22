@@ -1,4 +1,22 @@
 import sanitizeHtml from "sanitize-html";
+import {
+  TEXT_ALIGN_ATTRIBUTE,
+  TEXT_COLOR_ATTRIBUTE,
+  TEXT_SIZE_ATTRIBUTE,
+  paragraphStyleAttributes,
+  textStyleAttributes,
+} from "./text-styles";
+
+export type RichTextOptions = {
+  /**
+   * Keep the closed set of text styles from `./text-styles`: sizes and colors
+   * (a `<span>` with `data-text-size` / `data-text-color`) and paragraph
+   * alignment (`<p data-text-align>`). Off by default: every other field keeps
+   * the basic vocabulary, and a styled value read without this option just
+   * loses its styles.
+   */
+  textStyles?: boolean;
+};
 
 const ALLOWED_TAGS = [
   "p",
@@ -40,6 +58,37 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
       }
       return { tagName, attribs: { href: attribs.href.trim() } };
     },
+  },
+};
+
+// Same vocabulary plus `<span>` carrying only allowed text style tokens and
+// `<p>` with an allowed alignment. A span left without a valid token is
+// unwrapped and its text kept, and a paragraph loses any other attribute, as
+// in the basic profile, so values without tokens sanitize identically.
+const STYLED_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  ...SANITIZE_OPTIONS,
+  allowedTags: [...ALLOWED_TAGS, "span"],
+  allowedAttributes: {
+    ...SANITIZE_OPTIONS.allowedAttributes,
+    span: [TEXT_SIZE_ATTRIBUTE, TEXT_COLOR_ATTRIBUTE],
+    p: [TEXT_ALIGN_ATTRIBUTE],
+  },
+  exclusiveFilter: (frame) => {
+    if (frame.tag === "span") {
+      return Object.keys(frame.attribs).length === 0 ? "excludeTag" : false;
+    }
+    return SANITIZE_OPTIONS.exclusiveFilter?.(frame) ?? false;
+  },
+  transformTags: {
+    ...SANITIZE_OPTIONS.transformTags,
+    span: (tagName, attribs): sanitizeHtml.Tag => ({
+      tagName,
+      attribs: textStyleAttributes(attribs),
+    }),
+    p: (tagName, attribs): sanitizeHtml.Tag => ({
+      tagName,
+      attribs: paragraphStyleAttributes(attribs),
+    }),
   },
 };
 
@@ -117,8 +166,14 @@ function withSafeLinkRel(html: string) {
   });
 }
 
-export function sanitizeRichText(value: string | null | undefined) {
-  const clean = sanitizeHtml(value ?? "", SANITIZE_OPTIONS).trim();
+export function sanitizeRichText(
+  value: string | null | undefined,
+  options: RichTextOptions = {}
+) {
+  const clean = sanitizeHtml(
+    value ?? "",
+    options.textStyles ? STYLED_SANITIZE_OPTIONS : SANITIZE_OPTIONS
+  ).trim();
   return withSafeLinkRel(clean);
 }
 
@@ -153,14 +208,17 @@ export function isRichTextEmpty(value: string | null | undefined) {
   return richTextToPlainText(value).trim().length === 0;
 }
 
-export function normalizeRichText(value: string | null | undefined) {
+export function normalizeRichText(
+  value: string | null | undefined,
+  options: RichTextOptions = {}
+) {
   const raw = value ?? "";
   if (!raw.trim()) {
     return "";
   }
 
   const html = looksLikeHtml(raw) ? raw : legacyToHtml(raw);
-  const clean = sanitizeRichText(html);
+  const clean = sanitizeRichText(html, options);
   if (isRichTextEmpty(clean)) {
     return "";
   }
@@ -168,17 +226,21 @@ export function normalizeRichText(value: string | null | undefined) {
   return clean;
 }
 
-export function persistRichText(value: string | null | undefined) {
-  const html = normalizeRichText(value);
+export function persistRichText(
+  value: string | null | undefined,
+  options: RichTextOptions = {}
+) {
+  const html = normalizeRichText(value, options);
   return html || null;
 }
 
 export function appendRichText(
   existing: string | null | undefined,
-  addition: string | null | undefined
+  addition: string | null | undefined,
+  options: RichTextOptions = {}
 ) {
-  const base = normalizeRichText(existing);
-  const next = normalizeRichText(addition);
+  const base = normalizeRichText(existing, options);
+  const next = normalizeRichText(addition, options);
   if (!next) {
     return base;
   }

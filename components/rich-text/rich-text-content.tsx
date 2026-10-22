@@ -7,11 +7,14 @@ const contentClassName =
 export function RichTextContent({
   value,
   className,
+  textStyles = false,
 }: {
   value: string | null | undefined;
   className?: string;
+  /** Render the stored text sizes and colors (fields that opt in, e.g. orders). */
+  textStyles?: boolean;
 }) {
-  const html = normalizeRichText(value);
+  const html = normalizeRichText(value, { textStyles });
   if (!html) {
     return null;
   }
