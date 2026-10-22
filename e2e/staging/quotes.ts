@@ -73,7 +73,17 @@ async function main(){
   });
   await h.step('multiline quote and independent duplicate through UI',async()=>{
    await p.goto(target.baseUrl+'/quotes/new');
-   await p.getByLabel('Título / trabajo',{exact:true}).fill(title);
+   // Creations left unacknowledged by earlier runs (last 48 h) lock the form behind the recovery panel.
+   // Fail with that cause instead of a fill timeout; acknowledging them is an owner decision, never done here.
+   const titleField=p.getByLabel('Título / trabajo',{exact:true});
+   const recoveryPanel=p.getByRole('region',{name:'Recuperación de presupuesto',exact:true});
+   await recoveryPanel.or(titleField.and(p.locator(':enabled'))).first().waitFor({timeout:30000});
+   if(await recoveryPanel.isVisible()){
+    const pending=await call('/api/quotes/creation-recovery');
+    const refs=(pending.body.receipts??[]).map((r:any)=>r.reference).join(', ')||`HTTP ${pending.status}`;
+    throw new Error(`/quotes/new is locked by unacknowledged quote creations from earlier runs (${refs}). They clear 48 h after creation, or with "Crear otro presupuesto" once the owner approves.`);
+   }
+   await titleField.fill(title);
    await p.getByPlaceholder(/^Buscar cliente por nombre/).fill(client);
    await p.getByRole('button',{name:new RegExp(client)}).click();
    await p.locator('[contenteditable="true"][aria-label="Descripción del trabajo"]').fill('Trabajo de prueba multilínea\nImpresión y acabado');
