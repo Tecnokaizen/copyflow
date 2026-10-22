@@ -128,7 +128,7 @@ for _ in 1 2 3; do
   direct "update public.orders set total_amount=5 where id='$O1'" 'total_amount_rpc_only'
 done
 direct "update public.orders set total_mode='items' where id='$O1'" 'order_items_columns_rpc_only'
-# Always a real change: when job 1 wins above, items_total is already 1.00.
+# A real change: the guard ignores no-op writes and the race above may leave items_total at 1.00.
 direct "update public.orders set items_total=items_total+1 where id='$O1'" 'order_items_columns_rpc_only'
 direct "update public.orders set prices_include_tax=true where id='$O1'" 'order_items_columns_rpc_only'
 direct "update public.orders set total_amount=5 where id='${STATUS_TENANT_ORDER_PREFIX}51'" 'total_amount_items_mode'
