@@ -97,9 +97,9 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 <<SQL
   insert into public.services (id, tenant_id, name, active)
     values ('$SERVICE', '$TENANT', 'Servicio', true);
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values (
-    '$ORDER', '$TENANT', 'P35-C', 'Conc', '$STATUS', '$SERVICE', '$OWNER'
+    '$ORDER', '$TENANT', 'Conc', '$STATUS', '$SERVICE', '$OWNER'
   );
   insert into public.quotes (tenant_id, description, status_id)
   select '$TENANT', 'Conc quote', id

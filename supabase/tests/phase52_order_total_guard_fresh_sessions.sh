@@ -53,7 +53,9 @@ for _ in 1 2 3 4 5; do
   refused "$ACTOR" "update public.orders set total_amount=5 where id='$ORDER'" 'total_amount_rpc_only'
 done
 refused "" "update public.orders set total_amount=5 where id='$ORDER'" 'total_amount_rpc_only'
-refused "$ACTOR" "insert into public.orders(tenant_id,title,status_id,total_amount) select '$TENANT','x',id,9 from public.order_statuses where tenant_id='$TENANT' and is_initial" 'total_amount_rpc_only'
+# Since 20261022120000 authenticated cannot name total_amount in an INSERT; privileged roles still hit the guard.
+refused "$ACTOR" "insert into public.orders(tenant_id,title,status_id,total_amount) select '$TENANT','x',id,9 from public.order_statuses where tenant_id='$TENANT' and is_initial" 'permission denied for table orders'
+refused "" "insert into public.orders(tenant_id,title,status_id,total_amount) select '$TENANT','x',id,9 from public.order_statuses where tenant_id='$TENANT' and is_initial" 'total_amount_rpc_only'
 [[ "$(sql "select coalesce(total_amount::text,'null') from public.orders where id='$ORDER'")" == null ]] || fail "total changed"
 echo 'PASS: five fresh authenticated sessions and a fresh privileged session cannot write total_amount'
 
