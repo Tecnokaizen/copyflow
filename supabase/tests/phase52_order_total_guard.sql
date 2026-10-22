@@ -87,11 +87,13 @@ begin
 
   -- 1. New session, no flag (the P0 case): direct writes are refused for every role.
   perform pg_temp.boom(format($q$update public.orders set total_amount = 5 where id = %L$q$, oa), '42501', 'total_amount_rpc_only');
-  perform pg_temp.boom(format($q$insert into public.orders(tenant_id,title,status_id,total_amount) values(%L,'x',%L,9)$q$, ta, st_a), '42501', 'total_amount_rpc_only');
+  -- Since 20261022120000 authenticated cannot even name total_amount in a direct INSERT.
+  perform pg_temp.boom(format($q$insert into public.orders(tenant_id,title,status_id,total_amount) values(%L,'x',%L,9)$q$, ta, st_a), '42501', 'permission denied for table orders');
   perform pg_temp.ok(pg_catalog.current_setting('gestcopy.order_total_write', true) is null,
     'refused writes never set the flag');
   reset role; -- privileged role, still no flag
   perform pg_temp.boom(format($q$update public.orders set total_amount = 5 where id = %L$q$, oa), '42501', 'total_amount_rpc_only');
+  perform pg_temp.boom(format($q$insert into public.orders(tenant_id,title,status_id,total_amount) values(%L,'x',%L,9)$q$, ta, st_a), '42501', 'total_amount_rpc_only');
   -- anything but exactly '1' is "not allowed"
   perform set_config('gestcopy.order_total_write', '', true);
   perform pg_temp.boom(format($q$update public.orders set total_amount = 5 where id = %L$q$, oa), '42501', 'total_amount_rpc_only');
@@ -113,8 +115,11 @@ begin
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'total_amount' = '120.00', 'a second RPC call still works');
   r := public.set_order_total_amount(oa, '120.00', pg_temp.rv(oa));
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'changed' = 'false', 'same value is a no-op');
-  -- a write that does not change the amount is not a guarded write
+  -- a write that does not change the amount is not a guarded write. Since
+  -- 20261022120000 a direct UPDATE needs the order RPC marker, set by hand here.
+  perform set_config('app.order_write', 'validated', true);
   update public.orders set total_amount = total_amount, notes = 'sin cambio de importe' where id = oa;
+  perform set_config('app.order_write', '', true);
   perform pg_temp.ok((select total_amount = 120.00 and notes = 'sin cambio de importe' from public.orders where id = oa), 'unrelated updates keep working');
   r := public.set_order_total_amount(oa, null, pg_temp.rv(oa));
   perform pg_temp.ok(r->>'ok' = 'true' and r->>'total_amount' is null, 'the total can be cleared while nothing is collected');

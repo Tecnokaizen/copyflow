@@ -101,9 +101,9 @@ begin
   insert into public.services (id, tenant_id, name, active)
     values (v_service_a, v_tenant_a, 'Servicio', true);
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values (
-    v_order_a, v_tenant_a, 'P35-O', 'Pedido', v_status_a, v_service_a, v_owner_a
+    v_order_a, v_tenant_a, 'Pedido', v_status_a, v_service_a, v_owner_a
   );
 
   select id into v_draft
