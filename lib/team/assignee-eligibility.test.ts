@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import {
@@ -54,7 +54,14 @@ describe("assignee eligibility (R6)", () => {
   });
 
   it("selectors ask only for assignable people", () => {
-    assert.match(source("app/api/orders/options/route.ts"), /\.eq\("can_receive_orders", true\)/);
+    // The team_members query of /api/orders/options lives in the route today
+    // and in lib/orders/options-load.ts once #90 lands: check wherever it is.
+    const loaders = ["app/api/orders/options/route.ts", "lib/orders/options-load.ts"]
+      .filter((file) => existsSync(path.join(root, file)))
+      .map(source)
+      .filter((text) => /\.from\("team_members"\)/.test(text));
+    assert.equal(loaders.length, 1, "one place loads the order assignee options");
+    assert.match(loaders[0], /\.from\("team_members"\)(?:(?!\.from\()[\s\S])*?\.eq\("can_receive_orders", true\)/);
     for (const file of [
       "components/quotes/quote-conversion-dialog.tsx",
       "components/quotes/quote-creation-editor.tsx",
