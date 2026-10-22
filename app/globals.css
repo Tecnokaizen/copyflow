@@ -208,7 +208,8 @@
 /*
  * Rich text styles (lib/rich-text/text-styles.ts). Only the sanitizer's tokens
  * reach the DOM; sizes are relative to the surrounding text so they scale with
- * each surface, and colors follow the theme tokens above (print.css pins them).
+ * each surface, colors follow the theme tokens above (print.css pins them) and
+ * alignment applies to whole paragraphs.
  */
 [data-text-size="small"] {
   font-size: 0.875em;
@@ -218,6 +219,15 @@
 }
 [data-text-size="xlarge"] {
   font-size: 1.5em;
+}
+[data-text-align="center"] {
+  text-align: center;
+}
+[data-text-align="right"] {
+  text-align: right;
+}
+[data-text-align="justify"] {
+  text-align: justify;
 }
 [data-text-color="red"] {
   color: hsl(var(--gc-text-red));

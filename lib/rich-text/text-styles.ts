@@ -1,12 +1,14 @@
 /**
  * Text styles for rich text fields that opt in (orders): a closed set of sizes
- * and colors. They are stored as tokens on a `<span>`, never as inline CSS, so
- * the sanitizer can allow exact values and each surface (light, dark, print)
- * maps a token to its own readable color. Normal size and the default color
- * are the absence of a token.
+ * and colors on fragments, and paragraph alignment. They are stored as tokens,
+ * never as inline CSS: sizes and colors on a `<span>`, alignment on the `<p>`
+ * itself. The sanitizer allows exact values only, and each surface (light,
+ * dark, print) maps a token to its own CSS. Normal size, the default color and
+ * left alignment are the absence of a token, so older text needs no change.
  */
 export const TEXT_SIZE_ATTRIBUTE = "data-text-size";
 export const TEXT_COLOR_ATTRIBUTE = "data-text-color";
+export const TEXT_ALIGN_ATTRIBUTE = "data-text-align";
 
 export const TEXT_SIZES = [
   { value: "small", label: "Pequeño" },
@@ -22,11 +24,20 @@ export const TEXT_COLORS = [
   { value: "purple", label: "Morado" },
 ] as const;
 
+/** Left is the default and is never stored. */
+export const TEXT_ALIGNS = [
+  { value: "center", label: "Centrada" },
+  { value: "right", label: "Derecha" },
+  { value: "justify", label: "Justificada" },
+] as const;
+
 export type TextSize = (typeof TEXT_SIZES)[number]["value"];
 export type TextColor = (typeof TEXT_COLORS)[number]["value"];
+export type TextAlign = (typeof TEXT_ALIGNS)[number]["value"];
 
 const SIZE_VALUES = new Set<string>(TEXT_SIZES.map((size) => size.value));
 const COLOR_VALUES = new Set<string>(TEXT_COLORS.map((color) => color.value));
+const ALIGN_VALUES = new Set<string>(TEXT_ALIGNS.map((align) => align.value));
 
 /** Exact token or null: no trimming or case folding, so stored HTML stays canonical. */
 export function textSizeOf(value: unknown): TextSize | null {
@@ -35,6 +46,18 @@ export function textSizeOf(value: unknown): TextSize | null {
 
 export function textColorOf(value: unknown): TextColor | null {
   return typeof value === "string" && COLOR_VALUES.has(value) ? (value as TextColor) : null;
+}
+
+export function textAlignOf(value: unknown): TextAlign | null {
+  return typeof value === "string" && ALIGN_VALUES.has(value) ? (value as TextAlign) : null;
+}
+
+/** The allowed alignment of a `<p>`; anything else (left included) is dropped. */
+export function paragraphStyleAttributes(attribs: Record<string, string | undefined>) {
+  const result: Record<string, string> = {};
+  const align = textAlignOf(attribs[TEXT_ALIGN_ATTRIBUTE]);
+  if (align) result[TEXT_ALIGN_ATTRIBUTE] = align;
+  return result;
 }
 
 /** The allowed text style attributes of a `<span>`, in a fixed order; anything else is dropped. */

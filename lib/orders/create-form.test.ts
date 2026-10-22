@@ -25,10 +25,10 @@ describe("CreateOrderForm payload is shared across modes", () => {
   it("keeps instruction and note sizes and colors, sanitized, in both modes", () => {
     const payload = buildCreateOrderPayload({
       ...PAYLOAD_INPUT,
-      description: '<p><span data-text-size="xlarge" data-text-color="red" onclick="x()">NO CORTAR</span> sangrado</p>',
+      description: '<p data-text-align="center" style="text-align:right"><span data-text-size="xlarge" data-text-color="red" onclick="x()">NO CORTAR</span> sangrado</p>',
       notes: '<p><span data-text-color="blue" style="font-size:40px">Avisar</span></p>',
     });
-    assert.equal(payload.description, '<p><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span> sangrado</p>');
+    assert.equal(payload.description, '<p data-text-align="center"><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span> sangrado</p>');
     assert.equal(payload.notes, '<p><span data-text-color="blue">Avisar</span></p>');
   });
 

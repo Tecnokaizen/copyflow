@@ -106,6 +106,30 @@ async function select(page, label, word) {
   await page.waitForTimeout(50);
 }
 
+// Collapse the selection at the end of an editor, as a click after the last word would.
+async function caretAtEnd(page, label) {
+  await page.evaluate((label) => {
+    const editor = document.querySelector(`[aria-label="${label}"]`);
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor.lastElementChild ?? editor);
+    range.collapse(false);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  }, label);
+  await page.waitForTimeout(50);
+}
+
+// Computed text-align of the paragraph that holds `word` inside `scope`.
+async function alignOf(page, scope, word) {
+  return page.evaluate(([scope, word]) => {
+    const paragraph = [...document.querySelector(scope).querySelectorAll('p')].find((p) => p.textContent.includes(word));
+    return paragraph ? getComputedStyle(paragraph).textAlign : null;
+  }, [scope, word]);
+}
+
+const firstParagraph = (html) => html.slice(0, html.indexOf('</p>') + 4);
+
 async function choose(page, menu, option) {
   await page.getByRole('button', { name: new RegExp(`^${menu}:`) }).first().click();
   await page.getByRole('menuitemradio', { name: option, exact: true }).click();
@@ -287,9 +311,89 @@ try {
     assert.equal(await page.getByRole('button', { name: /^Tamaño del texto:/ }).count(), 2, 'menus only in the order editors');
 
     // Locked editor: menus disabled.
-    for (const trigger of await page.getByRole('button', { name: /^(Tamaño|Color) del texto:/ }).all()) {
+    assert.equal(await page.getByRole('button', { name: /^Alineación:/ }).count(), 2, 'alignment only in the order editors');
+    for (const trigger of await page.getByRole('button', { name: /^((Tamaño|Color) del texto|Alineación):/ }).all()) {
       const locked = await trigger.evaluate((el) => !!el.closest('[data-disabled="true"]'));
       if (locked) assert.equal(await trigger.isDisabled(), true);
+    }
+
+    // Alignment: whole paragraphs (list items too), sizes and colors kept, exact values only.
+    await caretAtEnd(page, 'Instrucciones');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Firma del cliente');
+    await select(page, 'Instrucciones', 'Firma del cliente');
+    await choose(page, 'Alineación', 'Derecha');
+    await page.getByRole('button', { name: 'Lista con viñetas' }).first().click();
+    value = await page.evaluate(() => window.current.value);
+    // The new line inherits the size of the word before it, as typing does.
+    assert.match(value, /<ul><li><p data-text-align="right">(<span data-text-size="small">)?Firma del cliente(<\/span>)?<\/p><\/li><\/ul>$/);
+    // Keyboard only.
+    await page.mouse.move(width - 5, 1095);
+    await select(page, 'Instrucciones', 'Urgente');
+    await page.getByRole('button', { name: /^Alineación:/ }).first().focus();
+    await page.keyboard.press('Enter');
+    await page.getByRole('menu').waitFor();
+    await page.waitForTimeout(300);
+    for (let i = 0; i < 5 && !(await page.evaluate(() => document.activeElement?.textContent?.includes('Justificada'))); i++) {
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(80);
+    }
+    await page.keyboard.press('Enter');
+    await page.getByRole('menu').waitFor({ state: 'detached' });
+    value = await page.evaluate(() => window.current.value);
+    assert.match(firstParagraph(value), /^<p data-text-align="justify">.*<span data-text-size="small">papel<\/span>/);
+    await select(page, 'Instrucciones', 'Urgente');
+    await choose(page, 'Alineación', 'Centrada');
+    await page.getByRole('button', { name: 'Alineación: Centrada' }).first().waitFor();
+    value = await page.evaluate(() => window.current.value);
+    assert.match(firstParagraph(value), /^<p data-text-align="center">/);
+    assert.equal(/style=|text-align:/.test(value), false, value);
+    await page.getByRole('button', { name: 'Guardar' }).click();
+    const alignedSaved = await page.evaluate(() => sessionStorage.getItem('stored'));
+    for (const scope of ['[data-testid="view"]', '[data-testid="print"]']) {
+      assert.equal(await alignOf(page, scope, 'Urgente'), 'center', scope);
+      assert.equal(await alignOf(page, scope, 'Firma del cliente'), 'right', scope);
+    }
+    if (width === 1280) await page.screenshot({ path: path.join(shots, 'align-light-1280.png'), fullPage: true });
+    // Reload, then edit: left removes the token; "Quitar formato" resets alignment and list.
+    await page.reload();
+    await editor.waitFor();
+    assert.equal(await page.evaluate(() => window.normalizeOrder(document.querySelector('[aria-label="Instrucciones"]').innerHTML)), alignedSaved);
+    assert.equal(await alignOf(page, '[aria-label="Instrucciones"]', 'Urgente'), 'center');
+    await select(page, 'Instrucciones', 'Urgente');
+    await choose(page, 'Alineación', 'Izquierda');
+    value = await page.evaluate(() => window.current.value);
+    assert.match(firstParagraph(value), /^<p>/);
+    await select(page, 'Instrucciones', 'Firma del cliente');
+    await page.getByRole('button', { name: 'Quitar formato' }).first().click();
+    value = await page.evaluate(() => window.current.value);
+    assert.match(value, /<p>Firma del cliente<\/p>$/);
+    // Paste: alignment travels between order fields; Word's text-align and the basic editor do not keep it.
+    // The first and last pasted paragraphs merge into the one at the caret and take its alignment,
+    // as in any editor, so the aligned paragraphs sit in the middle.
+    const alignedPaste = '<p>Antes</p><p data-text-align="justify" style="text-align:right">Pegado justificado</p><p style="text-align:center" align="center">Word centrado</p><p>Después</p>';
+    for (const label of ['Instrucciones', 'Pie']) {
+      await caretAtEnd(page, label);
+      await page.evaluate(([label, html]) => {
+        const data = new DataTransfer();
+        data.setData('text/html', html);
+        data.setData('text/plain', 'Antes\nPegado justificado\nWord centrado\nDespués');
+        document.querySelector(`[aria-label="${label}"]`).dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      }, [label, alignedPaste]);
+      await page.waitForTimeout(50);
+    }
+    const afterAlignedPaste = await page.evaluate(() => window.current);
+    assert.match(afterAlignedPaste.value, /<p data-text-align="justify">Pegado justificado<\/p>/);
+    assert.match(afterAlignedPaste.value, /<p>Word centrado<\/p>/);
+    assert.equal(afterAlignedPaste.basic.includes('data-text-align'), false, afterAlignedPaste.basic);
+    assert.equal(/style=|\salign=|text-align:/.test(afterAlignedPaste.value + afterAlignedPaste.basic), false);
+    if (width === 390) {
+      await page.getByRole('button', { name: /^Alineación:/ }).first().click();
+      const box = await page.getByRole('menu').boundingBox();
+      assert.ok(box.x >= 0 && box.x + box.width <= 390, `alignment menu inside the phone viewport ${JSON.stringify(box)}`);
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(shots, 'menu-align-390.png') });
+      await page.keyboard.press('Escape');
     }
 
     // Dark mode: lighter tones on the dark surfaces; print stays on the light palette.

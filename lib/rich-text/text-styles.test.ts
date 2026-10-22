@@ -5,8 +5,11 @@ import { describe, it } from "node:test";
 import { parseKioskOrderPayload } from "@/lib/kiosk/payload";
 import { richTextLines } from "./lines";
 import {
+  TEXT_ALIGNS,
   TEXT_COLORS,
   TEXT_SIZES,
+  paragraphStyleAttributes,
+  textAlignOf,
   textColorOf,
   textSizeOf,
   textStyleAttributes,
@@ -25,6 +28,10 @@ describe("text style vocabulary", () => {
     for (const value of ["Red", "red ", "#ff0000", "rgb(255,0,0)", "", null, "inherit"]) {
       assert.equal(textColorOf(value), null, String(value));
     }
+    assert.equal(textAlignOf("justify"), "justify");
+    for (const value of ["left", "Center", " right", "start", "end", "center;color:red", "", null]) {
+      assert.equal(textAlignOf(value), null, String(value));
+    }
   });
 
   it("keeps only valid token attributes, size first", () => {
@@ -33,11 +40,14 @@ describe("text style vocabulary", () => {
       { "data-text-size": "small", "data-text-color": "blue" }
     );
     assert.deepEqual(textStyleAttributes({ "data-text-color": "pink" }), {});
+    assert.deepEqual(paragraphStyleAttributes({ "data-text-align": "center", style: "text-align:right", class: "x" }), { "data-text-align": "center" });
+    assert.deepEqual(paragraphStyleAttributes({ "data-text-align": "left" }), {});
   });
 
   it("offers a limited palette with Spanish labels", () => {
     assert.deepEqual(TEXT_SIZES.map((size) => size.label), ["Pequeño", "Grande", "Muy grande"]);
     assert.deepEqual(TEXT_COLORS.map((color) => color.label), ["Rojo", "Naranja", "Verde", "Azul", "Morado"]);
+    assert.deepEqual(TEXT_ALIGNS.map((align) => align.label), ["Centrada", "Derecha", "Justificada"]);
   });
 });
 
@@ -82,6 +92,9 @@ describe("text style colors are readable in light, dark and print", () => {
   it("has a CSS rule and theme tokens for every size and color", () => {
     for (const { value } of TEXT_SIZES) {
       assert.match(globals, new RegExp(`\\[data-text-size="${value}"\\] \\{\\s*font-size: [\\d.]+em;`));
+    }
+    for (const { value } of TEXT_ALIGNS) {
+      assert.match(globals, new RegExp(`\\[data-text-align="${value}"\\] \\{\\s*text-align: ${value};`));
     }
     for (const { value } of TEXT_COLORS) {
       assert.match(globals, new RegExp(`\\[data-text-color="${value}"\\] \\{\\s*color: hsl\\(var\\(--gc-text-${value}\\)\\);`));
@@ -133,8 +146,8 @@ describe("text styles stay out of the fields that do not opt in", () => {
 
   it("the quote footer lines ignore order tokens", () => {
     assert.deepEqual(
-      richTextLines('<p><span data-text-size="xlarge" data-text-color="red">Empresa</span> · Tel.</p>').map((line) => line.map((run) => run.text).join("")),
-      ["Empresa · Tel."]
+      richTextLines('<p data-text-align="center"><span data-text-size="xlarge" data-text-color="red">Empresa</span> · Tel.</p><p data-text-align="right">CIF</p>').map((line) => line.map((run) => run.text).join("")),
+      ["Empresa · Tel.", "CIF"]
     );
   });
 
@@ -143,7 +156,7 @@ describe("text styles stay out of the fields that do not opt in", () => {
       submission_id: "11111111-1111-4111-8111-111111111111",
       service_id: "22222222-2222-4222-8222-222222222222",
       contact: { name: "Cliente", email: "cliente@example.com" },
-      description: '<p><span data-text-color="red" data-text-size="xlarge">Urgente</span> 100 copias</p>',
+      description: '<p data-text-align="center"><span data-text-color="red" data-text-size="xlarge">Urgente</span> 100 copias</p>',
     });
     assert.equal(parsed.ok, true);
     assert.equal(JSON.stringify(parsed).includes("data-text-"), false);

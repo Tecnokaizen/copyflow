@@ -20,6 +20,14 @@ describe("appendOrderNote", () => {
     assert.equal(appendOrderNote(null, "   "), null);
   });
 
+  it("keeps paragraph alignment of the existing notes and of the new note", () => {
+    const existing = '<p data-text-align="center">Recoger en tienda</p>';
+    assert.equal(
+      appendOrderNote(existing, '<p data-text-align="right" style="text-align:left">Firma</p>'),
+      `${existing}<p data-text-align="right">Firma</p>`
+    );
+  });
+
   it("keeps the text sizes and colors of the existing notes and of the new note", () => {
     const existing = '<p><span data-text-color="red">Cliente paga al recoger</span></p>';
     assert.equal(

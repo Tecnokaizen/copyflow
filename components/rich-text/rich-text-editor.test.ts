@@ -33,14 +33,14 @@ describe("RichTextContent", () => {
 
 describe("text styles in rendered content", () => {
   const value =
-    '<p><span data-text-size="large" data-text-color="red" style="position:fixed">Urgente</span> resto</p>';
+    '<p data-text-align="center" style="text-align:right"><span data-text-size="large" data-text-color="red" style="position:fixed">Urgente</span> resto</p>';
 
   it("renders sizes and colors only where the field opts in", () => {
     const styled = renderToStaticMarkup(
       createElement(RichTextContent, { value, textStyles: true })
     );
-    assert.match(styled, /<span data-text-size="large" data-text-color="red">Urgente<\/span> resto/);
-    assert.equal(styled.includes("position:fixed"), false);
+    assert.match(styled, /<p data-text-align="center"><span data-text-size="large" data-text-color="red">Urgente<\/span> resto<\/p>/);
+    assert.equal(/position:fixed|text-align:right/.test(styled), false);
 
     const basic = renderToStaticMarkup(createElement(RichTextContent, { value }));
     assert.match(basic, /<p>Urgente resto<\/p>/);
@@ -53,6 +53,7 @@ describe("text styles in rendered content", () => {
     );
     assert.match(order, /print-rich/);
     assert.match(order, /data-text-color="red"/);
+    assert.match(order, /<p data-text-align="center">/);
 
     const quote = renderToStaticMarkup(
       createElement(PrintRichText, { title: "Descripción", value })
