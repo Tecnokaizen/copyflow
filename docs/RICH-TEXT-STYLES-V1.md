@@ -1,25 +1,30 @@
-# Tamaño y color en texto enriquecido (V1)
+# Tamaño, color y alineación en texto enriquecido (V1)
 
 Mejora del core reutilizable de Gestcopy, solicitada por SUR4 (Tamara) el
 21/10/2026: cambiar el tamaño y el color de fragmentos de las instrucciones
 y de las notas internas de los pedidos para destacar información durante la
-producción.
+producción. Ampliada el 22/10/2026 (adenda de la PR #146) con la alineación
+de párrafos.
 
 Rama `feat/orders-rich-text-styles`, base `main` `9168c89`. Sin migraciones.
 
 ## Qué ve el usuario
 
 En la barra del editor de texto, junto a negrita, cursiva, subrayado y
-tachado, dos menús nuevos:
+tachado, tres menús nuevos:
 
-| Menú | Opciones |
-| --- | --- |
-| **Tamaño del texto** (icono «Aa») | Pequeño · Normal · Grande · Muy grande |
-| **Color del texto** (icono «A» subrayada con el color actual) | Predeterminado · Rojo · Naranja · Verde · Azul · Morado |
+| Menú | Opciones | Se aplica a |
+| --- | --- | --- |
+| **Tamaño del texto** (icono «Aa») | Pequeño · Normal · Grande · Muy grande | Texto seleccionado |
+| **Color del texto** (icono «A» subrayada con el color actual) | Predeterminado · Rojo · Naranja · Verde · Azul · Morado | Texto seleccionado |
+| **Alineación** (icono de la alineación actual) | Izquierda · Centrada · Derecha · Justificada | Párrafos completos que toca la selección, también dentro de listas |
 
-- «Normal» y «Predeterminado» devuelven el fragmento al formato por defecto.
-  «Quitar formato» quita también tamaño y color.
-- Sin selección, la opción se aplica a lo que se escribe a continuación.
+- «Normal», «Predeterminado» e «Izquierda» devuelven el formato por defecto.
+  «Quitar formato» quita también tamaño, color y alineación (y, como antes,
+  las listas).
+- Sin selección, el tamaño y el color se aplican a lo que se escribe a
+  continuación; la alineación, al párrafo del cursor. Al pulsar Intro, el
+  párrafo nuevo conserva la alineación.
 - Cada botón anuncia el valor actual («Color del texto: Rojo»). Los menús se
   usan con teclado (Intro, flechas, Escape); tras elegir, el foco vuelve al
   texto; con Escape, al botón.
@@ -44,11 +49,13 @@ plano, como antes.
 
 ### Tokens, no CSS
 
-Un fragmento con estilo se guarda como `<span>` con atributos de un
-vocabulario cerrado (`lib/rich-text/text-styles.ts`):
+Un fragmento con estilo se guarda como `<span>` y la alineación como
+atributo del propio párrafo, siempre con un vocabulario cerrado
+(`lib/rich-text/text-styles.ts`):
 
 ```html
-<p><span data-text-size="xlarge"><span data-text-color="red">NO CORTAR</span></span> sangrado 3 mm</p>
+<p data-text-align="center"><span data-text-size="xlarge"><span data-text-color="red">NO CORTAR</span></span> sangrado 3 mm</p>
+<ul><li><p data-text-align="right">Entregar en caja cerrada</p></li></ul>
 ```
 
 - Tamaños: `small` (0,875 em), `large` (1,25 em), `xlarge` (1,5 em). Relativos
@@ -56,6 +63,9 @@ vocabulario cerrado (`lib/rich-text/text-styles.ts`):
 - Colores: `red`, `orange`, `green`, `blue`, `purple`. Cada superficie los
   traduce a su color: claro y oscuro en `app/globals.css`
   (`--gc-text-*`), papel en `components/print/print.css`.
+- Alineación: `center`, `right`, `justify`, solo en `<p>` (los elementos de
+  lista contienen párrafos). La izquierda es la ausencia del atributo, así
+  que el texto existente ya está «a la izquierda» sin tocarlo.
 - Ni `style`, ni clases, ni colores libres: no hay CSS que inyectar y el
   modo oscuro puede usar tonos distintos para el mismo token.
 
@@ -71,10 +81,12 @@ appendRichText(existing, addition, { textStyles: true });
 ```
 
 - Con `textStyles`, además del vocabulario básico se admite `<span>` con
-  `data-text-size` y `data-text-color` de valores exactos (sin mayúsculas,
-  espacios ni unidades). Un `<span>` sin token válido se desenvuelve y el
-  texto se conserva. Estilos en línea, clases, eventos, `data-*` ajenos y
-  colores de Word/Office pegados se descartan.
+  `data-text-size` y `data-text-color`, y `<p>` con `data-text-align`, todos
+  de valores exactos (sin mayúsculas, espacios, unidades ni CSS). Un `<span>`
+  sin token válido se desenvuelve y el texto se conserva; un `<p>` pierde
+  cualquier otro atributo, `left` incluido. Estilos en línea (también
+  `text-align`), `align=`, clases, eventos, `data-*` ajenos y formatos de
+  Word/Office pegados se descartan.
 - Sin la opción (por defecto) el saneado es exactamente el de antes y además
   elimina los tokens: un valor con estilos leído por un campo que no los usa
   pierde solo el formato.
@@ -85,12 +97,20 @@ appendRichText(existing, addition, { textStyles: true });
 ### Editor
 
 `components/rich-text/rich-text-editor.tsx` recibe `textStyles` (fijo al
-montar). Activa dos marcas Tiptap independientes
-(`components/rich-text/text-style-marks.ts`), `textSize` y `textColor`, cada
-una con un único atributo que solo se interpreta si el valor es válido. El
-pegado pasa por el mismo saneado: entre campos de pedido se conservan los
-tokens; en un editor básico se quitan. `RichTextContent` y `PrintRichText`
-reciben la misma opción para pintar.
+montar) y activa, del mismo editor Tiptap
+(`components/rich-text/text-style-extensions.ts`):
+
+- Dos marcas independientes, `textSize` y `textColor`, cada una con un único
+  atributo que solo se interpreta si el valor es válido.
+- `ParagraphAlign`, un atributo global `textAlign` del nodo `paragraph`
+  (bloque, no span). El menú aplica `updateAttributes("paragraph", …)` a todos
+  los párrafos que toca la selección; Izquierda guarda `null`.
+
+Los tres menús comparten un único componente (`ToolbarMenu`). El pegado pasa
+por el mismo saneado: entre campos de pedido se conservan los tokens; en un
+editor básico se quitan. Como en cualquier editor, el primer y el último
+párrafo pegados se funden con el párrafo del cursor y adoptan su alineación.
+`RichTextContent` y `PrintRichText` reciben la misma opción para pintar.
 
 ### Pedidos
 
@@ -136,21 +156,26 @@ esquema. Los roles que podían editar instrucciones y notas son los mismos.
     `<span>` o tokens.
   - Staging: 61 pedidos; 0 con `<span>` o tokens. Huella de contenido
     `8823086f0b2e5194ab1a54d22b96a288` antes del despliegue.
+- Repetida el 22/10/2026 13:08 UTC para la alineación: Production 345
+  pedidos, 0 con tokens y 0 con cualquier forma de alineación
+  (`data-text-align`, `text-align` o `align=`); Staging, los 61 pedidos
+  anteriores siguen con la misma huella y sin alineación.
 - Con 0 tokens almacenados y la prueba de equivalencia, todo pedido existente
-  se pinta igual que antes.
+  se pinta igual que antes y alineado a la izquierda.
 - Marcha atrás: revertir el código basta. El código anterior lee un valor con
-  tokens como texto sin formato (descarta el `<span>`), sin perder texto.
+  tokens como texto sin formato (descarta el `<span>` y el atributo del
+  párrafo), sin perder texto.
 
 ## Pruebas
 
 | Prueba | Qué comprueba |
 | --- | --- |
-| `lib/rich-text/html.test.ts` | Tokens válidos, orden canónico, valores inválidos, CSS/clases/eventos, pegado de Office, scripts e imágenes dentro de un span, ciclo guardar → recargar → editar, campos sin la opción, texto plano y vacíos, equivalencia histórica |
-| `lib/rich-text/text-styles.test.ts` | Vocabulario, reglas CSS y contraste en claro, oscuro e impresión; solo los campos de pedido activan la opción; el pie de presupuestos y el kiosco ignoran los tokens |
-| `lib/orders/rich-text-routes.test.ts` | Rutas reales: POST y PATCH guardan HTML saneado bajo el tenant de la sesión; sin sesión o con rol de lectura no escriben |
-| `lib/orders/notes.test.ts`, `lib/orders/create-form.test.ts` | «Añadir nota» y el payload de creación conservan los estilos saneados |
+| `lib/rich-text/html.test.ts` | Tokens y alineación válidos, orden canónico, valores inválidos, CSS/`text-align`/`align=`/clases/eventos, pegado de Office, scripts e imágenes dentro de un span, alineación solo en párrafos y dentro de listas, combinación con tamaño, color, negrita, enlaces y listas, ciclo guardar → recargar → editar → añadir, campos sin la opción, texto plano y vacíos, equivalencia histórica (con alineaciones inválidas en el corpus) |
+| `lib/rich-text/text-styles.test.ts` | Vocabulario, reglas CSS (tamaño, color, alineación) y contraste en claro, oscuro e impresión; solo los campos de pedido activan la opción; el pie de presupuestos y el kiosco ignoran tokens y alineación |
+| `lib/orders/rich-text-routes.test.ts` | Rutas reales: POST y PATCH guardan HTML saneado (alineación incluida) bajo el tenant de la sesión, aunque el cuerpo traiga otro `tenant_id`; sin sesión o con rol de lectura no escriben |
+| `lib/orders/notes.test.ts`, `lib/orders/create-form.test.ts` | «Añadir nota» y el payload de creación conservan estilos y alineación saneados |
 | `components/rich-text/rich-text-editor.test.ts` | Render con y sin la opción; impresión de pedido frente a presupuesto; controles en la barra |
-| `scripts/order-rich-text-ui-smoke.mjs` (workflow Pedido V2) | Navegador real a 1280 y 390 px: ratón y teclado, guardar, recargar, editar, «Quitar formato», pegado, editor bloqueado, modo oscuro, impresión |
+| `scripts/order-rich-text-ui-smoke.mjs` (workflow Pedido V2) | Navegador real a 1280 y 390 px: ratón y teclado, guardar, recargar, editar, «Quitar formato», pegado, editor bloqueado, modo oscuro, impresión; alineación de párrafos y de elementos de lista, con su valor calculado en vista e impresión |
 | `e2e/staging/order-rich-text.ts` | Staging real (tenant `e2e`), ver más abajo |
 
 ## Validación en Staging
@@ -166,7 +191,8 @@ PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e
 
 1. Todos los pedidos de `e2e` con instrucciones o notas se pintan igual que
    con el código anterior.
-2. Pedido completo y pedido rápido con estilos elegidos en la barra.
+2. Pedido completo y pedido rápido con estilos y alineación elegidos en la
+   barra.
 3. Ficha (claro y oscuro), edición tras recargar, «Añadir nota», impresión
    (también con la app en oscuro) y 390 px.
 4. HTML manipulado enviado con la sesión: el servidor lo sanea. Lectura y

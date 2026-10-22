@@ -20,14 +20,15 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 
 ## Destacar información importante
 
-En **Instrucciones** (o **Descripción** en el pedido rápido) y en **Notas internas** puedes cambiar el tamaño y el color de una parte del texto, por ejemplo para que «NO CORTAR» destaque en grande y en rojo.
+En **Instrucciones** (o **Descripción** en el pedido rápido) y en **Notas internas** puedes cambiar el tamaño y el color de una parte del texto, por ejemplo para que «NO CORTAR» destaque en grande y en rojo, y alinear párrafos.
 
 1. Selecciona el texto.
 2. En la barra del editor, abre **Tamaño del texto** (icono «Aa») y elige Pequeño, Normal, Grande o Muy grande.
 3. Abre **Color del texto** (icono «A») y elige Rojo, Naranja, Verde, Azul o Morado.
-4. Para volver al formato normal, elige **Normal** o **Predeterminado**, o pulsa **Quitar formato**.
+4. Abre **Alineación** y elige Izquierda, Centrada, Derecha o Justificada. Se aplica al párrafo entero, también dentro de una lista.
+5. Para volver al formato normal, elige **Normal**, **Predeterminado** o **Izquierda**, o pulsa **Quitar formato**.
 
-El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo, al añadir notas y en la versión imprimible. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños ni colores.
+El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo, al añadir notas y en la versión imprimible. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños, colores ni alineación.
 
 ## Qué ocurre después
 
