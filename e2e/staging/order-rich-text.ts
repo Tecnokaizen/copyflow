@@ -8,7 +8,7 @@
  * 4. Forged HTML is sanitized by the server; a foreign tenant's order is denied;
  *    quotes keep the basic vocabulary.
  *
- * Adds orders, notes and one quote draft to `e2e`; changes nothing else.
+ * Adds orders, notes and one acknowledged quote draft to `e2e`; changes nothing else.
  *
  *   set -a; source .env.e2e.local; set +a
  *   PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e/staging/order-rich-text.ts
@@ -415,13 +415,19 @@ async function main() {
 
     await h.step("quotes keep the basic vocabulary", async () => {
       const today = new Date().toISOString().slice(0, 10);
-      const created = await call("/api/quotes/create-draft", "POST", { creation_id: randomUUID(), prepare: false, client_id: null, service_id: null, assigned_team_member_id: null,
+      const creationId = randomUUID();
+      const created = await call("/api/quotes/create-draft", "POST", { creation_id: creationId, prepare: false, client_id: null, service_id: null, assigned_team_member_id: null,
         header: { title: `E2E Formato presupuesto ${run}`, description: '<p data-text-align="center"><span data-text-color="red" data-text-size="xlarge">Importante</span> texto</p>', terms: null,
           contact_name: null, contact_email: null, contact_phone: null, billing_name: null, tax_id: null, billing_address: null,
           issue_date: today, valid_until: null, currency: "EUR", prices_include_tax: true },
         items: [{ concept: "Partida", description: null, quantity: "1", unit: "ud", unit_price: "10", discount_percent: "0", tax_rate: "21" }] });
       assert.equal(created.status, 200, JSON.stringify(created.body));
-      const quote = await call(`/api/quotes/${created.body.quote_id}`); assert.equal(quote.status, 200);
+      assert.equal(created.body.quote_id, creationId);
+      // Acknowledge it as the editor does after saving: an unacknowledged creation locks /quotes/new for later runs.
+      const ack = await call("/api/quotes/creation-recovery", "POST", { operation_id: creationId });
+      assert.equal(ack.status, 200, JSON.stringify(ack.body)); assert.equal(ack.body.quote_id, creationId);
+      result.checks.quoteCreationAcknowledged = true;
+      const quote = await call(`/api/quotes/${creationId}`); assert.equal(quote.status, 200);
       const text = JSON.stringify(quote.body);
       assert.equal(text.includes("data-text-"), false, "no tokens or alignment in quotes");
       assert.match(text, /Importante texto/);
