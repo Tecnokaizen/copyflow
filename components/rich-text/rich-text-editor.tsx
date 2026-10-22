@@ -17,6 +17,10 @@ import Underline from "@tiptap/extension-underline";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import {
   ALargeSmall,
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
   Baseline,
   Bold as BoldIcon,
   ChevronDown,
@@ -31,9 +35,10 @@ import {
   Undo2,
 } from "lucide-react";
 import {
+  ParagraphAlign,
   TextColorMark,
   TextSizeMark,
-} from "@/components/rich-text/text-style-marks";
+} from "@/components/rich-text/text-style-extensions";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,10 +54,12 @@ import {
   sanitizeRichText,
 } from "@/lib/rich-text/html";
 import {
+  TEXT_ALIGNS,
   TEXT_COLOR_ATTRIBUTE,
   TEXT_COLORS,
   TEXT_SIZE_ATTRIBUTE,
   TEXT_SIZES,
+  textAlignOf,
   textColorOf,
   textSizeOf,
 } from "@/lib/rich-text/text-styles";
@@ -123,42 +130,34 @@ export function RichTextToolbar({
   );
 }
 
-const NORMAL = "normal";
+type MenuOption = { value: string; label: string; preview?: ReactNode };
 
 /**
- * Size or color menu. The editor keeps its selection while the menu is open;
- * choosing an option applies it there and returns focus to the text.
+ * A toolbar menu (size, color, alignment). The editor keeps its selection
+ * while the menu is open; choosing an option applies it there and returns
+ * focus to the text.
  */
-function TextStyleMenu({
+function ToolbarMenu({
   editor,
   disabled,
-  mark,
   label,
   icon,
-  normalLabel,
   options,
-  attribute,
-  read,
+  current,
+  defaultValue,
+  onChoose,
 }: {
   editor: Editor;
   disabled: boolean;
-  mark: "textSize" | "textColor";
   label: string;
   icon: ReactNode;
-  normalLabel: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  attribute: string;
-  read: (value: unknown) => string | null;
+  options: MenuOption[];
+  current: string;
+  defaultValue: string;
+  onChoose: (value: string) => void;
 }) {
   const chosen = useRef(false);
-  const current = read(editor.getAttributes(mark).value) ?? NORMAL;
-  const currentLabel =
-    options.find((option) => option.value === current)?.label ?? normalLabel;
-  const items = [
-    ...(mark === "textSize" ? [options[0]] : []),
-    { value: NORMAL, label: normalLabel },
-    ...(mark === "textSize" ? options.slice(1) : options),
-  ];
+  const currentLabel = options.find((option) => option.value === current)?.label;
 
   return (
     <DropdownMenu>
@@ -167,7 +166,7 @@ function TextStyleMenu({
           type="button"
           aria-label={`${label}: ${currentLabel}`}
           title={label}
-          className={toolbarButtonClassName(current !== NORMAL)}
+          className={toolbarButtonClassName(current !== defaultValue)}
         >
           {icon}
           <ChevronDown className="size-3" aria-hidden="true" />
@@ -194,31 +193,16 @@ function TextStyleMenu({
           value={current}
           onValueChange={(value) => {
             chosen.current = true;
-            // Focus now (not when the menu finishes closing) so typing goes on.
-            const chain = editor.chain().focus();
-            if (value === NORMAL) {
-              chain.unsetMark(mark).run();
-            } else {
-              chain.setMark(mark, { value }).run();
-            }
+            onChoose(value);
           }}
         >
-          {items.map((item) => (
+          {options.map((option) => (
             <DropdownMenuRadioItem
-              key={item.value}
-              value={item.value}
+              key={option.value}
+              value={option.value}
               className="min-h-10 gap-2"
             >
-              {mark === "textColor" ? (
-                <span
-                  aria-hidden="true"
-                  className="gc-text-swatch size-3.5 shrink-0 rounded-full border border-border"
-                  {...(item.value === NORMAL ? {} : { [attribute]: item.value })}
-                />
-              ) : null}
-              <span {...(item.value === NORMAL ? {} : { [attribute]: item.value })}>
-                {item.label}
-              </span>
+              {option.preview ?? option.label}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -227,32 +211,96 @@ function TextStyleMenu({
   );
 }
 
+const NORMAL = "normal";
+const LEFT = "left";
+const ALIGN_ICONS = {
+  left: AlignLeft,
+  center: AlignCenter,
+  right: AlignRight,
+  justify: AlignJustify,
+} as const;
+
 function textStyleControls(editor: Editor, disabled: boolean): ToolbarControl[] {
+  // Focus now (not when the menu finishes closing) so typing goes on.
+  const chain = () => editor.chain().focus();
+  const size = textSizeOf(editor.getAttributes("textSize").value) ?? NORMAL;
   const color = textColorOf(editor.getAttributes("textColor").value);
+  const align = textAlignOf(editor.getAttributes("paragraph").textAlign) ?? LEFT;
+  const AlignIcon = ALIGN_ICONS[align];
+  const sizes: MenuOption[] = [
+    { value: NORMAL, label: "Normal" },
+    ...TEXT_SIZES,
+  ].map((option) => ({
+    ...option,
+    preview: (
+      <span {...(option.value === NORMAL ? {} : { [TEXT_SIZE_ATTRIBUTE]: option.value })}>
+        {option.label}
+      </span>
+    ),
+  }));
+  // Ascending: Pequeño, Normal, Grande, Muy grande.
+  [sizes[0], sizes[1]] = [sizes[1], sizes[0]];
+  const colors: MenuOption[] = [
+    { value: NORMAL, label: "Predeterminado" },
+    ...TEXT_COLORS,
+  ].map((option) => {
+    const token = option.value === NORMAL ? {} : { [TEXT_COLOR_ATTRIBUTE]: option.value };
+    return {
+      ...option,
+      preview: (
+        <>
+          <span
+            aria-hidden="true"
+            className="gc-text-swatch size-3.5 shrink-0 rounded-full border border-border"
+            {...token}
+          />
+          <span {...token}>{option.label}</span>
+        </>
+      ),
+    };
+  });
+  const aligns: MenuOption[] = [
+    { value: LEFT, label: "Izquierda" } as const,
+    ...TEXT_ALIGNS,
+  ].map((option) => {
+    const Icon = ALIGN_ICONS[option.value];
+    return {
+      ...option,
+      preview: (
+        <>
+          <Icon className="size-4 shrink-0" aria-hidden="true" />
+          <span>{option.label}</span>
+        </>
+      ),
+    };
+  });
+
   return [
     {
       label: "Tamaño del texto",
       control: (
-        <TextStyleMenu
+        <ToolbarMenu
           editor={editor}
           disabled={disabled}
-          mark="textSize"
           label="Tamaño del texto"
           icon={<ALargeSmall className="size-4" aria-hidden="true" />}
-          normalLabel="Normal"
-          options={TEXT_SIZES}
-          attribute={TEXT_SIZE_ATTRIBUTE}
-          read={textSizeOf}
+          options={sizes}
+          current={size}
+          defaultValue={NORMAL}
+          onChoose={(value) =>
+            value === NORMAL
+              ? chain().unsetMark("textSize").run()
+              : chain().setMark("textSize", { value }).run()
+          }
         />
       ),
     },
     {
       label: "Color del texto",
       control: (
-        <TextStyleMenu
+        <ToolbarMenu
           editor={editor}
           disabled={disabled}
-          mark="textColor"
           label="Color del texto"
           icon={
             <span className="relative inline-flex">
@@ -264,10 +312,34 @@ function textStyleControls(editor: Editor, disabled: boolean): ToolbarControl[] 
               />
             </span>
           }
-          normalLabel="Predeterminado"
-          options={TEXT_COLORS}
-          attribute={TEXT_COLOR_ATTRIBUTE}
-          read={textColorOf}
+          options={colors}
+          current={color ?? NORMAL}
+          defaultValue={NORMAL}
+          onChoose={(value) =>
+            value === NORMAL
+              ? chain().unsetMark("textColor").run()
+              : chain().setMark("textColor", { value }).run()
+          }
+        />
+      ),
+    },
+    {
+      label: "Alineación",
+      control: (
+        <ToolbarMenu
+          editor={editor}
+          disabled={disabled}
+          label="Alineación"
+          icon={<AlignIcon className="size-4" aria-hidden="true" />}
+          options={aligns}
+          current={align}
+          defaultValue={LEFT}
+          // Every paragraph the selection touches, inside lists too.
+          onChoose={(value) =>
+            chain()
+              .updateAttributes("paragraph", { textAlign: value === LEFT ? null : value })
+              .run()
+          }
         />
       ),
     },
@@ -356,7 +428,7 @@ function toolbarButtons(
       onClick: () => chain().redo().run(),
     },
     {
-      // Also resets size and color to the defaults (they are marks too).
+      // Also resets size, color and alignment to the defaults.
       label: "Quitar formato",
       icon: RemoveFormatting,
       disabled,
@@ -380,7 +452,7 @@ export function RichTextEditor({
   readOnly?: boolean;
   invalid?: boolean;
   ariaLabel: string;
-  /** Offer the text size and color menus (fixed when the editor mounts). */
+  /** Offer the text size, color and alignment menus (fixed when the editor mounts). */
   textStyles?: boolean;
 }) {
   const locked = disabled || readOnly;
@@ -411,7 +483,7 @@ export function RichTextEditor({
         HTMLAttributes: { rel: "noopener noreferrer" },
         isAllowedUri: (url) => isSafeLinkHref(url),
       }),
-      ...(textStyles ? [TextSizeMark, TextColorMark] : []),
+      ...(textStyles ? [TextSizeMark, TextColorMark, ParagraphAlign] : []),
     ],
     content: normalizeRichText(value, options) || "<p></p>",
     editorProps: {

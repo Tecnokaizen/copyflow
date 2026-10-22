@@ -18,9 +18,10 @@ const orderA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
 type Row = Record<string, unknown>;
 
 const FORGED =
-  '<p><span data-text-size="xlarge" data-text-color="red" style="position:fixed;inset:0" class="x" onmouseover="alert(1)">NO CORTAR</span>' +
-  '<span data-text-color="url(javascript:alert(1))">x</span><img src=x onerror=alert(1)><script>alert(1)</script></p>';
-const CLEAN = '<p><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span>x</p>';
+  '<p data-text-align="center" style="text-align:right;position:fixed" class="x"><span data-text-size="xlarge" data-text-color="red" style="position:fixed;inset:0" class="x" onmouseover="alert(1)">NO CORTAR</span>' +
+  '<span data-text-color="url(javascript:alert(1))">x</span><img src=x onerror=alert(1)><script>alert(1)</script></p>' +
+  '<p data-text-align="right;background:url(https://x.test/a.png)">y</p><p align="justify" data-text-align="left">z</p>';
+const CLEAN = '<p data-text-align="center"><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span>x</p><p>y</p><p>z</p>';
 
 function harness(role: string | null = "staff") {
   const inserted: Row[] = [];
@@ -98,11 +99,11 @@ describe("order text styles through the API", () => {
     assert.equal(app.inserted[0].tenant_id, tenantA);
   });
 
-  it("PATCH content sanitizes instructions and notes before the RPC", async () => {
+  it("PATCH content sanitizes instructions and notes before the RPC, under the session tenant", async () => {
     for (const field of ["description", "notes"]) {
       const app = harness();
       const response = await app.load("app/api/orders/[id]/content/route.ts").PATCH(
-        request(`http://localhost/api/orders/${orderA}/content`, "PATCH", { field, value: FORGED, expected_version: "1" }),
+        request(`http://localhost/api/orders/${orderA}/content`, "PATCH", { field, value: FORGED, expected_version: "1", tenant_id: tenantB, p_tenant_id: tenantB }),
         { params: Promise.resolve({ id: orderA }) }
       );
       assert.equal(response.status, 200);

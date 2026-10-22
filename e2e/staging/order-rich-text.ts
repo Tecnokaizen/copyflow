@@ -1,5 +1,5 @@
-/** Staging: order instructions and internal notes keep text sizes and colors
- * (SUR4 request), through the real UI, API and database of Staging.
+/** Staging: order instructions and internal notes keep text sizes, colors and
+ * paragraph alignment (SUR4 request), through the real UI, API and database of Staging.
  * Synthetic `e2e` tenant only, through the existing guard and harness.
  *
  * 1. Every existing `e2e` order renders exactly as the previous code did.
@@ -27,9 +27,10 @@ import { requireSyntheticEmail, runId } from "./synthetic";
 /** DEMO-0001, the only order of the Staging `demo` tenant (synthetic), verified by SQL on 21/10/2026. */
 const FOREIGN_ORDER = { tenantSlug: "demo", id: "e05d5aaa-8bc5-4cb4-a3f8-90db422c4850", reference: "DEMO-0001" };
 const FORGED =
-  '<p><span data-text-size="xlarge" data-text-color="red" style="position:fixed;inset:0" onmouseover="alert(1)">NO CORTAR</span>' +
-  '<span data-text-color="url(javascript:alert(1))">x</span><img src=x onerror=alert(1)><script>alert(1)</script></p>';
-const CLEAN = '<p><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span>x</p>';
+  '<p data-text-align="center" style="text-align:right;position:fixed"><span data-text-size="xlarge" data-text-color="red" style="position:fixed;inset:0" onmouseover="alert(1)">NO CORTAR</span>' +
+  '<span data-text-color="url(javascript:alert(1))">x</span><img src=x onerror=alert(1)><script>alert(1)</script></p>' +
+  '<p data-text-align="right;background:url(https://x.test/a.png)">y</p><p align="justify" data-text-align="left">z</p>';
+const CLEAN = '<p data-text-align="center"><span data-text-size="xlarge" data-text-color="red">NO CORTAR</span>x</p><p>y</p><p>z</p>';
 
 const editor = (label: string) => `[contenteditable][aria-label="${label}"]`;
 
@@ -71,7 +72,7 @@ async function main() {
   }
 
   /** Pick an option from the size or color menu of one editor's toolbar. */
-  async function choose(label: string, menu: "Tamaño del texto" | "Color del texto", option: string) {
+  async function choose(label: string, menu: "Tamaño del texto" | "Color del texto" | "Alineación", option: string) {
     const frame = p.locator("[data-disabled]").filter({ has: p.locator(editor(label)) });
     await frame.getByRole("button", { name: new RegExp(`^${menu}:`) }).click();
     await p.getByRole("menuitemradio", { name: option, exact: true }).click();
@@ -89,6 +90,22 @@ async function main() {
       const box = document.createElement("div"); box.innerHTML = html;
       return [...box.querySelectorAll("span")].filter((span) => span.textContent === word)
         .flatMap((span) => [...span.attributes].map((a) => `${a.name}=${a.value}`)).sort();
+    }, [html, word]);
+  }
+
+  /** Computed text-align of the paragraph that holds `word` inside `scope`. */
+  async function alignOf(scope: string, word: string) {
+    return p.evaluate(([scope, word]: string[]) => {
+      const paragraph = [...document.querySelector(scope)!.querySelectorAll("p")].find((el) => el.textContent?.includes(word));
+      return paragraph ? getComputedStyle(paragraph).textAlign : null;
+    }, [scope, word]);
+  }
+
+  /** `data-text-align` of the stored paragraph that holds `word` (null: left). */
+  async function storedAlign(html: string, word: string) {
+    return p.evaluate(([html, word]: string[]) => {
+      const box = document.createElement("div"); box.innerHTML = html;
+      return [...box.querySelectorAll("p")].find((el) => el.textContent?.includes(word))?.getAttribute("data-text-align") ?? null;
     }, [html, word]);
   }
 
@@ -189,6 +206,12 @@ async function main() {
       await p.getByText("Nuevo pedido").first().waitFor({ timeout: 30000 });
       await p.getByLabel("Título del pedido").fill(`E2E Formato ${run}`);
       await typeInto("Instrucciones", "NO CORTAR sangrado 3 mm. Papel 350 g.");
+      await p.keyboard.press("Enter");
+      await p.keyboard.type("Entregar en caja cerrada");
+      await select("Instrucciones", "Entregar en caja cerrada");
+      await choose("Instrucciones", "Alineación", "Derecha");
+      await select("Instrucciones", "NO CORTAR");
+      await choose("Instrucciones", "Alineación", "Centrada");
       await select("Instrucciones", "NO CORTAR");
       await choose("Instrucciones", "Tamaño del texto", "Muy grande");
       await select("Instrucciones", "NO CORTAR");
@@ -213,6 +236,8 @@ async function main() {
       assert.deepEqual(await stylesOf(stored.description, "NO CORTAR"), ["data-text-color=red", "data-text-size=xlarge"]);
       assert.deepEqual(await stylesOf(stored.description, "Papel 350 g."), ["data-text-color=green"]);
       assert.deepEqual(await stylesOf(stored.notes, "paga al recoger"), ["data-text-color=blue", "data-text-size=large"]);
+      assert.equal(await storedAlign(stored.description, "NO CORTAR"), "center");
+      assert.equal(await storedAlign(stored.description, "Entregar en caja cerrada"), "right");
       assert.equal(/style=|class=/.test(stored.description + stored.notes), false);
       result.orders.full = stored.reference;
       return id as string;
@@ -229,6 +254,8 @@ async function main() {
       assert.ok(result.checks.lightContrastRed >= 4.5);
       const blue = await computed("main", "paga al recoger");
       assert.equal(blue.color, await tokenColor("blue"));
+      assert.equal(await alignOf("main", "NO CORTAR"), "center");
+      assert.equal(await alignOf("main", "Entregar en caja cerrada"), "right");
       await h.screenshot("detalle-claro");
       return expected as string;
     });
@@ -240,6 +267,8 @@ async function main() {
       await choose("Instrucciones", "Color del texto", "Naranja");
       await select("Instrucciones", "NO CORTAR");
       await choose("Instrucciones", "Color del texto", "Predeterminado");
+      await select("Instrucciones", "NO CORTAR");
+      await choose("Instrucciones", "Alineación", "Justificada");
       const [response] = await Promise.all([
         p.waitForResponse((r: any) => r.url().endsWith(`/api/orders/${fullId}/content`) && r.request().method() === "PATCH", { timeout: 60000 }),
         p.getByRole("button", { name: "Guardar cambios" }).click(),
@@ -251,7 +280,10 @@ async function main() {
       assert.deepEqual(await stylesOf(stored.description, "NO CORTAR"), ["data-text-size=xlarge"]);
       assert.deepEqual(await stylesOf(stored.description, "sangrado 3 mm"), ["data-text-color=orange"]);
       assert.deepEqual(await stylesOf(stored.description, "Papel 350 g."), ["data-text-color=green"]);
+      assert.equal(await storedAlign(stored.description, "NO CORTAR"), "justify");
+      assert.equal(await storedAlign(stored.description, "Entregar en caja cerrada"), "right");
       assert.equal((await renderedContent()).description, await canonical(normalizeRichText(stored.description, ORDER_RICH_TEXT)));
+      assert.equal(await alignOf("main", "NO CORTAR"), "justify");
       result.checks.editRoundTrip = true;
     });
 
@@ -260,6 +292,8 @@ async function main() {
       await typeInto("Nota", "Falta el reverso");
       await select("Nota", "Falta el reverso");
       await choose("Nota", "Color del texto", "Rojo");
+      await select("Nota", "Falta el reverso");
+      await choose("Nota", "Alineación", "Centrada");
       const [response] = await Promise.all([
         p.waitForResponse((r: any) => r.url().endsWith(`/api/orders/${fullId}/content`) && r.request().method() === "PATCH", { timeout: 60000 }),
         p.getByRole("button", { name: "Guardar nota" }).click(),
@@ -268,6 +302,8 @@ async function main() {
       const stored = (await call(`/api/orders/${fullId}`)).body.order;
       assert.deepEqual(await stylesOf(stored.notes, "paga al recoger"), ["data-text-color=blue", "data-text-size=large"]);
       assert.deepEqual(await stylesOf(stored.notes, "Falta el reverso"), ["data-text-color=red"]);
+      assert.equal(await storedAlign(stored.notes, "Falta el reverso"), "center");
+      assert.equal(await storedAlign(stored.notes, "paga al recoger"), null, "earlier note stays left");
       result.checks.appendNote = true;
     });
 
@@ -279,6 +315,9 @@ async function main() {
       assert.ok(contrast(printed.color, printed.background) >= 4.5);
       const size = await computed(".print-sheet", "NO CORTAR");
       assert.ok(Math.abs(size.size / size.base - 1.5) < 0.02);
+      assert.equal(await alignOf(".print-sheet", "NO CORTAR"), "justify");
+      assert.equal(await alignOf(".print-sheet", "Entregar en caja cerrada"), "right");
+      assert.equal(await alignOf(".print-sheet", "Falta el reverso"), "center");
       await h.screenshot("impresion-claro");
       await setTheme("dark"); await p.reload(); await p.locator(".print-rich").first().waitFor();
       assert.equal(await p.evaluate(() => document.documentElement.classList.contains("dark")), true);
@@ -318,6 +357,13 @@ async function main() {
       assert.ok(menu && menu.x >= 0 && menu.x + menu.width <= 390, "menu inside the viewport");
       await h.screenshot("editor-390-menu-tamano");
       await p.keyboard.press("Escape");
+      await p.getByRole("menu").waitFor({ state: "detached" });
+      await p.locator("[data-disabled]").filter({ has: p.locator(editor("Instrucciones")) }).getByRole("button", { name: /^Alineación:/ }).click();
+      const alignMenu = await p.getByRole("menu").boundingBox(); await p.waitForTimeout(300);
+      assert.ok(alignMenu && alignMenu.x >= 0 && alignMenu.x + alignMenu.width <= 390, "alignment menu inside the viewport");
+      assert.equal(await alignOf(editor("Instrucciones"), "Entregar en caja cerrada"), "right");
+      await h.screenshot("editor-390-menu-alineacion");
+      await p.keyboard.press("Escape");
       await p.setViewportSize({ width: 1440, height: 1000 });
       result.checks.phone = true;
     });
@@ -329,6 +375,8 @@ async function main() {
       await typeInto("Descripción", `Urgente: plastificar ${run}`);
       await select("Descripción", "Urgente");
       await choose("Descripción", "Color del texto", "Rojo");
+      await select("Descripción", "Urgente");
+      await choose("Descripción", "Alineación", "Centrada");
       await h.screenshot("pedido-rapido");
       const [response] = await Promise.all([
         p.waitForResponse((r: any) => new URL(r.url()).pathname === "/api/orders" && r.request().method() === "POST", { timeout: 60000 }),
@@ -339,6 +387,7 @@ async function main() {
       const id = created.order?.id ?? created.id;
       const stored = (await call(`/api/orders/${id}`)).body.order;
       assert.deepEqual(await stylesOf(stored.description, "Urgente"), ["data-text-color=red"]);
+      assert.equal(await storedAlign(stored.description, "Urgente"), "center");
       result.orders.quick = stored.reference;
     });
 
@@ -359,14 +408,14 @@ async function main() {
     await h.step("quotes keep the basic vocabulary", async () => {
       const today = new Date().toISOString().slice(0, 10);
       const created = await call("/api/quotes/create-draft", "POST", { creation_id: randomUUID(), prepare: false, client_id: null, service_id: null, assigned_team_member_id: null,
-        header: { title: `E2E Formato presupuesto ${run}`, description: '<p><span data-text-color="red" data-text-size="xlarge">Importante</span> texto</p>', terms: null,
+        header: { title: `E2E Formato presupuesto ${run}`, description: '<p data-text-align="center"><span data-text-color="red" data-text-size="xlarge">Importante</span> texto</p>', terms: null,
           contact_name: null, contact_email: null, contact_phone: null, billing_name: null, tax_id: null, billing_address: null,
           issue_date: today, valid_until: null, currency: "EUR", prices_include_tax: true },
         items: [{ concept: "Partida", description: null, quantity: "1", unit: "ud", unit_price: "10", discount_percent: "0", tax_rate: "21" }] });
       assert.equal(created.status, 200, JSON.stringify(created.body));
       const quote = await call(`/api/quotes/${created.body.quote_id}`); assert.equal(quote.status, 200);
       const text = JSON.stringify(quote.body);
-      assert.equal(text.includes("data-text-"), false, "no tokens in quotes");
+      assert.equal(text.includes("data-text-"), false, "no tokens or alignment in quotes");
       assert.match(text, /Importante texto/);
       result.checks.quotesBasic = quote.body.quote?.reference ?? true;
     });

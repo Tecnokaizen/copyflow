@@ -1,16 +1,19 @@
 import sanitizeHtml from "sanitize-html";
 import {
+  TEXT_ALIGN_ATTRIBUTE,
   TEXT_COLOR_ATTRIBUTE,
   TEXT_SIZE_ATTRIBUTE,
+  paragraphStyleAttributes,
   textStyleAttributes,
 } from "./text-styles";
 
 export type RichTextOptions = {
   /**
-   * Keep the closed set of text sizes and colors from `./text-styles` (a
-   * `<span>` with `data-text-size` / `data-text-color`). Off by default: every
-   * other field keeps the basic vocabulary, and a styled value read without
-   * this option just loses its styles.
+   * Keep the closed set of text styles from `./text-styles`: sizes and colors
+   * (a `<span>` with `data-text-size` / `data-text-color`) and paragraph
+   * alignment (`<p data-text-align>`). Off by default: every other field keeps
+   * the basic vocabulary, and a styled value read without this option just
+   * loses its styles.
    */
   textStyles?: boolean;
 };
@@ -58,15 +61,17 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   },
 };
 
-// Same vocabulary plus `<span>` carrying only allowed text style tokens. A span
-// left without a valid token is unwrapped and its text kept, as the basic
-// profile does with any span, so values without tokens sanitize identically.
+// Same vocabulary plus `<span>` carrying only allowed text style tokens and
+// `<p>` with an allowed alignment. A span left without a valid token is
+// unwrapped and its text kept, and a paragraph loses any other attribute, as
+// in the basic profile, so values without tokens sanitize identically.
 const STYLED_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   ...SANITIZE_OPTIONS,
   allowedTags: [...ALLOWED_TAGS, "span"],
   allowedAttributes: {
     ...SANITIZE_OPTIONS.allowedAttributes,
     span: [TEXT_SIZE_ATTRIBUTE, TEXT_COLOR_ATTRIBUTE],
+    p: [TEXT_ALIGN_ATTRIBUTE],
   },
   exclusiveFilter: (frame) => {
     if (frame.tag === "span") {
@@ -79,6 +84,10 @@ const STYLED_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     span: (tagName, attribs): sanitizeHtml.Tag => ({
       tagName,
       attribs: textStyleAttributes(attribs),
+    }),
+    p: (tagName, attribs): sanitizeHtml.Tag => ({
+      tagName,
+      attribs: paragraphStyleAttributes(attribs),
     }),
   },
 };

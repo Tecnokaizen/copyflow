@@ -238,10 +238,12 @@ describe("text styles (opt-in, order fields)", () => {
       "<div><h1>Título</h1><table><tr><td>celda</td></tr></table></div>",
       "<p>&nbsp;</p><p><br></p><p>Fin &amp; ya</p>",
       "<p>Texto   con   espacios</p><p>Tab\tuno</p>",
+      '<p style="text-align: center">Centrado de Word</p><p align="justify">Justificado</p><div style="text-align:right">Derecha</div>',
     ];
     const fragments = [
       "<p>", "</p>", "<span>", "</span>", '<span style="color:red">', '<span class="Mso">', '<span data-text-color="Rojo">',
-      '<span data-text-size="12px">', "<strong>", "</strong>", "<em>", "</em>", "<br>", "<ul><li>", "</li></ul>",
+      '<span data-text-size="12px">', '<p data-text-align="left">', '<p data-text-align="Center">', '<p style="text-align:center">',
+      '<p align="right">', '<p data-text-align="right;color:red">', "<strong>", "</strong>", "<em>", "</em>", "<br>", "<ul><li>", "</li></ul>",
       '<a href="https://ok.test/x?y=1&z=2">', "</a>", "texto", " ", "&amp;", "&lt;b&gt;", "<", ">", "\n", "ñandú",
     ];
     let seed = 7;
@@ -254,5 +256,65 @@ describe("text styles (opt-in, order fields)", () => {
       assert.equal(sanitizeRichText(value, styled), sanitizeRichText(value), value);
       assert.equal(persistRichText(value, styled), persistRichText(value), value);
     }
+  });
+});
+
+describe("paragraph alignment (opt-in, order fields)", () => {
+  const styled = { textStyles: true };
+
+  it("keeps center, right and justify on paragraphs, also inside lists", () => {
+    const html =
+      '<p data-text-align="center">Centrada</p><p data-text-align="right">Derecha</p><p data-text-align="justify">Justificada</p>' +
+      '<ul><li><p data-text-align="center">Punto centrado</p></li></ul><ol><li><p data-text-align="right">Paso</p></li></ol>';
+    assert.equal(normalizeRichText(html, styled), html);
+  });
+
+  it("left is the default: never stored, and older text stays left-aligned", () => {
+    assert.equal(normalizeRichText('<p data-text-align="left">Izquierda</p>', styled), "<p>Izquierda</p>");
+    assert.equal(normalizeRichText("Línea uno\nLínea dos", styled), "<p>Línea uno</p><p>Línea dos</p>");
+  });
+
+  it("allows only the exact values, never CSS", () => {
+    const html = normalizeRichText(
+      '<p data-text-align="Center">a</p><p data-text-align=" right">b</p><p data-text-align="center;position:fixed">c</p>' +
+        '<p data-text-align="start">d</p><p style="text-align:center">e</p><p align="right">f</p>' +
+        '<p data-text-align="justify" style="color:red" class="x" onclick="alert(1)" data-x="1">g</p>',
+      styled
+    );
+    assert.equal(html, '<p>a</p><p>b</p><p>c</p><p>d</p><p>e</p><p>f</p><p data-text-align="justify">g</p>');
+  });
+
+  it("only paragraphs carry alignment", () => {
+    assert.equal(
+      normalizeRichText('<p><span data-text-align="center">x</span> <strong data-text-align="right">y</strong></p><ul data-text-align="center"><li data-text-align="right"><p>z</p></li></ul>', styled),
+      "<p>x <strong>y</strong></p><ul><li><p>z</p></li></ul>"
+    );
+  });
+
+  it("combines with sizes, colors, bold, links and lists", () => {
+    const html =
+      '<p data-text-align="center"><strong><span data-text-size="xlarge"><span data-text-color="red">NO CORTAR</span></span></strong></p>' +
+      '<p data-text-align="justify">Ver <a href="https://ok.test" rel="noopener noreferrer">ficha</a> y <em>muestra</em></p>' +
+      '<ul><li><p data-text-align="right"><span data-text-color="green">Papel 350 g</span></p></li></ul>';
+    assert.equal(normalizeRichText(html, styled), html);
+    assert.equal(richTextToPlainText(html), "NO CORTAR\nVer ficha y muestra\nPapel 350 g");
+  });
+
+  it("is stable across save, reload, edit and append", () => {
+    const saved = persistRichText('<p data-text-align="center">Título</p><p>Cuerpo</p>', styled);
+    assert.equal(normalizeRichText(saved, styled), saved);
+    assert.equal(
+      appendRichText(saved, '<p data-text-align="right">Firma</p>', styled),
+      `${saved}<p data-text-align="right">Firma</p>`
+    );
+  });
+
+  it("an aligned empty paragraph is still empty", () => {
+    assert.equal(isRichTextEmpty('<p data-text-align="center"></p><p data-text-align="right"><br></p>'), true);
+    assert.equal(persistRichText('<p data-text-align="center"> </p>', styled), null);
+  });
+
+  it("fields without the option drop the alignment (quotes, footer, kiosk, clients)", () => {
+    assert.equal(normalizeRichText('<p data-text-align="center">Presupuesto</p>'), "<p>Presupuesto</p>");
   });
 });

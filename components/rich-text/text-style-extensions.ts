@@ -1,7 +1,9 @@
-import { Mark } from "@tiptap/react";
+import { Extension, Mark } from "@tiptap/react";
 import {
+  TEXT_ALIGN_ATTRIBUTE,
   TEXT_COLOR_ATTRIBUTE,
   TEXT_SIZE_ATTRIBUTE,
+  textAlignOf,
   textColorOf,
   textSizeOf,
 } from "@/lib/rich-text/text-styles";
@@ -42,3 +44,27 @@ function tokenMark(name: string, attribute: string, read: (value: unknown) => st
 
 export const TextSizeMark = tokenMark("textSize", TEXT_SIZE_ATTRIBUTE, textSizeOf);
 export const TextColorMark = tokenMark("textColor", TEXT_COLOR_ATTRIBUTE, textColorOf);
+
+/**
+ * Alignment belongs to the paragraph (list items hold paragraphs too), never
+ * to a span. Left is `null` and renders no attribute; Enter keeps the
+ * alignment of the paragraph being split.
+ */
+export const ParagraphAlign = Extension.create({
+  name: "paragraphAlign",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["paragraph"],
+        attributes: {
+          textAlign: {
+            default: null,
+            parseHTML: (element) => textAlignOf(element.getAttribute(TEXT_ALIGN_ATTRIBUTE)),
+            renderHTML: (attributes) =>
+              attributes.textAlign ? { [TEXT_ALIGN_ATTRIBUTE]: attributes.textAlign } : {},
+          },
+        },
+      },
+    ];
+  },
+});
