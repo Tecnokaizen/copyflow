@@ -61,7 +61,7 @@ export function QuoteForm({
     async function loadOptions() {
       const [servicesResponse, teamResponse] = await Promise.all([
         fetch("/api/services?active=true&page_size=100"),
-        fetch("/api/team?active=true&page_size=100"),
+        fetch("/api/team?assignable=true&page_size=100"),
       ]);
       const servicesBody = await servicesResponse.json();
       const teamBody = await teamResponse.json();
