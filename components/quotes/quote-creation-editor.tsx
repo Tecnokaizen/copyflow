@@ -67,7 +67,7 @@ function QuoteOperationEditor() {
       if (active) setReady(true);
     }
     initialize().catch((err) => { if (active) setError(err.message); });
-    Promise.all([fetch('/api/services?active=true&page_size=100'), fetch('/api/team?active=true&page_size=100')])
+    Promise.all([fetch('/api/services?active=true&page_size=100'), fetch('/api/team?assignable=true&page_size=100')])
       .then(async ([s, m]) => {
         if (!s.ok || !m.ok) throw new Error('No se pudieron cargar servicio y responsable. Recarga la página para volver a intentarlo.');
         const [sb, mb] = await Promise.all([s.json(), m.json()]);

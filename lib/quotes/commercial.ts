@@ -1,4 +1,5 @@
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
+import { isAssigneeNotEligibleError } from "@/lib/team/assignee-eligibility";
 import { mapQuoteVersion, type QuoteVersion } from "@/lib/quotes/types";
 
 export type CommercialRpcBody = {
@@ -142,6 +143,9 @@ export function interpretCommercialDatabaseError(
       error: QUOTE_MESSAGES.immutableVersion,
       code: "immutable_version",
     };
+  }
+  if (isAssigneeNotEligibleError(error)) {
+    return { ok: false, status: 422, error: QUOTE_MESSAGES.assignee, code: "assignee_not_eligible" };
   }
   if (code === "23514" || code.startsWith("22")) {
     return { ok: false, status: 422, error: QUOTE_MESSAGES.invalid, code: "business_invariant" };

@@ -15,6 +15,7 @@ import {
   OrderQuoteSituationValue,
 } from "@/components/orders/detail/order-quote-situation";
 import { formatFactLabel } from "@/lib/orders/fact-label";
+import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import { resolveOrderQuoteSituation } from "@/lib/orders/quote-situation";
 import {
   fromDateTimeLocalValue,
@@ -113,8 +114,11 @@ export function OrderProduction({
             }
           >
             <option value="">— Sin definir —</option>
-            {orderOptions?.team_members.map((option) => (
-              <option key={option.id} value={option.id}>
+            {assigneeOptionsWithCurrent(orderOptions?.team_members ?? [], {
+              id: order.assigned_team_member_id,
+              name: order.assigned_team_member?.name,
+            }).map((option) => (
+              <option key={option.id} value={option.id} disabled={option.unavailable}>
                 {option.name}
               </option>
             ))}

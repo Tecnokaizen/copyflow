@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import { isRichTextEmpty } from "@/lib/rich-text/html";
 import { DraftSelect } from "@/components/orders/detail/order-field";
+import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import {
   ARCHIVE_CONFIRM_COPY,
   canShowArchiveAction,
@@ -23,6 +24,7 @@ export function OrderQuickActions({
   optionsLoading,
   currentStatusId,
   currentAssigneeId,
+  currentAssigneeName,
   archivedAt,
   currentStatus,
   onEdit,
@@ -37,6 +39,7 @@ export function OrderQuickActions({
   optionsLoading: boolean;
   currentStatusId: string;
   currentAssigneeId: string | null;
+  currentAssigneeName?: string | null;
   archivedAt: string | null;
   currentStatus: LifecycleStatusFlags;
   onEdit: () => void;
@@ -233,8 +236,11 @@ export function OrderQuickActions({
               onChange={setAssigneeId}
             >
               <option value="">— Sin responsable —</option>
-              {teamMembers.map((member) => (
-                <option key={member.id} value={member.id}>
+              {assigneeOptionsWithCurrent(teamMembers, {
+                id: currentAssigneeId,
+                name: currentAssigneeName,
+              }).map((member) => (
+                <option key={member.id} value={member.id} disabled={member.unavailable}>
                   {member.name}
                 </option>
               ))}

@@ -6,6 +6,7 @@ export const QUOTE_MESSAGES = {
   description: "La descripción es obligatoria",
   version: "El presupuesto cambió. Recarga e inténtalo de nuevo",
   relation: "El dato relacionado no pertenece a esta organización",
+  assignee: "La persona elegida no está activa o no puede recibir pedidos",
   status: "El estado no pertenece a esta organización",
   date: "La fecha de validez no es válida",
   create: "No se pudo crear el presupuesto",
