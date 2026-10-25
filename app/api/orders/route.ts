@@ -1253,6 +1253,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // authenticated may INSERT only these columns (plus id) since migration
+  // 20261022120000; adding one here needs that GRANT extended first.
   const { data: order, error: insertError } = await supabase
     .from("orders")
     .insert({
