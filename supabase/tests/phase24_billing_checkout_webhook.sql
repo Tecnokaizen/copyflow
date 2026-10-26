@@ -110,6 +110,33 @@ begin
   )
   returning id into v_sub_mvp;
 
+  -- D1: a current internal row holds the sync and stays current.
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase24',
+    'sub_phase24',
+    'active',
+    now(),
+    now() + interval '30 days',
+    false,
+    '{}'::jsonb,
+    v_new
+  );
+
+  if v_sync ->> 'outcome' is distinct from 'held'
+     or not exists (
+       select 1 from public.subscriptions
+       where id = v_sub_mvp and status = 'active'
+     )
+  then
+    raise exception 'phase24: internal current must hold the sync, got %', v_sync;
+  end if;
+
+  -- Operator closes the internal row (cutover); the event then applies.
+  update public.subscriptions set status = 'canceled' where id = v_sub_mvp;
+
   -- newer event wins
   v_sync := public.sync_billing_subscription_v1(
     v_tenant,

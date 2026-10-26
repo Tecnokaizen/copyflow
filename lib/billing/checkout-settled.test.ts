@@ -29,6 +29,7 @@ const BILLING_GATE_SUITES = [
   "phase32_stripe_live_hardening",
   "phase55_billing_checkout_resubscribe",
   "phase56_billing_storage_capacity",
+  "phase57_billing_internal_subscription_guard",
 ];
 
 describe("checkout attempt settled after cancellation", () => {
