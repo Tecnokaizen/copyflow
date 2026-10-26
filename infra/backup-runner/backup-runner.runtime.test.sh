@@ -46,6 +46,7 @@ case "$1" in
     if [[ "$2" == "R2:fixture-origin" && "$3" == "B2:fixture-backups/files" ]]; then
       [[ " $* " != *" --download "* ]]
       [[ " $* " != *"--delete"* ]]
+      printf '%s\n' "$*" >>"${FAKE_RCLONE_ARGS:?}"
       printf '%s|%s|%s|%s\n' "$1" "${RCLONE_CONFIG_R2_REGION-unset}" \
         "${RCLONE_CONFIG_R2_NO_CHECK_BUCKET-unset}" "${RCLONE_CONFIG_B2_HARD_DELETE-unset}" >>"${FAKE_RCLONE_CALLS}"
       if [[ "${FAKE_RCLONE_HOLD:-false}" == "true" ]]; then
@@ -93,6 +94,7 @@ case "$1" in
     [[ "$3" == "B2:fixture-backups/files" ]]
     [[ " $* " == *" --one-way "* && " $* " == *" --download "* ]]
     [[ " $* " != *"--delete"* ]]
+    printf '%s\n' "$*" >>"${FAKE_RCLONE_ARGS:?}"
     printf '%s|%s|%s|%s\n' "$1" "${RCLONE_CONFIG_R2_REGION-unset}" \
       "${RCLONE_CONFIG_R2_NO_CHECK_BUCKET-unset}" "${RCLONE_CONFIG_B2_HARD_DELETE-unset}" >>"${FAKE_RCLONE_CALLS}"
     if [[ "${FAKE_RCLONE_HOLD:-false}" == "true" ]]; then
@@ -121,6 +123,16 @@ esac
 MOCK
 chmod 0755 "${FIXTURE}/bin/rclone"
 
+cat >"${FIXTURE}/bin/fake-fingerprint" <<'MOCK'
+#!/usr/bin/env bash
+# fake-fingerprint SCHEMAS_CSV [TABLES] [ROWS] → recovery fingerprint JSON
+set -Eeuo pipefail
+jq -nc --arg schemas "$1" --argjson tables "${2:-1}" --argjson rows "${3:-0}" '
+  {fingerprint_version: 1,
+   schemas: ($schemas | split(",") | map({key: ., value: {tables: $tables, rows_total: $rows, acl_md5: "fixture"}}) | from_entries)}'
+MOCK
+chmod 0755 "${FIXTURE}/bin/fake-fingerprint"
+
 cat >"${FIXTURE}/bin/psql" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -134,6 +146,12 @@ fi
 if [[ "$*" == *"gestcopy-post-restore-validation"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
   printf 'psql|post-restore-validation\n' >>"${FAKE_RESTORE_EVENTS}"
 fi
+if [[ "$*" == *"gestcopy-target-major"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+  printf 'psql|target-major-preflight\n' >>"${FAKE_RESTORE_EVENTS}"
+fi
+if [[ "$*" == *"gestcopy-recovery-fingerprint"* && -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
+  printf 'psql|recovery-fingerprint\n' >>"${FAKE_RESTORE_EVENTS}"
+fi
 if [[ "${FAKE_PSQL_EXIT_CODE:-0}" != "0" ]]; then
   exit "${FAKE_PSQL_EXIT_CODE}"
 fi
@@ -146,6 +164,15 @@ if [[ " $* " == *" -c "* || " $* " == *" -Atqc "* || "$*" == *"-Atqc"* ]]; then
   fi
   if [[ "$*" == *"gestcopy-post-restore-validation"* ]]; then
     printf '%s\n' "${FAKE_POST_RESTORE_VALIDATION:-t|1|0|1|t}"
+    exit 0
+  fi
+  if [[ "$*" == *"gestcopy-target-major"* ]]; then
+    printf 'gestcopy-target-major|%s\n' "${FAKE_TARGET_MAJOR:-17}"
+    exit 0
+  fi
+  if [[ "$*" == *"gestcopy-recovery-fingerprint"* ]]; then
+    printf 'gestcopy-recovery-fingerprint|%s\n' "$(fake-fingerprint \
+      "${FAKE_TARGET_SCHEMAS:-files_private,imports_private,kiosk_private,public}" 1 "${FAKE_TARGET_ROWS:-0}")"
     exit 0
   fi
   if [[ "$*" == *"SHOW server_version"* ]]; then
@@ -184,6 +211,15 @@ while IFS= read -r line; do
         exit 42
       fi
       ;;
+    *gestcopy-application-schemas*)
+      printf 'gestcopy-application-schemas|%s\n' \
+        "${FAKE_APPLICATION_SCHEMAS:-files_private,imports_private,kiosk_private,public}"
+      ;;
+    *gestcopy-recovery-fingerprint*)
+      printf 'gestcopy-recovery-fingerprint|%s\n' "$(fake-fingerprint \
+        "${FAKE_APPLICATION_SCHEMAS:-files_private,imports_private,kiosk_private,public}" \
+        "${FAKE_FINGERPRINT_TABLES:-1}")"
+      ;;
     COMMIT*|ROLLBACK*|'\\q'*)
       exit 0
       ;;
@@ -219,7 +255,9 @@ while [[ ${i} -lt ${#args[@]} ]]; do
       out="${args[$i]}"
       ;;
     --schema=*)
-      schema="${args[$i]#--schema=}"
+      if [[ "${args[$i]#--schema=}" != "${FAKE_PG_DUMP_DROP_SCHEMA:-}" ]]; then
+        schema="${schema:+${schema},}${args[$i]#--schema=}"
+      fi
       ;;
     --table=*)
       table="${args[$i]#--table=}"
@@ -289,7 +327,17 @@ if [[ "${list}" == "true" ]]; then
   fi
   if [[ "$(basename "${archive}")" == *application* || "$(basename "${archive}")" == "app.dump" ]]; then
     if [[ "${FAKE_APPLICATION_NO_PUBLIC:-false}" != "true" ]]; then
-      printf '5; 2615 2200 SCHEMA - public postgres\n'
+      # Archives written by the fake pg_dump carry their schema list.
+      archive_schemas="$(sed -n 's/^FAKE-PGDUMP|dump:\([^|:]*\).*/\1/p' "${archive}")"
+      archive_schemas="${archive_schemas:-${FAKE_ARCHIVE_SCHEMAS:-files_private,imports_private,kiosk_private,public}}"
+      n=20
+      IFS=',' read -r -a listed <<<"${archive_schemas}"
+      for listed_schema in "${listed[@]}"; do
+        n=$((n + 1))
+        printf '%s; 2615 %s SCHEMA - %s postgres\n' "${n}" "${n}" "${listed_schema}"
+        printf '%s; 1259 %s TABLE %s fixture_table postgres\n' "$((n + 100))" "$((n + 100))" "${listed_schema}"
+        printf '%s; 0 %s TABLE DATA %s fixture_table postgres\n' "$((n + 200))" "$((n + 100))" "${listed_schema}"
+      done
       printf '11; 0 0 DEFAULT ACL - DEFAULT PRIVILEGES FOR SEQUENCES postgres\n'
       printf '12; 0 0 DEFAULT ACL - DEFAULT PRIVILEGES FOR SEQUENCES supabase_admin\n'
       printf '13; 0 0 ACL public TABLE public postgres\n'
@@ -316,6 +364,7 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   no_privileges=false
   auth_schema_migrations="n/a"
   post_data_toc="n/a"
+  pre_data_toc="n/a"
   args=("$@")
   i=0
   while [[ ${i} -lt ${#args[@]} ]]; do
@@ -329,6 +378,14 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
   done
   if [[ "${data_only}" == "true" ]]; then
     section="data-only"
+  fi
+  if [[ "${section}" == "pre-data" ]]; then
+    [[ -n "${use_list}" ]]
+    if grep -Eq 'SCHEMA[[:space:]]+-[[:space:]]+public[[:space:]]' "${use_list}"; then
+      pre_data_toc="public-schema-included"
+    else
+      pre_data_toc="public-schema-excluded"
+    fi
   fi
   if [[ "${section}" == "post-data" ]]; then
     [[ -n "${use_list}" ]]
@@ -351,7 +408,7 @@ if [[ -n "${FAKE_PG_RESTORE_CALLS:-}" ]]; then
       auth_schema_migrations="excluded"
     fi
   fi
-  printf 'pg_restore|%s|no_privileges=%s|auth_schema_migrations=%s|post_data_toc=%s\n' "${section}" "${no_privileges}" "${auth_schema_migrations}" "${post_data_toc}" >>"${FAKE_PG_RESTORE_CALLS}"
+  printf 'pg_restore|%s|no_privileges=%s|auth_schema_migrations=%s|post_data_toc=%s|pre_data_toc=%s\n' "${section}" "${no_privileges}" "${auth_schema_migrations}" "${post_data_toc}" "${pre_data_toc}" >>"${FAKE_PG_RESTORE_CALLS}"
   if [[ -n "${FAKE_RESTORE_EVENTS:-}" ]]; then
     printf 'pg_restore|%s\n' "${section}" >>"${FAKE_RESTORE_EVENTS}"
   fi
@@ -379,7 +436,8 @@ run_script() {
     RCLONE_CONFIG_B2_ACCOUNT=fixture RCLONE_CONFIG_B2_KEY=fixture \
     GESTCOPY_R2_BUCKET=fixture-origin GESTCOPY_B2_BUCKET=fixture-backups \
     GESTCOPY_B2_FILES_PREFIX=files GESTCOPY_BACKUP_LOCK_FILE="${FIXTURE}/runner.lock" \
-    FAKE_RCLONE_CALLS="${FIXTURE}/calls" FAKE_RCLONE_READY="${FIXTURE}/ready" \
+    FAKE_RCLONE_CALLS="${FIXTURE}/calls" FAKE_RCLONE_ARGS="${FIXTURE}/rclone-args" \
+    FAKE_RCLONE_READY="${FIXTURE}/ready" \
     FAKE_RCLONE_RELEASE="${FIXTURE}/release" FAKE_RCLONE_STORE="${FIXTURE}/remote" \
     FAKE_PSQL_CALLS="${FIXTURE}/psql-calls" FAKE_PG_DUMP_CALLS="${FIXTURE}/pgdump-calls" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
@@ -397,6 +455,19 @@ pass() {
   printf 'ok %s - %s\n' "${TEST_COUNT}" "$1"
 }
 
+# `! cmd` never trips `set -e`, so assertions that something did NOT happen use
+# refute. Success markers are matched as whole lines: error messages may name them.
+refute() {
+  if "$@"; then
+    echo "Refuted assertion held: $*" >&2
+    exit 1
+  fi
+}
+
+no_success_marker() {
+  refute grep -Eq '^[A-Z_]+_SUCCESS$' "$1"
+}
+
 expect_failure() {
   local expected="$1" script="$2" status
   shift 2
@@ -408,7 +479,7 @@ expect_failure() {
     status=$?
   fi
   [[ "${status}" -eq "${expected}" ]]
-  ! grep -q '_SUCCESS' "${FIXTURE}/failure"
+  no_success_marker "${FIXTURE}/failure"
 }
 
 remote_has_manifest() {
@@ -421,9 +492,17 @@ for script in backup-files.sh verify-files.sh; do
   action=copy
   [[ "${script}" != verify-files.sh ]] || action=check
   : >"${FIXTURE}/calls"
+  : >"${FIXTURE}/rclone-args"
   run_script "${script}" >"${FIXTURE}/output"
   [[ "$(cat "${FIXTURE}/calls")" == "${action}|auto|true|false" ]]
   pass "${script}: omitted defaults reach the child process"
+
+  # B2 bills one Class C call per listed folder; --fast-list lists the tree in
+  # one recursive call per 1,000 objects. Coverage must stay complete.
+  [[ "$(wc -l <"${FIXTURE}/rclone-args")" -eq 1 ]]
+  grep -Eq -- '(^| )--fast-list( |$)' "${FIXTURE}/rclone-args"
+  refute grep -Eq -- '--(no-traverse|max-age|min-age|files-from|include|exclude|filter)' "${FIXTURE}/rclone-args"
+  pass "${script}: one recursive B2 listing (--fast-list), no age filter or --no-traverse"
 
   : >"${FIXTURE}/calls"
   run_script "${script}" RCLONE_CONFIG_R2_REGION= RCLONE_CONFIG_R2_NO_CHECK_BUCKET= \
@@ -449,10 +528,12 @@ done
 
 : >"${FIXTURE}/calls"
 : >"${FIXTURE}/age-calls"
+: >"${FIXTURE}/rclone-args"
 run_script backup-all.sh >"${FIXTURE}/output"
 [[ "$(cat "${FIXTURE}/calls")" == 'copy|auto|true|false' ]]
+grep -Eq -- '(^| )--fast-list( |$)' "${FIXTURE}/rclone-args"
 grep -q BACKUP_ALL_SUCCESS "${FIXTURE}/output"
-! grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/output"
+refute grep -qx DATABASE_BACKUP_SUCCESS "${FIXTURE}/output"
 pass 'hourly orchestrator only copies Files, without database backup'
 
 expect_failure 7 backup-all.sh FAKE_RCLONE_EXIT_CODE=7
@@ -531,7 +612,7 @@ if run_script backup-database.sh FAKE_EXPORTER_DIE_AFTER_SNAPSHOT=true >"${FIXTU
   cat "${FIXTURE}/failure" >&2
   exit 1
 fi
-! grep -q '_SUCCESS' "${FIXTURE}/failure"
+no_success_marker "${FIXTURE}/failure"
 (( SECONDS - exporter_death_started_at < 2 ))
 pass 'backup-database: exporter death during dumps fails without success'
 
@@ -550,8 +631,8 @@ if run_script backup-database.sh >"${FIXTURE}/failure" 2>&1; then
   cat "${FIXTURE}/failure" >&2
   exit 1
 fi
-! grep -q '_SUCCESS' "${FIXTURE}/failure"
-! grep -q 'db-copyto|' "${FIXTURE}/calls"
+no_success_marker "${FIXTURE}/failure"
+refute grep -q 'db-copyto|' "${FIXTURE}/calls"
 rm -f "${FIXTURE}/bin/age"
 pass 'backup-database: encryption failure propagates without success'
 
@@ -566,8 +647,8 @@ for corrupt in gestcopy-application.dump gestcopy-auth.dump gestcopy-migrations.
   rm -f "${FIXTURE}/calls.seq"
   expect_failure 1 backup-database.sh FAKE_PG_RESTORE_CORRUPT_BASENAME="${corrupt}"
   [[ ! -s "${FIXTURE}/age-calls" ]]
-  ! grep -q 'db-copyto|' "${FIXTURE}/calls"
-  ! remote_has_manifest
+  refute grep -q 'db-copyto|' "${FIXTURE}/calls"
+  refute remote_has_manifest
   pass "backup-database: corrupt ${corrupt} aborts before age and upload"
 done
 
@@ -577,7 +658,7 @@ for n in 1 2 3; do
   rm -rf "${FIXTURE}/remote"
   mkdir -p "${FIXTURE}/remote"
   expect_failure 7 backup-database.sh FAKE_RCLONE_FAIL_ON_N="${n}" FAKE_RCLONE_EXIT_CODE=7
-  ! remote_has_manifest
+  refute remote_has_manifest
   pass "backup-database: rclone fail on artifact ${n} leaves no remote manifest"
 done
 
@@ -590,9 +671,50 @@ if run_script backup-database.sh FAKE_RCLONE_CORRUPT_BASENAME=gestcopy-auth.dump
   cat "${FIXTURE}/failure" >&2
   exit 1
 fi
-! grep -q '_SUCCESS' "${FIXTURE}/failure"
-! remote_has_manifest
+no_success_marker "${FIXTURE}/failure"
+refute remote_has_manifest
 pass 'backup-database: remote size mismatch leaves no remote manifest'
+
+: >"${FIXTURE}/pgdump-calls"
+rm -rf "${FIXTURE}/remote"
+mkdir -p "${FIXTURE}/remote"
+expect_failure 1 backup-database.sh FAKE_APPLICATION_SCHEMAS=files_private,kiosk_private,public
+grep -q 'required application schema missing in source: imports_private' "${FIXTURE}/failure"
+[[ ! -s "${FIXTURE}/pgdump-calls" ]]
+refute remote_has_manifest
+pass 'backup-database: source without a required private schema fails before pg_dump'
+
+: >"${FIXTURE}/age-calls"
+: >"${FIXTURE}/calls"
+rm -f "${FIXTURE}/calls.seq"
+expect_failure 1 backup-database.sh FAKE_PG_DUMP_DROP_SCHEMA=imports_private
+grep -q 'application archive omits schema imports_private' "${FIXTURE}/failure"
+[[ ! -s "${FIXTURE}/age-calls" ]]
+refute grep -q 'db-copyto|' "${FIXTURE}/calls"
+refute remote_has_manifest
+pass 'backup-database: archive missing a private schema aborts before age and upload'
+
+: >"${FIXTURE}/age-calls"
+expect_failure 1 backup-database.sh FAKE_FINGERPRINT_TABLES=2
+grep -q 'application archive has 1 tables in files_private, catalog has 2' "${FIXTURE}/failure"
+[[ ! -s "${FIXTURE}/age-calls" ]]
+refute remote_has_manifest
+pass 'backup-database: archive tables must match the snapshot catalog'
+
+: >"${FIXTURE}/pgdump-calls"
+: >"${FIXTURE}/calls"
+rm -f "${FIXTURE}/calls.seq"
+rm -rf "${FIXTURE}/remote"
+mkdir -p "${FIXTURE}/remote"
+run_script backup-database.sh \
+  FAKE_APPLICATION_SCHEMAS=billing_private,files_private,imports_private,kiosk_private,public \
+  >"${FIXTURE}/db-output"
+grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/db-output"
+grep -q -- '--schema=billing_private' "${FIXTURE}/pgdump-calls"
+manifest="$(find "${FIXTURE}/remote" -name manifest.json | head -n1)"
+jq -e '.application_schemas == ["billing_private","files_private","imports_private","kiosk_private","public"]' "${manifest}" >/dev/null
+jq -e '.recovery_contract.schemas | has("billing_private")' "${manifest}" >/dev/null
+pass 'backup-database: a newly discovered private schema is dumped and declared automatically'
 
 : >"${FIXTURE}/psql-calls"
 : >"${FIXTURE}/pgdump-calls"
@@ -604,19 +726,23 @@ rm -rf "${FIXTURE}/remote"
 mkdir -p "${FIXTURE}/remote"
 run_script backup-database.sh >"${FIXTURE}/db-output"
 grep -q DATABASE_BACKUP_SUCCESS "${FIXTURE}/db-output"
-! grep -F 'postgresql://fixture:secret@fixture.invalid:5432/postgres' "${FIXTURE}/db-output"
+refute grep -F 'postgresql://fixture:secret@fixture.invalid:5432/postgres' "${FIXTURE}/db-output"
 grep -q -- '--schema=public' "${FIXTURE}/pgdump-calls"
+grep -q -- '--schema=files_private' "${FIXTURE}/pgdump-calls"
+grep -q -- '--schema=imports_private' "${FIXTURE}/pgdump-calls"
+grep -q -- '--schema=kiosk_private' "${FIXTURE}/pgdump-calls"
+grep -q -- '--strict-names' "${FIXTURE}/pgdump-calls"
 grep -q -- '--schema=auth' "${FIXTURE}/pgdump-calls"
 grep -q -- '--exclude-table-data=auth.schema_migrations' "${FIXTURE}/pgdump-calls"
 grep -q -- '--schema=supabase_migrations' "${FIXTURE}/pgdump-calls"
-! grep -q -- '--table=supabase_migrations.schema_migrations' "${FIXTURE}/pgdump-calls"
+refute grep -q -- '--table=supabase_migrations.schema_migrations' "${FIXTURE}/pgdump-calls"
 
 # All three dumps share the exact same snapshot id.
 mapfile -t snaps < <(awk -F'|' '/^snapshot\|/{print $2}' "${FIXTURE}/pgdump-calls.meta")
 [[ "${#snaps[@]}" -eq 3 ]]
 [[ "${snaps[0]}" == "${FAKE_SNAPSHOT_ID}" ]]
 [[ "${snaps[0]}" == "${snaps[1]}" && "${snaps[1]}" == "${snaps[2]}" ]]
-grep -q 'schema=public|.*|no_privileges=false' "${FIXTURE}/pgdump-calls.meta"
+grep -q 'schema=files_private,imports_private,kiosk_private,public|.*|no_privileges=false' "${FIXTURE}/pgdump-calls.meta"
 grep -q 'schema=auth|.*|no_privileges=true' "${FIXTURE}/pgdump-calls.meta"
 grep -q 'schema=auth|.*|data_only=true|.*|exclude_table_data=auth.schema_migrations' "${FIXTURE}/pgdump-calls.meta"
 awk -F'|' '
@@ -641,20 +767,26 @@ jq -e '.encryption == "age"' "${manifest}" >/dev/null
 jq -e '.consistency == "postgresql-exported-snapshot"' "${manifest}" >/dev/null
 jq -e '.status == "complete"' "${manifest}" >/dev/null
 jq -e '.artifacts | length == 3' "${manifest}" >/dev/null
+jq -e '.version == "2"' "${manifest}" >/dev/null
 jq -e '.recovery_compatibility == {
   "auth_schema_migrations": "excluded",
-  "supabase_migrations": "schema-and-data"
+  "supabase_migrations": "schema-and-data",
+  "application_schemas": "all-non-platform-schemas"
 }' "${manifest}" >/dev/null
+jq -e '.application_schemas == ["files_private","imports_private","kiosk_private","public"]' "${manifest}" >/dev/null
+jq -e '.recovery_contract.fingerprint_version == 1' "${manifest}" >/dev/null
+jq -e '(.recovery_contract.schemas | keys) == ["files_private","imports_private","kiosk_private","public"]' "${manifest}" >/dev/null
 jq -e '.external_recovery_requirements == [
   "supabase-vault:files_signing_secret",
+  "supabase-vault:kiosk_signing_secret",
   "supabase-auth-config",
   "supabase-extensions",
   "supabase-automatic-rls"
 ]' "${manifest}" >/dev/null
-! grep -Eiq 'password|postgresql://|AGE-SECRET|access_key|@fixture|00000004|"(secret_)?value"' "${manifest}"
+refute grep -Eiq 'password|postgresql://|AGE-SECRET|access_key|@fixture|00000004|"(secret_)?value"' "${manifest}"
 pass 'backup-database: happy path shares snapshot, uploads dumps then manifest'
 
-! find "${FIXTURE}/remote" -name 'gestcopy-*.dump' | grep -q .
+refute bash -c 'find "$1" -name "gestcopy-*.dump" | grep -q .' _ "${FIXTURE}/remote"
 # No live exporter PIDs remain after success.
 alive=0
 if [[ -s "${FIXTURE}/exporter.pid" ]]; then
@@ -672,16 +804,46 @@ pass 'backup-database: plaintext cleaned and snapshot exporter not left running'
 printf 'app\n' >"${FIXTURE}/restore/app.dump"
 printf 'auth\n' >"${FIXTURE}/restore/auth.dump"
 printf 'mig\n' >"${FIXTURE}/restore/mig.dump"
+jq -n --argjson contract "$("${FIXTURE}/bin/fake-fingerprint" files_private,imports_private,kiosk_private,public)" '{
+  version: "2", status: "complete", postgres_server_version: "17.4",
+  application_schemas: ["files_private", "imports_private", "kiosk_private", "public"],
+  recovery_contract: $contract
+}' >"${FIXTURE}/restore/manifest.json"
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest.json"
 
 run_restore() {
+  local manifest_args=(--manifest "${RESTORE_MANIFEST}")
+  [[ "${RESTORE_MANIFEST}" != "none" ]] || manifest_args=()
   env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
     FAKE_PG_RESTORE_CALLS="${FIXTURE}/pgrestore-calls" \
     FAKE_PSQL_CALLS="${FIXTURE}/restore-psql-calls" \
     FAKE_RESTORE_EVENTS="${FIXTURE}/restore-events" \
     "$@" bash "${SCRIPT_DIR}/restore-database-local.sh" \
+      "${manifest_args[@]}" \
       --application "${FIXTURE}/restore/app.dump" \
       --auth "${FIXTURE}/restore/auth.dump" \
       --migrations "${FIXTURE}/restore/mig.dump"
+}
+
+expect_restore_rejected() {
+  local expected="$1"
+  shift
+  : >"${FIXTURE}/pgrestore-calls"
+  : >"${FIXTURE}/restore-psql-calls"
+  : >"${FIXTURE}/restore-events"
+  if run_restore \
+    GESTCOPY_ALLOW_RESTORE=isolated-only \
+    GESTCOPY_ALLOW_PUBLIC_RESET=isolated-only \
+    GESTCOPY_RESTORE_TARGET_URL='postgresql://postgres.isolatedref@host/db' \
+    GESTCOPY_PRODUCTION_PROJECT_REF=prodref123 \
+    GESTCOPY_RESTORE_TARGET_PROJECT_REF=isolatedref \
+    "$@" >"${FIXTURE}/restore-out" 2>&1; then
+    echo "expected restore rejection: ${expected}" >&2
+    cat "${FIXTURE}/restore-out" >&2
+    exit 1
+  fi
+  grep -q -- "${expected}" "${FIXTURE}/restore-out" || { cat "${FIXTURE}/restore-out" >&2; exit 1; }
+  no_success_marker "${FIXTURE}/restore-out"
 }
 
 : >"${FIXTURE}/pgrestore-calls"
@@ -701,25 +863,32 @@ if ! run_restore \
 fi
 grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
 mapfile -t restore_events <"${FIXTURE}/restore-events"
-[[ "${#restore_events[@]}" -eq 11 ]]
+[[ "${#restore_events[@]}" -eq 13 ]]
 [[ "${restore_events[0]}" == "pg_restore|list|app.dump" ]]
 [[ "${restore_events[1]}" == "pg_restore|list|auth.dump" ]]
 [[ "${restore_events[2]}" == "pg_restore|list|mig.dump" ]]
 [[ "${restore_events[3]}" == "psql|pg-trgm-preflight" ]]
-[[ "${restore_events[4]}" == "psql|drop-public" ]]
-[[ "${restore_events[5]}" == "pg_restore|pre-data" ]]
-[[ "${restore_events[6]}" == "pg_restore|data" ]]
-[[ "${restore_events[7]}" == "pg_restore|data-only" ]]
-[[ "${restore_events[8]}" == "pg_restore|full" ]]
-[[ "${restore_events[9]}" == "pg_restore|post-data" ]]
-[[ "${restore_events[10]}" == "psql|post-restore-validation" ]]
+[[ "${restore_events[4]}" == "psql|target-major-preflight" ]]
+[[ "${restore_events[5]}" == "psql|drop-public" ]]
+[[ "${restore_events[6]}" == "pg_restore|pre-data" ]]
+[[ "${restore_events[7]}" == "pg_restore|data" ]]
+[[ "${restore_events[8]}" == "pg_restore|data-only" ]]
+[[ "${restore_events[9]}" == "pg_restore|full" ]]
+[[ "${restore_events[10]}" == "pg_restore|post-data" ]]
+[[ "${restore_events[11]}" == "psql|post-restore-validation" ]]
+[[ "${restore_events[12]}" == "psql|recovery-fingerprint" ]]
+# Every application schema is reset; public is recreated with its initial privilege
+# and pre-data restores everything else from the archive.
+grep -q 'DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS files_private CASCADE; DROP SCHEMA IF EXISTS imports_private CASCADE; DROP SCHEMA IF EXISTS kiosk_private CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO PUBLIC;' "${FIXTURE}/restore-psql-calls"
+grep -q 'pg_restore|pre-data|.*pre_data_toc=public-schema-excluded' "${FIXTURE}/pgrestore-calls"
+grep -q 'recovery fingerprint matches for files_private,imports_private,kiosk_private,public' "${FIXTURE}/restore-out"
 # application sections must not use --no-privileges; auth/migrations may.
 grep -q 'pg_restore|pre-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|post-data|no_privileges=false' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|data-only|no_privileges=true|auth_schema_migrations=excluded' "${FIXTURE}/pgrestore-calls"
 grep -q 'pg_restore|post-data|.*post_data_toc=postgres=included;supabase_admin=excluded;acl=included' "${FIXTURE}/pgrestore-calls"
-pass 'restore: extension preflight, filtered post-data TOC, semantic validation, and section order'
+pass 'restore: extension and major preflight, schema reset, filtered TOCs, fingerprint validation, and section order'
 
 : >"${FIXTURE}/restore-psql-calls"
 : >"${FIXTURE}/restore-events"
@@ -735,7 +904,7 @@ if ! run_restore \
   exit 1
 fi
 grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
-! grep -q 'parameter not set' "${FIXTURE}/restore-out"
+refute grep -q 'parameter not set' "${FIXTURE}/restore-out"
 pass 'restore: optional GESTCOPY_DATABASE_URL may be completely unset'
 
 for extension_contract in '' 'pg_trgm@public'; do
@@ -753,7 +922,7 @@ for extension_contract in '' 'pg_trgm@public'; do
     exit 1
   fi
   grep -q 'pg_trgm must be installed in schema extensions' "${FIXTURE}/restore-out"
-  ! grep -q 'drop-public' "${FIXTURE}/restore-events"
+  refute grep -q 'drop-public' "${FIXTURE}/restore-events"
   [[ "$(cat "${FIXTURE}/restore-events")" == 'pg_restore|list|app.dump
 pg_restore|list|auth.dump
 pg_restore|list|mig.dump
@@ -775,7 +944,7 @@ for validation in 't|1|1|1|t' 't|1|0|1|f'; do
     exit 1
   fi
   grep -q 'post-restore semantic validation failed' "${FIXTURE}/restore-out"
-  ! grep -q RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
+  refute grep -qx RESTORE_DATABASE_ISOLATED_SUCCESS "${FIXTURE}/restore-out"
 done
 pass 'restore: semantic validation requires RLS and migrations history before success'
 
@@ -811,7 +980,7 @@ if run_restore \
   exit 1
 fi
 [[ ! -s "${FIXTURE}/restore-psql-calls" ]]
-! grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
+refute grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
 grep -q 'does not define schema supabase_migrations' "${FIXTURE}/restore-out"
 pass 'restore: data-only migrations archive fails before target mutation'
 
@@ -825,7 +994,7 @@ if run_restore \
   echo 'expected restore to reject missing isolated-only' >&2
   exit 1
 fi
-! grep -q _SUCCESS "${FIXTURE}/restore-out"
+no_success_marker "${FIXTURE}/restore-out"
 pass 'restore: requires isolated-only confirmation'
 
 : >"${FIXTURE}/restore-psql-calls"
@@ -873,7 +1042,7 @@ if run_restore \
 fi
 grep -q 'restore target resolves to Production project ref' "${FIXTURE}/restore-out"
 [[ ! -s "${FIXTURE}/pgrestore-calls" ]]
-! grep -qi 'postgresql://' "${FIXTURE}/restore-out"
+refute grep -qi 'postgresql://' "${FIXTURE}/restore-out"
 pass 'restore: production ref == target ref fails before pg_restore'
 
 : >"${FIXTURE}/pgrestore-calls"
@@ -919,7 +1088,7 @@ if run_restore \
   exit 1
 fi
 grep -q 'must not equal GESTCOPY_DATABASE_URL' "${FIXTURE}/restore-out"
-! grep -q _SUCCESS "${FIXTURE}/restore-out"
+no_success_marker "${FIXTURE}/restore-out"
 pass 'restore: rejects source == target URL'
 
 for corrupt in app.dump auth.dump mig.dump; do
@@ -938,8 +1107,8 @@ for corrupt in app.dump auth.dump mig.dump; do
     exit 1
   fi
   [[ ! -s "${FIXTURE}/restore-psql-calls" ]]
-  ! grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
-  ! grep -q _SUCCESS "${FIXTURE}/restore-out"
+  refute grep -q 'drop-public\|pre-data\|data-only\|post-data' "${FIXTURE}/restore-events"
+  no_success_marker "${FIXTURE}/restore-out"
   pass "restore: corrupt ${corrupt} fails before target reset"
 done
 
@@ -975,5 +1144,52 @@ if env -i PATH="${FIXTURE}/bin:${PATH}" HOME="${FIXTURE}" \
 fi
 grep -q 'unknown argument: --skip-auth' "${FIXTURE}/restore-out"
 pass 'restore: --skip-auth no longer exists'
+
+RESTORE_MANIFEST=none
+expect_restore_rejected '--manifest PATH is required'
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest.json"
+pass 'restore: manifest is mandatory before target psql'
+
+jq '.version = "1" | del(.application_schemas, .recovery_contract)' "${FIXTURE}/restore/manifest.json" \
+  >"${FIXTURE}/restore/manifest-v1.json"
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest-v1.json"
+expect_restore_rejected 'manifest version 1 is not a multi-schema recovery set'
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+refute grep -q 'pre-data\|post-data' "${FIXTURE}/restore-events"
+pass 'restore: legacy public-only set (manifest v1) fails before target psql'
+
+jq '.status = "uploading"' "${FIXTURE}/restore/manifest.json" >"${FIXTURE}/restore/manifest-incomplete.json"
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest-incomplete.json"
+expect_restore_rejected 'manifest status is not complete'
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+pass 'restore: incomplete manifest fails before target psql'
+
+jq '.application_schemas -= ["imports_private"] | del(.recovery_contract.schemas.imports_private)' \
+  "${FIXTURE}/restore/manifest.json" >"${FIXTURE}/restore/manifest-no-imports.json"
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest-no-imports.json"
+expect_restore_rejected 'manifest does not declare required application schema imports_private'
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+pass 'restore: manifest without a required private schema fails before target psql'
+RESTORE_MANIFEST="${FIXTURE}/restore/manifest.json"
+
+expect_restore_rejected 'application archive does not define schema imports_private' \
+  FAKE_ARCHIVE_SCHEMAS=files_private,kiosk_private,public
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+pass 'restore: archive missing a declared private schema fails before target psql'
+
+expect_restore_rejected 'application archive defines schema extra_private, which the manifest does not declare' \
+  FAKE_ARCHIVE_SCHEMAS=extra_private,files_private,imports_private,kiosk_private,public
+[[ ! -s "${FIXTURE}/restore-psql-calls" ]]
+pass 'restore: archive with an undeclared schema fails before target psql'
+
+expect_restore_rejected 'target PostgreSQL major 16 differs from source major 17' FAKE_TARGET_MAJOR=16
+refute grep -q 'drop-public' "${FIXTURE}/restore-events"
+pass 'restore: PostgreSQL major mismatch fails before schema reset'
+
+expect_restore_rejected 'does not match the recovery fingerprint' FAKE_TARGET_ROWS=5
+grep -q 'rows_total: expected 0, restored 5' "${FIXTURE}/restore-out"
+grep -q 'psql|recovery-fingerprint' "${FIXTURE}/restore-events"
+pass 'restore: fingerprint mismatch after restore suppresses the success marker'
 
 printf '1..%s\n' "${TEST_COUNT}"

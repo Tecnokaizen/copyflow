@@ -62,16 +62,41 @@ Fresh local Supabase and all migrations (`db reset`), then:
    every SECURITY DEFINER routine pins `search_path`; anon can execute only
    the 4 allowlisted public RPCs (invitation preview, kiosk); private schemas
    are closed to API roles.
-2. Existing suites that cover tenant isolation, roles, lifecycle and files:
+2. Billing suites (rollback-only): storage quota `phase22_tenant_file_limits`,
+   `phase23`–`phase32` (foundation, checkout and webhook, paid onboarding,
+   idempotency, provisioning state, Stripe Test/Live separation) and
+   `phase55_billing_checkout_resubscribe`, `phase56_billing_storage_capacity`,
+   `phase57_billing_internal_subscription_guard`, and the two-session lock test
+   `phase57_billing_lock_concurrency.sh`. `kiosk-supabase.yml` also runs
+   them, but only when its path filter matches, so it cannot be a required
+   check.
+3. Existing suites that cover tenant isolation, roles, lifecycle and files:
    `pedido_v2`, `tamara_operational_access`, `phase17`, `phase18`,
    `phase34`, `phase35`, `phase44` (×2), `phase46`, `phase13`–`phase16`,
    `phase8`. Before this gate, 9 of them were never run in CI.
 
+## Job `recovery`
+
+Backup runner (`infra/backup-runner`, B1.3):
+
+1. Behaviour tests with fake tools inside the runner image, without network
+   (`backup-runner.runtime.test.sh`).
+2. End-to-end recovery drill with real `pg_dump`/`pg_restore`
+   (`backup-runner.recovery.test.sh`). The source is a local stack with every
+   migration and a fixture in `public` and each private schema. It is backed up
+   with the real image, and sets that omit a private schema must be rejected
+   before the target changes. The set is then restored into an empty local
+   Supabase project, and the source and target fingerprints must match.
+
+Because it runs on every PR, a migration that adds a schema or a cross-schema
+dependency is also checked for recoverability.
+
 ## Recommended GitHub setting (manual, repository admin)
 
 Branch protection on `main`: require the checks
-`Release gate / App (guards, tests, types, lint, build)` and
-`Release gate / Database (security invariants, tenant isolation)`.
+`Release gate / App (guards, tests, types, lint, build)`,
+`Release gate / Database (security invariants, tenant isolation)` and
+`Release gate / Backup recovery (B1.3)`.
 
 ## Known gaps
 

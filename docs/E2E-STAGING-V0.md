@@ -100,6 +100,15 @@ comandos remotos). Probado en `production-safety.test.ts`.
    `create_internal_organization_v1` (tenant, membership owner, ajustes,
    estados, canales, tienda). Repetirlo solo resincroniza la contraseña.
    Rechaza continuar si el usuario tiene memberships fuera de `e2e`.
+
+   **Capacidad de almacenamiento (S2).** Un tenant sin suscripción tiene 0 bytes,
+   así que la subida de archivos fallaría. La primera vez, después de aplicar en
+   Staging la migración `20261018161000`, el seed concede una suscripción
+   interna Basic mediante `grant_internal_subscription_v1`.
+
+   - Esa concesión queda auditada y exige `E2E_CAPACITY_AUTHORIZED_BY`, con quien
+     la autoriza.
+   - Si ya existe una suscripción vigente, no concede nada.
 3. **GitHub** → Environments → `staging`: restringir ramas/revisores;
    variables `E2E_BASE_URL`, `E2E_SUPABASE_URL`, `E2E_R2_BUCKET`,
    `E2E_USER_EMAIL`; secretos `E2E_USER_PASSWORD`,

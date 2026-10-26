@@ -2,6 +2,8 @@
 # Logical encrypted PostgreSQL/Supabase backup → Backblaze B2 (additive, never sync/delete).
 # Platform-global dump (application / auth data / migration history). Not per-tenant.
 # The three dumps share one exported PostgreSQL snapshot for a coherent recovery set.
+# The application dump covers `public` and every Gestcopy private schema, discovered
+# in that same snapshot (recovery-contract.sh), never a hardcoded subset.
 set -Eeuo pipefail
 
 require_var() {
@@ -29,17 +31,25 @@ fi
 : "${PGAPPNAME:=gestcopy-backup-runner}"
 : "${PGCONNECT_TIMEOUT:=15}"
 : "${GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS:=30}"
+: "${GESTCOPY_CATALOG_QUERY_TIMEOUT_SECONDS:=600}"
 : "${RCLONE_CONFIG_B2_HARD_DELETE:=false}"
 export GESTCOPY_B2_DATABASE_PREFIX PGSSLMODE PGAPPNAME PGCONNECT_TIMEOUT \
-  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS RCLONE_CONFIG_B2_HARD_DELETE
+  GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS GESTCOPY_CATALOG_QUERY_TIMEOUT_SECONDS \
+  RCLONE_CONFIG_B2_HARD_DELETE
 
 if [[ ! "${GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "ERROR: GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 1
 fi
 
+if [[ ! "${GESTCOPY_CATALOG_QUERY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: GESTCOPY_CATALOG_QUERY_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/runner-lock.sh"
+source "${SCRIPT_DIR}/recovery-contract.sh"
 acquire_runner_lock
 
 WORK_DIR=""
@@ -158,15 +168,84 @@ ensure_exporter_alive() {
   fi
 }
 
-echo "backup-database: dumping application schema=public (ACL preserved)"
+# Runs one single-line query inside the exporter session (the snapshot
+# transaction itself) and prints the payload of its "<marker>|..." result row.
+exporter_query() {
+  local marker="$1"
+  local sql="$2"
+  local line=""
+  local started=${SECONDS}
+  printf '%s\n' "${sql}" >&3
+  while (( SECONDS - started < GESTCOPY_CATALOG_QUERY_TIMEOUT_SECONDS )); do
+    line="$(grep -m1 "^${marker}|" "${PSQL_OUT}" || true)"
+    if [[ -n "${line}" ]]; then
+      printf '%s' "${line#"${marker}|"}"
+      return 0
+    fi
+    if ! kill -0 "${EXPORTER_PID}" 2>/dev/null; then
+      echo "ERROR: snapshot exporter terminated while reading ${marker}" >&2
+      if [[ -s "${PSQL_ERR}" ]]; then
+        sed -E 's#postgresql://[^[:space:]]+#postgresql://[redacted]#gi' "${PSQL_ERR}" >&2 || true
+      fi
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo "ERROR: timed out waiting for ${marker} from the snapshot exporter" >&2
+  exit 1
+}
+
+join_by_comma() {
+  local IFS=,
+  printf '%s' "$*"
+}
+
+echo "backup-database: discovering application schemas in the shared snapshot"
+# Fully qualified deparse and exact counts (an RLS-filtered count fails loudly).
+printf '%s\n' "SET search_path TO ''; SET row_security TO off;" >&3
+APPLICATION_SCHEMAS_CSV="$(exporter_query gestcopy-application-schemas "$(application_schemas_sql)")"
+IFS=',' read -r -a APPLICATION_SCHEMAS <<<"${APPLICATION_SCHEMAS_CSV}"
+for schema in "${APPLICATION_SCHEMAS[@]}"; do
+  if ! valid_schema_name "${schema}"; then
+    echo "ERROR: unexpected application schema name in source catalog" >&2
+    exit 1
+  fi
+done
+for required in "${GESTCOPY_REQUIRED_APPLICATION_SCHEMAS[@]}"; do
+  if [[ ",${APPLICATION_SCHEMAS_CSV}," != *",${required},"* ]]; then
+    echo "ERROR: required application schema missing in source: ${required}" >&2
+    exit 1
+  fi
+done
+echo "backup-database: application schemas ${APPLICATION_SCHEMAS_CSV}"
+
+echo "backup-database: recording recovery fingerprint in the shared snapshot"
+RECOVERY_FINGERPRINT="$(exporter_query gestcopy-recovery-fingerprint "$(recovery_fingerprint_sql "${APPLICATION_SCHEMAS[@]}")")"
+if ! jq -e \
+  --argjson version "${GESTCOPY_FINGERPRINT_VERSION}" \
+  --arg schemas "${APPLICATION_SCHEMAS_CSV}" \
+  '.fingerprint_version == $version and ((.schemas | keys | join(",")) == $schemas)' \
+  <<<"${RECOVERY_FINGERPRINT}" >/dev/null; then
+  echo "ERROR: recovery fingerprint does not cover the application schemas" >&2
+  exit 1
+fi
+
+APPLICATION_SCHEMA_ARGS=()
+for schema in "${APPLICATION_SCHEMAS[@]}"; do
+  APPLICATION_SCHEMA_ARGS+=("--schema=${schema}")
+done
+
+echo "backup-database: dumping application schemas ${APPLICATION_SCHEMAS_CSV} (ACL preserved)"
 ensure_exporter_alive
-# Preserve public GRANT/REVOKE/ACL (do not pass privilege-suppression).
+# Preserve GRANT/REVOKE/ACL (do not pass privilege-suppression). --strict-names:
+# every discovered schema must be matched.
 pg_dump \
   "${GESTCOPY_DATABASE_URL}" \
   --format=custom \
   --no-owner \
   --no-subscriptions \
-  --schema=public \
+  --strict-names \
+  "${APPLICATION_SCHEMA_ARGS[@]}" \
   --snapshot="${SNAPSHOT_ID}" \
   --file="${APPLICATION_DUMP}"
 
@@ -211,11 +290,36 @@ done
 
 echo "backup-database: preflighting custom archives before encryption/upload"
 for dump in "${APPLICATION_DUMP}" "${AUTH_DUMP}" "${MIGRATIONS_DUMP}"; do
-  if ! pg_restore --list "${dump}" >/dev/null; then
+  if ! pg_restore --list "${dump}" >"${dump}.list"; then
     echo "ERROR: unreadable PostgreSQL archive: $(basename "${dump}")" >&2
     exit 1
   fi
 done
+
+# The application archive must contain exactly the discovered schemas and every
+# table the snapshot catalog reports for them.
+mapfile -t ARCHIVED_SCHEMAS < <(archive_schemas "${APPLICATION_DUMP}.list")
+ARCHIVED_SCHEMAS_CSV="$(join_by_comma "${ARCHIVED_SCHEMAS[@]}")"
+for schema in "${APPLICATION_SCHEMAS[@]}"; do
+  if [[ ",${ARCHIVED_SCHEMAS_CSV}," != *",${schema},"* ]]; then
+    echo "ERROR: application archive omits schema ${schema}" >&2
+    exit 1
+  fi
+done
+if [[ "${ARCHIVED_SCHEMAS_CSV}" != "${APPLICATION_SCHEMAS_CSV}" ]]; then
+  echo "ERROR: application archive schemas differ from the discovered application schemas" >&2
+  exit 1
+fi
+ARCHIVED_TABLE_COUNTS="$(archive_table_counts "${APPLICATION_DUMP}.list")"
+for schema in "${APPLICATION_SCHEMAS[@]}"; do
+  expected_tables="$(jq -r --arg schema "${schema}" '.schemas[$schema].tables' <<<"${RECOVERY_FINGERPRINT}")"
+  archived_tables="$(awk -v schema="${schema}" '$1 == schema { print $2 }' <<<"${ARCHIVED_TABLE_COUNTS}")"
+  if [[ "${archived_tables:-0}" != "${expected_tables}" ]]; then
+    echo "ERROR: application archive has ${archived_tables:-0} tables in ${schema}, catalog has ${expected_tables}" >&2
+    exit 1
+  fi
+done
+rm -f "${APPLICATION_DUMP}.list" "${AUTH_DUMP}.list" "${MIGRATIONS_DUMP}.list"
 
 encrypt_dump() {
   local plaintext="$1"
@@ -260,10 +364,13 @@ AUTH_META="$(artifact_json "${AUTH_AGE}" auth)"
 MIGRATIONS_META="$(artifact_json "${MIGRATIONS_AGE}" migrations)"
 
 MANIFEST="${WORK_DIR}/manifest.json"
+# version 2: multi-schema application archive + recovery fingerprint (B1.3 fix).
 jq -nc \
-  --arg version "1" \
+  --arg version "2" \
   --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg postgres_server_version "${POSTGRES_SERVER_VERSION}" \
+  --arg application_schemas "${APPLICATION_SCHEMAS_CSV}" \
+  --argjson recovery_contract "${RECOVERY_FINGERPRINT}" \
   --argjson application "${APPLICATION_META}" \
   --argjson auth "${AUTH_META}" \
   --argjson migrations "${MIGRATIONS_META}" \
@@ -278,10 +385,14 @@ jq -nc \
     source: "gestcopy-production-postgres",
     recovery_compatibility: {
       auth_schema_migrations: "excluded",
-      supabase_migrations: "schema-and-data"
+      supabase_migrations: "schema-and-data",
+      application_schemas: "all-non-platform-schemas"
     },
+    application_schemas: ($application_schemas | split(",")),
+    recovery_contract: $recovery_contract,
     external_recovery_requirements: [
       "supabase-vault:files_signing_secret",
+      "supabase-vault:kiosk_signing_secret",
       "supabase-auth-config",
       "supabase-extensions",
       "supabase-automatic-rls"
