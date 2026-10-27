@@ -46,7 +46,7 @@ begin
   select string_agg(p.oid::regprocedure::text, ', ' order by 1) into v_offenders
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where p.prosecdef
-    and n.nspname in ('public', 'files_private', 'kiosk_private', 'imports_private')
+    and n.nspname in ('public', 'files_private', 'kiosk_private', 'imports_private', 'billing_private')
     and not exists (
       select 1 from unnest(coalesce(p.proconfig, '{}'::text[])) cfg where cfg like 'search_path=%'
     );
@@ -68,7 +68,7 @@ begin
   select string_agg(n.nspname || ':' || r.role, ', ' order by 1) into v_offenders
   from pg_namespace n
   cross join unnest(array['anon', 'authenticated', 'service_role', 'authenticator']) as r(role)
-  where n.nspname in ('files_private', 'kiosk_private', 'imports_private')
+  where n.nspname in ('files_private', 'kiosk_private', 'imports_private', 'billing_private')
     and has_schema_privilege(r.role, n.oid, 'USAGE');
   if v_offenders is not null then
     raise exception 'release gate: private schema usage: %', v_offenders;

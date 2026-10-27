@@ -82,6 +82,8 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -q >/dev/null <<SQL
   insert into auth.users (id, email, raw_user_meta_data) values ('$OWNER', 'owner@phase46-conc.test', '{}');
   insert into public.profiles (id, full_name) values ('$OWNER', 'Owner');
   insert into public.tenants (id, name, slug, active) values ('$TENANT', 'Phase46 Conc', 'phase46-conc', true);
+  -- S2: explicit storage capacity (a tenant without subscription has 0 bytes).
+  insert into public.subscriptions (tenant_id, plan_id, provider, status) select '$TENANT', id, 'internal', 'active' from public.plans where code = 'basic';
   insert into public.memberships (tenant_id, user_id, role, active) values ('$TENANT', '$OWNER', 'owner', true);
   insert into public.tenant_settings (tenant_id, preferences) values ('$TENANT', '{}'::jsonb);
 

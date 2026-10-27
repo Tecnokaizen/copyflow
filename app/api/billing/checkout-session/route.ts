@@ -5,10 +5,12 @@ import {
   CHECKOUT_PROCESSING_CODE,
   CheckoutConflictError,
   CheckoutInternalSubscriptionError,
+  CheckoutPendingReconciliationError,
   CheckoutProcessingError,
   CheckoutTransientError,
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+  SUBSCRIPTION_PENDING_RECONCILIATION_CODE,
   createCheckoutSessionForTenant,
   parseCheckoutRequest,
 } from "@/lib/billing/checkout";
@@ -73,6 +75,15 @@ export async function POST(request: NextRequest) {
         {
           error: "Current internal subscription blocks checkout",
           code: INTERNAL_SUBSCRIPTION_CURRENT_CODE,
+        },
+        409
+      );
+    }
+    if (error instanceof CheckoutPendingReconciliationError) {
+      return json(
+        {
+          error: "A Stripe subscription is pending reconciliation",
+          code: SUBSCRIPTION_PENDING_RECONCILIATION_CODE,
         },
         409
       );

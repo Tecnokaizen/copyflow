@@ -107,6 +107,10 @@ begin
   insert into public.tenants (id, name, slug, active) values
     (v_tenant_a, 'Tenant A Phase17', 'tenant-a-phase17', true),
     (v_tenant_b, 'Tenant B Phase17', 'tenant-b-phase17', true);
+  -- S2: explicit storage capacity (a tenant without subscription has 0 bytes).
+  insert into public.subscriptions (tenant_id, plan_id, provider, status)
+  select fx.tid, pl.id, 'internal', 'active'
+  from (values (v_tenant_a), (v_tenant_b)) as fx(tid) cross join public.plans pl where pl.code = 'basic';
 
   insert into public.memberships (tenant_id, user_id, role, active) values
     (v_tenant_a, v_owner_a, 'owner', true),

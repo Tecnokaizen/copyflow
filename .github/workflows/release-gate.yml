@@ -95,6 +95,33 @@ jobs:
       - name: Catalog security invariants (RLS, grants, SECURITY DEFINER)
         run: psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/release_gate_security_invariants.sql
 
+      - name: Billing (checkout, webhook, onboarding, Stripe modes, storage quota)
+        run: |
+          # Rollback-only suites. Also run, path-filtered, by kiosk-supabase.yml.
+          for suite in \
+            phase22_tenant_file_limits \
+            phase23_billing_foundation \
+            phase24_billing_checkout_webhook \
+            phase25_paid_onboarding \
+            phase26_paid_onboarding_security \
+            phase27_paid_onboarding_concurrency \
+            phase28_paid_onboarding_checkout_idempotency \
+            phase29_paid_onboarding_checkout_creating_recovery \
+            phase30_order_statuses_require_initial_security_definer \
+            phase31_tenant_provisioning_state \
+            phase32_stripe_live_hardening \
+            phase55_billing_checkout_resubscribe \
+            phase56_billing_storage_capacity \
+            phase57_billing_internal_subscription_guard
+          do
+            echo "::group::${suite}"
+            psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f "supabase/tests/${suite}.sql"
+            echo "::endgroup::"
+          done
+          echo "::group::phase57_billing_lock_concurrency"
+          bash supabase/tests/phase57_billing_lock_concurrency.sh "${LOCAL_DB_URL}"
+          echo "::endgroup::"
+
       - name: Tenant isolation, roles, lifecycle and files
         run: |
           # Rollback-only suites first; suites that commit fixtures run last.
@@ -105,12 +132,14 @@ jobs:
             phase18_external_folder_url \
             phase34_quotes_operational_access \
             phase47_pro_early_access \
+            phase54_tenant_feature_grants \
             phase35_quote_files \
             phase44_quote_creation \
             phase49_quote_conversion_notes \
             phase44_quote_client_recovery \
             phase48_clients_address \
             phase50_clients_import \
+            phase53_ai_voice_budget \
             phase46_files_storage_deletion \
             phase46_order_total_validation \
             phase52_order_total_guard \
