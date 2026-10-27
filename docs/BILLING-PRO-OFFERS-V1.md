@@ -224,8 +224,8 @@ STRIPE_SECRET_KEY=rk_live_… npx tsx scripts/billing/stripe-readonly-audit.ts -
 | R3 | Activación accidental de la importación | **Resuelto con D2:** queda retenida hasta una decisión expresa |
 | R4 | Plazo y ventanas, que hay que coordinar con la sesión de release | Merge y migración después de F12, con una copia v2 de menos de 2 h y autorización para cada paso |
 | R5 | SUR4 no contrata antes del 02/11 a las 14:08 (Madrid) | La oferta se cierra sola. Una oferta nueva solo con autorización (sección 3). |
-| R6 | `gestcopy-staging` no contiene `main`: la rama entera choca en tres archivos de pedidos | Integrar en Staging **solo los commits de facturación**, que se aplican limpios |
-| R7 | En Staging, la migración da presupuestos por plan a d3-alta y e2e. La importación queda retenida. | Son tenants sintéticos. Avisar antes a la sesión de integración. |
+| R6 | `gestcopy-staging` no contiene `main`: la rama entera choca en tres archivos de pedidos | Integrar en Staging **solo los commits de facturación** (590445a y 9cc52b1). Comprobado el 28/10 en una copia aparte sobre 1b11745: sin conflictos, tsc limpio y 1485 pruebas unitarias en verde. |
+| R7 | En Staging, la migración da presupuestos por plan a los tenants con Basic vigente | Medido el 28/10 en solo lectura: solo cambia **d3-alta**; demo y e2e ya los tenían por concesión. La importación no cambia para nadie: solo e2e y e2e-import la tienen, por concesión. Se avisa antes a la sesión de integración. |
 | R8 | Stripe Tax está fuera de alcance | Los importes se cobran tal cual |
 | R9 | Las migraciones posteriores deben llevar una versión mayor que `20261028090000` | Comprobarlo en cada nueva migración |
 | R10 | Sin `STRIPE_PORTAL_CONFIGURATION_PLAN_CHANGE`, SUR4 no puede cambiar a Basic por su cuenta | Requisito del paso L3, antes de L7 |
@@ -256,6 +256,17 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
 | S7 | Claude (solo lectura) | Comprobar:<br>• el evento procesado;<br>• una sola suscripción vigente (Stripe, Pro, Test);<br>• la fila interna `converted_to_stripe` y la oferta `redeemed`;<br>• sin retenciones;<br>• 50 GiB y presupuestos sí, **importación no** (retenida).<br>Después, «Resend» del evento → `unchanged`. |
 | S8 | Propietario | Portal: cambiar a Basic, que queda programado al final del periodo. Cancelar al final del periodo y reactivar. Un tenant Basic no ve la oferta y recibe 403 al pedir Pro. |
 | S9 | Propietario y Claude | Limpieza: cancelar la suscripción de Test y devolver `d3-pendiente` a su estado |
+
+#### Estado del E2E de Staging (28/10/2026)
+
+| Paso | Estado |
+| --- | --- |
+| S1 | La sesión de integración tiene preparados en local los cherry-picks (`git cherry-pick -x`) sobre 1b11745: **494ba33** y **1ea797e**. Sin conflictos y sin tocar archivos de pedidos. tsc limpio, 1472 pruebas unitarias en verde y 0 fallos, eslint sin errores. **No los ha subido:** espera a que se aplique la migración. Después hará el push sin forzar y esperará a que el despliegue esté en READY. |
+| S2 | La sesión de integración dio el OK; no hay E2E en marcha. Dry-run sobre `fmmfsbhcwxkaszrrarpw`: lista **solo** `20261028090000_commercial_plans_pro_offers_v1.sql`. **Bloqueo:** el permiso de la sesión de Claude denegó el `db push` real. Falta que el propietario lo permita o lo ejecute él. Staging sigue con 86 migraciones (la última, `20261022130000`). |
+| S4 | Preparado. `d3-pendiente` (`b2536a4f-…`) no tiene suscripción vigente, retenciones ni Checkout abierto: el único intento expiró el 20/10. `grant_internal_subscription_v1` lo aceptará. |
+| S3, S5–S9 | Pendientes de S2 y S1 |
+
+Efecto medido de la migración en Staging (R7): solo d3-alta gana presupuestos. La importación no cambia para nadie.
 
 ### Production y Stripe Live (no autorizados)
 
