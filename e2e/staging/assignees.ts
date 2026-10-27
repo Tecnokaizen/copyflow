@@ -95,8 +95,15 @@ async function main() {
       await p.goto(`${target.baseUrl}/orders/${result.orderId}`);
       await p.getByRole("button", { name: "Cambiar responsable", exact: true }).click();
       const old = p.getByRole("option", { name: `${original.name} (no disponible)`, exact: true });
-      await old.waitFor({ state: "attached" }); assert.equal(await old.isDisabled(), true);
+      await old.waitFor({ state: "attached" });
+      // Playwright 1.58.2 isDisabled() returns false for a native option even
+      // when its disabled property/attribute are true; inspect the browser DOM.
+      assert.equal(await old.evaluate((e: HTMLOptionElement) => e.disabled), true);
+      assert.notEqual(await old.getAttribute("disabled"), null);
       await p.getByRole("option", { name: replacement.name, exact: true }).waitFor({ state: "attached" });
+      const selector = p.getByLabel("Responsable", { exact: true });
+      await selector.focus(); await selector.press("End");
+      assert.notEqual(await selector.inputValue(), original.id, "keyboard skips unavailable option");
       await h.screenshot("r6-responsable-historico");
       await p.getByRole("button", { name: "Cancelar", exact: true }).click();
       result.checks.selectorUnavailable = true;
