@@ -10,6 +10,8 @@
 
 **Nada aplicado en Production ni en Stripe Live.** Staging queda pendiente del E2E de la sección 8.
 
+**Migración:** alcance, dependencias, efecto en RLS y procedimiento de aplicación, verificación y recuperación en [BILLING-PRO-MIGRATION-20261028090000.md](BILLING-PRO-MIGRATION-20261028090000.md).
+
 **Plazo:** la prueba interna de SUR4 termina el **02/11/2026 a las 13:53:09 UTC (14:53 en Madrid)** y no habrá otra prórroga.
 
 ## 1. Decisiones aplicadas
@@ -263,8 +265,10 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
 | --- | --- |
 | S1 | La sesión de integración tiene preparados en local los cherry-picks (`git cherry-pick -x`) sobre 1b11745: **494ba33** y **1ea797e**. Sin conflictos y sin tocar archivos de pedidos. tsc limpio, 1472 pruebas unitarias en verde y 0 fallos, eslint sin errores. **No los ha subido:** espera a que se aplique la migración. Después hará el push sin forzar y esperará a que el despliegue esté en READY. |
 | S2 | **Aplicada el 28/10**, con autorización expresa del propietario y el OK de la sesión de integración (sin E2E en marcha). Detalle a continuación. |
-| S4 | Preparado. `d3-pendiente` (`b2536a4f-…`) no tiene suscripción vigente, retenciones ni Checkout abierto: el único intento expiró el 20/10. `grant_internal_subscription_v1` lo aceptará. |
-| S3, S5–S9 | Pendientes de S2 y S1 |
+| Copia | Hecha antes del E2E, a petición del propietario. Lote `20261027T233844Z`: runner B1.3, clave age solo de Staging, fuera de Git. Integridad SHA-256 correcta. Restauración aislada con `RESTORE_DATABASE_ISOLATED_SUCCESS` y la huella igual en los 5 esquemas, en 41 s. Registro en `~/copyflow-ops/staging-backups/RECORD-20261027T233844Z.md`. |
+| S1 | Los cherry-picks siguen **solo en local** en la sesión de integración, sin push. El propietario dio dos indicaciones contradictorias: mantener 1b11745 estable hasta cerrar el Release Gate R5/R6, o desplegar tras la copia con la CI en verde. Pendiente de que aclare cuál vale. |
+| S4 | Preparado, sin ejecutar. `d3-pendiente` (`b2536a4f-…`) no tiene suscripción vigente, retenciones ni Checkout abierto: el único intento expiró el 20/10. `grant_internal_subscription_v1` lo aceptará. |
+| S3, S5–S9 | Pendientes de S1 y S4 |
 
 **Cómo se aplicó S2:**
 - Enlace de la CLI: `fmmfsbhcwxkaszrrarpw` (Staging); Production es `wsclqvlzjdgwkxbolhoy` y no se ha tocado.
