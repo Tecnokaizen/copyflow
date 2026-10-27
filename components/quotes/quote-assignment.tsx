@@ -132,7 +132,7 @@ export function QuoteAssigneeControl({
 }) {
   const [open, setOpen] = useState(false);
   const [memberId, setMemberId] = useState(assignee?.id ?? "");
-  const { options, error } = useNamedOptions(open ? "/api/team?active=true&page_size=100" : null);
+  const { options, error } = useNamedOptions(open ? "/api/team?assignable=true&page_size=100" : null);
 
   return (
     <>

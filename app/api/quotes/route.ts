@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
+import { isAssigneeNotEligibleError } from "@/lib/team/assignee-eligibility";
 import { parseCreateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
 import { QUOTE_SELECT, mapQuote } from "@/lib/quotes/types";
@@ -192,6 +193,10 @@ export async function POST(request: NextRequest) {
     })
     .select(QUOTE_SELECT)
     .single();
+
+  if (isAssigneeNotEligibleError(error)) {
+    return operationalJson({ error: QUOTE_MESSAGES.assignee }, { status: 400 });
+  }
 
   if (error || !data) {
     return operationalJson({ error: QUOTE_MESSAGES.create }, { status: 500 });

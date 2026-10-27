@@ -65,6 +65,16 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-27",
+    title: "Responsable de pedidos y presupuestos",
+    entries: [
+      mejora(
+        "Pedidos",
+        "Para elegir responsable de un pedido o de un presupuesto, también al convertir un presupuesto, solo aparecen las personas activas que pueden recibir pedidos. Quien deja de poder recibirlos conserva los pedidos que ya tenía hasta que los reasignes."
+      ),
+    ],
+  },
+  {
     date: "2026-10-16",
     title: "Métodos de pago, justificantes, dirección de clientes y notas de presupuesto en pedidos",
     entries: [

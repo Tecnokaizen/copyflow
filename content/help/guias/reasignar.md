@@ -20,4 +20,4 @@ Roles operativos.
 ## Problemas frecuentes
 
 ### No encuentro a la persona
-Debe estar activa en Personal y poder recibir pedidos.
+Solo puedes elegir personas activas que pueden recibir pedidos. Quitar el responsable siempre es posible.

@@ -49,11 +49,14 @@ export async function GET() {
       .eq("tenant_id", tenantId)
       .eq("active", true)
       .order("sort_order", { ascending: true }),
+    // Assignable people only: active and able to receive orders, the rule
+    // the database enforces (team_member_is_assignable, 20261022130000).
     supabase
       .from("team_members")
       .select("id, name")
       .eq("tenant_id", tenantId)
       .eq("active", true)
+      .eq("can_receive_orders", true)
       .order("name", { ascending: true }),
     supabase
       .from("stores")
