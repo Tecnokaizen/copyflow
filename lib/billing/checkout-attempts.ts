@@ -44,6 +44,8 @@ export type PreparedCheckoutAttemptV2 =
       idempotencyKey: string;
     }
   | { outcome: "current_subscription_exists" }
+  | { outcome: "internal_subscription_current" }
+  | { outcome: "subscription_pending_reconciliation" }
   | {
       outcome: "checkout_processing";
       attemptId: string | null;
@@ -86,6 +88,16 @@ export async function prepareCheckoutAttempt(input: {
 
   if (record.outcome === "current_subscription_exists") {
     return { outcome: "current_subscription_exists" };
+  }
+
+  // Same rule as the app guard, re-checked under the tenant billing lock.
+  if (record.outcome === "internal_subscription_current") {
+    return { outcome: "internal_subscription_current" };
+  }
+
+  // A held (paid, unrecorded) Stripe subscription blocks any new Checkout.
+  if (record.outcome === "subscription_pending_reconciliation") {
+    return { outcome: "subscription_pending_reconciliation" };
   }
 
   if (record.outcome === "checkout_processing") {
