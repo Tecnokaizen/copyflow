@@ -190,13 +190,14 @@ export async function GET() {
           now,
         })
       ).map((offer) => {
-        const terms = computeOfferTerms(offer, now);
+        const terms = computeOfferTerms(offer);
         return {
           offer_id: offer.offerId,
           plan_code: offer.planCode,
           plan_name: offer.planName,
           anchored: terms.anchored,
           redeem_by: offer.redeemBy,
+          contract_deadline: terms.contractDeadline,
           terms: terms.lines,
           terms_hash: terms.hash,
         };

@@ -21,6 +21,7 @@ import {
   addMonthsUtc,
   computeOfferTerms,
   isOfferUsable,
+  offerCalendarIsCoherent,
   offerCheckoutExpiresAtUnix,
   parseBillingOffers,
   type BillingOffer,
@@ -105,9 +106,9 @@ describe("offer payload", () => {
   });
 });
 
-describe("SUR4 offer terms", () => {
+describe("SUR4 offer terms (fixed calendar, D1)", () => {
   it("anchored: nothing today, 39 € on 02/11 and 02/12, 79 € from 02/01/2027", () => {
-    const terms = computeOfferTerms(sur4Offer(), new Date("2026-10-28T10:00:00Z"));
+    const terms = computeOfferTerms(sur4Offer());
     assert.equal(terms.anchored, true);
     assert.equal(terms.anchorAt, ANCHOR);
     assert.equal(terms.regularAmountMinor, 7900);
@@ -120,50 +121,88 @@ describe("SUR4 offer terms", () => {
       ]
     );
     assert.equal(terms.firstRegularChargeAt, "2027-01-02T13:53:09.000Z");
-    const text = terms.lines.join("\n").replace(/\u00a0/g, " ");
+    // Contract deadline: 45 minutes before the anchor (14:08 in Madrid, CET).
+    assert.equal(terms.contractDeadline, "2026-11-02T13:08:09.000Z");
+    const text = terms.lines.join("\n").replace(/ /g, " ");
     assert.match(text, /Plan: Gestcopy Pro, 79,00 € al mes\./);
     assert.match(text, /40,00 € de descuento en cada una de las 2 primeras cuotas/);
     assert.match(text, /Hoy no se cobra nada\./);
     assert.match(text, /Primer cobro: 39,00 € el 2 de noviembre de 2026\./);
     assert.match(text, /Segundo cobro: 39,00 € el 2 de diciembre de 2026\./);
     assert.match(text, /A partir del 2 de enero de 2027: 79,00 € al mes, salvo que antes cambies de plan o canceles/);
-    assert.match(text, /hasta el 2 de enero de 2027\./);
+    assert.match(
+      text,
+      /Oferta válida para contratar hasta el 2 de noviembre de 2026 a las 14:08 \(hora de Madrid\)\./
+    );
     assert.doesNotMatch(text, /IA|voz|early/i);
     assert.match(terms.hash, /^[0-9a-f]{64}$/);
   });
 
-  it("the hash is stable for the same terms and changes when they change", () => {
-    const a = computeOfferTerms(sur4Offer(), new Date("2026-10-28T10:00:00Z"));
-    const b = computeOfferTerms(sur4Offer(), new Date("2026-10-30T18:00:00Z"));
+  it("the terms and hash never depend on the current time", () => {
+    const a = computeOfferTerms(sur4Offer());
+    const b = computeOfferTerms(sur4Offer());
     assert.equal(a.hash, b.hash);
-    const late = computeOfferTerms(sur4Offer(), new Date("2026-11-02T13:30:00Z"));
-    assert.equal(late.anchored, false);
-    assert.notEqual(late.hash, a.hash);
-    const other = computeOfferTerms(sur4Offer({ terms_version: "sur4-pro-39-v2" }), new Date("2026-10-28T10:00:00Z"));
+    const other = computeOfferTerms(sur4Offer({ terms_version: "sur4-pro-39-v2" }));
     assert.notEqual(other.hash, a.hash);
   });
 
-  it("not anchored after the trial end: two discounted charges from payment", () => {
-    const terms = computeOfferTerms(sur4Offer(), new Date("2026-11-05T09:00:00Z"));
-    assert.equal(terms.anchored, false);
-    assert.equal(terms.firstRegularChargeAt, null);
-    const text = terms.lines.join("\n").replace(/\u00a0/g, " ");
+  it("anchor + months must be exactly promo_ends_before", () => {
+    assert.equal(offerCalendarIsCoherent(sur4Offer()), true);
+    const drifted = sur4Offer({ promo_ends_before: "2027-01-03T13:53:09Z" });
+    assert.equal(offerCalendarIsCoherent(drifted), false);
+    assert.equal(isOfferUsable(drifted, new Date("2026-10-28T10:00:00Z")), false);
+  });
+
+  it("is usable from 27 days before the anchor until 45 minutes before it", () => {
+    const offer = sur4Offer();
+    assert.equal(isOfferUsable(offer, new Date("2026-10-01T10:00:00Z")), false);
+    assert.equal(isOfferUsable(offer, new Date("2026-10-28T10:00:00Z")), true);
+    assert.equal(isOfferUsable(offer, new Date("2026-11-02T13:08:00Z")), true);
+    assert.equal(isOfferUsable(sur4Offer({ status: "redeemed" }), new Date("2026-10-28T10:00:00Z")), false);
+  });
+
+  it("contracting late closes the offer: no charges counted from the payment", () => {
+    const offer = sur4Offer();
+    assert.equal(isOfferUsable(offer, new Date("2026-11-02T13:30:00Z")), false);
+    assert.equal(isOfferUsable(offer, new Date("2026-11-20T10:00:00Z")), false);
+    // The terms of an anchored offer stay anchored: no relative calendar.
+    assert.equal(computeOfferTerms(offer).anchored, true);
+  });
+
+  it("a later offer keeps 79 € from 02/01/2027 with one discounted charge", () => {
+    const later = sur4Offer({
+      billing_cycle_anchor: "2026-12-02T13:53:09Z",
+      discount_months: 1,
+      terms_version: "sur4-pro-39-v2",
+    });
+    assert.equal(offerCalendarIsCoherent(later), true);
+    assert.equal(isOfferUsable(later, new Date("2026-11-20T10:00:00Z")), true);
+    assert.equal(isOfferUsable(later, new Date("2026-12-02T13:30:00Z")), false);
+    const terms = computeOfferTerms(later);
+    assert.deepEqual(
+      terms.discountedCharges.map((charge) => [charge.at, charge.amountMinor]),
+      [["2026-12-02T13:53:09.000Z", 3900]]
+    );
+    assert.equal(terms.firstRegularChargeAt, "2027-01-02T13:53:09.000Z");
+    const text = terms.lines.join("\n").replace(/ /g, " ");
+    assert.match(text, /40,00 € de descuento en la primera cuota mensual/);
+    assert.match(text, /A partir del 2 de enero de 2027: 79,00 € al mes/);
+  });
+
+  it("without anchor: usable only while the discounted months end by promo_ends_before", () => {
+    const relative = sur4Offer({ billing_cycle_anchor: null });
+    assert.equal(offerCalendarIsCoherent(relative), true);
+    // Last payment time: 02/01/2027 − 2 months = 02/11/2026 13:53:09; minus 45 min.
+    assert.equal(computeOfferTerms(relative).contractDeadline, "2026-11-02T13:08:09.000Z");
+    assert.equal(isOfferUsable(relative, new Date("2026-10-30T10:00:00Z")), true);
+    assert.equal(isOfferUsable(relative, new Date("2026-11-05T09:00:00Z")), false);
+    const text = computeOfferTerms(relative).lines.join("\n").replace(/ /g, " ");
     assert.match(text, /Primer cobro, al confirmar el pago: 39,00 €\./);
     assert.match(text, /Segundo cobro, un mes después: 39,00 €\./);
     assert.match(text, /Desde el tercer mes: 79,00 € al mes/);
-    assert.doesNotMatch(text, /Hoy no se cobra nada/);
-  });
-
-  it("never anchors more than a month ahead (the discount would end early)", () => {
-    const terms = computeOfferTerms(sur4Offer(), new Date("2026-10-01T10:00:00Z"));
-    assert.equal(terms.anchored, false);
-  });
-
-  it("is usable until shortly before redeem_by", () => {
-    const offer = sur4Offer();
-    assert.equal(isOfferUsable(offer, new Date("2027-01-02T20:00:00Z")), true);
-    assert.equal(isOfferUsable(offer, new Date("2027-01-02T22:30:00Z")), false);
-    assert.equal(isOfferUsable(sur4Offer({ status: "redeemed" }), new Date("2026-10-28T10:00:00Z")), false);
+    // redeem_by earlier than the calendar limit wins.
+    const short = sur4Offer({ billing_cycle_anchor: null, redeem_by: "2026-10-31T23:00:00Z" });
+    assert.equal(computeOfferTerms(short).contractDeadline, "2026-10-31T22:15:00.000Z");
   });
 });
 
@@ -172,7 +211,7 @@ describe("offer Checkout timing", () => {
 
   it("closes the session 10 minutes before the anchor", () => {
     const now = new Date("2026-11-02T08:00:00Z");
-    const terms = computeOfferTerms(sur4Offer(), now);
+    const terms = computeOfferTerms(sur4Offer());
     assert.equal(
       offerCheckoutExpiresAtUnix({ terms, reservedExpiresAtUnix: reserved, nowMs: now.getTime() }),
       Math.floor(Date.parse("2026-11-02T13:43:09Z") / 1000)
@@ -181,7 +220,7 @@ describe("offer Checkout timing", () => {
 
   it("keeps the reserved expiry when the anchor is far", () => {
     const now = new Date("2026-10-28T10:00:00Z");
-    const terms = computeOfferTerms(sur4Offer(), now);
+    const terms = computeOfferTerms(sur4Offer());
     const early = Math.floor(Date.parse("2026-10-29T09:30:00Z") / 1000);
     assert.equal(
       offerCheckoutExpiresAtUnix({ terms, reservedExpiresAtUnix: early, nowMs: now.getTime() }),
@@ -189,16 +228,21 @@ describe("offer Checkout timing", () => {
     );
   });
 
-  it("refuses a session that could not live 30 minutes before redeem_by", () => {
-    const now = new Date("2027-01-02T22:25:00Z");
-    const terms = computeOfferTerms(sur4Offer(), now);
+  it("refuses a session that could not live 30 minutes before the anchor", () => {
+    const now = new Date("2026-11-02T13:15:00Z");
+    const terms = computeOfferTerms(sur4Offer());
     assert.equal(
-      offerCheckoutExpiresAtUnix({
-        terms,
-        reservedExpiresAtUnix: Math.floor(Date.parse("2027-01-03T21:55:00Z") / 1000),
-        nowMs: now.getTime(),
-      }),
+      offerCheckoutExpiresAtUnix({ terms, reservedExpiresAtUnix: reserved, nowMs: now.getTime() }),
       null
+    );
+  });
+
+  it("without anchor, closes 10 minutes before the last valid payment time", () => {
+    const now = new Date("2026-11-02T08:00:00Z");
+    const terms = computeOfferTerms(sur4Offer({ billing_cycle_anchor: null }));
+    assert.equal(
+      offerCheckoutExpiresAtUnix({ terms, reservedExpiresAtUnix: reserved, nowMs: now.getTime() }),
+      Math.floor(Date.parse("2026-11-02T13:43:09Z") / 1000)
     );
   });
 });
@@ -372,7 +416,23 @@ describe("migration and rollback", () => {
     assert.equal(sql.includes("ai_voice_orders"), false);
     assert.equal(/\bsur4\b/i.test(sql), false, "no tenant named in the migration");
     assert.doesNotMatch(sql, /update public\.subscriptions|insert into public\.subscriptions/);
-    assert.doesNotMatch(sql, /tenant_feature_overrides/);
+    // Reads overrides (tenant_has_feature) but never writes them.
+    assert.doesNotMatch(sql, /(insert into|update|delete from) public\.tenant_feature_overrides/);
+  });
+
+  it("D2: import is a plan right on hold, released only by an operator", () => {
+    const sql = read(MIGRATION);
+    assert.match(sql, /insert into billing_private\.feature_rollouts[\s\S]*?'held'[\s\S]*?where f\.code = 'clients_import'\s+on conflict \(feature_id\) do nothing;/);
+    assert.match(sql, /create or replace function public\.tenant_has_feature \(/);
+    assert.match(sql, /r\.state = 'held'/);
+    assert.match(sql, /revoke all on function public\.set_feature_rollout_v1\(text, text, text, text\)\s+from public, anon, authenticated;/);
+    assert.match(sql, /revoke all on table billing_private\.feature_rollouts\s+from public, anon, authenticated, service_role;/);
+  });
+
+  it("D1: grant refuses an offer whose calendar passes promo_ends_before", () => {
+    const sql = read(MIGRATION);
+    assert.match(sql, /'reason', 'calendar_mismatch'/);
+    assert.match(sql, /make_interval\(months => p_discount_months\)/);
   });
 
   it("keeps offers service-only under the tenant billing lock", () => {
@@ -396,6 +456,10 @@ describe("migration and rollback", () => {
     assert.match(sql, /rollback refused: subscriptions on plan pro exist/);
     assert.doesNotMatch(sql, /drop table/);
     assert.doesNotMatch(sql, /delete from public\.billing_prices/);
+    // Restores the resolver without the hold check and drops the operator RPC.
+    assert.match(sql, /create or replace function public\.tenant_has_feature \(/);
+    assert.doesNotMatch(sql, /r\.state = 'held'/);
+    assert.match(sql, /drop function if exists public\.set_feature_rollout_v1\(text, text, text, text\);/);
   });
 
   it("runs phase60 in the always-on release gate", () => {
