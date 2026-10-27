@@ -54,15 +54,29 @@ begin
     raise exception 'phase33: create_internal_organization_v1 does not seed quote statuses';
   end if;
 
+  -- Standard quotes are part of Basic (and Pro) since 20261028090000; the
+  -- internal mvp plan still resolves them only through a tenant override.
   select count(*)::int into v_count
   from public.plan_features pf
   join public.features f on f.id = pf.feature_id
   join public.plans p on p.id = pf.plan_id
   where f.code = 'quotes'
-    and p.code in ('mvp', 'basic');
+    and p.code = 'mvp';
 
   if v_count <> 0 then
-    raise exception 'phase33: quotes must not be attached to mvp or basic';
+    raise exception 'phase33: quotes must not be attached to mvp';
+  end if;
+
+  select count(*)::int into v_count
+  from public.plan_features pf
+  join public.features f on f.id = pf.feature_id
+  join public.plans p on p.id = pf.plan_id
+  where f.code = 'quotes'
+    and pf.enabled
+    and p.code in ('basic', 'pro');
+
+  if v_count <> 2 then
+    raise exception 'phase33: quotes must be attached to basic and pro';
   end if;
 
   insert into auth.users (

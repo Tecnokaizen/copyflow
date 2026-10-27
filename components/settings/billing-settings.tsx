@@ -6,6 +6,10 @@ import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { SectionCard } from "@/components/gestcopy/section-card";
 import { Button } from "@/components/ui/button";
+import {
+  BillingOfferCard,
+  type BillingOfferView,
+} from "@/components/settings/billing-offer-card";
 import { formatBinaryStorage } from "@/lib/settings/files";
 import {
   formatBillingDate,
@@ -15,6 +19,7 @@ import {
 
 type BillingSubscriptionResponse = {
   tenant: { id: string; slug: string; name: string };
+  offers?: BillingOfferView[];
   subscription: {
     status: string;
     provider: string | null;
@@ -91,7 +96,7 @@ export function BillingSettings() {
     });
   }, [load]);
 
-  async function startCheckout() {
+  async function startCheckout(offer?: BillingOfferView) {
     setBusy(true);
     setActionError(null);
     try {
@@ -101,16 +106,37 @@ export function BillingSettings() {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          plan_code: "basic",
-          billing_interval: "month",
-        }),
+        body: JSON.stringify(
+          offer
+            ? {
+                plan_code: offer.plan_code,
+                billing_interval: "month",
+                offer_id: offer.offer_id,
+                terms_hash: offer.terms_hash,
+              }
+            : {
+                plan_code: "basic",
+                billing_interval: "month",
+              }
+        ),
       });
       const body = (await response.json()) as {
         url?: string;
         error?: string;
         code?: string;
       };
+      if (response.status === 409 && body.code === "offer_terms_changed") {
+        void load();
+        throw new Error(
+          "Las condiciones de la oferta han cambiado. Revísalas de nuevo antes de aceptar."
+        );
+      }
+      if (response.status === 409 && body.code === "offer_unavailable") {
+        void load();
+        throw new Error(
+          "La oferta no se puede usar ahora mismo. Contacta con soporte."
+        );
+      }
       if (response.status === 409 && body.code === "checkout_processing") {
         throw new Error("Estamos confirmando tu suscripción.");
       }
@@ -259,11 +285,24 @@ export function BillingSettings() {
         </dl>
       </SectionCard>
 
+      {canCheckout
+        ? (data.offers ?? []).map((offer) => (
+            <BillingOfferCard
+              key={offer.offer_id}
+              offer={offer}
+              busy={busy}
+              onAccept={(accepted) => void startCheckout(accepted)}
+            />
+          ))
+        : null}
+
       <SectionCard title="Acciones" bodyClassName="p-5 sm:p-6">
         <div className="flex flex-wrap gap-3">
           {canCheckout ? (
             <Button type="button" disabled={busy} onClick={() => void startCheckout()}>
-              {canActivate ? "Activar facturación con Stripe" : "Contratar Gestcopy Basic"}
+              {canActivate
+                ? "Activar facturación con Gestcopy Basic"
+                : "Contratar Gestcopy Basic"}
             </Button>
           ) : null}
           {isStripeManaged ? (
