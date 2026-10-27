@@ -6,6 +6,7 @@ import {
   canMutateOrderActions,
   canShowArchiveAction,
   lifecycleUxErrorMessage,
+  orderStatusOptionsWithCurrent,
   planStatusSave,
   resolveTerminalConfirmCopy,
   terminalKindFromStatus,
@@ -188,5 +189,46 @@ describe("lifecycle UX errors and permissions", () => {
       }),
       true
     );
+  });
+});
+
+describe("order status selector options", () => {
+  const statuses = [
+    { id: "st-new", name: "Nuevo", active: true },
+    { id: "st-old", name: "E2E track histórico", active: false },
+    { id: "st-ready", name: "Listo", active: true },
+    { id: "st-legacy", name: "Sin campo active" },
+  ];
+
+  it("P. inactive statuses are not offered (the database rejects them)", () => {
+    assert.deepEqual(orderStatusOptionsWithCurrent(statuses, "st-new"), [
+      { id: "st-new", name: "Nuevo" },
+      { id: "st-ready", name: "Listo" },
+      { id: "st-legacy", name: "Sin campo active" },
+    ]);
+  });
+
+  it("Q. an inactive current status stays visible, labelled and not selectable", () => {
+    const options = orderStatusOptionsWithCurrent(statuses, "st-old");
+    assert.deepEqual(options, [
+      { id: "st-new", name: "Nuevo" },
+      {
+        id: "st-old",
+        name: "E2E track histórico (inactivo)",
+        unavailable: true,
+      },
+      { id: "st-ready", name: "Listo" },
+      { id: "st-legacy", name: "Sin campo active" },
+    ]);
+    assert.deepEqual(
+      options.filter((option) => !option.unavailable).map((option) => option.id),
+      ["st-new", "st-ready", "st-legacy"]
+    );
+  });
+
+  it("R. an active current status is listed normally", () => {
+    const options = orderStatusOptionsWithCurrent(statuses, "st-ready");
+    assert.equal(options.some((option) => option.unavailable), false);
+    assert.equal(options.some((option) => option.id === "st-old"), false);
   });
 });

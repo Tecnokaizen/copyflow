@@ -19,6 +19,17 @@ describe("lifecycle UX wiring", () => {
     assert.match(source, /onArchive/);
   });
 
+  it("status selectors offer only active statuses plus the current one", () => {
+    for (const file of ["order-quick-actions.tsx", "order-production.tsx"]) {
+      const source = read("components/orders/detail", file);
+      assert.match(source, /orderStatusOptionsWithCurrent\(/, file);
+      assert.match(source, /disabled=\{status\.unavailable\}/, file);
+      // Raw order statuses are never mapped straight into options
+      // (file_statuses and similar catalogs are a different list).
+      assert.doesNotMatch(source, /(?<![\w.])statuses\.map\(/, file);
+    }
+  });
+
   it("workspace archives via PATCH archive path and maps lifecycle errors", () => {
     const source = read("components/orders/detail/order-workspace.tsx");
     assert.match(source, /archiveOrderPath/);

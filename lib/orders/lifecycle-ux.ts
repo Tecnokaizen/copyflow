@@ -102,6 +102,31 @@ export function planStatusSave(input: {
   return { type: "save_direct", statusId: input.nextStatusId };
 }
 
+export type OrderStatusSelectOption = {
+  id: string;
+  name: string;
+  /** The order's current status is inactive: shown, but not selectable. */
+  unavailable?: boolean;
+};
+
+/**
+ * Options for an order status selector. The database only accepts active
+ * statuses (public.change_order_status, `active = true`), so inactive ones are
+ * not offered. The order's current status is kept even when it is inactive,
+ * labelled and disabled, so the selector still shows where the order is.
+ * Same approach as assigneeOptionsWithCurrent for the person in charge.
+ */
+export function orderStatusOptionsWithCurrent(
+  statuses: readonly { id: string; name: string; active?: boolean }[],
+  currentStatusId: string | null | undefined
+): OrderStatusSelectOption[] {
+  return statuses.flatMap(({ id, name, active }) => {
+    if (active !== false) return [{ id, name }];
+    if (id !== currentStatusId) return [];
+    return [{ id, name: `${name} (inactivo)`, unavailable: true }];
+  });
+}
+
 export function canShowArchiveAction(order: {
   archived_at?: string | null;
   status?: LifecycleStatusFlags;

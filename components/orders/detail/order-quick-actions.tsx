@@ -9,6 +9,7 @@ import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import {
   ARCHIVE_CONFIRM_COPY,
   canShowArchiveAction,
+  orderStatusOptionsWithCurrent,
   planStatusSave,
   type ConfirmCopy,
   type LifecycleStatusFlags,
@@ -208,11 +209,17 @@ export function OrderQuickActions({
               className="mt-2 min-h-11 max-w-none text-base"
               onChange={setStatusId}
             >
-              {statuses.map((status) => (
-                <option key={status.id} value={status.id}>
-                  {status.name}
-                </option>
-              ))}
+              {orderStatusOptionsWithCurrent(statuses, currentStatusId).map(
+                (status) => (
+                  <option
+                    key={status.id}
+                    value={status.id}
+                    disabled={status.unavailable}
+                  >
+                    {status.name}
+                  </option>
+                )
+              )}
             </DraftSelect>
           </label>
         </ConfirmDialog>
