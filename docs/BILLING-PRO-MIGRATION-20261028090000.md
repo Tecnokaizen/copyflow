@@ -3,10 +3,73 @@
 Alcance, dependencias, riesgos y procedimiento de aplicación, verificación y recuperación. Complementa [BILLING-PRO-OFFERS-V1.md](BILLING-PRO-OFFERS-V1.md) (PR #158).
 
 **Estado (28/10/2026):**
-- **Staging** (`fmmfsbhcwxkaszrrarpw`): aplicada con autorización expresa del propietario. 87 migraciones.
+- **Staging** (`fmmfsbhcwxkaszrrarpw`): aplicada. 87 migraciones. Autorización, verificación y compatibilidad en la sección 0.
 - Hay una copia completa de Staging, cifrada y restaurada con éxito en una base aislada, tomada **después** de aplicarla.
 - **Production** (`wsclqvlzjdgwkxbolhoy`): no aplicada ni autorizada.
 - La autorización para Staging es independiente de la de Production.
+- **Despliegue selectivo y E2E:** en espera del cierre formal del Release Gate R5/R6.
+
+## 0. Staging: estado real, autorización y verificación (28/10/2026)
+
+**Estado:**
+- Código desplegado: `gestcopy-staging` 1b11745, sin cambios.
+- Base de datos: 87 migraciones; la última, `20261028090000`.
+- Los commits 494ba33 y 1ea797e están solo en local en la sesión de integración, sin push.
+- Production: NO-GO.
+- **No se revierte:** decisión del propietario.
+
+### Autorización utilizada (hora UTC del 27/10; en Madrid, ya 28/10)
+
+| Hora | Hecho |
+| --- | --- |
+| 23:21:41 | La sesión de integración da el OK operativo: no hay E2E en marcha. **No es una autorización.** |
+| 23:21:56 | Dry-run sobre `fmmfsbhcwxkaszrrarpw`: solo `20261028090000` |
+| 23:22:05 | Primer `db push`, **denegado** por el control de permisos de la sesión. No se buscó otra vía. |
+| 23:22:58 | La sesión de facturación pide decisión al propietario, con un botón de respuesta redactado por la sesión |
+| 23:27:03 | **Autorización usada.** Mensaje del propietario en la sesión de facturación (ese botón): «Autorizo aplicar la migración 20261028090000 en Staging (fmmfsbhcwxkaszrrarpw) con db push, tal como mostró el dry-run. Solo Staging, nada en Production.» |
+| 23:27:09–23:27:20 | `db push --linked`: aplicada. A las 23:27:20, PostgREST recarga su caché de esquema sin errores. |
+| Durante el push | Llega un segundo mensaje del propietario, con condiciones. **La condición 3 (copia previa) no se cumplió**: Staging no tenía copias (Supabase `backups: []`, PITR desactivado, B2 solo para Production). |
+| 23:32:15 | Llega la indicación «Mantén la migración de Billing pendiente de autorización…», **después** de aplicada. Hasta entonces la sesión no la conocía. |
+| 23:38–23:40 | Copia completa de Staging (`20261027T233844Z`), ya con la migración. Restaurada con éxito en una base aislada. |
+
+### Verificación en Staging (solo lectura)
+
+| Comprobación | Resultado |
+| --- | --- |
+| Integridad | El MD5 de `prosrc` de las 7 funciones coincide con el fichero de la migración |
+| Permisos de funciones | Las 6 RPC nuevas: SECURITY DEFINER, `search_path` vacío, solo `service_role` (ni `anon`, ni `authenticated`, ni `public`). `tenant_has_feature` conserva sus permisos (`authenticated` y `service_role`). |
+| Tablas nuevas | `feature_rollouts` y `tenant_billing_offers`: RLS activado, 0 políticas, sin `SELECT` para `anon`, `authenticated` ni `service_role`. Esquema `billing_private` sin `USAGE` para esos roles. |
+| RLS en `public` | 0 tablas sin RLS; 69 políticas. La migración no crea ni cambia políticas. |
+| Aislamiento: owner de d3-alta (solo miembro de d3-alta) | `quotes` propio: **sí**, por plan (efecto buscado). `clients_import` propio: no (retenida). Funciones de e2e: no. Ve 0 presupuestos de otros tenants (e2e tiene 70 y demo 1). Ve 1 tenant. |
+| Aislamiento: owner de e2e | `quotes` e importación propios: sí, por concesión, como antes. Funciones de d3-alta y demo: no. Ve sus 70 presupuestos y 0 de otros tenants. |
+| Aislamiento: staff de e2e | Igual que antes: ve sus 70 presupuestos y 0 de otros tenants |
+| Registros desde la aplicación (23:27:20 → verificación) | Sin errores de la aplicación. Los únicos `ERROR` son los dos intentos fallidos de copia de las 23:37 (lecturas, 42501 por RLS), ya resueltos. |
+
+Las pruebas de aislamiento cambian de rol (`set local role authenticated` y `request.jwt.claims`) solo dentro de la transacción de la consulta: no escriben nada.
+
+### Compatibilidad del código desplegado (1b11745)
+
+| Punto | Resultado |
+| --- | --- |
+| Checkout | Solo acepta `basic` (`BILLING_PLAN_CODES = ["basic"]`): Pro no se puede contratar con este código. No hay precios Pro en `billing_prices` de Staging. |
+| `GET /api/billing/subscription` | Lee el plan unido a la suscripción, no lista planes. No hay suscripciones Pro. |
+| Webhook (`resolve-plan-from-price`) | Resuelve el plan desde `billing_prices`, sin cambios |
+| RPC que usa el código (`finalize_billing_checkout_attempt_v2`, `sync_billing_subscription_v1`, `claim_` y `finalize_billing_webhook_event_v1`, `activate_tenant_after_billing_v1`) | La migración no las toca |
+| `tenant_has_feature` | Misma firma y mismo contrato. Solo cambia el resultado donde debe: d3-alta ve el módulo de presupuestos. |
+| Capacidad (`storage_bytes`) | Basic sigue con 5 GiB |
+
+**Conclusión:** el código de Staging es compatible con el esquema nuevo. El único cambio visible es que d3-alta tiene presupuestos por plan; d3-alta es un tenant sintético de las pruebas D3. No se detecta riesgo de aislamiento ni de RLS.
+
+### Recuperación en Staging (documentada, **sin ejecutar**)
+
+- **Nivel 1:** el rollback de la sección 6 revierte la migración.
+  - En Staging, su efecto sería que d3-alta pierde presupuestos por plan; nadie más cambia.
+  - `pro` queda inactivo y las dos tablas de `billing_private` se conservan (vacías salvo la retención).
+  - Funcionalmente equivale al estado anterior.
+  - Necesita autorización y `migration repair` (solo el propietario).
+- **Nivel 2:** la copia `20261027T233844Z` es **posterior** a la migración.
+  - Sirve para volver al estado de antes del E2E de facturación.
+  - **No** sirve para deshacer la migración: para eso existe el nivel 1. No existe una copia de Staging anterior a la migración.
 
 ## 1. Qué modifica
 
