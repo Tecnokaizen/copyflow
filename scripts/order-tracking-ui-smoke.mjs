@@ -67,6 +67,9 @@ async function setup(width, theme, mode) {
   let history = mode === "legacy" || mode === "error" ? [] : [audit(null, "received", "2026-10-25T09:00:00Z"), audit("received", "production")];
   const statusId = mode === "cancelled" ? "cancelled" : "production";
   if (mode === "cancelled") history = [audit("received", "cancelled")];
+  // Went back from Terminado to En producción: Terminado was visited, not completed.
+  if (mode === "reopened") history = [audit(null, "received", "2026-10-25T09:00:00Z"), audit("received", "production", "2026-10-26T10:00:00Z"),
+    audit("production", "ready", "2026-10-26T15:00:00Z"), audit("ready", "production", "2026-10-27T09:00:00Z")];
   const catalogue = mode === "long-name" ? statuses.map(s => ({ ...s, name: `${s.name} · ${"ConfiguraciónDelTenant".repeat(10)}` })) : statuses;
   let order = { id: "order-1", reference: "DEMO-001", title: "Pedido de prueba local", description: null, priority: "normal", due_at: null,
     received_at: "2026-10-25T09:00:00Z", ready_at: null, delivered_at: null, archived_at: mode === "archived" ? "2026-10-27T10:00:00Z" : null, version: "1",
@@ -102,46 +105,89 @@ async function setup(width, theme, mode) {
   await page.goto(url);
   await page.evaluate(theme => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
   const timeline = page.locator("section").filter({ has: page.getByRole("heading", { name: "Seguimiento del pedido", exact: true }) });
-  await timeline.getByText(["error", "catalogue-error"].includes(mode) ? /No se pudo cargar el recorrido completo/ : /Las fechas corresponden/).waitFor();
+  await timeline.locator(`ol[data-tracking-status="${["error", "catalogue-error"].includes(mode) ? "unavailable" : "ready"}"]`).waitFor();
   return { page, timeline, errors, writes, recover: () => { failed = false; history = [audit("received", "production")]; } };
 }
+const VISITED = "Pasó por este estado", UNCONFIRMED = "Sin registro";
+// Wording that belongs in the help article, not permanently on screen.
+const TECHNICAL_COPY = /evidencia|historial confirma|Las fechas corresponden|paso registrado|en consulta|inactivo en la configuración/i;
+const step = (timeline, name) => timeline.getByRole("listitem").filter({ has: timeline.page().getByText(name, { exact: true }) });
 try {
   for (const width of [390, 768, 1280]) {
     for (const theme of ["light", "dark"]) {
-      for (const mode of ["viewer", "legacy", "cancelled", "archived", "long-name", "error", "catalogue-error"]) {
+      for (const mode of ["viewer", "legacy", "cancelled", "archived", "long-name", "reopened", "error", "catalogue-error"]) {
         const h = await setup(width, theme, mode), { page, timeline } = h;
         const current = timeline.locator('[aria-current="step"]');
         assert.equal(await current.count(), 1, "One current step, independent of colour");
         assert.equal(await timeline.getByRole("list", { name: "Recorrido del pedido" }).count(), 1);
         assert.equal(await timeline.getByRole("button").count(), 0, "Informational timeline has no inert controls");
+        const help = timeline.getByRole("link", { name: "Ayuda sobre el seguimiento del pedido" });
+        assert.equal(await help.getAttribute("href"), "/ayuda/pedidos/estados-y-prioridades#consultar-el-seguimiento");
+        await timeline.getByText("Consulta el estado y los pasos registrados.", { exact: true }).waitFor();
         if (mode === "legacy") {
-          assert.equal(await timeline.getByText("Completado · paso registrado", { exact: true }).count(), 0);
+          assert.equal(await timeline.getByText(VISITED, { exact: true }).count(), 0);
           assert.equal(await timeline.locator("time").count(), 0);
-          await timeline.getByText("Fecha de entrada no registrada").waitFor();
+          assert.match(await current.innerText(), /Estado actual[\s·]*Sin fecha registrada/);
         } else if (mode === "cancelled") {
           assert.match(await current.innerText(), /Cancelado/);
-          assert.equal(await timeline.getByText("Sin paso registrado", { exact: true }).count(), 4);
+          assert.equal(await timeline.getByText(UNCONFIRMED, { exact: true }).count(), 4);
         } else if (mode === "catalogue-error") {
           assert.equal(await timeline.getByRole("listitem").count(), 1);
           assert.equal(await timeline.locator("time").count(), 0);
+          await timeline.getByText("No se pudo cargar el seguimiento completo. Se muestra el estado actual.", { exact: true }).waitFor();
         } else if (mode === "error") {
           assert.equal(await timeline.getByRole("listitem").count(), 1);
+          await timeline.getByText("No se pudo cargar el seguimiento completo. Se muestra el estado actual.", { exact: true }).waitFor();
           h.recover();
           await page.evaluate(() => { dispatchEvent(new Event("blur")); dispatchEvent(new Event("focus")); });
-          await timeline.getByText(/Las fechas corresponden/).waitFor();
-          assert.equal(await timeline.getByText("Completado · paso registrado", { exact: true }).count(), 1);
+          await timeline.locator('ol[data-tracking-status="ready"]').waitFor();
+          assert.equal(await timeline.getByText(VISITED, { exact: true }).count(), 1);
+        } else if (mode === "reopened") {
+          assert.match(await current.innerText(), /En producción[\s\S]*Estado actual[\s·]*Desde el 27\/10\/2026, 10:00/);
+          const ready = step(timeline, "Terminado");
+          assert.equal(await ready.getAttribute("data-step-state"), "visited");
+          assert.equal(await ready.getAttribute("data-beyond-current"), "true");
+          assert.match(await ready.innerText(), /Pasó por este estado[\s·]*Registrado el 26\/10\/2026, 16:00/);
+          assert.equal(await ready.locator("svg.lucide-check").count(), 0, "A step left behind is never shown with a check mark");
+          assert.equal(await ready.locator("svg.lucide-history").count(), 1);
+          assert.equal(await step(timeline, "Recibido").locator("svg.lucide-check").count(), 1);
+          assert.match(await step(timeline, "Entregado").innerText(), /Pendiente/);
+          assert.equal(await timeline.getByText(VISITED, { exact: true }).count(), 2);
+          assert.equal(await timeline.getByText(/Completado/).count(), 0);
         } else {
-          assert.equal(await timeline.getByText("Completado · paso registrado", { exact: true }).count(), 1);
-          assert.equal(await timeline.getByText("Sin paso registrado", { exact: true }).count(), 1);
+          assert.equal(await timeline.getByText(VISITED, { exact: true }).count(), 1);
+          assert.equal(await timeline.getByText(UNCONFIRMED, { exact: true }).count(), 1);
           assert.equal(await timeline.getByText("Pendiente", { exact: true }).count(), 2);
           assert.equal(await timeline.locator("time").count(), 2);
-          if (mode === "archived") await timeline.getByText("Pedido archivado · seguimiento en consulta.").waitFor();
+          // The header already says "Archivado"; the card keeps the timeline readable.
+          if (mode === "archived") await page.getByText("Archivado", { exact: true }).first().waitFor();
+        }
+        assert.equal(await timeline.getByText(TECHNICAL_COPY).count(), 0, `${mode}: no technical copy on screen`);
+        if (width === 1280) {
+          // Desktop: state, situation and date stay close together instead of spreading across the card.
+          const gaps = await timeline.locator("li").evaluateAll(items => items.map(li => {
+            const name = li.querySelector("[data-step-name]").getBoundingClientRect();
+            const label = li.querySelector("[data-step-label]").getBoundingClientRect();
+            return { sameRow: Math.abs(name.top - label.top) < 8, gap: label.left - name.left };
+          }));
+          assert.ok(gaps.every(g => g.sameRow && g.gap > 0 && g.gap < 320), `${theme}/${mode}: compact desktop row ${JSON.stringify(gaps)}`);
+        }
+        if (mode === "viewer") {
+          // The help link is reachable with the keyboard and shows a focus ring.
+          let reached = false;
+          for (let i = 0; i < 80 && !reached; i++) {
+            await page.keyboard.press("Tab");
+            reached = await help.evaluate(el => el === document.activeElement);
+          }
+          assert.ok(reached, `${width}/${theme}: help link reachable with Tab`);
+          assert.notEqual(await help.evaluate(el => getComputedStyle(el).boxShadow), "none", "Visible focus ring");
+          await help.blur();
         }
         const overflow = await timeline.evaluate(el => el.scrollWidth > el.clientWidth || el.getBoundingClientRect().right > innerWidth);
         assert.equal(overflow, false, `${width}/${theme}/${mode}: timeline fits viewport`);
         assert.equal(h.writes.length, 0, "Reading timeline does not write data");
         assert.deepEqual(h.errors, []);
-        if (mode === "viewer" && width !== 768) await timeline.screenshot({ path: path.join(out, `tracking-${width}-${theme}.png`) });
+        if (["viewer", "reopened"].includes(mode) && width !== 768) await timeline.screenshot({ path: path.join(out, `tracking-${mode}-${width}-${theme}.png`) });
         results.push({ width, theme, mode, pass: true });
         await page.close();
       }
@@ -155,9 +201,10 @@ try {
   await h.page.getByRole("button", { name: "Guardar estado", exact: true }).focus();
   await h.page.keyboard.press("Enter");
   await h.timeline.locator('[aria-current="step"]').getByText("Terminado", { exact: true }).waitFor();
-  await h.timeline.getByText("Última entrada registrada: 27/10/2026, 12:00").waitFor();
+  await h.timeline.getByText("Desde el 27/10/2026, 12:00", { exact: true }).waitFor();
   const delivery = h.timeline.getByRole("listitem").filter({ hasText: "Entregado" });
   assert.match(await delivery.innerText(), /Pendiente/);
+  assert.equal(await step(h.timeline, "En producción").getAttribute("data-step-state"), "visited");
   assert.equal(h.writes.length, 1, "Only the existing status mutation writes");
   assert.equal(h.writes[0].pathname, "/api/orders/order-1");
   assert.deepEqual(h.errors, []);

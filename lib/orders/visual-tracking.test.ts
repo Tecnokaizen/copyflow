@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ActivityItem, Order, OrderStatus } from "./types";
-import { buildOrderTracking } from "./visual-tracking";
+import { TRACKING_STATE_LABELS, buildOrderTracking } from "./visual-tracking";
 
 const statuses: OrderStatus[] = [
   { id: "received", code: "received", name: "Recibido", sort_order: 10, active: true, is_initial: true },
@@ -23,18 +23,18 @@ const event = (previous: string | null, next: string | null, date = "2026-10-20T
 const find = (steps: ReturnType<typeof buildOrderTracking>, id: string) => steps.find((s) => s.id === id)!;
 
 describe("visual order tracking: evidence, never inferred progress", () => {
-  it("distinguishes completed, current, pending and skipped/unconfirmed steps", () => {
+  it("distinguishes visited, current, pending and skipped/unconfirmed steps", () => {
     const steps = buildOrderTracking(order("production"), statuses, [event("received", "production")]);
-    assert.equal(find(steps, "received").state, "completed");
+    assert.equal(find(steps, "received").state, "visited");
     assert.equal(find(steps, "received").enteredAt, null);
     assert.equal(find(steps, "design").state, "unconfirmed");
     assert.equal(find(steps, "production").state, "current");
     assert.equal(find(steps, "ready").state, "pending");
     assert.equal(steps.some((s) => s.id === "cancelled"), false);
   });
-  it("does not invent any completion or historical time for a legacy order", () => {
+  it("does not invent any visit or historical time for a legacy order", () => {
     const steps = buildOrderTracking(order("delivered"), statuses, []);
-    assert.equal(steps.filter((s) => s.state === "completed").length, 0);
+    assert.equal(steps.filter((s) => s.state === "visited").length, 0);
     assert.ok(steps.every((s) => s.enteredAt === null));
     assert.equal(find(steps, "ready").state, "unconfirmed");
     assert.equal(find(steps, "delivered").state, "current");
@@ -56,7 +56,7 @@ describe("visual order tracking: evidence, never inferred progress", () => {
       event(null, "ready", undefined, { entity_id: "order-b" }),
       event(null, "design", undefined, { entity_type: "quote" }),
     ]);
-    assert.equal(steps.filter((s) => s.state === "completed").length, 0);
+    assert.equal(steps.filter((s) => s.state === "visited").length, 0);
   });
   it("supports repeated transitions and reopening without losing the actual current state", () => {
     const steps = buildOrderTracking(order("production"), statuses, [
@@ -65,7 +65,7 @@ describe("visual order tracking: evidence, never inferred progress", () => {
       event("received", "production", "2026-10-20T10:00:00Z"),
     ]);
     assert.equal(find(steps, "production").enteredAt, "2026-10-22T12:00:00Z");
-    assert.equal(find(steps, "ready").state, "completed");
+    assert.equal(find(steps, "ready").state, "visited");
     assert.equal(find(steps, "delivered").state, "pending");
     assert.equal(steps.filter((s) => s.state === "current").length, 1);
   });
@@ -116,7 +116,66 @@ describe("visual order tracking: evidence, never inferred progress", () => {
   it("sticky lifecycle fields never prove a configurable state or date", () => {
     const historicalOrder = { ...order("production"), ready_at: "2026-10-19T12:00:00Z", delivered_at: "2026-10-19T14:00:00Z", received_at: "2026-10-18T09:00:00Z", due_at: "2026-10-30T18:00:00Z" };
     const steps = buildOrderTracking(historicalOrder, statuses, []);
-    assert.equal(steps.filter((s) => s.state === "completed").length, 0);
+    assert.equal(steps.filter((s) => s.state === "visited").length, 0);
     assert.ok(steps.every((s) => s.enteredAt === null));
+  });
+});
+
+describe("visual order tracking: visited is not completed after going back", () => {
+  it("marks only steps after the current one as beyondCurrent in a forward flow", () => {
+    const steps = buildOrderTracking(order("production"), statuses, [event("received", "production")]);
+    assert.equal(find(steps, "received").beyondCurrent, false);
+    assert.equal(find(steps, "production").beyondCurrent, false);
+    assert.equal(find(steps, "ready").beyondCurrent, true);
+    assert.equal(find(steps, "ready").state, "pending");
+  });
+  it("a step left behind by going back stays visited, flagged beyond the current one", () => {
+    const steps = buildOrderTracking(order("production"), statuses, [
+      event("received", "production", "2026-10-20T10:00:00Z"),
+      event("production", "ready", "2026-10-21T10:00:00Z"),
+      event("ready", "production", "2026-10-22T12:00:00Z"),
+    ]);
+    assert.deepEqual(
+      steps.map((s) => [s.id, s.state, s.beyondCurrent]),
+      [
+        ["received", "visited", false],
+        ["design", "unconfirmed", false],
+        ["production", "current", false],
+        ["ready", "visited", true],
+        ["delivered", "pending", true],
+      ]
+    );
+    assert.equal(find(steps, "ready").enteredAt, "2026-10-21T10:00:00Z");
+  });
+  it("reopening after Entregado keeps Entregado as visited, never current or terminal", () => {
+    const steps = buildOrderTracking(order("production"), statuses, [
+      event("received", "ready", "2026-10-20T10:00:00Z"),
+      event("ready", "delivered", "2026-10-21T10:00:00Z"),
+      event("delivered", "production", "2026-10-22T12:00:00Z"),
+    ]);
+    assert.equal(find(steps, "delivered").state, "visited");
+    assert.equal(find(steps, "delivered").beyondCurrent, true);
+    assert.equal(find(steps, "ready").state, "visited");
+    assert.equal(find(steps, "ready").beyondCurrent, true);
+    assert.equal(steps.filter((s) => s.state === "current").length, 1);
+    assert.equal(find(steps, "production").enteredAt, "2026-10-22T12:00:00Z");
+  });
+  it("reopening after a cancellation shows Cancelado as visited and the normal path as pending again", () => {
+    const steps = buildOrderTracking(order("production"), statuses, [
+      event("received", "cancelled", "2026-10-20T10:00:00Z"),
+      event("cancelled", "production", "2026-10-21T10:00:00Z"),
+    ]);
+    assert.equal(find(steps, "cancelled").state, "visited");
+    assert.equal(find(steps, "cancelled").beyondCurrent, true);
+    assert.equal(find(steps, "ready").state, "pending");
+    assert.equal(find(steps, "delivered").state, "pending");
+  });
+  it("uses short, plain labels for shop staff", () => {
+    assert.deepEqual(TRACKING_STATE_LABELS, {
+      visited: "Pasó por este estado",
+      current: "Estado actual",
+      pending: "Pendiente",
+      unconfirmed: "Sin registro",
+    });
   });
 });

@@ -1,11 +1,25 @@
 import type { ActivityItem, Order, OrderStatus } from "./types";
 
+/** visited = the history shows the order was in this state at some point.
+ * It never means the step is still done: the order may have gone back since. */
+export type TrackingState = "visited" | "current" | "pending" | "unconfirmed";
+
+export const TRACKING_STATE_LABELS: Record<TrackingState, string> = {
+  visited: "Pasó por este estado",
+  current: "Estado actual",
+  pending: "Pendiente",
+  unconfirmed: "Sin registro",
+};
+
 export type TrackingStep = {
   id: string;
   name: string;
-  state: "completed" | "current" | "pending" | "unconfirmed";
+  state: TrackingState;
   enteredAt: string | null;
   inactive: boolean;
+  /** Shown after the current step in the catalogue order. Display only:
+   * a visited step here must not look completed (e.g. after a reopening). */
+  beyondCurrent: boolean;
 };
 
 type TrackingOrder = Pick<Order, "id" | "status_id" | "status">;
@@ -79,11 +93,12 @@ export function buildOrderTracking(
     return {
       id: status.id,
       name: current ? order.status?.name ?? status.name : status.name,
-      state: current ? "current" : visit ? "completed" : index < currentIndex || terminal ? "unconfirmed" : "pending",
+      state: current ? "current" : visit ? "visited" : index < currentIndex || terminal ? "unconfirmed" : "pending",
       // During separate order/activity refreshes, never attach an old visit's
       // timestamp to a newly selected current status.
       enteredAt: current && lastRecordedStatus !== order.status_id ? null : visit?.enteredAt ?? null,
       inactive: status.active === false,
+      beyondCurrent: index > currentIndex,
     };
   });
 }
