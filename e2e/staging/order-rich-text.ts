@@ -8,7 +8,7 @@
  * 4. Forged HTML is sanitized by the server; a foreign tenant's order is denied;
  *    quotes keep the basic vocabulary.
  *
- * Adds orders, notes and one quote draft to `e2e`; changes nothing else.
+ * Adds orders, notes and one acknowledged quote draft to `e2e`; changes nothing else.
  *
  *   set -a; source .env.e2e.local; set +a
  *   PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs npx tsx e2e/staging/order-rich-text.ts
@@ -178,27 +178,35 @@ async function main() {
 
     await h.step("existing orders render exactly as before", async () => {
       const list = await call("/api/orders?filter=all&page_size=100"); assert.equal(list.status, 200);
-      let checked = 0, withContent = 0;
+      let checked = 0, withContent = 0, fromEarlierRuns = 0;
       for (const row of list.body.orders as any[]) {
         const detail = await call(`/api/orders/${row.id}`); assert.equal(detail.status, 200);
         const order = detail.body.order;
         if (!order.description && !order.notes) continue;
         withContent++;
-        for (const field of ["description", "notes"] as const) {
-          const raw = order[field] ?? "";
-          assert.equal(raw.includes("data-text-"), false, `${order.reference}: no stored tokens before this change`);
-          assert.equal(normalizeRichText(raw, ORDER_RICH_TEXT), normalizeRichText(raw), `${order.reference} ${field}: same canonical HTML`);
+        const styled = `${order.description ?? ""}${order.notes ?? ""}`.includes("data-text-");
+        if (styled) {
+          // Only orders this script created on an earlier run may carry tokens.
+          const ownOrder = order.title?.startsWith("E2E Formato ") || order.title?.startsWith("Urgente: plastificar ");
+          assert.ok(ownOrder, `${order.reference}: tokens in an order this E2E did not create`);
+          fromEarlierRuns++;
+        } else {
+          for (const field of ["description", "notes"] as const) {
+            const raw = order[field] ?? "";
+            assert.equal(normalizeRichText(raw, ORDER_RICH_TEXT), normalizeRichText(raw), `${order.reference} ${field}: same canonical HTML`);
+          }
         }
         await openDetail(row.id);
         const shown = await renderedContent();
         for (const field of ["description", "notes"] as const) {
-          const before = normalizeRichText(order[field]); // what the previous code rendered
-          assert.equal(shown[field], before ? await canonical(before) : null, `${order.reference} ${field}: rendered as before`);
+          // Historical orders: what the previous code rendered. Earlier E2E orders: their styles.
+          const expected = styled ? normalizeRichText(order[field], ORDER_RICH_TEXT) : normalizeRichText(order[field]);
+          assert.equal(shown[field], expected ? await canonical(expected) : null, `${order.reference} ${field}: rendered as expected`);
         }
         checked++;
       }
-      assert.ok(checked > 0, "at least one existing order with content");
-      result.checks.historical = { orders: list.body.orders.length, withContent, renderedIdentically: checked };
+      assert.ok(checked - fromEarlierRuns > 0, "at least one historical order with content");
+      result.checks.historical = { orders: list.body.orders.length, withContent, renderedIdentically: checked - fromEarlierRuns, earlierE2EOrders: fromEarlierRuns };
     }, 600000);
 
     const fullId = await h.step("full order: styled instructions and notes", async () => {
@@ -407,13 +415,19 @@ async function main() {
 
     await h.step("quotes keep the basic vocabulary", async () => {
       const today = new Date().toISOString().slice(0, 10);
-      const created = await call("/api/quotes/create-draft", "POST", { creation_id: randomUUID(), prepare: false, client_id: null, service_id: null, assigned_team_member_id: null,
+      const creationId = randomUUID();
+      const created = await call("/api/quotes/create-draft", "POST", { creation_id: creationId, prepare: false, client_id: null, service_id: null, assigned_team_member_id: null,
         header: { title: `E2E Formato presupuesto ${run}`, description: '<p data-text-align="center"><span data-text-color="red" data-text-size="xlarge">Importante</span> texto</p>', terms: null,
           contact_name: null, contact_email: null, contact_phone: null, billing_name: null, tax_id: null, billing_address: null,
           issue_date: today, valid_until: null, currency: "EUR", prices_include_tax: true },
         items: [{ concept: "Partida", description: null, quantity: "1", unit: "ud", unit_price: "10", discount_percent: "0", tax_rate: "21" }] });
       assert.equal(created.status, 200, JSON.stringify(created.body));
-      const quote = await call(`/api/quotes/${created.body.quote_id}`); assert.equal(quote.status, 200);
+      assert.equal(created.body.quote_id, creationId);
+      // Acknowledge it as the editor does after saving: an unacknowledged creation locks /quotes/new for later runs.
+      const ack = await call("/api/quotes/creation-recovery", "POST", { operation_id: creationId });
+      assert.equal(ack.status, 200, JSON.stringify(ack.body)); assert.equal(ack.body.quote_id, creationId);
+      result.checks.quoteCreationAcknowledged = true;
+      const quote = await call(`/api/quotes/${creationId}`); assert.equal(quote.status, 200);
       const text = JSON.stringify(quote.body);
       assert.equal(text.includes("data-text-"), false, "no tokens or alignment in quotes");
       assert.match(text, /Importante texto/);

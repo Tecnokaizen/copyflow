@@ -239,6 +239,36 @@ git): ficha clara y oscura, editor oscuro con el menú de color, impresión
 clara y con la app en oscuro, 390 px con el menú de tamaño, pedido rápido y
 pedido completo.
 
+## Ejecución en Staging con alineación (22/10/2026)
+
+- `gestcopy-staging` avanzó por fast-forward `3a0d2d9..39334c5` (merge normal
+  de `a6bd122`, sin conflictos ni force push). Antes de publicar, el árbol
+  fusionado pasó 1418/1418 pruebas, `tsc`, `next build` y la prueba en
+  navegador.
+- Vercel `dpl_9daLQdKaNfP2xuTk3RKyZ2pQ4AMr`, READY, alias
+  `e2e.preview.app.gestcopy.com`.
+- `e2e/staging/order-rich-text.ts`, ejecución `20261022T131409Z-288a`:
+  **12/12 pasos**. El paso de históricos distingue ahora los pedidos que este
+  E2E creó en ejecuciones anteriores (con estilos) de los históricos.
+
+| Comprobación | Resultado |
+| --- | --- |
+| Pedidos existentes de `e2e` | 62 listados, 19 con contenido: los 17 históricos se pintan igual que con el código anterior (a la izquierda); E2E-0061 y E2E-0062, con sus estilos |
+| Pedido completo (E2E-0063) | «NO CORTAR» centrado, muy grande y rojo; «Entregar en caja cerrada» a la derecha; nota azul y grande |
+| Edición tras recargar | Primer párrafo justificado; el segundo sigue a la derecha; guardado y recargado idéntico |
+| «+ Añadir nota» | Nota roja y centrada; la nota anterior sigue a la izquierda y azul |
+| Impresión | Justificado, derecha y centrado presentes; paleta clara también con la app en oscuro |
+| Modo oscuro y 390 px | Contrastes 6,42:1 / 5,43:1 / 6,04:1; menús de tamaño y alineación dentro de la pantalla; sin desplazamiento horizontal |
+| Pedido rápido (E2E-0064) | «Urgente» rojo y centrado |
+| HTML manipulado | Alineación válida conservada; `style`, `text-align`, `align=`, `left` y valores con CSS descartados |
+| Otro tenant (`DEMO-0001`) | Lectura 404, escritura 404 |
+| Presupuesto con tokens y alineación (E2E-P0036) | Guardado sin ellos |
+| Tráfico a Production | Ninguno (29 bloqueos de `vercel.live`) |
+
+Base de datos de Staging, solo lectura, después de la ejecución: los 61
+pedidos anteriores conservan la huella `8823086f0b2e5194ab1a54d22b96a288`,
+`DEMO-0001` no cambió y solo se añadieron E2E-0063 y E2E-0064.
+
 ### Pendiente antes del merge
 
 - Validación visual de SUR4. Staging no tiene tenant `sur4`; la revisión se
