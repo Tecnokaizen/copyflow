@@ -149,6 +149,8 @@ async function main() {
       // from the quote header after operational assignments have changed.
       const prepared = await call(`/api/quotes/${result.quoteId}/prepare`, "POST", { version_id: latest.body.current_version.id, expected_row_version: latest.body.current_version.row_version });
       assert.equal(prepared.status, 200, JSON.stringify(prepared.body));
+      const pdf = await call(`/api/quotes/${result.quoteId}/versions/${latest.body.current_version.id}/pdf`, "POST");
+      assert.equal(pdf.status, 200, JSON.stringify(pdf.body)); result.checks.quotePdfGenerated = true;
       // These transitions record manual send/accept only; they never send an email.
       for (const action of ["send", "accept"]) {
         const current = await quote();
