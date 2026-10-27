@@ -65,6 +65,16 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-28",
+    title: "Estados de pedido desactivados",
+    entries: [
+      correccion(
+        "Pedidos",
+        "Al cambiar el estado de un pedido ya no aparecen los estados desactivados. Si un pedido tiene un estado que se ha desactivado, se sigue viendo como «(desactivado)» hasta que le pongas otro."
+      ),
+    ],
+  },
+  {
     date: "2026-10-27",
     title: "Responsable de pedidos y presupuestos",
     entries: [
