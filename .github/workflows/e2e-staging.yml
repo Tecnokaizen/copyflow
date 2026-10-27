@@ -25,7 +25,7 @@ jobs:
   e2e:
     name: Staging E2E (orders, R2, payments, quotes and PDF privacy)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     environment: staging
     env:
       TZ: UTC
@@ -88,6 +88,26 @@ jobs:
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npx tsx e2e/staging/assignees.ts
+
+      - name: Run order visual tracking E2E (#153)
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          E2E_DEPLOYMENT_SHA: ${{ github.sha }}
+        run: npx tsx e2e/staging/order-tracking.ts
+
+      # Joint check of the pending batch: list searches (#139), status dialog fix,
+      # styled instructions + live tracking + print (#146, #153), tenant isolation.
+      - name: Run integration batch E2E
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          E2E_DEPLOYMENT_SHA: ${{ github.sha }}
+        run: npx tsx e2e/staging/integration-batch.ts
 
       # Optional: needs the voice migration in Staging, AI_VOICE_ORDERS_ENABLED=true
       # and AI_PROVIDER=fake in Preview, and the operator state for the chosen
