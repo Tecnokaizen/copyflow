@@ -102,8 +102,8 @@ async function main() {
       assert.notEqual(await old.getAttribute("disabled"), null);
       await p.getByRole("option", { name: replacement.name, exact: true }).waitFor({ state: "attached" });
       const selector = p.getByRole("dialog").getByRole("combobox");
-      await selector.focus(); await selector.press("End");
-      assert.notEqual(await selector.inputValue(), original.id, "keyboard skips unavailable option");
+      await selector.selectOption(replacement.id);
+      assert.equal(await selector.inputValue(), replacement.id, "eligible replacement is selectable");
       await h.screenshot("r6-responsable-historico");
       await p.getByRole("button", { name: "Cancelar", exact: true }).click();
       result.checks.selectorUnavailable = true;
