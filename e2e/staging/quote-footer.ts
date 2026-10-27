@@ -136,12 +136,18 @@ async function main() {
         const saved = await call("/api/settings/organization", "PATCH", { quote_footer: c.footer });
         assert.equal(saved.status, 200, JSON.stringify(saved.body)); footerChanged = true;
         const items = Array.from({ length: c.items ?? 2 }, (_, i) => ({ concept: `Partida ${i + 1}`, description: null, quantity: "1", unit: "ud", unit_price: "10", discount_percent: "0", tax_rate: "21" }));
-        const created = await call("/api/quotes/create-draft", "POST", { creation_id: randomUUID(), prepare: true, client_id: client, service_id: null, assigned_team_member_id: null,
+        const creationId = randomUUID();
+        const created = await call("/api/quotes/create-draft", "POST", { creation_id: creationId, prepare: true, client_id: client, service_id: null, assigned_team_member_id: null,
           header: { title: `E2E Pie ${c.name} ${run}`, description: "<p>Prueba del pie del presupuesto.</p>", terms: "<p>Condiciones de prueba.</p>",
             contact_name: null, contact_email: null, contact_phone: null, billing_name: null, tax_id: null, billing_address: null,
             issue_date: today, valid_until: validUntil, currency: "EUR", prices_include_tax: true }, items });
         assert.equal(created.status, 200, JSON.stringify(created.body));
         const quoteId = created.body.quote_id as string; let version = created.body.version;
+        assert.equal(quoteId, creationId);
+        // Acknowledge it as the editor does after saving: an unacknowledged creation locks /quotes/new for later runs.
+        const ack = await call("/api/quotes/creation-recovery", "POST", { operation_id: creationId });
+        assert.equal(ack.status, 200, JSON.stringify(ack.body)); assert.equal(ack.body.quote_id, creationId);
+        result.checks.creationsAcknowledged = (result.checks.creationsAcknowledged ?? 0) + 1;
         if (version.state !== "prepared") {
           const prepared = await call(`/api/quotes/${quoteId}/prepare`, "POST", { version_id: version.id, expected_row_version: version.row_version });
           assert.equal(prepared.status, 200, JSON.stringify(prepared.body)); version = prepared.body.version ?? version;
