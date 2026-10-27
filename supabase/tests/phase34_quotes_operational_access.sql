@@ -178,9 +178,13 @@ begin
     begin
       execute format('update public.quotes set %I = $1 where id = $2', relation_name)
         using relation_id, other_quote;
-    exception when foreign_key_violation then err := sqlstate;
+    exception when foreign_key_violation or invalid_parameter_value then err := sqlstate;
     end;
-    if err is distinct from '23503' then raise exception 'phase34: foreign reference % allowed', relation_name; end if;
+    -- Since 20261022130000 a foreign assignee is refused by the eligibility
+    -- trigger (22023) before the foreign key is checked.
+    if err is distinct from (case when relation_name = 'assigned_team_member_id' then '22023' else '23503' end) then
+      raise exception 'phase34: foreign reference % allowed', relation_name;
+    end if;
   end loop;
   foreach relation_name in array array['tenant_id', 'converted_order_id', 'status_id'] loop
     err := null;

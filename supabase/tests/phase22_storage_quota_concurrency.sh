@@ -95,9 +95,9 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "
   insert into public.services (id, tenant_id, name, active)
     values ('$SERVICE_A', '$TENANT_A', 'Servicio', true);
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values (
-    '$ORDER_A', '$TENANT_A', 'P22-C', 'Conc', '$STATUS_A', '$SERVICE_A', '$OWNER_A'
+    '$ORDER_A', '$TENANT_A', 'Conc', '$STATUS_A', '$SERVICE_A', '$OWNER_A'
   );
   commit;
 

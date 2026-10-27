@@ -22,6 +22,7 @@ import {
   hasMembershipRole,
 } from "@/lib/auth/membership-roles";
 import { isUuid } from "@/lib/team/payload";
+import { isAssigneeNotEligibleError } from "@/lib/team/assignee-eligibility";
 import { parseOptionalStoreId } from "@/lib/stores/payload";
 import {
   evaluateStoreAssignment,
@@ -1250,6 +1251,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // authenticated may INSERT only these columns (plus id) since migration
+  // 20261022120000; adding one here needs that GRANT extended first.
   const { data: order, error: insertError } = await supabase
     .from("orders")
     .insert({
@@ -1271,6 +1274,15 @@ export async function POST(request: NextRequest) {
     })
     .select(ORDER_SELECT)
     .single();
+
+  // The database refuses an assignee that is no longer eligible (for example
+  // deactivated after the form loaded): same answer as any invalid relation.
+  if (isAssigneeNotEligibleError(insertError)) {
+    return operationalJson(
+      { error: "Invalid related record for current tenant" },
+      { status: 400 }
+    );
+  }
 
   if (insertError || !order) {
     return operationalJson(

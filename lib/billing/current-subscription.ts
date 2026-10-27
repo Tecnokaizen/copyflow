@@ -59,7 +59,8 @@ export async function tenantHasCurrentStripeSubscription(
  * only sees Stripe rows, and a completed Checkout would let
  * sync_billing_subscription_v1 cancel the internal row ("one current").
  *
- * Status only, never dates. No provider filter in SQL: `.neq("provider",
+ * Status only, never dates; only exception metadata.billing_activation =
+ * ready_for_checkout. No provider filter in SQL: `.neq("provider",
  * "stripe")` would skip NULL providers.
  */
 export async function tenantHasCurrentNonStripeSubscription(
@@ -68,7 +69,7 @@ export async function tenantHasCurrentNonStripeSubscription(
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("subscriptions")
-    .select("provider, status")
+    .select("provider, status, metadata")
     .eq("tenant_id", tenantId)
     .in("status", [...CURRENT_SUBSCRIPTION_STATUSES]);
 
@@ -82,6 +83,7 @@ export async function tenantHasCurrentNonStripeSubscription(
     (data ?? []).map((row) => ({
       provider: typeof row.provider === "string" ? row.provider : null,
       status: typeof row.status === "string" ? row.status : null,
+      metadata: row.metadata,
     }))
   );
 }
