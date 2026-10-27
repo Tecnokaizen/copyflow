@@ -4,13 +4,20 @@
  *
  * The coupon is `amount_off` on the plan price, `duration: repeating` for
  * `discount_months`. Stripe starts the discount when the subscription is
- * created and does not discount an invoice dated exactly at its end. So:
- *   - anchored (billing_cycle_anchor in the future, no proration): nothing is
- *     charged today, the first discounted charge is on the anchor and the
- *     first full charge is anchor + discount_months. Valid while the
- *     subscription is created less than a month before the anchor.
- *   - not anchored: the first discounted charge is on payment and the first
- *     full charge is discount_months later.
+ * created and does not discount an invoice dated exactly at its end.
+ *
+ * Calendar rule (owner decision D1, 28/10/2026): no promotional period goes
+ * past promo_ends_before; from that date the regular price applies unless the
+ * customer changed plan or cancelled before. An offer never adjusts itself:
+ *   - anchored (billing_cycle_anchor set): fixed dates. Nothing is charged
+ *     until the anchor (no proration), the discounted charges fall on the
+ *     anchor and the following months, and anchor + discount_months must be
+ *     exactly promo_ends_before (the first regular charge). Usable only while
+ *     the anchor is 45 minutes to 27 days away; later it closes, it never
+ *     falls back to charges counted from the payment.
+ *   - not anchored: discounted charges from the payment date; usable only
+ *     while payment + discount_months still ends by promo_ends_before.
+ * A shorter calendar needs a new offer granted by an operator.
  * Verified with Stripe test clocks (docs/BILLING-PRO-OFFERS-V1.md).
  */
 import { createHash } from "node:crypto";
@@ -38,7 +45,10 @@ export type BillingOffer = {
   acceptedAt: string | null;
 };
 
-/** The anchor must leave time to pay; Stripe Checkout lives at least 30 min. */
+/**
+ * The anchor (or the last valid payment time) must leave time to pay: a
+ * Checkout Session lives at least 30 minutes and closes 10 minutes before.
+ */
 export const ANCHOR_MIN_LEAD_MS = 45 * 60 * 1000;
 /** Created more than a month before the anchor, the discount would end early. */
 export const ANCHOR_MAX_LEAD_MS = 27 * 24 * 60 * 60 * 1000;
@@ -175,6 +185,16 @@ export function formatOfferDate(iso: string): string {
   }).format(new Date(iso));
 }
 
+export function formatOfferDateTime(iso: string): string {
+  const time = new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Europe/Madrid",
+  }).format(new Date(iso));
+  return `${formatOfferDate(iso)} a las ${time} (hora de Madrid)`;
+}
+
 export type OfferCharge = {
   /** null: charged when the payment is confirmed (or N months later). */
   at: string | null;
@@ -196,18 +216,44 @@ export type OfferTerms = {
   discountedCharges: OfferCharge[];
   firstRegularChargeAt: string | null;
   redeemBy: string;
+  /** Last moment to start the Checkout with this offer (see offerContractDeadline). */
+  contractDeadline: string;
   termsVersion: string;
   lines: string[];
   /** sha256 hex of the terms; the owner accepts exactly this. */
   hash: string;
 };
 
-export function offerIsAnchored(offer: BillingOffer, now: Date): boolean {
+export function offerIsAnchored(offer: BillingOffer): boolean {
+  return offer.billingCycleAnchor !== null;
+}
+
+/**
+ * Anchored: anchor + discount_months is exactly promo_ends_before.
+ * Not anchored: always true (the deadline keeps it inside the promotion).
+ */
+export function offerCalendarIsCoherent(offer: BillingOffer): boolean {
   if (!offer.billingCycleAnchor) {
-    return false;
+    return true;
   }
-  const lead = Date.parse(offer.billingCycleAnchor) - now.getTime();
-  return lead >= ANCHOR_MIN_LEAD_MS && lead <= ANCHOR_MAX_LEAD_MS;
+  return (
+    Date.parse(addMonthsUtc(offer.billingCycleAnchor, offer.discountMonths)) ===
+    Date.parse(offer.promoEndsBefore)
+  );
+}
+
+/**
+ * Last moment to start a Checkout with the offer: 45 minutes before the
+ * earliest of redeem_by and the calendar limit (the anchor, or for an offer
+ * without anchor the last payment time that still ends the discounted months
+ * by promo_ends_before).
+ */
+export function offerContractDeadline(offer: BillingOffer): string {
+  const calendarLimit = offer.billingCycleAnchor
+    ? Date.parse(offer.billingCycleAnchor)
+    : Date.parse(addMonthsUtc(offer.promoEndsBefore, -offer.discountMonths));
+  const limit = Math.min(Date.parse(offer.redeemBy), calendarLimit);
+  return new Date(limit - ANCHOR_MIN_LEAD_MS).toISOString();
 }
 
 function ordinal(n: number): string {
@@ -222,11 +268,13 @@ function chargeLabel(n: number): string {
   return `${word[0].toUpperCase()}${word.slice(1)} cobro`;
 }
 
-export function computeOfferTerms(offer: BillingOffer, now: Date): OfferTerms {
+/** The terms depend on the offer only, never on the current time. */
+export function computeOfferTerms(offer: BillingOffer): OfferTerms {
   const regular = offer.planPriceMinor;
   const discounted = regular - offer.discountAmountMinor;
-  const anchored = offerIsAnchored(offer, now);
+  const anchored = offerIsAnchored(offer);
   const anchorAt = anchored ? offer.billingCycleAnchor : null;
+  const contractDeadline = offerContractDeadline(offer);
   const money = (minor: number) => formatOfferMoney(minor, offer.currency);
 
   const discountedCharges: OfferCharge[] = [];
@@ -267,7 +315,7 @@ export function computeOfferTerms(offer: BillingOffer, now: Date): OfferTerms {
       `Desde el ${ordinal(offer.discountMonths + 1)} mes: ${money(regular)} al mes, salvo que antes cambies de plan o canceles desde «Gestionar suscripción».`
     );
   }
-  lines.push(`Oferta válida para contratar hasta el ${formatOfferDate(offer.redeemBy)}.`);
+  lines.push(`Oferta válida para contratar hasta el ${formatOfferDateTime(contractDeadline)}.`);
 
   const hash = createHash("sha256")
     .update(
@@ -280,7 +328,9 @@ export function computeOfferTerms(offer: BillingOffer, now: Date): OfferTerms {
         discount: offer.discountAmountMinor,
         months: offer.discountMonths,
         anchor: anchorAt,
+        promo_ends_before: offer.promoEndsBefore,
         redeem_by: offer.redeemBy,
+        deadline: contractDeadline,
         lines,
       })
     )
@@ -300,6 +350,7 @@ export function computeOfferTerms(offer: BillingOffer, now: Date): OfferTerms {
     discountedCharges,
     firstRegularChargeAt,
     redeemBy: offer.redeemBy,
+    contractDeadline,
     termsVersion: offer.termsVersion,
     lines,
     hash,
@@ -308,31 +359,40 @@ export function computeOfferTerms(offer: BillingOffer, now: Date): OfferTerms {
 
 /**
  * Stripe Checkout expires_at for an offer session: the reserved attempt
- * expiry, capped before the anchor and before redeem_by. Depends on fixed
- * values only, so an idempotent retry sends the same parameters. null when
- * the session could not live the Stripe minimum (the offer window closed).
+ * expiry, capped 10 minutes before the calendar limit (the anchor, or the
+ * last valid payment time) and before redeem_by. Depends on fixed values
+ * only, so an idempotent retry sends the same parameters. null when the
+ * session could not live the Stripe minimum (the offer window closed).
  */
 export function offerCheckoutExpiresAtUnix(input: {
   terms: OfferTerms;
   reservedExpiresAtUnix: number;
   nowMs: number;
 }): number | null {
-  let capMs = input.reservedExpiresAtUnix * 1000;
-  if (input.terms.anchorAt) {
-    capMs = Math.min(capMs, Date.parse(input.terms.anchorAt) - OFFER_SESSION_MARGIN_MS);
-  }
-  capMs = Math.min(capMs, Date.parse(input.terms.redeemBy) - OFFER_SESSION_MARGIN_MS);
+  const limitMs =
+    Date.parse(input.terms.contractDeadline) + ANCHOR_MIN_LEAD_MS - OFFER_SESSION_MARGIN_MS;
+  const capMs = Math.min(input.reservedExpiresAtUnix * 1000, limitMs);
   if (capMs < input.nowMs + STRIPE_CHECKOUT_MIN_LIFETIME_MS) {
     return null;
   }
   return Math.floor(capMs / 1000);
 }
 
-/** Usable now: active, before redeem_by, for this plan. */
+/**
+ * Usable now: active, coherent calendar, before the contract deadline and,
+ * when anchored, no more than 27 days before the anchor (an earlier
+ * subscription would end the discount before the last discounted charge).
+ */
 export function isOfferUsable(offer: BillingOffer, now: Date): boolean {
-  return (
-    offer.status === "active" &&
-    Date.parse(offer.redeemBy) - OFFER_SESSION_MARGIN_MS >
-      now.getTime() + STRIPE_CHECKOUT_MIN_LIFETIME_MS
-  );
+  if (offer.status !== "active" || !offerCalendarIsCoherent(offer)) {
+    return false;
+  }
+  const nowMs = now.getTime();
+  if (
+    offer.billingCycleAnchor &&
+    Date.parse(offer.billingCycleAnchor) - nowMs > ANCHOR_MAX_LEAD_MS
+  ) {
+    return false;
+  }
+  return nowMs < Date.parse(offerContractDeadline(offer));
 }

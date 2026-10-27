@@ -6,6 +6,9 @@
 --   acceptance with a terms hash, idempotent redemption, audited revocation.
 --   Internal → Stripe Pro conversion (D1) and Pro → Basic on the same
 --   subscription keep the tenant data and resolve storage from the new plan.
+--   D2: plan rights are commercial; clients_import starts held, so plans do
+--   not activate it until set_feature_rollout_v1 releases it. A tenant
+--   override (A1) still activates it for one tenant.
 -- Rollback-only.
 
 begin;
@@ -21,7 +24,8 @@ declare
   v_internal constant uuid := 'e6000000-0000-4000-8000-0000000000b1';
   v_hash constant text := repeat('ab', 32);
   v_anchor timestamptz := date_trunc('second', now()) + interval '5 days';
-  v_promo_end timestamptz := date_trunc('second', now()) + interval '66 days';
+  -- Fixed calendar (D1): anchor + 2 months is the first regular charge.
+  v_promo_end timestamptz := ((v_anchor at time zone 'UTC') + interval '2 months') at time zone 'UTC';
   v_redeem_by timestamptz := date_trunc('second', now()) + interval '60 days';
   v_basic_id uuid;
   v_expected text[] := array[
@@ -82,6 +86,13 @@ begin
   ) then
     raise exception 'phase60 A: early access or AI attached to a plan';
   end if;
+  -- D2: clients_import is a plan right on hold; nothing else is held.
+  select array_agg(f.code || ':' || r.state order by f.code) into v_codes
+  from billing_private.feature_rollouts r
+  join public.features f on f.id = r.feature_id;
+  if v_codes is distinct from array['clients_import:held'] then
+    raise exception 'phase60 A: rollouts %', v_codes;
+  end if;
 
   -- -------------------------------------------------------------------------
   -- B: privileges (table and RPCs service-only, SECURITY DEFINER, empty path)
@@ -90,6 +101,10 @@ begin
           where c.oid = 'billing_private.tenant_billing_offers'::regclass) then
     raise exception 'phase60 B: offers table without RLS';
   end if;
+  if not (select c.relrowsecurity from pg_class c
+          where c.oid = 'billing_private.feature_rollouts'::regclass) then
+    raise exception 'phase60 B: rollouts table without RLS';
+  end if;
   foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
     if has_table_privilege(v_role, 'billing_private.tenant_billing_offers', 'select')
        or has_table_privilege(v_role, 'billing_private.tenant_billing_offers', 'insert')
@@ -97,8 +112,27 @@ begin
     then
       raise exception 'phase60 B: % can touch the offers table directly', v_role;
     end if;
+    if has_table_privilege(v_role, 'billing_private.feature_rollouts', 'select')
+       or has_table_privilege(v_role, 'billing_private.feature_rollouts', 'insert')
+       or has_table_privilege(v_role, 'billing_private.feature_rollouts', 'update')
+    then
+      raise exception 'phase60 B: % can touch the rollouts table directly', v_role;
+    end if;
   end loop;
+  -- The resolver keeps its grants and definer settings after the redefinition.
+  if not has_function_privilege('authenticated', 'public.tenant_has_feature(uuid, text)', 'execute')
+     or not has_function_privilege('service_role', 'public.tenant_has_feature(uuid, text)', 'execute')
+     or has_function_privilege('anon', 'public.tenant_has_feature(uuid, text)', 'execute')
+     or not exists (
+       select 1 from pg_proc p
+       where p.oid = 'public.tenant_has_feature(uuid, text)'::regprocedure and p.prosecdef
+         and p.proconfig @> array['search_path=""'] and p.provolatile = 's'
+     )
+  then
+    raise exception 'phase60 B: tenant_has_feature grants or settings changed';
+  end if;
   foreach v_fn in array array[
+    'public.set_feature_rollout_v1(text, text, text, text)',
     'public.grant_tenant_billing_offer_v1(uuid, text, boolean, text, bigint, text, integer, timestamp with time zone, timestamp with time zone, timestamp with time zone, text, text, text)',
     'public.revoke_tenant_billing_offer_v1(uuid, text, text)',
     'public.list_tenant_billing_offers_v1(uuid, boolean, boolean)',
@@ -185,6 +219,17 @@ begin
   v_res := public.grant_tenant_billing_offer_v1(v_t_sur, 'pro', true, 'P60PRO', 4000, 'eur', 2,
     v_promo_end, v_promo_end, v_redeem_by, 'sur4-pro-39-v1', 'SUR4 Pro at Basic price', 'owner:phase60');
   if v_res ->> 'reason' <> 'invalid_dates' then raise exception 'phase60 C anchor at promo end: %', v_res; end if;
+  -- D1: anchored offers end exactly at promo_ends_before; unanchored ones must
+  -- still fit their months before it.
+  v_res := public.grant_tenant_billing_offer_v1(v_t_sur, 'pro', true, 'P60PRO', 4000, 'eur', 2,
+    v_anchor, v_promo_end + interval '1 day', v_redeem_by, 'sur4-pro-39-v1', 'SUR4 Pro at Basic price', 'owner:phase60');
+  if v_res ->> 'reason' <> 'calendar_mismatch' then raise exception 'phase60 C calendar anchored: %', v_res; end if;
+  v_res := public.grant_tenant_billing_offer_v1(v_t_sur, 'pro', true, 'P60PRO', 4000, 'eur', 1,
+    v_anchor, v_promo_end, v_redeem_by, 'sur4-pro-39-v1', 'SUR4 Pro at Basic price', 'owner:phase60');
+  if v_res ->> 'reason' <> 'calendar_mismatch' then raise exception 'phase60 C calendar months: %', v_res; end if;
+  v_res := public.grant_tenant_billing_offer_v1(v_t_sur, 'pro', true, 'P60PRO', 4000, 'eur', 2,
+    null, now() + interval '30 days', v_redeem_by, 'sur4-pro-39-v1', 'SUR4 Pro at Basic price', 'owner:phase60');
+  if v_res ->> 'reason' <> 'calendar_mismatch' then raise exception 'phase60 C calendar unanchored: %', v_res; end if;
   v_res := public.grant_tenant_billing_offer_v1('e6000000-0000-4000-8000-0000000000ff', 'pro', true, 'P60PRO', 4000, 'eur', 2,
     v_anchor, v_promo_end, v_redeem_by, 'sur4-pro-39-v1', 'SUR4 Pro at Basic price', 'owner:phase60');
   if v_res ->> 'reason' <> 'tenant_not_found' then raise exception 'phase60 C tenant: %', v_res; end if;
@@ -296,11 +341,51 @@ begin
   if (v_cap ->> 'limit_bytes')::bigint <> 53687091200 or v_cap ->> 'source' <> 'current_plan' then
     raise exception 'phase60 F: Pro capacity %', v_cap;
   end if;
+  -- clients_import is a Pro right but held (D2): off until released.
   if not public.tenant_has_feature(v_t_sur, 'quotes')
-     or not public.tenant_has_feature(v_t_sur, 'clients_import')
+     or public.tenant_has_feature(v_t_sur, 'clients_import')
      or public.tenant_has_feature(v_t_sur, 'ai_voice_orders')
   then
     raise exception 'phase60 F: Pro rights wrong';
+  end if;
+
+  -- -------------------------------------------------------------------------
+  -- R: operational activation (D2) — validation, per-tenant override, release
+  -- -------------------------------------------------------------------------
+  v_res := public.set_feature_rollout_v1('clients_import', 'on', 'phase60 rollout test', 'phase60');
+  if v_res ->> 'reason' <> 'invalid_input' then raise exception 'phase60 R input: %', v_res; end if;
+  v_res := public.set_feature_rollout_v1('clients_import', 'released', 'short', 'phase60');
+  if v_res ->> 'reason' <> 'reason_required' then raise exception 'phase60 R reason: %', v_res; end if;
+  v_res := public.set_feature_rollout_v1('clients_import', 'released', 'phase60 rollout test', ' ');
+  if v_res ->> 'reason' <> 'authorization_required' then raise exception 'phase60 R auth: %', v_res; end if;
+  v_res := public.set_feature_rollout_v1('no_such_feature', 'released', 'phase60 rollout test', 'phase60');
+  if v_res ->> 'reason' <> 'feature_not_found' then raise exception 'phase60 R feature: %', v_res; end if;
+  v_res := public.set_feature_rollout_v1('clients_import', 'held', 'phase60 rollout test', 'phase60');
+  if v_res ->> 'outcome' <> 'unchanged' then raise exception 'phase60 R held again: %', v_res; end if;
+
+  -- Controlled activation for one tenant while held: an audited A1 override.
+  perform public.set_tenant_feature_v2(
+    'phase60-other', 'clients_import', true, null, 'phase60 controlled activation', null, 'phase60'
+  );
+  if not public.tenant_has_feature(v_t_other, 'clients_import')
+     or public.tenant_has_feature(v_t_sur, 'clients_import')
+  then
+    raise exception 'phase60 R: override must activate only that tenant';
+  end if;
+
+  v_res := public.set_feature_rollout_v1('clients_import', 'released', 'phase60 rollout release', 'phase60');
+  if v_res ->> 'outcome' <> 'set' or v_res ->> 'previous_state' <> 'held' then
+    raise exception 'phase60 R release: %', v_res;
+  end if;
+  v_res := public.set_feature_rollout_v1('clients_import', 'released', 'phase60 rollout release', 'phase60');
+  if v_res ->> 'outcome' <> 'unchanged' then raise exception 'phase60 R release twice: %', v_res; end if;
+  if not public.tenant_has_feature(v_t_sur, 'clients_import') then
+    raise exception 'phase60 R: released right must apply through the plan';
+  end if;
+  if (select pg_catalog.jsonb_array_length(r.history) from billing_private.feature_rollouts r
+      join public.features f on f.id = r.feature_id where f.code = 'clients_import') <> 2
+  then
+    raise exception 'phase60 R: rollout history must have 2 entries';
   end if;
 
   -- -------------------------------------------------------------------------
@@ -391,7 +476,15 @@ begin
   if not public.tenant_has_feature(v_t_sur, 'quotes')
      or not public.tenant_has_feature(v_t_sur, 'clients_import')
   then
-    raise exception 'phase60 I: Basic must keep quotes and clients_import';
+    raise exception 'phase60 I: Basic must keep quotes and clients_import (released)';
+  end if;
+  -- Holding again turns the plan right off; quotes is never held.
+  v_res := public.set_feature_rollout_v1('clients_import', 'held', 'phase60 rollout hold again', 'phase60');
+  if v_res ->> 'previous_state' <> 'released'
+     or public.tenant_has_feature(v_t_sur, 'clients_import')
+     or not public.tenant_has_feature(v_t_sur, 'quotes')
+  then
+    raise exception 'phase60 I: hold again %', v_res;
   end if;
 
   raise notice 'phase60 commercial plans Basic/Pro and tenant billing offers PASS';

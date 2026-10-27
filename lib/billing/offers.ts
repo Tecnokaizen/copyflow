@@ -77,7 +77,7 @@ export async function acceptOfferForCheckout(input: {
     return { ok: false, code: OFFER_UNAVAILABLE_CODE };
   }
 
-  const terms = computeOfferTerms(offer, now);
+  const terms = computeOfferTerms(offer);
   if (terms.hash !== input.termsHash) {
     return { ok: false, code: OFFER_TERMS_CHANGED_CODE };
   }

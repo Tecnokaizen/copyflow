@@ -12,15 +12,20 @@
 -- This migration:
 --   1. adds plan pro with a fixed id, equal in local, Staging and Production;
 --   2. plan_features: Basic gains quotes and clients_import; Pro gets the
---      Basic set with storage_bytes = 50 GiB;
+--      Basic set with storage_bytes = 50 GiB (commercial rights);
+--   2b. billing_private.feature_rollouts + set_feature_rollout_v1: operational
+--      activation separate from plan rights. clients_import starts held, so no
+--      tenant gets it from this migration (owner decision D2, 28/10/2026);
+--      tenant_has_feature keeps its rules and adds the hold check;
 --   3. adds billing_private.tenant_billing_offers and service-only RPCs to
 --      grant, revoke, list, accept and redeem an offer.
 -- It does NOT: create billing_prices (the catalog script does, per Stripe
 -- mode), touch subscriptions or tenant overrides, or name any tenant.
 --
 -- Effect when applied: every tenant whose current subscription is on Basic
--- (trialing/active) resolves quotes and clients_import through its plan.
--- The preflight lists them (docs/BILLING-PRO-OFFERS-V1.md).
+-- (trialing/active) resolves quotes through its plan. clients_import stays
+-- off until set_feature_rollout_v1('clients_import', 'released', ...) or an
+-- audited tenant override. The preflight lists them (docs/BILLING-PRO-OFFERS-V1.md).
 
 begin;
 
@@ -132,6 +137,210 @@ set
   enabled = excluded.enabled,
   limit_value = excluded.limit_value,
   updated_at = pg_catalog.now();
+
+-- ---------------------------------------------------------------------------
+-- 2b. Operational activation, separate from plan rights (owner decision D2,
+--     28/10/2026).
+--
+-- plan_features says what a plan includes (commercial right). A row in
+-- billing_private.feature_rollouts with state 'held' keeps that feature OFF
+-- through plans until an operator releases it (operational activation).
+-- Tenant overrides (A1, set_tenant_feature_v2) still decide first, so a
+-- controlled activation for one tenant is an audited override, and a release
+-- turns the plan right on for every entitled tenant at once.
+-- No row means released: every other feature keeps its current behaviour.
+-- clients_import starts held: Basic and Pro include it, nobody gets it from
+-- this migration.
+-- ---------------------------------------------------------------------------
+create table if not exists billing_private.feature_rollouts (
+  feature_id uuid primary key references public.features (id) on delete cascade,
+  state text not null check (state = any (array['held', 'released']::text[])),
+  reason text not null check (pg_catalog.length(reason) >= 10),
+  authorized_by text not null check (pg_catalog.length(authorized_by) >= 1),
+  history jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default pg_catalog.now(),
+  updated_at timestamptz not null default pg_catalog.now()
+);
+
+alter table billing_private.feature_rollouts enable row level security;
+revoke all on table billing_private.feature_rollouts
+  from public, anon, authenticated, service_role;
+
+comment on table billing_private.feature_rollouts is
+  'Operational activation of plan features. held: plan rights do not enable the feature (tenant overrides still do). released or no row: plan rights apply. Written only through set_feature_rollout_v1.';
+
+-- Re-running the migration never re-holds a feature an operator released.
+insert into billing_private.feature_rollouts (feature_id, state, reason, authorized_by, history)
+select
+  f.id,
+  'held',
+  'Importación de clientes incluida en Basic y Pro; activación operativa pendiente (decisión D2 del 28/10/2026).',
+  'owner decision D2 2026-10-28',
+  pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'state', 'held', 'at', pg_catalog.now(), 'by', 'migration 20261028090000'
+  ))
+from public.features f
+where f.code = 'clients_import'
+on conflict (feature_id) do nothing;
+
+-- Same body as 20260923190000_quotes_v1, plus the hold check on the plan
+-- fallback. Overrides keep priority.
+create or replace function public.tenant_has_feature (
+  p_tenant_id uuid,
+  p_code text
+)
+  returns boolean
+  language plpgsql
+  stable
+  security definer
+  set search_path to ''
+as $function$
+declare
+  v_role text := coalesce(auth.role(), '');
+  v_enabled boolean;
+begin
+  -- authenticated may only resolve tenants where they have an active membership.
+  -- service_role and a direct postgres/supabase_admin session keep operational access.
+  -- A JWT role of authenticated is never treated as operational, even if session_user is postgres.
+  if v_role = 'service_role'
+     or (
+       v_role = ''
+       and session_user in ('postgres', 'supabase_admin')
+     )
+  then
+    null;
+  elsif v_role = 'authenticated'
+     and exists (
+       select 1
+       from public.memberships m
+       where m.tenant_id = p_tenant_id
+         and m.user_id = auth.uid()
+         and m.active is true
+     )
+  then
+    null;
+  else
+    return false;
+  end if;
+
+  select o.enabled into v_enabled
+  from public.tenant_feature_overrides o
+  join public.features f on f.id = o.feature_id
+  where o.tenant_id = p_tenant_id
+    and f.code = p_code;
+
+  if found then
+    return coalesce(v_enabled, false);
+  end if;
+
+  -- Plan fallback does not filter subscriptions.livemode.
+  -- Do not use this resolver for Stripe-sensitive features until that mode is part of the rule.
+  select pf.enabled into v_enabled
+  from public.subscriptions s
+  join public.plan_features pf on pf.plan_id = s.plan_id
+  join public.features f on f.id = pf.feature_id
+  where s.tenant_id = p_tenant_id
+    and f.code = p_code
+    and s.status in ('active', 'trialing')
+  order by s.created_at desc
+  limit 1;
+
+  -- A plan right is not an activation: a held feature stays off (D2).
+  if coalesce(v_enabled, false) and exists (
+    select 1
+    from billing_private.feature_rollouts r
+    join public.features f on f.id = r.feature_id
+    where f.code = p_code
+      and r.state = 'held'
+  ) then
+    return false;
+  end if;
+
+  return coalesce(v_enabled, false);
+end;
+$function$;
+
+-- set_feature_rollout_v1 · operator, service-only. Idempotent.
+create or replace function public.set_feature_rollout_v1 (
+  p_code text,
+  p_state text,
+  p_reason text,
+  p_authorized_by text
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path to ''
+as $function$
+declare
+  v_code text := nullif(pg_catalog.btrim(coalesce(p_code, '')), '');
+  v_state text := nullif(pg_catalog.btrim(coalesce(p_state, '')), '');
+  v_reason text := nullif(pg_catalog.btrim(coalesce(p_reason, '')), '');
+  v_by text := nullif(pg_catalog.btrim(coalesce(p_authorized_by, '')), '');
+  v_feature uuid;
+  v_row billing_private.feature_rollouts%rowtype;
+  v_entry jsonb;
+begin
+  if v_code is null or v_state is null or v_state not in ('held', 'released') then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'invalid_input');
+  end if;
+  if v_reason is null or pg_catalog.length(v_reason) < 10 then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'reason_required');
+  end if;
+  if v_by is null then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'authorization_required');
+  end if;
+
+  select f.id into v_feature from public.features f where f.code = v_code;
+  if not found then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'feature_not_found');
+  end if;
+
+  v_entry := pg_catalog.jsonb_build_object(
+    'state', v_state, 'at', pg_catalog.now(), 'by', v_by, 'reason', v_reason
+  );
+
+  insert into billing_private.feature_rollouts (feature_id, state, reason, authorized_by, history)
+  values (v_feature, v_state, v_reason, v_by, pg_catalog.jsonb_build_array(v_entry))
+  on conflict (feature_id) do nothing;
+  if found then
+    return pg_catalog.jsonb_build_object(
+      'outcome', 'set', 'code', v_code, 'state', v_state, 'previous_state', null
+    );
+  end if;
+
+  select * into v_row
+  from billing_private.feature_rollouts r
+  where r.feature_id = v_feature
+  for update;
+
+  if v_row.state = v_state then
+    return pg_catalog.jsonb_build_object('outcome', 'unchanged', 'code', v_code, 'state', v_state);
+  end if;
+
+  update billing_private.feature_rollouts r
+  set state = v_state,
+      reason = v_reason,
+      authorized_by = v_by,
+      updated_at = pg_catalog.now(),
+      history = r.history || pg_catalog.jsonb_build_array(
+        v_entry || pg_catalog.jsonb_build_object('previous_state', v_row.state)
+      )
+  where r.feature_id = v_feature;
+
+  return pg_catalog.jsonb_build_object(
+    'outcome', 'set', 'code', v_code, 'state', v_state, 'previous_state', v_row.state
+  );
+end;
+$function$;
+
+comment on function public.set_feature_rollout_v1(text, text, text, text) is
+  'Service-only: hold or release the operational activation of a plan feature, with reason and authorizer. Idempotent (unchanged). Tenant overrides are not touched.';
+
+revoke all on function public.set_feature_rollout_v1(text, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.set_feature_rollout_v1(text, text, text, text)
+  to postgres, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. billing_private.tenant_billing_offers
@@ -267,6 +476,22 @@ begin
               or p_billing_cycle_anchor >= p_promo_ends_before))
   then
     return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'invalid_dates');
+  end if;
+
+  -- Fixed calendar (D1, 28/10/2026): no promotional period goes past
+  -- promo_ends_before. Anchored: anchor + months is exactly that date (the
+  -- first regular charge). Not anchored: some payment time must still end
+  -- the discounted months by that date. Month arithmetic in UTC, as Stripe.
+  if (p_billing_cycle_anchor is not null
+      and ((p_billing_cycle_anchor at time zone 'UTC')
+           + pg_catalog.make_interval(months => p_discount_months)) at time zone 'UTC'
+          <> p_promo_ends_before)
+     or (p_billing_cycle_anchor is null
+         and ((p_promo_ends_before at time zone 'UTC')
+              - pg_catalog.make_interval(months => p_discount_months)) at time zone 'UTC'
+             <= pg_catalog.now())
+  then
+    return pg_catalog.jsonb_build_object('outcome', 'rejected', 'reason', 'calendar_mismatch');
   end if;
 
   if not exists (select 1 from public.tenants t where t.id = p_tenant_id) then

@@ -28,6 +28,8 @@ import {
 import { checkOfferCoupon } from "../../lib/billing/offer-coupon";
 import {
   computeOfferTerms,
+  isOfferUsable,
+  offerCalendarIsCoherent,
   parseBillingOffers,
 } from "../../lib/billing/offer-terms";
 
@@ -177,10 +179,16 @@ async function inspect(ctx: Ctx) {
       billing_activation:
         (s.metadata as Record<string, unknown> | null)?.billing_activation ?? null,
     })),
-    offers: parseBillingOffers(offers).map((o) => ({
-      ...o,
-      terms_now: computeOfferTerms(o, new Date()).lines,
-    })),
+    offers: parseBillingOffers(offers).map((o) => {
+      const terms = computeOfferTerms(o);
+      return {
+        ...o,
+        usable_now: isOfferUsable(o, new Date()),
+        calendar_coherent: offerCalendarIsCoherent(o),
+        contract_deadline: terms.contractDeadline,
+        terms: terms.lines,
+      };
+    }),
   });
   const couponId = flag("--coupon-id");
   if (couponId) {
@@ -311,6 +319,12 @@ async function grant(ctx: Ctx) {
   if (!probe) {
     throw new Error("Offer values are not consistent (amount, months or dates)");
   }
+  // Fixed calendar (D1): anchor + months must be exactly --promo-ends-before.
+  if (!offerCalendarIsCoherent(probe)) {
+    throw new Error(
+      "calendar_mismatch: --anchor plus --months must equal --promo-ends-before (the first regular charge)"
+    );
+  }
   const check = checkOfferCoupon({
     coupon: { ...stripeCoupon, applies_to: stripeCoupon.applies_to ?? null },
     offer: probe,
@@ -321,16 +335,21 @@ async function grant(ctx: Ctx) {
     throw new Error(`Coupon does not match the offer: ${check.reason}`);
   }
 
-  const preview = computeOfferTerms(probe, new Date()).lines;
+  const terms = computeOfferTerms(probe);
+  const preview = {
+    usable_now: isOfferUsable(probe, new Date()),
+    contract_deadline: terms.contractDeadline,
+    terms: terms.lines,
+  };
   if (!ctx.confirmed) {
-    print({ mode: ctx.mode, dry_run: true, tenant: tenant.slug, payload, terms_now: preview });
+    print({ mode: ctx.mode, dry_run: true, tenant: tenant.slug, payload, preview });
     return;
   }
   const { data, error } = await ctx.admin.rpc("grant_tenant_billing_offer_v1", payload);
   if (error) {
     throw new Error(`grant: ${error.message}`);
   }
-  print({ mode: ctx.mode, tenant: tenant.slug, result: data, terms_now: preview });
+  print({ mode: ctx.mode, tenant: tenant.slug, result: data, preview });
 }
 
 async function revoke(ctx: Ctx) {
