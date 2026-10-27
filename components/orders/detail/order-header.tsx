@@ -179,6 +179,7 @@ export function OrderHeader({
               teamMembers={orderOptions?.team_members ?? []}
               optionsLoading={orderOptionsLoading}
               currentStatusId={resolveOrderStatusId(order, statuses)}
+              currentStatusName={order.status?.name}
               currentAssigneeId={order.assigned_team_member_id}
               currentAssigneeName={order.assigned_team_member?.name}
               archivedAt={order.archived_at}
