@@ -180,6 +180,7 @@ export function OrderHeader({
               optionsLoading={orderOptionsLoading}
               currentStatusId={resolveOrderStatusId(order, statuses)}
               currentAssigneeId={order.assigned_team_member_id}
+              currentAssigneeName={order.assigned_team_member?.name}
               archivedAt={order.archived_at}
               currentStatus={order.status}
               onEdit={onEdit}

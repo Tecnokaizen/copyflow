@@ -136,6 +136,7 @@ jobs:
             phase35_quote_files \
             phase44_quote_creation \
             phase49_quote_conversion_notes \
+            phase59_assignee_eligibility \
             phase44_quote_client_recovery \
             phase48_clients_address \
             phase50_clients_import \
