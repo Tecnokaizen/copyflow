@@ -14,6 +14,7 @@ on:
       - "supabase/tests/phase46_order_total_validation.sql"
       - "supabase/tests/phase52_order_total_guard.sql"
       - "supabase/tests/phase52_order_total_guard_fresh_sessions.sh"
+      - "supabase/tests/phase58_*"
       - "supabase/tests/phase46_payment_receipts.sql"
       - "supabase/tests/phase46_payment_receipts_concurrency.sh"
       - "supabase/tests/phase51_order_lines.sql"
@@ -216,6 +217,8 @@ jobs:
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/phase46_order_total_validation.sql
           bash supabase/tests/phase45_order_payments_concurrency.sh "${LOCAL_DB_URL}"
           bash supabase/tests/phase52_order_total_guard_fresh_sessions.sh "${LOCAL_DB_URL}"
+          bash supabase/tests/phase58_order_direct_write_guard_fresh_sessions.sh "${LOCAL_DB_URL}"
+          bash supabase/tests/phase58_order_direct_write_guard_concurrency.sh "${LOCAL_DB_URL}"
           psql "${LOCAL_DB_URL}" -v ON_ERROR_STOP=1 -f supabase/tests/phase46_payment_receipts.sql
           bash supabase/tests/phase46_payment_receipts_concurrency.sh "${LOCAL_DB_URL}"
           bash supabase/tests/phase51_order_lines_concurrency.sh "${LOCAL_DB_URL}"

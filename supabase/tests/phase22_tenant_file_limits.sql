@@ -156,9 +156,9 @@ begin
     (v_service_a, v_tenant_a, 'Impresión A', true);
 
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values
-    (v_order_a, v_tenant_a, 'P22-A', 'Order A', v_status_a, v_service_a, v_owner_a);
+    (v_order_a, v_tenant_a, 'Order A', v_status_a, v_service_a, v_owner_a);
 
   reset role;
   perform set_config('request.jwt.claim.sub', v_owner_b::text, true);
@@ -174,9 +174,9 @@ begin
     (v_service_b, v_tenant_b, 'Impresión B', true);
 
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values
-    (v_order_b, v_tenant_b, 'P22-B', 'Order B', v_status_b, v_service_b, v_owner_b);
+    (v_order_b, v_tenant_b, 'Order B', v_status_b, v_service_b, v_owner_b);
 
   reset role;
 
