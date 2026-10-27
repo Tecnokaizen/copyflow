@@ -158,14 +158,16 @@ autorización. La concesión de SUR4 (A3) es una operación posterior y separada
 
 ## Compatibilidad
 
-- **Orden de migraciones:** Staging ya tiene D2/D1 (`20261018160000`, `161000` y
+- **Orden de migraciones:** Staging ya tenía D2/D1 (`20261018160000`, `161000` y
   `170000`, aplicadas el 18/10 desde #135/#136), así que A1 va **después** de
-  ellas: #128 → D2 → D1 → **A1** (`20261018180000`) → #90 → C1. Consecuencias:
+  ellas: #128 → D2 → D1 → **A1** (`20261018180000`) → #90 (`20261018190000`) →
+  C1. Orden de merge: #128 (ya en `main`) → #135 → #136 → **#138** → #90 → C1.
+  Consecuencias:
   - en `main`, #135 y #136 se integran **antes** que A1 (si A1 entrara antes, la
     guarda de migraciones bloquearía las suyas, que ya no se pueden renumerar);
   - en Production, D2/D1 se aplican antes que A1 o en el mismo `db push`;
-  - #90 (`20261018150000`) tampoco entra ya en Staging por el procedimiento
-    estándar: hay que renumerarla por encima de A1 (p. ej. `20261018190000`).
+  - #90 se renumeró el 18/10 de `20261018150000` a `20261018190000`, por encima
+    de A1, y se aplicó en Staging el 18/10 a las 18:41 UTC.
 - **#90 (voz, phase53):** sigue usando `set_tenant_feature`;
   funciona igual y queda registrado como `source = set_tenant_feature`. Su
   `phase53_ai_voice_budget_concurrency.sh` borra overrides con `DELETE`
@@ -197,13 +199,52 @@ migraciones desde cero.
 | Árboles combinados desde cero (`git merge-tree`): A1 + #90 · A1 + #136 (incluye #135) · A1 + #90 + #136 | 81 · 83 · 84 migraciones; Release Gate SQL de cada árbol más `phase53`/`phase57`/`phase54` .sh: todo PASS |
 | Inyección de fallos (cada una hace fallar `phase54`) | EXECUTE de v2 a `authenticated`; trigger de solo inserción desactivado; SELECT del historial a `service_role`; v2 sin la comprobación interna; `tenant_has_feature` que obedece `review_at`; contexto de retirada que sobrevive a la llamada |
 
-## Aplicar A1 en Staging (requiere autorización)
+## Registro de aplicación
 
-Staging (`fmmfsbhcwxkaszrrarpw`), consultado en solo lectura el 18/10: 82
-migraciones (las 79 de `main` más D2/D1; última `20261018170000`; md5 de la lista
-`d705e8d13773ecf066c9719b6e95b02b`, igual que el árbol de #136), ningún objeto de
-A1 y los overrides `demo.quotes`, `e2e.quotes`,
-`e2e.clients_import` y `e2e-import.clients_import`. No hay datos de SUR4.
+| Entorno | Estado |
+| --- | --- |
+| **Staging** (`fmmfsbhcwxkaszrrarpw`) | ✅ Aplicada el **18/10/2026 a las 17:49 UTC**, con autorización expresa |
+| **Production** | ⏳ Pendiente: después de D2/D1 (#135/#136) y antes de #90, con su propia autorización |
+
+Estado a 19/10: Staging tiene 84 migraciones (las 79 de `main`, D2/D1, A1
+`20261018180000` y la voz `20261018190000`, aplicada a las 18:41 UTC).
+Production tiene 79 (última `20261016130000`) y ninguna de ellas.
+
+**Aplicación en Staging (18/10):**
+
+1. **Foto previa** (17:48:56 UTC, solo lectura): 82 migraciones, md5
+   `d705e8d1…`; 4 overrides; huellas de overrides, resolución (4 tenants × 9
+   funcionalidades), facturación y funciones heredadas.
+2. **Dry-run** desde el árbol de #136 (`aecb24f`) más el fichero de A1 (idéntico
+   a `aa3bd7f`): solo `20261018180000`, sin seeds ni roles.
+3. **`db push --linked`**: aplicada, sin `--include-all`.
+4. **Postchecks:** 83 migraciones con el prefijo de 82 sin cambios; overrides,
+   resolución, facturación y md5 de `set_tenant_feature`/`tenant_has_feature`
+   idénticos a la foto previa; 4 eventos `baseline`, uno por override, y 0
+   overrides con términos; historial con RLS, sin políticas y sin privilegios
+   para `anon`, `authenticated` ni `service_role`; las 3 funciones con EXECUTE
+   solo para `service_role` y `SECURITY DEFINER`; 5 triggers activos;
+   `service_role` sin TRUNCATE sobre los overrides.
+5. **Prueba en transacción revertida** sobre el tenant sintético `e2e`: v2 →
+   evento `updated`; informe de revisiones; retirada → evento `cleared`;
+   `clients_import` deja de resolverse; el historial rechaza el UPDATE. Después,
+   4 eventos y los mismos overrides.
+6. **E2E de Staging**, run
+   [39151435564](https://github.com/Tecnokaizen/copyflow/actions/runs/39151435564):
+   pedidos, archivos y cobros PASS (`E2E-0049`); presupuestos y privacidad del
+   PDF PASS (`E2E-0050`). Al terminar, el estado de A1 no había cambiado.
+
+## Procedimiento de aplicación (Staging hecho; Production con autorización)
+
+El procedimiento seguido en Staging, que sirve de referencia para Production.
+Los recuentos son los de Staging antes de aplicar A1.
+
+Staging (`fmmfsbhcwxkaszrrarpw`), consultado en solo lectura el 18/10, antes de
+aplicar A1: 82 migraciones (las 79 de `main` más D2/D1; última
+`20261018170000`; md5 de la lista `d705e8d13773ecf066c9719b6e95b02b`, igual que
+el árbol de #136), ningún objeto de A1 y los overrides `demo.quotes`,
+`e2e.quotes`, `e2e.clients_import` y `e2e-import.clients_import`. No hay datos
+de SUR4.
 
 1. **Foto previa (solo lectura):** número y md5 de la lista de versiones de
    `supabase_migrations.schema_migrations`; que no exista
@@ -245,6 +286,7 @@ cambia de valor al revertir.
 
 ## Pendiente
 
+- A1 en Production, después de D2/D1 y con su propia autorización.
 - A2 (ensayo en Staging) y A3 (SUR4 en Production), con autorización.
 - Actualizar los runbooks de #90 y de acceso anticipado a la v2 cuando A1 esté
   integrada.
