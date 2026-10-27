@@ -139,6 +139,7 @@ jobs:
             phase44_quote_client_recovery \
             phase48_clients_address \
             phase50_clients_import \
+            phase53_ai_voice_budget \
             phase46_files_storage_deletion \
             phase46_order_total_validation \
             phase52_order_total_guard \
