@@ -182,3 +182,18 @@ git merge-tree --write-tree origin/gestcopy-staging origin/<rama>
 - **Comercial**: alta manual de datos de SUR4, Stripe Live con decisión
   explícita, entregabilidad de correo, demo comercial con datos ficticios. Pro
   como programa por tenant y add-ons independientes de la suscripción.
+
+
+## 15. Ampliación del roadmap — 27/10/2026
+
+Aprobado **Seguimiento visual de pedidos V1**: primero timeline en ficha interna,
+después portal público con token opaco y acceso de mínimo privilegio. Primer
+incremento en rama local `feat/order-visual-tracking-v1`, sobre `main` `a63cbdb`.
+Reutiliza estados configurables por tenant, memberships/RLS y audit trail;
+Terminado y Entregado separados. Ningún paso ni fecha se deduce por posición.
+
+El [plan y contrato de implementación](ORDER-VISUAL-TRACKING-V1.md) contiene el
+inventario de PR revisado el 27/10 y la validación actual de esta funcionalidad.
+Los apartados anteriores conservan su fecha histórica; esta ampliación no certifica
+el estado actual de los despliegues. Siguiente gate: revisión local, autorización
+para validar en Staging y, por separado, autorización de merge/Production.
