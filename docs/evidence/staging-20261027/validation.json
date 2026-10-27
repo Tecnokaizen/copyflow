@@ -1,0 +1,105 @@
+{
+  "result": "PASS",
+  "date": "2026-10-27T20:00:57.032966+00:00",
+  "pr148Head": "370695565b7d9560cf24277be32f190167dc8634",
+  "staging": {
+    "testedCommit": "6931bcdebef2fb52b5936e9f5f6bba5e04ad5fe6",
+    "deployment": {
+      "sha": "6931bcdebef2fb52b5936e9f5f6bba5e04ad5fe6",
+      "deployment": "dpl_FWWvEZTr7TBPEgASZaQv7DA4CBsu",
+      "url": "copyflow-gx95zkvjm-tecnokaizen.vercel.app",
+      "target": null,
+      "alias": "e2e.preview.app.gestcopy.com"
+    },
+    "r6Run": "20261027T195912Z-5e88",
+    "checks": {
+      "tenantAndVoiceOff": true,
+      "catalogsEligible": true,
+      "historicalAssignmentPreserved": true,
+      "selectorUnavailable": true,
+      "reassignmentAndRejections": true,
+      "quoteEligibilityAndAck": true,
+      "quotePdfGenerated": true,
+      "quoteModifyAndConvert": true,
+      "foreignTenant": {
+        "read": 404,
+        "write": 409,
+        "convert": 404
+      }
+    },
+    "testSourceCommit": "2f4544b1f429f2b8e442b87da2e9458fb3728330",
+    "testSha256": "5152405f7e0e58e649aa5e1e0459b2502eddd312d7b7d749fcf6eccc31d28589",
+    "migrations": 86,
+    "r5": "20261022120000",
+    "r6": "20261022130000"
+  },
+  "local84": {
+    "sha": "370695565b7d9560cf24277be32f190167dc8634",
+    "schemaMigrations": 84,
+    "r5Applied": false,
+    "r6Applied": false,
+    "checks": {
+      "authAndTenant": true,
+      "selectorsWithoutNewFunctions": true,
+      "createEligibleOrder": true,
+      "editOrder": true,
+      "createQuote": true,
+      "modifyQuote": true,
+      "orderSelectorRendered": true,
+      "schemaStill84WithoutR5R6": true
+    },
+    "status": "passed",
+    "sourceLog": "local84-run-retry.log"
+  },
+  "ci": [
+    {
+      "conclusion": "success",
+      "headSha": "31e31474e9e7861d1ca9c7405f649b156ba48ba7",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "App (guards, tests, types, lint, build)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Backup recovery (B1.3)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Database (security invariants, tenant isolation)",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/Tecnokaizen/copyflow/actions/runs/40571607626"
+    },
+    {
+      "conclusion": "success",
+      "headSha": "af573f9403687f838b2fe3a16ca399ed0472314a",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "App (guards, tests, types, lint, build)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Backup recovery (B1.3)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Database (security invariants, tenant isolation)",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/Tecnokaizen/copyflow/actions/runs/40572970459"
+    }
+  ],
+  "productionWrites": 0,
+  "pr148Merged": false,
+  "f11Started": false
+}

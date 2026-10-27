@@ -71,6 +71,24 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: npx tsx e2e/staging/quotes.ts
 
+      - name: Run quote footer and order rich text E2E
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          npx tsx e2e/staging/quote-footer.ts
+          npx tsx e2e/staging/order-rich-text.ts
+
+      - name: Run R6 assignee eligibility and conversion E2E
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_MODULE: /tmp/e2e-browser/node_modules/playwright/index.mjs
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx tsx e2e/staging/assignees.ts
+
       # Optional: needs the voice migration in Staging, AI_VOICE_ORDERS_ENABLED=true
       # and AI_PROVIDER=fake in Preview, and the operator state for the chosen
       # expectation (docs/VOICE-ORDERS-AI-V1.md, «E2E en Preview»). Owner only:
