@@ -1,6 +1,6 @@
 # Facturación D1/D2 · webhook, suscripciones internas y capacidad
 
-**Estado:** aprobado por el propietario el 18/10/2026. Opciones:
+**Estado:** aprobado por el propietario el 18/10/2026 y validado en Staging el 18/10 (excepto Stripe Test, D3). Opciones:
 
 - **D1:** B + C.
 - **D2.1:** estado `settled`.
@@ -9,7 +9,7 @@
 
 **Pendiente:** no hay despliegue en Production hasta superar las verificaciones.
 
-**Migraciones, en orden, tras #90 (`20261018150000`):**
+**Migraciones, en orden, tras #128 (`20261016130000`, ya en `main`):**
 
 | Migración | PR | Contenido |
 | --- | --- | --- |
@@ -18,6 +18,8 @@
 | `20261018170000_billing_internal_subscription_webhook_guard_v1` | D1 | Retención, conciliación y conversión |
 
 Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de suscripciones al aplicarse.
+
+Después van A1 (#138, `20261018180000`) y la voz (#90, `20261018190000`). Orden de merge: #128 (ya en `main`) → #135 → #136 → #138 → #90 → C1. El estado por entorno está en el [registro de migraciones](#registro-de-migraciones).
 
 ## Problema
 
@@ -100,7 +102,7 @@ Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de 
 | 5 | Derechos internos legítimos | Sin cancelaciones por la sync; `mvp` con capacidad explícita; SUR4 sigue en 5 GiB | phase57 A y L, phase56 |
 | 6 | Sin cobros nuevos con un Stripe pendiente | `subscription_pending_reconciliation` también tras cerrar la fila interna; `completed` sin registro sigue en `checkout_processing` | phase57 G e I, phase55 C |
 | 7 | Plan de SUR4 y documentación | `SUR4-FIN-PRUEBA-OCT-2026.md` §5 D, este documento, `RELEASE-GATE-V1.md`, `E2E-STAGING-V0.md` | — |
-| 8 | Colisiones | Renumerado tras #90: migraciones `…160000`, `…161000`, `…170000`; tests phase55–57 (#90 usa phase53) | Guarda de migraciones |
+| 8 | Colisiones | Migraciones `…160000`, `…161000`, `…170000`, antes de A1 (`…180000`) y de la voz (`…190000`, renumerada el 18/10); tests phase55–57 (A1 usa phase54 y #90, phase53) | Guarda de migraciones |
 | 9 | Pruebas desde una base limpia | `db reset` y todas las suites del Release Gate y de `kiosk-supabase.yml` | Ver la PR |
 
 ## Efectos en Stripe
@@ -121,6 +123,199 @@ Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de 
 
 - **Sin interbloqueos nuevos.** Ya existía una inversión entre `attach_billing_checkout_session_v2` (fila → 31) y `prepare` (31 → fila); no cambia.
 
+## Validación en Staging (18/10/2026)
+
+**Entorno:**
+
+- `gestcopy-staging` → `0346406`, cuyo árbol es idéntico a `bf81f6f` (D1 sobre D2 sobre `main` `67543ee`). Vercel Preview `success`.
+- Base de datos `fmmfsbhcwxkaszrrarpw`.
+
+| Paso | Estado | Resultado |
+| --- | --- | --- |
+| A | Código D2+D1 con la BD sin las migraciones nuevas: es la transición que también tendrá Production | `run.ts` 3/3, `quotes.ts` 22/22 |
+| B | `db push`: el dry-run lista solo `20261018160000` y `20261018161000`. Después, seed E2E con `E2E_CAPACITY_AUTHORIZED_BY` | `e2e` con Basic interna (5 GiB), concesión auditada (`grant_rpc`, `service_role`); `run.ts` 3/3, `quotes.ts` 22/22 |
+| C | `db push`: el dry-run lista solo `20261018170000` | `run.ts` 3/3, `quotes.ts` 22/22 |
+| Funcional SQL | En Staging, con tenants sintéticos y `rollback` | Pasa todo; sin restos |
+
+**Datos:** sin cambios en pedidos, presupuestos, clientes, archivos ni cobros, salvo los registros nuevos que crea cada E2E.
+
+**Secretos:** 0 en los artefactos.
+
+**Comprobación funcional SQL:**
+- D2: volver a contratar tras cancelar (`settled`); capacidad nunca NULL; cancelación → última contratada; concesión con motivo y autorizador, auditada; `service_role` no puede conceder de forma directa.
+- D1:
+  - retención con evento trazado;
+  - checkout rechazado con interna protegida;
+  - lock 31;
+  - requeue rechazado mientras la fila está protegida e idempotente después;
+  - activación auditada;
+  - conversión auditada y conciliada;
+  - `subscription_pending_reconciliation`;
+  - RPC solo para `service_role`.
+- Escenario «Stripe cobra y falla la sync local» (ver el runbook).
+
+**Capacidad en Staging tras S2:**
+- `e2e`: 5 GiB, concedida.
+- `demo`, `audit` y `e2e-import`: 0. No tienen suscripción; si hace falta, se les da capacidad con `grant_internal_subscription_v1`.
+
+## D3 · Stripe Test en Staging (19/10/2026)
+
+**Entorno:**
+
+- Stripe Test, sandbox `acct_1UIZG9PvaU0aOV2Q`. Vercel Preview usa la misma cuenta: el checkout de onboarding se creó con el precio del bootstrap.
+- `gestcopy-staging` en `392eebc` (D1 + A1 + voz; contiene el código de facturación de D1 sin cambios).
+- BD de Staging con las migraciones de `20261018160000` a `20261018190000`.
+
+**Configuración comprobada o completada:**
+
+| Elemento | Resultado |
+| --- | --- |
+| Catálogo | `bootstrap-stripe-catalog --create --confirm-test`: `prod_VTFcxkmdG5EHGU` / `price_1USJ7jPvaU0aOV2QgaozsWJl`, Basic, 3.900 EUR al mes. Mapeo en `billing_prices` de Staging |
+| Webhook | El sandbox **no tenía endpoint**. Se creó `we_1USJUVPvaU0aOV2Q4m63zxCm` hacia `e2e.preview.app.gestcopy.com/api/webhooks/stripe?x-vercel-protection-bypass=…`, con los 6 eventos que procesa la app y API `2026-08-26.dahlia`. El propietario puso su secreto en Vercel Preview y redesplegó |
+| Firma | Firma de una sonda: el secreto nuevo da 200; el anterior, 400 |
+| Protección de Vercel | Sin bypass, 401. Por eso el bypass va como parámetro en la URL del endpoint |
+
+**Escenarios.** Cada uno usa un tenant sintético propio; `e2e` no se toca.
+
+| Tenant | Escenario | Resultado con eventos reales de Stripe Test |
+| --- | --- | --- |
+| `d3-retencion` | Suscripción creada fuera de la app (trial sin método de pago, sin cobro) con interna protegida | `customer.subscription.created` e `invoice.paid` quedan `failed/internal_subscription_current` sin reintento. Una retención con 2 eventos; la fila interna, intacta. Checkout por HTTP → `409 internal_subscription_current` |
+| `d3-retencion` | Adopción: `set_internal_billing_activation_v1` (ready) → `requeue` → «Resend» | Con la fila lista, checkout → **`409 subscription_pending_reconciliation`**. El primer `requeue` marca 2 eventos; el segundo es idempotente. El reenvío procesa los eventos en el intento 2: la fila interna pasa a `converted_to_stripe` y Stripe queda vigente. Retención `reconciled`. Auditoría `grant` → `activation_rpc` → `stripe_conversion`. Checkout → `409 current_subscription_exists` |
+| `d3-retencion` | Cancelación | `customer.subscription.deleted` procesado. Capacidad `last_contracted`, 5 GiB |
+| `d3-pendiente` | Retención y cierre manual de la interna (auditado como `direct`) | Sin suscripción vigente, checkout por HTTP → **`409 subscription_pending_reconciliation`** |
+| `d3-pendiente` | Cancelación en Stripe | La retención se concilia sola (`synced`, `canceled`). El checkout vuelve a estar permitido (`200`) |
+| `d3-alta` | **Onboarding con pago 1** (tarjeta 4242, propietario) | `pending_billing` → `active/ready`, con owner, estados y Basic. Eventos procesados aunque llegaron desordenados. 5 GiB `current_plan` |
+| `d3-alta` | Cancelación en Test | Capacidad `last_contracted`, 5 GiB. El tenant sigue activo |
+| `d3-alta` | **Volver a contratar con pago 2** | El intento anterior pasa a **`settled`** y se abre uno nuevo (antes daba 409 para siempre). Pago correcto, mismo customer de Stripe. Stripe `active`, 5 GiB. Checkout → `409 current_subscription_exists` |
+
+**Cierre:**
+
+- Lista de conciliación vacía.
+- E2E de `e2e`: `run.ts` 3/3 y `quotes.ts` 22/22.
+- Production y SUR4 sin cambios.
+- 0 secretos en artefactos y registros.
+- Credenciales temporales borradas; quedan solo las de Vercel.
+
+**Estado final del sandbox:**
+
+- `d3-alta` mantiene una suscripción Test **activa**. Sirve de fixture «contratado con Stripe» y se puede cancelar en el panel de Stripe.
+- El checkout abierto de `d3-pendiente` caduca solo.
+
+**Pendientes, fuera de D3:**
+
+- No se han podido leer los avisos (`[billing.reconciliation]` en los logs de Vercel, porque el conector da 403, y `BILLING_ALERT_EMAIL`).
+- En Preview, la página de retorno del checkout de facturación apunta al subdominio del tenant, que no existe. Es solo cosmético.
+
+## Secuencia de despliegue coordinada (Production)
+
+Plan final, revisado el 20/10/2026 después de B1.3.
+
+**Hechos:**
+- Cada merge en `main` despliega Production automáticamente en Vercel, unos 5 minutos después: #141 tardó 12 minutos desde el merge hasta `success`.
+- Las migraciones **no** se aplican de forma automática: son siempre `db push --linked` desde `~/copyflow-ops/production-link`, con dry-run.
+- El código D2 y el D1 son compatibles con la BD sin migrar: no llaman a ningún RPC nuevo. Se comprobó en Staging (paso A).
+- En Production no hay filas `ready_for_checkout`, checkouts pagables ni webhooks pendientes.
+- **Production (lectura, 20/10):**
+  - 79 migraciones, la última `20261016130000`, igual que `main` (`f2fa8c6`);
+  - 6 tenants, sin altas desde la auditoría del 18/10;
+  - un precio Live activo en `billing_prices`.
+- **Backups:** desde B1.3 incluyen todos los esquemas de aplicación. `billing_private` entrará automáticamente en el primer lote posterior a las migraciones de D2, sin tocar el runner.
+
+**Precondiciones:**
+
+| # | Precondición | Estado |
+| --- | --- | --- |
+| 1 | D3 con Stripe Test | ✅ 19/10 |
+| 2 | Simulacro de recuperación SQL completo con un lote v2 real | ✅ 20/10, lote `2026/10/20/20261020T121407Z` |
+| 3 | #135 y #136 actualizadas con `main` (B1.3) y Release Gate en verde, incluido `Backup recovery (B1.3)` | ✅ actualizadas el 20/10, sin force. CI: ver PR |
+| 4 | Variables de Stripe Live en Vercel Production (`STRIPE_MODE=live`, clave Live, secreto del endpoint Live; `BILLING_ALERT_EMAIL` opcional) | ⛔ **Sin acreditar:** el conector de Vercel da 403. Lo revisa el propietario en el panel, sin mostrar valores |
+| 5 | Lote v2 reciente como punto de restauración, justo antes del paso 3 | ⛔ Al ejecutar. Requiere margen en el límite diario de transacciones de B2 (el 19/10 se alcanzó: `403 transaction_cap_exceeded`) |
+| 6 | Permiso para operar la BD de Production desde esta sesión (`db push --linked`) | ⛔ Lo decide el propietario. El modo automático bloqueó lecturas y el merge; si no se concede, ejecuta el propietario |
+
+**Pasos:**
+
+1. **Lote v2 previo:**
+   - ejecutar «Gestcopy Database Backup» manualmente en Coolify, fuera del minuto :17;
+   - `run-drill.sh verify` debe mostrar `manifiesto v2 · esquemas: files_private, imports_private, kiosk_private, public`;
+   - anotar el prefijo: es el punto de restauración de los pasos 3 y 6.
+2. **Merge de #135** (squash). Esperar el deployment de Production en `success` y hacer la comprobación HTTP sin sesión. Production no cambia de comportamiento.
+3. **Migraciones de D2 en Production:**
+   - foto previa: recuentos y capacidad por tenant;
+   - `db push --dry-run --linked`, que debe listar solo `…160000` y `…161000`;
+   - `db push`;
+   - comprobación posterior:
+     - capacidad de `sur4` 5 GiB, `demo` 5 GiB y `billing-sandbox` 5 GiB;
+     - `tenant-prueba`, `copisteria-caprichos` y `prueba-final` a 0, sin archivos;
+     - suscripciones sin cambios.
+4. **Backup posterior a D2:**
+   - otro lote manual, cuyo manifiesto debe incluir **`billing_private`** en `application_schemas` y en `recovery_contract`;
+   - si no aparece, parar antes de D1.
+5. **Actualizar #136** con `main` (merge, sin force) y esperar el CI en verde.
+6. **Merge de #136.** Deployment en `success` y comprobación HTTP.
+7. **Migración de D1 en Production:**
+   - dry-run con solo `…170000`;
+   - `db push`;
+   - comprobación:
+     - SUR4 y demo intactos;
+     - 0 retenciones;
+     - `list_billing_reconciliation_v1()` vacía;
+     - `billing_private` con `internal_subscription_audit` y `subscription_holds`.
+8. **Después**, cada una con su merge, su dry-run (que liste solo su versión) y su autorización: #138 (A1, `…180000`) y #90 (voz, `…190000`).
+
+**Vuelta atrás operativa** (de menor a mayor alcance):
+
+1. **Código:** «Instant Rollback» de Vercel al deployment anterior.
+   - Sirve con D2 migrado: el código anterior no depende de D2.
+   - Con D1 migrado, el código anterior falla de forma cerrada: `prepare` devuelve resultados que no conoce (500) y la sync retenida se registra como procesada. Con D1 en la BD, hay que volver atrás también la migración (paso 2) o volver a desplegar el código.
+2. **BD:** las vueltas atrás de `supabase/rollbacks/` en orden inverso: `…170000`, `…161000` y `…160000`.
+   - Conservan la auditoría y las retenciones.
+   - Se aplican con autorización, tras una foto previa.
+   - Cada una tiene su comprobación.
+3. **Datos:** el lote v2 del paso 1 (o el del paso 4) **no** se restaura sobre Production; el script se niega con su ref.
+   - Ante una pérdida o corrupción, se restaura en un proyecto aislado con `run-drill.sh full`.
+   - Los datos afectados se recuperan desde allí de forma controlada.
+
+## Runbook de conciliación
+
+```sql
+-- 1. Qué hay pendiente (service_role / postgres)
+select jsonb_pretty(public.list_billing_reconciliation_v1());
+
+-- 2a. Retención (pago de Stripe con una interna protegida).
+--     Adoptar el pago: marcar la fila interna lista y reencolar; después,
+--     «Resend» de los eventos en Stripe.
+select public.set_internal_billing_activation_v1('<tenant_id>', 'ready_for_checkout', '<motivo>', '<quién>');
+select public.requeue_billing_subscription_hold_v1('<hold_id>', '<motivo>', '<quién>');
+
+-- 2b. Retención descartada (reembolsado y cancelado en Stripe, verificado):
+select public.resolve_billing_subscription_hold_v1('<hold_id>', '<motivo>', '<quién>');
+
+-- 3. «Stripe cobra y falla la sync local» (error determinista, p. ej. unknown_price_mapping):
+--    el intento queda `completed` y bloquea otro checkout; el evento queda
+--    `failed` y `list_billing_reconciliation_v1` lo muestra como
+--    checkout_completed_unrecorded. Arreglar la causa (catálogo, mapeo) y:
+update public.billing_webhook_events
+set retryable = true,
+    metadata = metadata || jsonb_build_object('requeued_at', now(), 'requeue_reason', '<motivo>')
+where provider = 'stripe' and provider_event_id = '<evt_…>' and status = 'failed';
+--    Después, «Resend» del evento en Stripe → claim → sync → suscripción registrada.
+--    Los fallos transitorios (500) los reintenta Stripe solo, hasta 3 días en Live.
+```
+
+## Registro de migraciones
+
+| Versión | PR | Contenido | Staging | Production |
+| --- | --- | --- | --- | --- |
+| `20261018160000` | #135 (D2) | `settled` | 18/10 16:41 UTC | Pendiente (paso 3) |
+| `20261018161000` | #135 (D2) | Capacidad explícita, concesiones, auditoría | 18/10 16:41 UTC | Pendiente (paso 3) |
+| `20261018170000` | #136 (D1) | Retenciones, conciliación, conversión C, lock 31 | 18/10 16:45 UTC | Pendiente (paso 6) |
+| `20261018180000` | #138 (A1) | Concesiones auditables por tenant | 18/10 17:49 UTC | Pendiente, después de D1 |
+| `20261018190000` | #90 (voz) | Ledger y presupuesto de IA | 18/10 18:41 UTC | Pendiente, después de A1 |
+
+Staging tiene 84 migraciones (las 79 de `main` más estas cinco). Production tiene 79 (última `20261016130000`, comprobado el 20/10) y ninguna de estas.
+
+La voz (#90) ya está renumerada a `20261018190000`, por encima de D1 y de A1; antes usaba `20261018150000`. Se validó en local la combinación D1 + #90 renumerada: Release Gate y suites `phase53` en verde.
+
 ## Antes de desplegar en Production
 
 1. **Revisión** de las dos PR y Release Gate en verde.
@@ -129,7 +324,7 @@ Cada una tiene su vuelta atrás en `supabase/rollbacks/`. Ninguna toca filas de 
    - ejecutar el seed E2E con `E2E_CAPACITY_AUTHORIZED_BY`, que concede Basic interna al tenant `e2e`;
    - E2E completo;
    - con Stripe Test (D3), probar la retención → `requeue` → «Resend», la conversión C y cancelar y volver a contratar.
-3. **Production (auditoría de solo lectura del 18/10):**
+3. **Production (auditoría de solo lectura del 18/10, confirmada el 20/10: mismos 6 tenants, sin archivos en los tres de capacidad 0):**
 
    | Tenant | Archivos | Capacidad hoy | Con S2 |
    | --- | --- | --- | --- |

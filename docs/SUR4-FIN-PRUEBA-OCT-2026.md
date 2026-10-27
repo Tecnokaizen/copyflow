@@ -257,6 +257,28 @@ Pasos, solo con Stripe Live verificado y Tamara lista para contratar:
 
 Las prórrogas B siguen siendo válidas. Desde S2 quedan registradas en la auditoría como `update`, con `via = direct`.
 
+**Qué conserva el paso a Stripe.** La conversión solo cambia filas de `subscriptions`:
+
+- La fila interna pasa a `canceled` y conserva su historial: metadatos, `internal_closed_at` e id de Stripe.
+- Se crea la fila Stripe vigente.
+
+No cambian:
+
+- el tenant (id, slug, `active`);
+- usuarios y memberships;
+- pedidos, clientes, presupuestos y cobros;
+- archivos (R2 y metadatos);
+- ajustes y overrides (`quotes`);
+- la capacidad de 5 GiB, de Basic interna a Basic Stripe.
+
+El historial de suscripciones queda completo: la `mvp` cancelada, la interna convertida y la de Stripe. Todo cambio en la fila interna queda en `billing_private.internal_subscription_audit`.
+
+**Mientras no se decida el paso:**
+
+- No se marca `ready_for_checkout`.
+- No se inicia ningún checkout en `sur4`.
+- Su fila interna está protegida: un pago de Stripe queda retenido, sin cancelarla.
+
 ## 6. Tenant de verificación y tenants de prueba en Production
 
 Production tiene seis tenants activos: `sur4`, `demo` (interna, `active`) y cuatro sin suscripción:
