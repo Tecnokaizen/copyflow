@@ -262,11 +262,34 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
 | Paso | Estado |
 | --- | --- |
 | S1 | La sesión de integración tiene preparados en local los cherry-picks (`git cherry-pick -x`) sobre 1b11745: **494ba33** y **1ea797e**. Sin conflictos y sin tocar archivos de pedidos. tsc limpio, 1472 pruebas unitarias en verde y 0 fallos, eslint sin errores. **No los ha subido:** espera a que se aplique la migración. Después hará el push sin forzar y esperará a que el despliegue esté en READY. |
-| S2 | La sesión de integración dio el OK; no hay E2E en marcha. Dry-run sobre `fmmfsbhcwxkaszrrarpw`: lista **solo** `20261028090000_commercial_plans_pro_offers_v1.sql`. **Bloqueo:** el permiso de la sesión de Claude denegó el `db push` real. Falta que el propietario lo permita o lo ejecute él. Staging sigue con 86 migraciones (la última, `20261022130000`). |
+| S2 | **Aplicada el 28/10**, con autorización expresa del propietario y el OK de la sesión de integración (sin E2E en marcha). Detalle a continuación. |
 | S4 | Preparado. `d3-pendiente` (`b2536a4f-…`) no tiene suscripción vigente, retenciones ni Checkout abierto: el único intento expiró el 20/10. `grant_internal_subscription_v1` lo aceptará. |
 | S3, S5–S9 | Pendientes de S2 y S1 |
 
-Efecto medido de la migración en Staging (R7): solo d3-alta gana presupuestos. La importación no cambia para nadie.
+**Cómo se aplicó S2:**
+- Enlace de la CLI: `fmmfsbhcwxkaszrrarpw` (Staging); Production es `wsclqvlzjdgwkxbolhoy` y no se ha tocado.
+- Carpeta de push con exactamente las migraciones de 9cc52b1 (`git archive`).
+- `db push --dry-run --linked`: lista **solo** `20261028090000_commercial_plans_pro_offers_v1.sql`.
+- Después, `db push --linked`. La CLI crea un rol temporal `cli_login_postgres`, válido unos 5 minutos.
+
+**Postcheck de S2 (solo lectura):**
+- 87 migraciones; la última, `20261028090000`.
+- Planes `basic`, `mvp` y `pro` (`30000000-0000-4000-8000-000000000003`).
+- Basic: `quotes` y `clients_import`, con 5 GiB. Pro: el mismo conjunto, con 50 GiB.
+- `feature_rollouts`: `clients_import:held`.
+- Las 6 funciones son SECURITY DEFINER, con `search_path` vacío y solo para `service_role`. `tenant_has_feature` conserva sus permisos.
+- Las 2 tablas tienen RLS. 0 ofertas y 0 suscripciones Pro.
+
+**Efecto por tenant (R7):**
+- Importación: solo e2e y e2e-import, por su concesión individual. Igual que antes.
+- Presupuestos: d3-alta los gana por plan. demo y e2e ya los tenían por concesión.
+
+**Incidencia: no había copia previa.**
+- La condición del propietario pedía una copia o una recuperación válida y reciente **antes** de aplicar. Llegó con el push ya en marcha y no se cumplió.
+- Comprobado después: Supabase no lista copias de Staging (`backups: []`, PITR desactivado) y el sistema de copias B2 cubre solo Production.
+- Mitigación disponible:
+  - la migración no toca datos de tenants ni de pedidos. Solo añade el plan `pro`, los derechos de Basic (`quotes` y `clients_import`) y de Pro, dos tablas nuevas y funciones, y redefine `tenant_has_feature`;
+  - el rollback (`supabase/rollbacks/20261028090000_…`) quita esos derechos de Basic, retira `pro`, restaura el resolvedor anterior y elimina las funciones. Hoy se puede usar: no hay suscripciones Pro.
 
 ### Production y Stripe Live (no autorizados)
 
