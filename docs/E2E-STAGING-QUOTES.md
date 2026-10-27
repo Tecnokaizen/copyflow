@@ -108,7 +108,8 @@ configura el tenant. Mismo guard, harness y variables; solo `e2e`. Recorre
 pies de 1, 2, 3 y 4 líneas, líneas largas, pie vacío y un presupuesto de
 varias páginas. Lee el PDF descargado de R2 Staging con
 `lib/quotes/pdf/pdf-inspect.ts`, sin Poppler. Restaura el pie de `e2e` al
-terminar, también si falla. No se ejecuta en el workflow manual.
+terminar, también si falla. Reconoce cada presupuesto que crea (ver
+*Creaciones de presupuesto sin reconocer*). No se ejecuta en el workflow manual.
 
 ```sh
 PLAYWRIGHT_MODULE=/tmp/e2e-browser/node_modules/playwright/index.mjs \
@@ -174,6 +175,82 @@ capturas, PDF sintético y texto extraído. Sin trazas, cookies o URLs firmadas
 en los artefactos. Las ejecuciones no borran datos: los intentos fallidos
 dejan únicamente fixtures sintéticos en `e2e`.
 
+## Creaciones de presupuesto sin reconocer
+
+Crear un presupuesto deja un recibo en `quote_draft_creations`. El editor de
+`/quotes/new` lo reconoce justo después de guardar
+(`POST /api/quotes/creation-recovery` con `{ operation_id }`). Mientras el
+mismo usuario tenga algún recibo sin reconocer de las últimas 48 h,
+`/quotes/new` muestra «Recuperación de presupuesto» y deja el formulario
+deshabilitado.
+
+**Incidencia del 22/10/2026.** La ejecución de GitHub `39853331141` pasó
+pedidos, archivos, cobro y estados, pero `quotes.ts` falló con «Título /
+trabajo … element is not enabled». `quote-footer.ts` (#144) y
+`order-rich-text.ts` (#146) creaban borradores por la API sin reconocerlos:
+17 recibos (`E2E-P0020`…`E2E-P0036`) de `e2e-owner@example.com`, creados el
+21 y el 22/10. No tiene relación con R5 (#147).
+
+**Regla.** Todo script que cree presupuestos por la API reconoce cada uno en
+el mismo paso, antes de cualquier otra comprobación y con la misma sesión
+(el recibo pertenece al usuario que lo creó):
+
+```ts
+const creationId = randomUUID();
+const created = await call("/api/quotes/create-draft", "POST", { creation_id: creationId, /* … */ });
+assert.equal(created.status, 200); assert.equal(created.body.quote_id, creationId);
+const ack = await call("/api/quotes/creation-recovery", "POST", { operation_id: creationId });
+assert.equal(ack.status, 200); assert.equal(ack.body.quote_id, creationId);
+```
+
+El reconocimiento es idempotente: repetirlo devuelve lo mismo y conserva la
+fecha original (`supabase/tests/phase44_quote_creation.sql`, en el Release
+Gate). El recibo de otro tenant o de otro usuario devuelve 404. `quotes.ts`
+crea desde la interfaz, que ya reconoce.
+
+**Detección.** `quotes.ts` espera a que «Título / trabajo» esté habilitado o
+a que aparezca el panel de recuperación. Si aparece el panel, falla en el
+acto con las referencias pendientes, en lugar de agotar el tiempo al
+rellenar. Nunca reconoce nada por su cuenta.
+
+**Si vuelve a ocurrir.** Reconocer recibos ya existentes en Staging es una
+decisión del owner. Sin tocar datos, el bloqueo desaparece cuando el recibo
+más reciente cumple 48 h. Para saber cuándo (solo lectura):
+
+```sql
+select count(*) as pendientes, max(r.created_at) + interval '48 hours' as libre_desde
+from public.quote_draft_creations r
+join public.tenants t on t.id = r.tenant_id
+join auth.users u on u.id = r.actor_id
+where t.slug = 'e2e' and u.email = 'e2e-owner@example.com'
+  and r.acknowledged_at is null and r.created_at >= now() - interval '48 hours';
+```
+
+Para los 17 recibos de la incidencia, `libre_desde` es el 24/10/2026 a las
+13:15:50 UTC (consulta del 22/10 a las 21:55 UTC). Con autorización del
+owner, la alternativa es abrir `/quotes/new` con el usuario `e2e` y pulsar
+«Crear otro presupuesto»: reconoce los recibos visibles, como máximo 10 cada
+vez, así que se recarga y se repite hasta que no quede ninguno.
+
+### Integración en el E2E que se ejecuta desde `main`
+
+El workflow `e2e-staging.yml` solo puede ejecutarse desde `main` (ver
+*Pendiente*) y lanza `run.ts` y `quotes.ts`.
+
+1. `quote-footer.ts`, `quotes.ts` y este documento van en una PR propia
+   contra `main`. `order-rich-text.ts` solo existe en la rama de #146 y lleva
+   allí su reconocimiento (`644bd5b`); llega a `main` con #146. Las dos PR no
+   comparten ficheros y pueden integrarse en cualquier orden.
+2. Integrar en `main` despliega Production automáticamente, aunque solo
+   cambien `e2e/` y `docs/`: necesita autorización del owner.
+3. Hasta entonces, los scripts corregidos se ejecutan desde terminal de
+   confianza en su rama. La copia de `order-rich-text.ts` en
+   `gestcopy-staging` (`39334c5`) todavía no reconoce: no debe ejecutarse
+   hasta que esa rama reciba `644bd5b`.
+4. Con `/quotes/new` libre, se vuelve a lanzar el workflow desde `main`. Sin
+   esta PR en `main`, un bloqueo nuevo seguiría fallando por tiempo agotado en
+   lugar de con el mensaje explícito.
+
 ## Pendiente
 
 La cobertura y el arreglo del test quedan en una PR separada. Integrarla en
@@ -186,3 +263,7 @@ confianza contra el deployment real de Staging, con los mismos cerrojos.
 No quedan bloqueantes funcionales en los cinco flujos verificados. La
 ejecución periódica tras cada deployment y su uso como condición de
 promoción siguen pendientes; el workflow continúa siendo manual.
+
+Mejora opcional, no implementada: una prueba estática en el Release Gate que
+falle si un script de `e2e/staging/` llama a `create-draft` sin llamar
+también a `creation-recovery`.
