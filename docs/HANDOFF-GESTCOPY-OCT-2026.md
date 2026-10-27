@@ -197,3 +197,10 @@ inventario de PR revisado el 27/10 y la validación actual de esta funcionalidad
 Los apartados anteriores conservan su fecha histórica; esta ampliación no certifica
 el estado actual de los despliegues. Siguiente gate: revisión local, autorización
 para validar en Staging y, por separado, autorización de merge/Production.
+
+Actualización 27/10 (#151): ajustes UX de V1.1 hechos en el worktree
+`~/copyflow-order-tracking-v1` (textos para personal de tienda, escritorio compacto,
+«Pasó por este estado» sin ✓ tras reaperturas). Validación local completa, incluido
+el build con Turbopack y el árbol combinado con #146 y #148. Descripción de PR,
+checklist, validación con `demo`/`sur4`, riesgos y reversión en el documento enlazado.
+Rama sin publicar.
