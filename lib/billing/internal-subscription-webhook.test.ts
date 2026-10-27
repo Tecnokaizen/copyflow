@@ -180,7 +180,7 @@ describe("webhook guard for current internal subscriptions", () => {
 describe("release gate", () => {
   it("runs the D1 suite and the two-session lock test", () => {
     const workflow = read(".github/workflows/release-gate.yml");
-    assert.match(workflow, /^\s+phase57_billing_internal_subscription_guard$/m);
+    assert.match(workflow, /^\s+phase57_billing_internal_subscription_guard( \\)?$/m);
     assert.match(
       workflow,
       /bash supabase\/tests\/phase57_billing_lock_concurrency\.sh "\$\{LOCAL_DB_URL\}"/

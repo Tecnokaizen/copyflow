@@ -371,7 +371,7 @@ describe("billing B2 access and status mapping", () => {
         plan_code: "basic",
         billing_interval: "month",
       }),
-      { ok: true, planCode: "basic", billingInterval: "month" }
+      { ok: true, planCode: "basic", billingInterval: "month", offer: null }
     );
     assert.equal(
       parseCheckoutRequest({

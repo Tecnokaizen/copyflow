@@ -19,6 +19,23 @@ export function getStripeMode(): StripeMode {
   throw new Error("Missing or invalid STRIPE_MODE (expected test|live)");
 }
 
+/**
+ * Customer Portal configuration for subscribers of a plan that may switch
+ * plans (Pro → Basic at period end). Basic subscribers keep the default
+ * configuration: Pro is not sold self-serve. One value per Stripe mode
+ * (Vercel env per environment); unset or malformed → default configuration.
+ */
+export function portalConfigurationForPlan(
+  planCode: string | null,
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  if (planCode !== "pro") {
+    return undefined;
+  }
+  const value = env.STRIPE_PORTAL_CONFIGURATION_PLAN_CHANGE?.trim();
+  return value && /^bpc_[A-Za-z0-9]+$/.test(value) ? value : undefined;
+}
+
 export function stripeModeToLivemode(mode: StripeMode): boolean {
   return mode === "live";
 }
