@@ -24,4 +24,4 @@ Roles operativos en pedidos no archivados.
 ## Problemas frecuentes
 
 ### No aparece la persona
-Comprueba que esté activa en Personal y que pueda recibir pedidos.
+Solo aparecen las personas activas en Personal que pueden recibir pedidos. Si alguien deja de poder recibirlos, conserva sus pedidos hasta que los reasignes.

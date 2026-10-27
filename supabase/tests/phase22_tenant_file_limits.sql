@@ -156,9 +156,9 @@ begin
     (v_service_a, v_tenant_a, 'Impresión A', true);
 
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values
-    (v_order_a, v_tenant_a, 'P22-A', 'Order A', v_status_a, v_service_a, v_owner_a);
+    (v_order_a, v_tenant_a, 'Order A', v_status_a, v_service_a, v_owner_a);
 
   reset role;
   perform set_config('request.jwt.claim.sub', v_owner_b::text, true);
@@ -174,9 +174,9 @@ begin
     (v_service_b, v_tenant_b, 'Impresión B', true);
 
   insert into public.orders (
-    id, tenant_id, reference, title, status_id, service_id, created_by
+    id, tenant_id, title, status_id, service_id, created_by
   ) values
-    (v_order_b, v_tenant_b, 'P22-B', 'Order B', v_status_b, v_service_b, v_owner_b);
+    (v_order_b, v_tenant_b, 'Order B', v_status_b, v_service_b, v_owner_b);
 
   reset role;
 
@@ -226,10 +226,13 @@ begin
     raise exception 'FAIL tenant B usage leaked or wrong';
   end if;
 
-  -- 7: NULL quota does not block
+  -- 7 (S2): no subscription → capacity 0, never NULL (never unlimited)
   v_limit := public.resolve_tenant_storage_limit_bytes(v_tenant_a);
-  if v_limit is not null then
-    raise exception 'FAIL expected NULL quota without storage_bytes plan feature';
+  if v_limit is distinct from 0 then
+    raise exception 'FAIL expected capacity 0 without any subscription, got %', v_limit;
+  end if;
+  if public.resolve_tenant_storage_capacity_v1(v_tenant_a) ->> 'source' <> 'no_subscription' then
+    raise exception 'FAIL capacity source without subscription';
   end if;
 
   -- 15: fallback max file = 100 MiB
@@ -243,8 +246,10 @@ begin
   set local role authenticated;
 
   v_settings := public.get_tenant_files_settings(v_tenant_a);
-  if (v_settings->>'quota_configured')::boolean is distinct from false then
-    raise exception 'FAIL quota_configured should be false';
+  if (v_settings->>'quota_configured')::boolean is distinct from true
+     or (v_settings->>'storage_limit_bytes')::bigint is distinct from 0
+  then
+    raise exception 'FAIL settings must report capacity 0, got %', v_settings;
   end if;
   if (v_settings->>'reserved_bytes')::bigint <> 7000 then
     raise exception 'FAIL settings reserved';
@@ -344,7 +349,8 @@ begin
   set local role authenticated;
   perform public.update_tenant_files_max_file_bytes(v_tenant_a, 50 * v_mib);
 
-  -- 19: staff can still create upload when quota NULL
+  -- S2 · 19a: capacity 0 and write permission are separate. Staff may upload,
+  -- so the refusal is the capacity; the viewer is refused for access.
   reset role;
   perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
   set local role authenticated;
@@ -352,30 +358,35 @@ begin
   v_sig := pg_temp.files_signature(
     v_secret, 'create', v_staff_a, v_tenant_a, v_order_a, v_file_upload, v_issued_at
   );
-  v_result := public.create_order_file_upload(
-    v_order_a, v_file_upload, 'staff.pdf', 'application/pdf', 100,
-    now() + interval '15 minutes', v_issued_at, v_sig
-  );
-  if v_result->'file'->>'id' is distinct from v_file_upload::text then
-    raise exception 'FAIL staff upload';
-  end if;
+  begin
+    perform public.create_order_file_upload(
+      v_order_a, v_file_upload, 'staff.pdf', 'application/pdf', 100,
+      now() + interval '15 minutes', v_issued_at, v_sig
+    );
+    raise exception 'FAIL upload accepted with capacity 0';
+  exception
+    when others then
+      get stacked diagnostics v_message = message_text;
+      if v_message not like '%storage_quota_exceeded%' then
+        raise;
+      end if;
+  end;
 
-  -- 20: viewer cannot mutate files
   reset role;
   perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
   set local role authenticated;
   v_issued_at := floor(extract(epoch from now()))::bigint;
   v_sig := pg_temp.files_signature(
     v_secret, 'create', v_viewer_a, v_tenant_a, v_order_a,
-    'e2200000-0000-4000-8000-000000000079'::uuid, v_issued_at
+    'e2200000-0000-4000-8000-00000000007b'::uuid, v_issued_at
   );
   begin
     perform public.create_order_file_upload(
-      v_order_a, 'e2200000-0000-4000-8000-000000000079'::uuid,
+      v_order_a, 'e2200000-0000-4000-8000-00000000007b'::uuid,
       'viewer.pdf', 'application/pdf', 100,
       now() + interval '15 minutes', v_issued_at, v_sig
     );
-    raise exception 'FAIL viewer upload allowed';
+    raise exception 'FAIL viewer upload allowed with capacity 0';
   exception
     when others then
       get stacked diagnostics v_message = message_text;
@@ -424,6 +435,48 @@ begin
   if v_limit <> 10000 then
     raise exception 'FAIL configured quota expected 10000 got %', v_limit;
   end if;
+
+  -- 19: staff can create an upload within capacity
+  reset role;
+  perform set_config('request.jwt.claim.sub', v_staff_a::text, true);
+  set local role authenticated;
+  v_issued_at := floor(extract(epoch from now()))::bigint;
+  v_sig := pg_temp.files_signature(
+    v_secret, 'create', v_staff_a, v_tenant_a, v_order_a, v_file_upload, v_issued_at
+  );
+  v_result := public.create_order_file_upload(
+    v_order_a, v_file_upload, 'staff.pdf', 'application/pdf', 100,
+    now() + interval '15 minutes', v_issued_at, v_sig
+  );
+  if v_result->'file'->>'id' is distinct from v_file_upload::text then
+    raise exception 'FAIL staff upload';
+  end if;
+
+  -- 20: viewer cannot mutate files
+  reset role;
+  perform set_config('request.jwt.claim.sub', v_viewer_a::text, true);
+  set local role authenticated;
+  v_issued_at := floor(extract(epoch from now()))::bigint;
+  v_sig := pg_temp.files_signature(
+    v_secret, 'create', v_viewer_a, v_tenant_a, v_order_a,
+    'e2200000-0000-4000-8000-000000000079'::uuid, v_issued_at
+  );
+  begin
+    perform public.create_order_file_upload(
+      v_order_a, 'e2200000-0000-4000-8000-000000000079'::uuid,
+      'viewer.pdf', 'application/pdf', 100,
+      now() + interval '15 minutes', v_issued_at, v_sig
+    );
+    raise exception 'FAIL viewer upload allowed';
+  exception
+    when others then
+      get stacked diagnostics v_message = message_text;
+      if v_message not like '%tenant access denied%' then
+        raise;
+      end if;
+  end;
+
+  -- Commercial capacity (phase22_quota, 10000 bytes) configured before 19.
 
   -- Current reserved after staff upload: 7000 + 100 = 7100
   -- 8: upload within quota

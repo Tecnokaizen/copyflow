@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
   }
 
   const params = request.nextUrl.searchParams;
+  // assignable=true: only people who can be put in charge of an order or a
+  // quote (active and able to receive orders), as the database requires.
+  const assignableOnly = params.get("assignable") === "true";
   const search = params.get("search");
   const query = search?.trim() ? search.trim() : null;
 
@@ -54,7 +57,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase.rpc("list_team_members", {
     p_tenant_id: context.tenant.id,
     p_query: query,
-    p_active: parseActive(params.get("active")),
+    p_active: assignableOnly ? true : parseActive(params.get("active")),
   });
 
   if (error || !data) {
@@ -80,7 +83,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const members = applyTeamMemberLinks(mapped, links);
+  const members = applyTeamMemberLinks(mapped, links).filter(
+    (member) => !assignableOnly || (member.active && member.can_receive_orders)
+  );
   const accessUsers = canWriteTeam(context.membership.role)
     ? await loadTenantAccessUsers(supabase, context.tenant.id, links)
     : [];
@@ -95,7 +100,9 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     tenant: context.tenant.slug,
     members,
-    total: Number(record.total ?? members.length) || 0,
+    total: assignableOnly
+      ? members.length
+      : Number(record.total ?? members.length) || 0,
     available_count: Number(record.available_count ?? 0) || 0,
     active_orders_count: Number(record.active_orders_count ?? 0) || 0,
     access_users: accessUsers,

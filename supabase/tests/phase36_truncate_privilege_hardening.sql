@@ -68,10 +68,11 @@ begin
   end loop;
 
   -- D. Normal authenticated privileges that the app relies on are intact
-  -- (row access is still governed by RLS).
+  -- (row access is still governed by RLS). Column-level counts: since
+  -- 20261022120000 INSERT on orders is granted per column.
   foreach v_table in array array['orders', 'clients', 'services'] loop
     foreach v_privilege in array array['SELECT', 'INSERT', 'UPDATE'] loop
-      if not has_table_privilege('authenticated', format('public.%I', v_table), v_privilege) then
+      if not has_any_column_privilege('authenticated', format('public.%I', v_table), v_privilege) then
         raise exception 'phase36: authenticated lost % on public.%', v_privilege, v_table;
       end if;
     end loop;

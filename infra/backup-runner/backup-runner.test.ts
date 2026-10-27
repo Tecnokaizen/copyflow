@@ -23,6 +23,7 @@ describe("infra/backup-runner static contract", () => {
   const backupAll = read("scripts/backup-all.sh");
   const backupDatabase = read("scripts/backup-database.sh");
   const restoreDatabase = read("scripts/restore-database-local.sh");
+  const recoveryContract = read("scripts/recovery-contract.sh");
   const runnerLock = read("scripts/runner-lock.sh");
   const readme = read("README.md");
 
@@ -53,6 +54,24 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupFiles, /set -Eeuo pipefail/);
   });
 
+  // B2 bills one Class C transaction per folder listed; the hourly copy must list
+  // the tree recursively (--fast-list) and still compare every object each run.
+  it("Files copy and verify list B2 with --fast-list and keep full coverage", () => {
+    for (const [name, source, command] of [
+      ["backup-files.sh", backupFiles, /\brclone copy\b[\s\S]*?--log-level INFO/],
+      ["verify-files.sh", verifyFiles, /\brclone check\b[\s\S]*?--log-level INFO/],
+    ] as const) {
+      const invocation = stripComments(source).match(command)?.[0] ?? "";
+      assert.ok(invocation, `${name}: rclone invocation missing`);
+      assert.match(invocation, /^\s*--fast-list \\$/m, `${name}: --fast-list missing`);
+      assert.doesNotMatch(
+        invocation,
+        /--(?:no-traverse|max-age|min-age|files-from|include|exclude|filter)\b/,
+        `${name}: must not narrow what each run compares`
+      );
+    }
+  });
+
   it("verify-files uses rclone check one-way download", () => {
     assert.match(verifyFiles, /\brclone check\b/);
     assert.match(verifyFiles, /--one-way/);
@@ -70,14 +89,23 @@ describe("infra/backup-runner static contract", () => {
     assert.match(backupAll, /B1\.3/);
   });
 
-  it("backup-database dumps public/auth/migrations, encrypts with age, and uploads safely", () => {
+  it("backup-database dumps application schemas/auth/migrations, encrypts with age, and uploads safely", () => {
     const executable = stripComments(backupDatabase).replace(
       /\$\{[^}]*HARD_DELETE[^}]*\}/g,
       ""
     );
     assert.match(backupDatabase, /set -Eeuo pipefail/);
     assert.match(backupDatabase, /\bpg_dump\b/);
-    assert.match(backupDatabase, /--schema=public/);
+    assert.match(backupDatabase, /recovery-contract\.sh/);
+    assert.match(backupDatabase, /application_schemas_sql/);
+    assert.match(backupDatabase, /recovery_fingerprint_sql/);
+    assert.match(backupDatabase, /APPLICATION_SCHEMA_ARGS\+=\("--schema=\$\{schema\}"\)/);
+    assert.match(backupDatabase, /--strict-names/);
+    assert.match(backupDatabase, /required application schema missing in source/);
+    assert.match(backupDatabase, /application archive omits schema/);
+    assert.match(backupDatabase, /--arg version "2"/);
+    assert.match(backupDatabase, /recovery_contract: \$recovery_contract/);
+    assert.match(backupDatabase, /supabase-vault:kiosk_signing_secret/);
     assert.match(backupDatabase, /--schema=auth/);
     assert.match(backupDatabase, /--data-only/);
     assert.match(backupDatabase, /--exclude-table-data=auth\.schema_migrations/);
@@ -124,7 +152,45 @@ describe("infra/backup-runner static contract", () => {
     assert.ok(appDump, "application dump section missing");
     assert.doesNotMatch(appDump, /--no-privileges/);
     assert.match(appDump, /--snapshot=/);
-    assert.match(appDump, /--schema=public/);
+    assert.match(appDump, /"\$\{APPLICATION_SCHEMA_ARGS\[@\]\}"/);
+    // Never a hardcoded public-only application dump again (B1.3 defect).
+    assert.doesNotMatch(appDump, /--schema=public/);
+  });
+
+  it("recovery contract covers every schema the migrations create", () => {
+    const migrationsDir = path.join(root, "supabase/migrations");
+    const created = new Set<string>();
+    for (const name of readdirSync(migrationsDir).filter((file) => file.endsWith(".sql"))) {
+      const sql = readFileSync(path.join(migrationsDir, name), "utf8");
+      for (const match of sql.matchAll(/create\s+schema\s+(?:if\s+not\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/gi)) {
+        created.add(match[1].toLowerCase());
+      }
+    }
+    const list = (name: string) =>
+      (recoveryContract.match(new RegExp(`${name}=\\(([^)]*)\\)`))?.[1] ?? "")
+        .split(/\s+/)
+        .filter(Boolean);
+    const platform = new Set(list("GESTCOPY_PLATFORM_SCHEMAS"));
+    const required = list("GESTCOPY_REQUIRED_APPLICATION_SCHEMAS");
+
+    assert.ok(platform.has("auth") && platform.has("storage") && platform.has("_realtime"));
+    assert.ok(created.has("files_private") && created.has("imports_private") && created.has("kiosk_private"));
+    for (const schema of created) {
+      if (schema === "extensions") continue; // Supabase-managed; migrations only ensure it exists.
+      assert.equal(platform.has(schema), false, `${schema} is created by a migration but treated as platform`);
+    }
+    assert.deepEqual(required, ["public", "files_private", "imports_private", "kiosk_private"]);
+    for (const schema of required) {
+      assert.ok(schema === "public" || created.has(schema), `${schema} is required but no migration creates it`);
+    }
+    assert.match(recoveryContract, /pg_get_functiondef/);
+    assert.match(recoveryContract, /prosecdef/);
+    assert.match(recoveryContract, /aclexplode/);
+    assert.match(recoveryContract, /pg_get_triggerdef/);
+    assert.match(recoveryContract, /pg_get_constraintdef/);
+    assert.match(recoveryContract, /pg_get_indexdef/);
+    assert.match(recoveryContract, /relrowsecurity/);
+    assert.match(recoveryContract, /query_to_xml/);
   });
 
   it("restore helper guards against production restores and uses section order", () => {
@@ -143,6 +209,17 @@ describe("infra/backup-runner static contract", () => {
     assert.doesNotMatch(restoreDatabase, /--skip-auth/);
     assert.match(restoreDatabase, /pg_restore --list/);
     assert.match(restoreDatabase, /DROP SCHEMA IF EXISTS public CASCADE/);
+    assert.match(restoreDatabase, /DROP SCHEMA IF EXISTS \$\{schema\} CASCADE/);
+    assert.match(restoreDatabase, /CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO PUBLIC;/);
+    assert.match(restoreDatabase, /APPLICATION_PRE_DATA_RESTORE_LIST/);
+    assert.match(restoreDatabase, /--manifest PATH is required/);
+    assert.match(restoreDatabase, /is not a multi-schema recovery set/);
+    assert.match(restoreDatabase, /manifest does not declare required application schema/);
+    assert.match(restoreDatabase, /application archive does not define schema \$\{schema\}/);
+    assert.match(restoreDatabase, /which the manifest does not declare/);
+    assert.match(restoreDatabase, /preflight_target_postgres_major/);
+    assert.match(restoreDatabase, /compare_recovery_fingerprint/);
+    assert.match(restoreDatabase, /does not match the recovery fingerprint/);
     assert.match(restoreDatabase, /application archive does not define schema public/);
     assert.match(restoreDatabase, /migrations archive does not define schema supabase_migrations/);
     assert.match(restoreDatabase, /migrations archive does not contain supabase_migrations\.schema_migrations data/);
@@ -180,6 +257,7 @@ describe("infra/backup-runner static contract", () => {
       backupAll,
       backupDatabase,
       restoreDatabase,
+      recoveryContract,
       runnerLock,
       readme,
     ].join("\n");
@@ -200,6 +278,7 @@ describe("infra/backup-runner static contract", () => {
     assert.ok(scripts.length >= 5);
     assert.ok(scripts.includes("backup-database.sh"));
     assert.ok(scripts.includes("restore-database-local.sh"));
+    assert.ok(scripts.includes("recovery-contract.sh"));
 
     for (const name of scripts) {
       const full = path.join(scriptsDir, name);
@@ -242,6 +321,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /GESTCOPY_ALLOW_PUBLIC_RESET/);
     assert.match(readme, /DROP SCHEMA IF EXISTS public CASCADE/);
     assert.match(readme, /files_signing_secret/);
+    assert.match(readme, /kiosk_signing_secret/);
+    assert.match(readme, /imports_private/);
+    assert.match(readme, /recovery fingerprint/);
+    assert.match(readme, /GRANT USAGE ON SCHEMA public TO PUBLIC/);
+    assert.match(readme, /backup-runner\.recovery\.test\.sh/);
     assert.match(readme, /supabase-automatic-rls/);
     assert.match(readme, /pg_trgm@extensions/);
     assert.match(readme, /Automatic RLS/);
@@ -258,5 +342,11 @@ describe("infra/backup-runner static contract", () => {
     assert.match(readme, /EXTERNAL RECOVERY REQUIREMENTS/);
     assert.match(readme, /GESTCOPY_SNAPSHOT_ACQUIRE_TIMEOUT_SECONDS/);
     assert.doesNotMatch(readme, /--skip-auth/);
+    assert.match(readme, /B2 transaction budget/);
+    assert.match(readme, /transaction_cap_exceeded/);
+    assert.match(readme, /Class C/);
+    assert.match(readme, /`rclone copy --fast-list` R2/);
+    assert.match(readme, /Do not add `--max-age`/);
+    assert.match(readme, /Do not add `--no-traverse`/);
   });
 });

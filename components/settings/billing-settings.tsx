@@ -23,6 +23,7 @@ type BillingSubscriptionResponse = {
     current_period_start: string | null;
     current_period_end: string | null;
     has_stripe_customer: boolean;
+    billing_activation_ready?: boolean;
     plan: {
       code: string;
       name: string;
@@ -116,6 +117,16 @@ export function BillingSettings() {
       if (response.status === 409 && body.code === "current_subscription_exists") {
         throw new Error("Ya existe una suscripción activa para esta organización.");
       }
+      if (response.status === 409 && body.code === "internal_subscription_current") {
+        throw new Error(
+          "La suscripción interna vigente todavía no está lista para pasar a Stripe."
+        );
+      }
+      if (response.status === 409 && body.code === "subscription_pending_reconciliation") {
+        throw new Error(
+          "Hay un pago de Stripe pendiente de conciliar. Contacta con soporte antes de volver a contratar."
+        );
+      }
       if (response.status === 503) {
         throw new Error(
           "El pago no está disponible ahora mismo. Inténtalo de nuevo en unos segundos."
@@ -178,11 +189,13 @@ export function BillingSettings() {
   );
   const isInternalCurrent =
     isCurrentSubscription && subscription?.provider !== "stripe";
+  const canActivate =
+    isInternalCurrent && Boolean(subscription?.billing_activation_ready);
   const isStripeManaged =
     subscription?.provider === "stripe" &&
     Boolean(subscription.has_stripe_customer);
   const canCheckout =
-    !isInternalCurrent &&
+    (!isInternalCurrent || canActivate) &&
     (!subscription ||
       subscription.provider !== "stripe" ||
       subscription.status === "canceled");
@@ -250,7 +263,7 @@ export function BillingSettings() {
         <div className="flex flex-wrap gap-3">
           {canCheckout ? (
             <Button type="button" disabled={busy} onClick={() => void startCheckout()}>
-              Contratar Gestcopy Basic
+              {canActivate ? "Activar facturación con Stripe" : "Contratar Gestcopy Basic"}
             </Button>
           ) : null}
           {isStripeManaged ? (
@@ -267,7 +280,12 @@ export function BillingSettings() {
         {actionError ? (
           <p className="mt-3 text-sm text-destructive">{actionError}</p>
         ) : null}
-        {isInternalCurrent ? (
+        {canActivate ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Tu suscripción está lista para pasar a la facturación online. Al
+            confirmarse el pago, Stripe la sustituye sin interrumpir el servicio.
+          </p>
+        ) : isInternalCurrent ? (
           <p className="mt-3 text-sm text-muted-foreground">
             La facturación online mediante Stripe aún no está gestionando esta
             suscripción.

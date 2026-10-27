@@ -255,8 +255,9 @@ begin
   exception when others then
     v_sqlstate := sqlstate;
   end;
-  if v_sqlstate is distinct from '23503' then
-    raise exception 'phase33: foreign assignee expected 23503, got %', v_sqlstate;
+  -- Since 20261022130000 the eligibility trigger refuses it (22023) before the foreign key.
+  if v_sqlstate is distinct from '22023' then
+    raise exception 'phase33: foreign assignee expected 22023, got %', v_sqlstate;
   end if;
 
   v_sqlstate := null;

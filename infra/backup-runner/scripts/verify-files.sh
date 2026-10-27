@@ -35,13 +35,15 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "verify-files: start ${STARTED_AT} UTC"
 echo "verify-files: source R2:${GESTCOPY_R2_BUCKET}"
 echo "verify-files: dest   B2:${GESTCOPY_B2_BUCKET}/${GESTCOPY_B2_FILES_PREFIX}"
-echo "verify-files: mode   rclone check --one-way --download (read-only)"
+echo "verify-files: mode   rclone check --one-way --download --fast-list (read-only)"
 
+# --fast-list: one recursive B2 listing per 1,000 objects instead of one per folder.
 rclone check \
   "R2:${GESTCOPY_R2_BUCKET}" \
   "B2:${GESTCOPY_B2_BUCKET}/${GESTCOPY_B2_FILES_PREFIX}" \
   --one-way \
   --download \
+  --fast-list \
   --stats 30s \
   --stats-one-line \
   --log-level INFO

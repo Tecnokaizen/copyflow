@@ -24,7 +24,7 @@ export function QuoteConversionDialog({ quote, busy, error, onConfirm, onCancel 
   const [options,setOptions] = useState<{stores:Option[];services:Option[];members:Option[]}|null>(null);
   const [fields,setFields] = useState({store_id:'',service_id:quote.service?.id ?? '',assigned_team_member_id:quote.assignee?.id ?? '',priority:'normal',due_at:''});
   const [localError,setLocalError] = useState<string|null>(null);
-  useEffect(()=>{let active=true;Promise.all([catalog('/api/stores?active=true','stores'),catalog('/api/services?active=true','services'),catalog('/api/team?active=true','members')])
+  useEffect(()=>{let active=true;Promise.all([catalog('/api/stores?active=true','stores'),catalog('/api/services?active=true','services'),catalog('/api/team?assignable=true','members')])
     .then(([stores,services,members])=>{if(active){setOptions({stores,services,members});setFields(current=>({...current,
       service_id:services.some(o=>o.id===current.service_id)?current.service_id:'',
       assigned_team_member_id:members.some(o=>o.id===current.assigned_team_member_id)?current.assigned_team_member_id:'',

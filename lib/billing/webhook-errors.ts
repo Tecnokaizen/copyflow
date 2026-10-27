@@ -12,6 +12,10 @@ const DETERMINISTIC_ERROR_CODES = new Set([
   "missing_price_id",
   "unknown_price_mapping",
   "unmapped_subscription_status",
+  // Held by sync_billing_subscription_v1: a current internal subscription is
+  // never canceled by Stripe. Retrying cannot help until an operator acts
+  // (requeue_billing_webhook_event_v1).
+  "internal_subscription_current",
 ]);
 
 export function isRetryableWebhookFailure(errorCode: string | undefined) {

@@ -18,7 +18,7 @@ Desde la ficha puedes ver si la persona tiene acceso a Gestcopy (vinculada a un 
 
 ## Qué ocurre después
 
-La persona puede asignarse a pedidos si está activa y puede recibir pedidos. Sin usuario vinculado sigue sin sesión.
+Solo las personas activas que pueden recibir pedidos aparecen para asignar pedidos y presupuestos. Desactivarla o quitarle ese permiso no cambia sus pedidos actuales. Sin usuario vinculado sigue sin sesión.
 
 ## Quién puede hacerlo
 

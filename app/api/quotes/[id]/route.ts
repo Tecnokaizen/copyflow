@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { requireQuotesAccess } from "@/lib/quotes/guard";
 import { QUOTE_MESSAGES } from "@/lib/quotes/errors";
+import { isAssigneeNotEligibleError } from "@/lib/team/assignee-eligibility";
 import { parseOperationalQuotePayload, parseUpdateQuotePayload } from "@/lib/quotes/payload";
 import { relationBelongsToTenant } from "@/lib/quotes/relations";
 import {
@@ -174,6 +175,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     .maybeSingle();
 
   if (error) {
+    if (isAssigneeNotEligibleError(error)) {
+      return operationalJson({ error: QUOTE_MESSAGES.assignee }, { status: 400 });
+    }
     if (error.code === "55000" && error.message?.includes("locked_quote_client")) {
       return operationalJson({ error: "El cliente de una versión bloqueada no se puede cambiar. Crea una nueva versión editable.", code: "locked_quote_client" }, { status: 409 });
     }
