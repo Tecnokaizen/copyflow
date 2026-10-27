@@ -23,6 +23,7 @@ async function main() {
   async function call(url: string, method = "GET", data?: unknown) {
     assert.ok(url.startsWith("/api/"));
     const r = await p.request.fetch(target.baseUrl + url, { method, data, timeout: 60000, maxRedirects: 0 });
+    h.log(`${method} ${url} → ${r.status()}`);
     return { status: r.status(), body: await r.json() };
   }
   async function memberUpdate(member: any, active: boolean, canReceive: boolean) {
@@ -95,8 +96,15 @@ async function main() {
       await p.goto(`${target.baseUrl}/orders/${result.orderId}`);
       await p.getByRole("button", { name: "Cambiar responsable", exact: true }).click();
       const old = p.getByRole("option", { name: `${original.name} (no disponible)`, exact: true });
-      await old.waitFor({ state: "attached" }); assert.equal(await old.isDisabled(), true);
+      await old.waitFor({ state: "attached" });
+      // Playwright 1.58.2 isDisabled() returns false for a native option even
+      // when its disabled property/attribute are true; inspect the browser DOM.
+      assert.equal(await old.evaluate((e: HTMLOptionElement) => e.disabled), true);
+      assert.notEqual(await old.getAttribute("disabled"), null);
       await p.getByRole("option", { name: replacement.name, exact: true }).waitFor({ state: "attached" });
+      const selector = p.getByRole("dialog").getByRole("combobox");
+      await selector.selectOption(replacement.id);
+      assert.equal(await selector.inputValue(), replacement.id, "eligible replacement is selectable");
       await h.screenshot("r6-responsable-historico");
       await p.getByRole("button", { name: "Cancelar", exact: true }).click();
       result.checks.selectorUnavailable = true;
@@ -136,8 +144,13 @@ async function main() {
       assert.equal(changed.status, 200, JSON.stringify(changed.body));
       const assigned = await call(`/api/quotes/${result.quoteId}`, "PATCH", { operational_only: true, expected_row_version: changed.body.quote.row_version, client_id: null, service_id: null, assigned_team_member_id: replacement.id });
       assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
-      const prepared = await call(`/api/quotes/${result.quoteId}/prepare`, "POST", { version_id: initial.current_version_id, expected_row_version: assigned.body.quote.row_version });
+      const latest = await call(`/api/quotes/${result.quoteId}`); assert.equal(latest.status, 200);
+      // Preparing locks the document version, whose optimistic version differs
+      // from the quote header after operational assignments have changed.
+      const prepared = await call(`/api/quotes/${result.quoteId}/prepare`, "POST", { version_id: latest.body.current_version.id, expected_row_version: latest.body.current_version.row_version });
       assert.equal(prepared.status, 200, JSON.stringify(prepared.body));
+      const pdf = await call(`/api/quotes/${result.quoteId}/versions/${latest.body.current_version.id}/pdf`, "POST");
+      assert.equal(pdf.status, 200, JSON.stringify(pdf.body)); result.checks.quotePdfGenerated = true;
       // These transitions record manual send/accept only; they never send an email.
       for (const action of ["send", "accept"]) {
         const current = await quote();
