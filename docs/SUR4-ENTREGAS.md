@@ -31,6 +31,14 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 
 N15 = F12 cerrada y #146 fusionada en `main`.
 
+**Orden de merge.** Esta rama contiene #146 (merge `c123e80`, ocho commits
+con el mismo contenido). Fusionarla en `main` publicaría también #146, que
+sigue en NO-GO hasta la aceptación de Tamara. Por eso #146 entra en `main`
+antes que cualquier PR de esta rama. Cuando el lote #149 → #139 → #156
+llegue a `main`, se fusiona `main` aquí; el único conflicto previsto es
+`order-header.tsx` (añadir `currentStatusName` de #156 en
+`<OrderQuickActions>`).
+
 ## Decisiones pendientes y cómo se implementan mientras tanto
 
 Se implementa la recomendación escrita en el documento (sección 8). Cada una
@@ -117,10 +125,26 @@ Pasos, en este orden y sin saltarse ninguno:
    (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
 3. Rama de integración propia (`integration/staging-<fecha>-sur4`) desde
    `origin/gestcopy-staging`, con esta rama fusionada encima (merge, nunca
-   rebase ni force push). Conflictos ya conocidos: `kiosk-supabase.yml`,
-   `app/api/orders/options/route.ts` (queda el lado de Staging) y las
-   importaciones de #156 en `order-header.tsx`, `order-production.tsx` y
-   `order-quick-actions.tsx`. CI en verde en esa rama.
+   rebase ni force push). CI en verde en esa rama. Conflictos conocidos
+   (informe de la sesión de integración, 28/10 ~18:25Z, contra `1ea797e`):
+   - Seis ficheros de texto enriquecido: Staging ya tiene #146 con otros
+     commits. Queda el lado de Staging, salvo los cambios propios de E2/E3
+     en esos ficheros, que se conservan.
+   - `.github/workflows/kiosk-supabase.yml`: se quedan las rutas de voz de
+     Staging (`lib/ai/**`, `app/api/ai/**`) y la de esta rama
+     (`supabase/tests/phase6[0-9]_*`).
+   - `components/orders/detail/order-header.tsx`: estructura de E3 y la
+     prop `currentStatusName={order.status?.name}` de #156 en
+     `<OrderQuickActions>`, detrás de `currentStatusId`.
+   - `components/orders/detail/order-workspace.tsx`: van las dos cosas, el
+     seguimiento de #153 (`<OrderTracking>`) y la franja de post-its fijados.
+     Orden en la ficha: cabecera, seguimiento, post-its fijados, secuencia,
+     presupuesto de origen.
+   - `app/api/orders/options/route.ts` y las importaciones de #156 en
+     `order-production.tsx` y `order-quick-actions.tsx`: queda el lado de
+     Staging (`loadOrderOptions`, `resolveOrderStatusId`,
+     `statusOptionsWithCurrent`, `isSelectableStatus`).
+   `supabase/` no tiene conflictos: las dos migraciones no chocan con Staging.
 4. `supabase db push --dry-run` contra Staging: solo puede listar
    `20261028120000` y `20261028130000`. Se aplican por separado, cada una con
    su comprobación (tablas, RLS, funciones apagadas en todos los tenants).
