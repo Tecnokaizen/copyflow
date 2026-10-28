@@ -226,26 +226,41 @@ wait
 echo 'PASS C14: unassign and mark in both orders, step_done or step_unassigned, never a done step without a person'
 
 # C4. Archive while sessions mark steps.
+# The order's row lock decides what comes first, and every write bumps
+# orders.row_version by one while holding it, so the versions give the exact
+# order. Timestamps cannot: now() is when each transaction started, so an
+# archive that starts first and gets the lock last has an earlier archived_at
+# than the marks that went before it (seen in CI on 28/10).
 O="${P}44"
 new_order "$O" delivered
 [[ "$(replace "$O" "$(version "$O")" "$(steps_json "$RAQUEL" "$JESUS" "$DAVINIA" "$RAQUEL" "$JESUS")")" == "" ]] || fail 'C4 fixture'
+V0="$(version "$O")"
 pids=()
 for p in 1 2 3 4 5; do
   S="$(step_at "$O" "$p")"
-  rpc "public.set_order_work_step_done_v1('$S',true)->>'error'" > "$TASK_DIR/c4-$p" &
+  rpc "coalesce(r->>'error','')||'|'||coalesce(r->>'row_version','') from (select public.set_order_work_step_done_v1('$S',true) r) x" > "$TASK_DIR/c4-$p" &
   pids+=("$!")
 done
-sql "$(as_user "$OWNER" "select public.archive_order('$O','$TENANT')")" > /dev/null &
+# The archive's own version, read in its transaction right after the write.
+sql "$(as_user "$OWNER" "select public.archive_order('$O','$TENANT');select row_version::text from public.orders where id='$O'")" | tail -1 > "$TASK_DIR/c4-archive" &
 pids+=("$!")
 for pid in "${pids[@]}"; do wait "$pid"; done
-done_ok="$(awk '$0=="" {n++} END {print n+0}' "$TASK_DIR"/c4-*)"
-refused="$(awk '$0=="order_archived" {n++} END {print n+0}' "$TASK_DIR"/c4-*)"
-[[ "$((done_ok + refused))" == 5 ]] || fail "C4: unexpected outcomes $(cat "$TASK_DIR"/c4-* | sort | uniq -c)"
+done_ok="$(awk -F'|' '$1=="" && $2!="" {n++} END {print n+0}' "$TASK_DIR"/c4-[0-9])"
+refused="$(awk -F'|' '$1=="order_archived" {n++} END {print n+0}' "$TASK_DIR"/c4-[0-9])"
+[[ "$((done_ok + refused))" == 5 ]] || fail "C4: unexpected outcomes $(cat "$TASK_DIR"/c4-[0-9] | sort | uniq -c)"
 [[ "$(sql "select count(*) from public.order_work_steps where order_id='$O' and completed_at is not null")" == "$done_ok" ]] || fail 'C4: marks do not match the successes'
-[[ "$(sql "select count(*) from public.order_work_steps s join public.orders o on o.id=s.order_id where s.order_id='$O' and s.completed_at > o.archived_at")" == 0 ]] || fail 'C4: a mark after archived_at'
+[[ "$(sql "select count(*) from public.activity_log where entity_id='$O' and action='order.work_step_completed'")" == "$done_ok" ]] || fail 'C4: one event per accepted mark'
+[[ "$(sql "select archived_at is not null from public.orders where id='$O'")" == t ]] || fail 'C4: order not archived'
+A="$(cat "$TASK_DIR/c4-archive")"
+# Nothing else wrote: one version per accepted mark, then the archive, last.
+[[ "$A" == "$((V0 + done_ok + 1))" && "$(version "$O")" == "$A" ]] || fail "C4: archive is not the last write (start $V0, $done_ok marks, archive '$A', now $(version "$O"))"
+expected=''
+if (( done_ok > 0 )); then expected="$(seq $((V0 + 1)) $((V0 + done_ok)) | paste -sd, -)"; fi
+got="$(awk -F'|' '$1=="" {print $2}' "$TASK_DIR"/c4-[0-9] | sort -n | paste -sd, -)"
+[[ "$got" == "$expected" ]] || fail "C4: a mark after the archive (marks at versions '$got', archive at $A)"
 S="$(step_at "$O" 1)"
 [[ "$(rpc "public.set_order_work_step_done_v1('$S',false)->>'error'")" == order_archived ]] || fail 'C4: archived order accepted a change'
-echo "PASS C4: archive during 5 marks ($done_ok before, $refused refused), nothing after the archive"
+echo "PASS C4: archive during 5 marks ($done_ok before, $refused refused), marks at versions ${got:-none}, archive last at $A"
 
 # Fresh sessions: direct writes stay refused (marker NULL).
 direct() {
