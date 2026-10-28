@@ -436,6 +436,12 @@ Pasos de la ronda:
 
 **Decisión del propietario (28/10, después de las 20:51Z):** «Mantener la ronda C pendiente hasta disponer de correo funcional». No se hará el intento de las ~21:15Z. La ronda C será la prueba T4 de la etapa E4 de `docs/AUTH-SMTP-TRANSACTIONAL.md` (V2, Brevo), después de configurar el SMTP propio en Staging con autorización.
 
+**Aviso a Post-its al terminar la ronda C (reenviado por la sesión original, 28/10 ~21:35Z):**
+- **Orden:** según Post-its, el propietario ha decidido que su E10 se abra después de la ronda C, sin esperar a S9.
+- **Qué hacer al terminar:** avisar a Post-its (`local_af7e9b29-…`), directamente o por integración, con el resultado y con si Staging sigue en `97fbc59`.
+- **Condiciones de Post-its:** ronda C en PASS sobre `97fbc59`, CI de #160 en verde y OK expreso del propietario en su sesión. Una ventana exclusiva de 1,5–2 h, sin S9, sin cambio de SMTP, sin copias y sin otros despliegues.
+- **El SMTP de Staging no choca con su ventana:** se configura antes de la ronda C, porque la ronda lo necesita.
+
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
 **Cómo se aplicó S2:**

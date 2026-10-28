@@ -379,7 +379,7 @@ Cada etapa necesita la autorización del propietario. Claude no ve ninguna crede
 | E1 | **Brevo Staging y prueba de enlaces**, sin tocar el DNS ni Supabase (ver 11.1) | Propietario. Claude comprueba en lectura | E1.6 en PASS y autorización de E2 |
 | E2 | **DNS de Staging** en Cloudflare: solo registros nuevos bajo `auth-staging` (código de Brevo, DKIM, DMARC y SPF si Brevo lo da). Después, repetir E1.6 con `no-reply@auth-staging.gestcopy.com` | Propietario. Claude comprueba con `check_dns.sh` | Brevo muestra el dominio «Authenticated», `check_dns.sh` en OK y E1.6 otra vez en PASS |
 | E3 | **Supabase Staging:** SMTP propio (`smtp-relay.brevo.com`, 587, usuario, clave, remitente y nombre), límite de 30 por hora y asuntos con «[Staging]». Antes, anotar los valores actuales | Propietario | Guardado sin errores |
-| E4 | **Pruebas T1–T12**, ronda C incluida. Después, auditoría de solo lectura | Propietario y Claude | T1–T8 y T10–T11 en PASS, sin parar por 8.1 |
+| E4 | **Pruebas T1–T12**, ronda C incluida. Después, auditoría de solo lectura. Al terminar la ronda C, aviso a Post-its con el resultado y el estado de Staging: su E10 va después y no puede coincidir con ningún cambio de SMTP | Propietario y Claude | T1–T8 y T10–T11 en PASS, sin parar por 8.1 |
 | E5 | **Observación de Staging, 24–72 h:** informes DMARC y registros de envíos | Claude, en lectura | Sin fallos de DKIM ni rebotes |
 | E6 | **Lectura del panel de Production** (1.4) | Propietario | Configuración actual anotada |
 | E7 | **Brevo Production y DNS de `auth.gestcopy.com`**, como E1–E2 | Propietario | «Authenticated» |
