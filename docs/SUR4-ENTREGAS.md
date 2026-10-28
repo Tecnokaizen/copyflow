@@ -250,7 +250,10 @@ Pasos, en este orden y sin saltarse ninguno:
      con la rama `gestcopy-staging`. Cubre cualquier tenant de Staging futuro,
      pero un certificado comodín necesita el reto DNS: con Cloudflare, o se
      delega la zona a Vercel o se añaden registros TXT a mano en cada
-     renovación. Es un cambio de DNS aparte, no para esta ventana.
+     renovación. Es un cambio de DNS aparte, no para esta ventana. Queda como
+     mejora futura de Staging (decisión del propietario, 28/10).
+   En la ventana no se tocan DNS, el comodín de Production ni la
+   configuración de Supabase.
    DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
    (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
    Nunca en el tenant real de SUR4. Con los scripts de abajo:
