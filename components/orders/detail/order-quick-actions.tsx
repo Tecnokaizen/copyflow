@@ -36,6 +36,7 @@ export function OrderQuickActions({
   onSaveStatus,
   onSaveAssignee,
   onSaveNote,
+  onNoteRequest,
   onArchive,
 }: {
   busy: boolean;
@@ -52,6 +53,8 @@ export function OrderQuickActions({
   onSaveStatus: (statusId: string) => Promise<void>;
   onSaveAssignee: (memberId: string | null) => Promise<void>;
   onSaveNote: (note: string) => Promise<void>;
+  /** SUR4 E6: with Post-its the button opens the Post-it composer instead. */
+  onNoteRequest?: () => void;
   onArchive: () => Promise<void>;
 }) {
   const [panel, setPanel] = useState<QuickPanel>(null);
@@ -86,6 +89,10 @@ export function OrderQuickActions({
   }
 
   function openNote() {
+    if (onNoteRequest) {
+      onNoteRequest();
+      return;
+    }
     setNote("");
     setPanel("note");
   }
