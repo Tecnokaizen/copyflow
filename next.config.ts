@@ -11,6 +11,13 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/quotes/*/versions/*/pdf": ["./assets/fonts/*.woff"],
   },
+  async redirects() {
+    return [
+      // The starter's /protected page is gone; old links open the app home.
+      { source: "/protected", destination: "/", permanent: false },
+      { source: "/protected/:path*", destination: "/", permanent: false },
+    ];
+  },
   async headers() {
     const operationalCache = {
       key: "Cache-Control",

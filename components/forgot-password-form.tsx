@@ -2,6 +2,16 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import {
+  RECOVERY_FAILURE_MESSAGES,
+  authErrorMessage,
+  type RecoveryFailure,
+} from "@/lib/auth/auth-messages";
+import {
+  authHrefWithNext,
+  buildAuthRecoveryUrl,
+  getPostAuthRedirectPath,
+} from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,14 +25,25 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useState } from "react";
 
+type ForgotPasswordFormProps = React.ComponentPropsWithoutRef<"div"> & {
+  /** Internal page to open after the new password is saved. */
+  nextPath?: string;
+  /** Why the previous recovery link did not work, if the user came from one. */
+  linkFailure?: RecoveryFailure | null;
+};
+
 export function ForgotPasswordForm({
   className,
+  nextPath,
+  linkFailure = null,
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: ForgotPasswordFormProps) {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const safeNext = getPostAuthRedirectPath(nextPath);
+  const loginHref = authHrefWithNext("/auth/login", safeNext);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,14 +52,15 @@ export function ForgotPasswordForm({
     setError(null);
 
     try {
-      // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
+      // The link opens /auth/recovery on this same host (tenant subdomain
+      // included). Supabase must allow it in Auth → URL Configuration.
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+        redirectTo: buildAuthRecoveryUrl(window.location.origin, safeNext),
       });
       if (error) throw error;
       setSuccess(true);
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(authErrorMessage(error, "forgot_password"));
     } finally {
       setIsLoading(false);
     }
@@ -49,51 +71,74 @@ export function ForgotPasswordForm({
       {success ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Check Your Email</CardTitle>
-            <CardDescription>Password reset instructions sent</CardDescription>
+            <CardTitle className="text-2xl">Revisa tu correo</CardTitle>
+            <CardDescription>
+              Te hemos enviado las instrucciones
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              If you registered using your email and password, you will receive
-              a password reset email.
+          <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
+            <p>
+              Si existe una cuenta con ese correo, recibirás un enlace para
+              elegir una contraseña nueva.
             </p>
+            <p>
+              Ábrelo en este mismo navegador. Por seguridad, el enlace caduca a
+              los pocos minutos.
+            </p>
+            <Link
+              href={loginHref}
+              className="text-foreground underline underline-offset-4"
+            >
+              Volver a iniciar sesión
+            </Link>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Reset Your Password</CardTitle>
+            <CardTitle className="text-2xl">Recupera tu contraseña</CardTitle>
             <CardDescription>
-              Type in your email and we&apos;ll send you a link to reset your
-              password
+              Escribe tu correo y te enviaremos un enlace para elegir una
+              contraseña nueva.
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {linkFailure && (
+              <p
+                className="mb-6 rounded-md border border-[hsl(var(--gc-danger)/0.35)] bg-[hsl(var(--gc-danger)/0.12)] p-3 text-sm text-[hsl(var(--gc-danger))]"
+                role="alert"
+                data-testid="recovery-link-failure"
+              >
+                {RECOVERY_FAILURE_MESSAGES[linkFailure]}
+              </p>
+            )}
             <form onSubmit={handleForgotPassword}>
               <div className="flex flex-col gap-6">
                 <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">Correo electrónico</Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="m@example.com"
+                    autoComplete="email"
+                    placeholder="nombre@empresa.com"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
-                {error && <p className="text-sm text-red-500">{error}</p>}
+                {error && (
+                  <p className="text-sm text-[hsl(var(--gc-danger))]" role="alert">
+                    {error}
+                  </p>
+                )}
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Sending..." : "Send reset email"}
+                  {isLoading ? "Enviando…" : "Enviar enlace"}
                 </Button>
               </div>
               <div className="mt-4 text-center text-sm">
-                Already have an account?{" "}
-                <Link
-                  href="/auth/login"
-                  className="underline underline-offset-4"
-                >
-                  Login
+                ¿Ya la recuerdas?{" "}
+                <Link href={loginHref} className="underline underline-offset-4">
+                  Iniciar sesión
                 </Link>
               </div>
             </form>
