@@ -18,6 +18,7 @@ import { OrderHeader } from "@/components/orders/detail/order-header";
 import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
 import { OrderSummary } from "@/components/orders/detail/order-summary";
+import { OrderWorkSequence } from "@/components/orders/work-sequence";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
 import { orderLabels } from "@/lib/orders/labels";
@@ -1337,6 +1338,22 @@ export function OrderWorkspace() {
           labels={labels}
           collection={collection}
         />
+
+        {/* SUR4 E8: work sequence, only with order_work_sequence. */}
+        {features.workSequence ? (
+          <OrderWorkSequence
+            orderId={order.id}
+            orderVersion={order.version}
+            canWrite={canWrite}
+            archived={isOrderArchived(order)}
+            assignableMembers={orderOptions?.team_members}
+            onOrderVersionChange={(version) => {
+              setOrder((current) => (current ? { ...current, version } : current));
+              setActivityTick((tick) => tick + 1);
+            }}
+            onOrderConflict={() => void loadOrder({ silent: true })}
+          />
+        ) : null}
 
         {sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null}
 
