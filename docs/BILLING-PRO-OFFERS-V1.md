@@ -434,6 +434,8 @@ Pasos de la ronda:
 4. Si vuelve a dar 429, no repetir: esperar otra hora o usar SMTP propio (`docs/AUTH-SMTP-TRANSACTIONAL.md`, con autorización).
 5. El resto de la ronda no cambia: copiar el enlace, pegarlo en una ventana privada de Safari, «Correo confirmado», login y `/onboarding`.
 
+**Decisión del propietario (28/10, después de las 20:51Z):** «Mantener la ronda C pendiente hasta disponer de correo funcional». No se hará el intento de las ~21:15Z. La ronda C será la prueba T4 de la etapa E4 de `docs/AUTH-SMTP-TRANSACTIONAL.md` (V2, Brevo), después de configurar el SMTP propio en Staging con autorización.
+
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
 **Cómo se aplicó S2:**
@@ -469,7 +471,11 @@ Pasos de la ronda:
 - E2E correcto.
 - Incidencia S10 del alta pública cerrada: es bloqueante (#161 y nueva prueba E2E en Staging).
 - Incidencia de la redirección de Stripe desde Staging a Production resuelta o aceptada por el propietario: es un bloqueo independiente.
-- **Para el alta comercial (no para L0–L8 de SUR4):** correo de Auth con SMTP propio en Production. El integrado de Supabase solo entrega a los miembros del equipo y tiene un límite muy bajo por hora (`docs/AUTH-SMTP-TRANSACTIONAL.md`). Hay que comprobar qué usa Production.
+- **Para el alta comercial (no para L0–L8 de SUR4):** correo de Auth con SMTP propio en Production. El integrado de Supabase solo entrega a los miembros del equipo y tiene un límite muy bajo por hora. Propuesta V2 con Brevo, por etapas y empezando por Staging, en `docs/AUTH-SMTP-TRANSACTIONAL.md`.
+  - **Auditoría de solo lectura de Production (28/10, 21:07Z):** el SMTP, el remitente, los límites y las plantillas no se han podido leer, porque el panel pide iniciar sesión y no se inició.
+  - **Indicio:** entre el 05/09 y el 10/09, 6 direcciones de 4 dominios, que no son alias del propietario, confirmaron el alta 20–87 s después del envío. Production pudo tener ya un SMTP propio, o esas direcciones eran del equipo.
+  - **Desde el 10/09:** ningún envío. Supabase no ha enviado nunca una recuperación ni una invitación.
+  - **Pendiente:** que el propietario lo compruebe en el panel (sección 1.4 de la propuesta).
 - Una autorización por operación. Nada en Production, Stripe Live ni Supabase Auth de Production sin autorización expresa.
 
 | Paso | Qué |
