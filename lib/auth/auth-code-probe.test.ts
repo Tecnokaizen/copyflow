@@ -12,7 +12,11 @@ import {
   PROBE_CODE_VERIFIER,
   authErrorCode,
   createAuthCodeProbe,
+  looksLikeAuthCode,
 } from "./auth-code-probe";
+
+/** Same shape as a Supabase Auth `auth_code` (a UUID); not a real one. */
+const CODE = "0b8c6c1e-5f1a-4c2e-9d0e-2f3a4b5c6d7e";
 
 type Recorded = { url: string; init: RequestInit };
 
@@ -48,7 +52,7 @@ describe("Supabase Auth code probe", () => {
       json(400, { code: 400, error_code: "bad_code_verifier", msg: "x" })
     );
 
-    await probe("the-code");
+    await probe(CODE);
 
     assert.equal(requests.length, 1);
     const [request] = requests;
@@ -64,7 +68,7 @@ describe("Supabase Auth code probe", () => {
       "Content-Type": "application/json",
     });
     assert.deepEqual(JSON.parse(String(request.init.body)), {
-      auth_code: "the-code",
+      auth_code: CODE,
       code_verifier: PROBE_CODE_VERIFIER,
     });
     // Supabase rejects an empty verifier before looking up the code.
@@ -79,7 +83,7 @@ describe("Supabase Auth code probe", () => {
         msg: "code challenge does not match previously saved code verifier",
       })
     );
-    assert.equal(await probe("c"), true);
+    assert.equal(await probe(CODE), true);
   });
 
   it("is true for a real code whose sign-up flow expired", async () => {
@@ -90,14 +94,14 @@ describe("Supabase Auth code probe", () => {
         msg: "invalid flow state, flow state has expired",
       })
     );
-    assert.equal(await probe("c"), true);
+    assert.equal(await probe(CODE), true);
   });
 
   it("reads the newer error shape too", async () => {
     const { probe } = probeWith(() =>
       json(400, { code: "bad_code_verifier", message: "x" })
     );
-    assert.equal(await probe("c"), true);
+    assert.equal(await probe(CODE), true);
   });
 
   it("is false for an unknown code", async () => {
@@ -108,7 +112,7 @@ describe("Supabase Auth code probe", () => {
         msg: "invalid flow state, no valid flow state found",
       })
     );
-    assert.equal(await probe("made-up"), false);
+    assert.equal(await probe(CODE), false);
   });
 
   it("is false for any other error", async () => {
@@ -118,27 +122,27 @@ describe("Supabase Auth code probe", () => {
       { message: "no code" },
     ]) {
       const { probe } = probeWith(() => json(400, body));
-      assert.equal(await probe("c"), false, JSON.stringify(body));
+      assert.equal(await probe(CODE), false, JSON.stringify(body));
     }
   });
 
   it("is false for an unexpected success", async () => {
     const { probe } = probeWith(() => json(200, { access_token: "t" }));
-    assert.equal(await probe("c"), false);
+    assert.equal(await probe(CODE), false);
   });
 
   it("is false when the body is not JSON", async () => {
     const { probe } = probeWith(
       () => new Response("<html>bad gateway</html>", { status: 502 })
     );
-    assert.equal(await probe("c"), false);
+    assert.equal(await probe(CODE), false);
   });
 
   it("is false and does not throw when the request fails", async () => {
     const { probe } = probeWith(() => {
       throw new TypeError("fetch failed");
     });
-    assert.equal(await probe("c"), false);
+    assert.equal(await probe(CODE), false);
   });
 
   it("is false when Supabase does not answer in time", async () => {
@@ -158,7 +162,32 @@ describe("Supabase Auth code probe", () => {
       fetchImpl,
       timeoutMs: 10,
     });
-    assert.equal(await probe("c"), false);
+    assert.equal(await probe(CODE), false);
+  });
+});
+
+describe("Supabase Auth code shape", () => {
+  it("does not call Supabase for a code that is not a UUID", async () => {
+    for (const code of [
+      "made-up",
+      "",
+      "0b8c6c1e5f1a4c2e9d0e2f3a4b5c6d7e",
+      `${CODE}x`,
+      ` ${CODE}`,
+      "'; drop table x; --",
+    ]) {
+      const { probe, requests } = probeWith(() =>
+        json(400, { code: 400, error_code: "bad_code_verifier", msg: "x" })
+      );
+      assert.equal(await probe(code), false, code);
+      assert.equal(requests.length, 0, code);
+    }
+  });
+
+  it("accepts Supabase's UUID auth codes in either case", () => {
+    assert.equal(looksLikeAuthCode(CODE), true);
+    assert.equal(looksLikeAuthCode(CODE.toUpperCase()), true);
+    assert.equal(looksLikeAuthCode("made-up"), false);
   });
 });
 

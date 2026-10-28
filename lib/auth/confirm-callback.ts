@@ -22,8 +22,9 @@ import { getSafeNextPath } from "@/lib/auth/safe-next-path";
  *
  * If Supabase confirmed the email but the code cannot become a session (another
  * device, or the flow state expired), the user goes to `/auth/confirmed`
- * ("Correo confirmado. Ya puedes iniciar sesión"). That page is only shown when
- * Supabase Auth recognises the code; see `auth-code-probe.ts`.
+ * ("Correo confirmado. Ya puedes iniciar sesión"). That only happens when
+ * Supabase Auth recognises the code (see `auth-code-probe.ts`), and the page
+ * needs the short-lived `CONFIRMED_COOKIE` that the route sets in that case.
  */
 
 export const EMAIL_OTP_TYPES: readonly EmailOtpType[] = [
@@ -38,6 +39,24 @@ export const EMAIL_OTP_TYPES: readonly EmailOtpType[] = [
 export const MISSING_CONFIRM_PARAMS = "No token hash, type or code";
 export const INVALID_CONFIRM_TYPE = "Invalid confirmation type";
 export const CONFIRMED_PATH = "/auth/confirmed";
+
+/**
+ * Set by `/auth/confirm` only when Supabase Auth recognised the code. Without
+ * it, `/auth/confirmed` sends the visitor to the login page, so the success
+ * text is never shown for a link opened directly or shared.
+ */
+export const CONFIRMED_COOKIE = "gestcopy-email-confirmed";
+export const CONFIRMED_COOKIE_MAX_AGE_SECONDS = 300;
+
+export function confirmedCookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: CONFIRMED_PATH,
+    secure,
+    maxAge: CONFIRMED_COOKIE_MAX_AGE_SECONDS,
+  };
+}
 
 export type ConfirmCallbackRequest =
   | { kind: "token_hash"; tokenHash: string; type: EmailOtpType; next: string }
@@ -138,20 +157,30 @@ function errorMessage(error: unknown): string {
   return "Could not confirm the email link";
 }
 
+export type ConfirmOutcome = {
+  destination: string;
+  /** True only when Supabase Auth recognised the code; the route then sets `CONFIRMED_COOKIE`. */
+  emailConfirmedWithoutSession: boolean;
+};
+
+function goTo(destination: string): ConfirmOutcome {
+  return { destination, emailConfirmedWithoutSession: false };
+}
+
 /**
- * Returns where `/auth/confirm` should redirect. The auth client is created
+ * Decides where `/auth/confirm` should redirect. The auth client is created
  * only when there is something to verify or exchange. Without
  * `probeAuthCode`, a missing code verifier goes to the error page.
  */
-export async function resolveConfirmRedirect(
+export async function resolveConfirmOutcome(
   searchParams: URLSearchParams,
   getAuthClient: () => Promise<ConfirmAuthClient>,
   probeAuthCode?: AuthCodeProbe
-): Promise<string> {
+): Promise<ConfirmOutcome> {
   const request = parseConfirmCallback(searchParams);
 
   if (request.kind === "error") {
-    return confirmErrorPath(request.message);
+    return goTo(confirmErrorPath(request.message));
   }
 
   try {
@@ -162,18 +191,31 @@ export async function resolveConfirmRedirect(
         type: request.type,
         token_hash: request.tokenHash,
       });
-      return error ? confirmErrorPath(error.message) : request.next;
+      return goTo(error ? confirmErrorPath(error.message) : request.next);
     }
 
     const { error } = await auth.exchangeCodeForSession(request.code);
     if (!error) {
-      return request.next;
+      return goTo(request.next);
     }
     if (await confirmedWithoutSession(error, request.code, probeAuthCode)) {
-      return confirmedPath(request.next);
+      return {
+        destination: confirmedPath(request.next),
+        emailConfirmedWithoutSession: true,
+      };
     }
-    return confirmErrorPath(error.message);
+    return goTo(confirmErrorPath(error.message));
   } catch (error) {
-    return confirmErrorPath(errorMessage(error));
+    return goTo(confirmErrorPath(errorMessage(error)));
   }
+}
+
+/** Same as `resolveConfirmOutcome`, returning only the destination. */
+export async function resolveConfirmRedirect(
+  searchParams: URLSearchParams,
+  getAuthClient: () => Promise<ConfirmAuthClient>,
+  probeAuthCode?: AuthCodeProbe
+): Promise<string> {
+  return (await resolveConfirmOutcome(searchParams, getAuthClient, probeAuthCode))
+    .destination;
 }

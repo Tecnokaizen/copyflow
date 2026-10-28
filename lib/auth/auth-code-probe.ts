@@ -37,6 +37,19 @@ export const PROBE_CODE_VERIFIER =
 
 const PROBE_TIMEOUT_MS = 5000;
 
+/**
+ * Supabase Auth issues `auth_code` as a UUID (`uuid.NewV4().String()` in
+ * `models/flow_state.go`). Anything else cannot be real, so it is not sent:
+ * `/token` shares one per-IP rate limit for `password`, `refresh_token` and
+ * `pkce`, and these requests come from the app servers.
+ */
+const AUTH_CODE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function looksLikeAuthCode(code: string): boolean {
+  return AUTH_CODE_PATTERN.test(code);
+}
+
 /** Resolves to true only when Supabase Auth recognises the code. Never throws. */
 export type AuthCodeProbe = (code: string) => Promise<boolean>;
 
@@ -66,6 +79,10 @@ export function createAuthCodeProbe(options: {
   const timeoutMs = options.timeoutMs ?? PROBE_TIMEOUT_MS;
 
   return async (code) => {
+    if (!looksLikeAuthCode(code)) {
+      return false;
+    }
+
     try {
       const response = await fetchImpl(endpoint, {
         method: "POST",
