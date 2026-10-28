@@ -222,9 +222,11 @@ Pasos, en este orden y sin saltarse ninguno:
    `copyflow` con la rama `gestcopy-staging`, y se quitan al cerrar E10. Nada
    antes de ese OK; ningún otro dominio ni cambio de DNS.
    Comprobación en modo lectura (28/10, ~22:25Z):
-   - DNS: cubierto. `gestcopy.com` está en Cloudflare y el comodín
-     `*.preview.app.gestcopy.com` ya apunta a Vercel; `e2e-sur4-base` resuelve
-     a las mismas IP que `e2e` y `demo`.
+   - DNS: cubierto. `gestcopy.com` está en Cloudflare, que delega la subzona
+     `app.gestcopy.com` entera a Vercel DNS (`ns1.vercel-dns.com`, comprobado
+     preguntando a Cloudflare). El comodín `*.preview.app.gestcopy.com` ya
+     apunta a Vercel; `e2e-sur4-base` resuelve a las mismas IP que `e2e` y
+     `demo`.
    - App: cubierta. En Preview acepta cualquier slug de una etiqueta bajo
      `TENANT_PREVIEW_BASE_DOMAIN` (`lib/tenant/hostname.ts`), sin lista ni
      ajuste por tenant.
@@ -247,11 +249,12 @@ Pasos, en este orden y sin saltarse ninguno:
      y estos hosts sirven el despliegue de Staging, con la base de Staging. Se
      pueden quitar al cerrar E10.
    - **B, sin ajuste por tenant:** un solo dominio `*.preview.app.gestcopy.com`
-     con la rama `gestcopy-staging`. Cubre cualquier tenant de Staging futuro,
-     pero un certificado comodín necesita el reto DNS: con Cloudflare, o se
-     delega la zona a Vercel o se añaden registros TXT a mano en cada
-     renovación. Es un cambio de DNS aparte, no para esta ventana. Queda como
-     mejora futura de Staging (decisión del propietario, 28/10).
+     con la rama `gestcopy-staging`. Cubre cualquier tenant de Staging futuro.
+     Corrección (28/10, ~23:00Z): como la subzona `app.gestcopy.com` ya está en
+     Vercel DNS, Vercel puede validar el certificado comodín por sí mismo, igual
+     que el de `*.app.gestcopy.com`; no haría falta tocar Cloudflare. Aun así es
+     un cambio de configuración aparte, no para esta ventana. Queda como mejora
+     futura de Staging (decisión del propietario, 28/10).
    En la ventana no se tocan DNS, el comodín de Production ni la
    configuración de Supabase.
    DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
