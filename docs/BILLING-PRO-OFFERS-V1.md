@@ -419,6 +419,21 @@ Pasos de la ronda:
 - **Sin efectos:** ningún `POST /token` y ninguna sesión nueva. B sigue con una sola sesión (20:19:47Z). A las 20:38:19Z, Staging sigue igual que en la línea base de las 20:29Z: 12 usuarios, 140 sesiones, 1 flow state, 10 perfiles, 10 membresías, 8 tenants, 10 suscripciones y 6 intentos.
 - **Pendiente:** el alta C entre navegadores. A las 20:38Z no existe `+authfix3`.
 
+**Ronda C · 2, alta entre navegadores: PENDIENTE (auditado a las 20:51Z).** El límite de correo de Supabase bloqueó el envío. No es un fallo de PKCE: no llegó a enviarse ningún correo, así que no hubo confirmación que probar.
+- **20:38:55Z:** se pegó otra vez en Safari un enlace ya usado: 403 «Email link is invalid or has expired». Confirma el punto 1.
+- **20:41:00Z:** `POST /signup` desde Chrome con el correo de **A** (`+authfix`), probablemente por el autocompletado del navegador. Supabase lo trató como `user_repeated_signup`: no creó usuario ni envió correo. Por eso no llegó nada.
+- **20:44:44Z:** `POST /signup` desde Chrome con `+authfix3`: `429 over_email_send_rate_limit` («email rate limit exceeded»). La transacción se deshizo. No existe el usuario (el id `5d488266-…` que aparece en el log no está en `auth.users`), ni identidad, ni flow state.
+- **Límite aplicado:** el del servicio de correo integrado de Supabase, común a todo el proyecto y a todos los correos de Auth (alta, recuperación, invitación y cambio de correo). En la última hora solo hubo dos envíos, A (20:11:23Z) y B (20:18:46Z), y el tercero se bloqueó. Coincide con 2 correos por hora.
+- **SMTP de Staging:** el integrado de Supabase. Lo indican el remitente `noreply@mail.app.supabase.io` (S10) y este límite. No se ha cambiado ninguna configuración.
+- **Estado de Staging a las 20:51Z:** 12 usuarios, 140 sesiones, 1 flow state, 10 perfiles, 10 membresías, 8 tenants, 10 suscripciones y 6 intentos. Sin cambios.
+
+**Cómo reanudar sin duplicar usuarios y sin desactivar la confirmación:**
+1. Esperar a que el límite libere un envío. Lo más pronto, una hora después del envío de A: a partir de **~21:15Z**.
+2. Mientras tanto, no hacer en Staging nada que envíe correo de Auth: altas, recuperaciones, invitaciones ni cambios de correo.
+3. Un solo intento con `tecnokaizen+authfix3@gmail.com`, comprobando antes que el campo de correo no lo haya rellenado el navegador con otro alias. No existe ningún usuario `+authfix3`, así que no hay duplicado.
+4. Si vuelve a dar 429, no repetir: esperar otra hora o usar SMTP propio (`docs/AUTH-SMTP-TRANSACTIONAL.md`, con autorización).
+5. El resto de la ronda no cambia: copiar el enlace, pegarlo en una ventana privada de Safari, «Correo confirmado», login y `/onboarding`.
+
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
 **Cómo se aplicó S2:**
@@ -454,6 +469,7 @@ Pasos de la ronda:
 - E2E correcto.
 - Incidencia S10 del alta pública cerrada: es bloqueante (#161 y nueva prueba E2E en Staging).
 - Incidencia de la redirección de Stripe desde Staging a Production resuelta o aceptada por el propietario: es un bloqueo independiente.
+- **Para el alta comercial (no para L0–L8 de SUR4):** correo de Auth con SMTP propio en Production. El integrado de Supabase solo entrega a los miembros del equipo y tiene un límite muy bajo por hora (`docs/AUTH-SMTP-TRANSACTIONAL.md`). Hay que comprobar qué usa Production.
 - Una autorización por operación. Nada en Production, Stripe Live ni Supabase Auth de Production sin autorización expresa.
 
 | Paso | Qué |
