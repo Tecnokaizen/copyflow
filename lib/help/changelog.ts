@@ -65,6 +65,16 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-28",
+    title: "Búsquedas más fiables",
+    entries: [
+      correccion(
+        "Búsquedas",
+        "Las listas de clientes, equipo, servicios y actividad muestran siempre el resultado de lo último que has buscado o filtrado, aunque una respuesta anterior llegue más tarde."
+      ),
+    ],
+  },
+  {
     date: "2026-10-27",
     title: "Responsable de pedidos y presupuestos",
     entries: [
