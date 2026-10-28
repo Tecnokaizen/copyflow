@@ -134,7 +134,7 @@ async function login(slug: string, email: string, password: string, viewport = {
   await page.locator("#password").fill(password);
   await Promise.all([
     page.waitForURL((url: URL) => !url.pathname.startsWith("/auth/"), { timeout: 60_000 }),
-    page.getByRole("button", { name: "Iniciar sesión", exact: true }).click(),
+    page.getByRole("button", { name: /^(Login|Iniciar sesión)$/ }).click(),
   ]);
   return { context, page };
 }

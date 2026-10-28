@@ -48,7 +48,7 @@ async function main(){
   await h.step('login and tenant gate',async()=>{
    await p.goto(target.baseUrl+'/auth/login');
    await p.locator('#email').fill(process.env.E2E_USER_EMAIL!);await p.locator('#password').fill(process.env.E2E_USER_PASSWORD!);
-   await Promise.all([p.waitForURL((u:URL)=>u.origin===target.baseUrl&&!u.pathname.startsWith('/auth/')),p.getByRole('button',{name:'Iniciar sesión',exact:true}).click()]);
+   await Promise.all([p.waitForURL((u:URL)=>u.origin===target.baseUrl&&!u.pathname.startsWith('/auth/')),p.getByRole('button',{name:/^(Login|Iniciar sesión)$/}).click()]);
    const c=await call('/api/context');assert.equal(c.status,200);assert.equal(c.body.tenant.slug,'e2e');assert.equal(c.body.features.quotes,true);assert.equal(c.body.membership.role,'owner');
    result.tenantId=c.body.tenant.id;result.checks.tenantAndFlag=true;
   });

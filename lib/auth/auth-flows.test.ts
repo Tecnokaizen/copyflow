@@ -166,10 +166,24 @@ describe("auth screens are in Spanish", () => {
     }
   });
 
-  it("Staging E2E scripts click the Spanish login button", () => {
-    for (const file of walk("e2e")) {
+  it("Staging E2E scripts accept both login labels during the transition", () => {
+    // Staging and other open branches still show «Login»; this PR shows
+    // «Iniciar sesión». Either label must work, whatever the merge order.
+    const files = walk("e2e");
+    const loginClicks = files.filter((file) =>
+      /Iniciar sesión/.test(readSource(file))
+    );
+    assert.ok(loginClicks.length >= 5, `found ${loginClicks.length}`);
+    for (const file of files) {
       const source = readSource(file);
-      assert.doesNotMatch(source, /name:\s*["']Login["']/, file);
+      assert.doesNotMatch(source, /name:\s*["'](Login|Iniciar sesión)["']/, file);
+    }
+    for (const file of loginClicks) {
+      assert.match(
+        readSource(file),
+        /name:\s*\/\^\(Login\|Iniciar sesión\)\$\//,
+        file
+      );
     }
   });
 });
