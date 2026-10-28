@@ -34,10 +34,13 @@ N15 = F12 cerrada y #146 fusionada en `main`.
 **Orden de merge.** Esta rama contiene #146 (merge `c123e80`, ocho commits
 con el mismo contenido). Fusionarla en `main` publicaría también #146, que
 sigue en NO-GO hasta la aceptación de Tamara. Por eso #146 entra en `main`
-antes que cualquier PR de esta rama. Cuando el lote #149 → #139 → #156
-llegue a `main`, se fusiona `main` aquí; el único conflicto previsto es
-`order-header.tsx` (añadir `currentStatusName` de #156 en
-`<OrderQuickActions>`).
+antes que cualquier PR de esta rama. El lote #149 → #139 → #156 llegó a
+`main` (`25f6460`, Production `dpl_HLW3tQt1…`, 28/10 21:16Z) y se fusionó
+aquí en `aaf9ba8`. Único conflicto, el previsto: `order-header.tsx`, con la
+prop `currentStatusName` de #156 en `<OrderQuickActions>`. Novedades: una
+release por día en `lib/help/changelog.ts`; la entrada de esta rama irá dentro
+del bloque del día del merge (el 28/10 ya tiene «Búsquedas y estados de
+pedido»).
 
 ## Decisiones pendientes y cómo se implementan mientras tanto
 
@@ -125,15 +128,18 @@ facturación, que fija el despliegue `1ea797e` en `gestcopy-staging`. Hasta que
 confirme el final (su paso S9), esta rama no mueve `gestcopy-staging` ni aplica
 migraciones en Staging, salvo decisión del propietario. El runner de copias de
 Staging se puede usar en modo lectura, nunca a la vez que otra copia.
-El propietario lo confirmó el 28/10 (~19:05Z): se espera a S9. Desde las
-18:28Z `gestcopy-staging` está en `49c6b37` (#161, `/auth/confirm`, desplegado
-por la sesión de Stripe).
+El propietario lo confirmó el 28/10 (~19:05Z): se espera a S9. La sesión de
+integración dejó Staging libre por su parte a las 21:16Z, pero eso no
+autoriza el despliegue: sigue haciendo falta el fin de S9 y el OK expreso del
+propietario en esta sesión. `gestcopy-staging` está en `97fbc59` (#161 de
+Stripe, `dpl_BEPEcxjr…`, 19:41Z; rollback `dpl_7HARpUQ…`).
 
 Pasos, en este orden y sin saltarse ninguno:
 
 1. Confirmación de la sesión de Stripe (S9 terminado). Volver a leer
-   `origin/gestcopy-staging` justo antes de empezar (hoy `49c6b37`) y avisar a
-   las dos sesiones.
+   `origin/gestcopy-staging` justo antes de empezar (hoy `97fbc59`) y avisar a
+   las dos sesiones. A Stripe, con la hora y el despliegue: tiene pendiente
+   la ronda E2E del propietario sobre #161.
 2. Copia de Staging verificada de menos de 2 h con el runner B1.3 de Staging
    (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
 3. Rama de integración propia (`integration/staging-<fecha>-sur4`) desde
@@ -161,8 +167,11 @@ Pasos, en este orden y sin saltarse ninguno:
 4. `supabase db push --dry-run` contra Staging: solo puede listar
    `20261028120000` y `20261028130000`. Se aplican por separado, cada una con
    su comprobación (tablas, RLS, funciones apagadas en todos los tenants).
-5. Despliegue de la rama de integración en Staging y smoke de pedidos sin
-   funciones (tenant `e2e`): ficha, Hoja estándar sin notas, Resguardo.
+5. Despliegue de la rama de integración en Staging como avance rápido (FF)
+   sobre la punta de `gestcopy-staging`, sin force, para no perder
+   `/auth/confirm`. Smoke de pedidos sin funciones (tenant `e2e`): ficha, Hoja
+   estándar sin notas, Resguardo. Ninguna escritura en `e2e` sin coordinarla
+   antes con Stripe.
 6. DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
    (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
    Nunca en el tenant real de SUR4.
