@@ -135,7 +135,23 @@ falta el fin de S9 y el OK expreso del propietario en esta sesión, que ha
 dejado dicho en la sesión de Stripe que Staging no se libera para Post-its sin
 su autorización. Mejor esperar también a que el propietario termine el alta C
 de #161 (Chrome → Safari, unos 5 minutos), que debe correr entera sobre
-`97fbc59` para cerrar las verificaciones de PKCE. `gestcopy-staging` está en `97fbc59` (#161 de
+`97fbc59` para cerrar las verificaciones de PKCE.
+
+**Estado de S9 (sesión de Stripe, 28/10 ~21:25Z).** S9 (limpieza de los datos
+de prueba de Billing Pro) va después de la ronda C del alta pública, y esa ronda
+espera a que Auth de Staging tenga SMTP propio (Brevo, etapas E1–E4): no hay
+fecha. Ni S9 ni la liberación de Staging se hacen sin el propietario. E10 no
+depende de S9:
+- No usa nada de su inventario (`d3-pendiente`, `s10-onboarding-1028`, los
+  usuarios `+d3pendiente`, `+s10` y `+authfix*`). Usa `e2e`, solo para leer, y
+  cuatro tenants sintéticos nuevos `e2e-sur4-*` (matriz del contrato, §11),
+  dentro del prefijo `e2e-*` que S9 conserva.
+- No envía correos de Auth: los usuarios de prueba se crean con la API de
+  administración ya confirmados (`email_confirm`) y entran con contraseña. No
+  hay altas públicas, invitaciones, recuperaciones ni enlaces mágicos, así que
+  el SMTP propio y su límite de 30 por hora no les afectan.
+- Necesita un bloque de 1,5–2 h sin otra copia, despliegue, S9 ni cambio de
+  SMTP a la vez. `gestcopy-staging` está en `97fbc59` (#161 de
 Stripe, `dpl_BEPEcxjr…`, 19:41Z; rollback `dpl_7HARpUQ…`).
 
 Pasos, en este orden y sin saltarse ninguno:
