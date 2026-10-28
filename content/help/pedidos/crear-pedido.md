@@ -28,7 +28,7 @@ En **Instrucciones** (o **Descripción** en el pedido rápido) y en **Notas inte
 4. Abre **Alineación** y elige Izquierda, Centrada, Derecha o Justificada. Se aplica al párrafo entero, también dentro de una lista.
 5. Para volver al formato normal, elige **Normal**, **Predeterminado** o **Izquierda**, o pulsa **Quitar formato**.
 
-El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo, al añadir notas y en la versión imprimible. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños, colores ni alineación.
+El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo y al añadir notas, y el de las instrucciones también en la Hoja de trabajo. Las notas internas del pedido no se imprimen: en la Hoja de trabajo solo salen los post-its marcados expresamente como imprimibles. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños, colores ni alineación.
 
 ## Qué ocurre después
 
