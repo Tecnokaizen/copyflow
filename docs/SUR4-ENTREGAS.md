@@ -87,6 +87,16 @@ Anotadas para la revisión del propietario. Ninguna cambia una decisión de nego
 | E9 | «Me toca» | En Mis pedidos y el filtro «Mis pedidos» del Mostrador cae en el responsable si no hay secuencia o ha terminado; el filtro «Le toca a» y el panel solo cuentan el paso actual | F1 §3 y la aceptación; el panel sigue a `team_work_load_v1` |
 | E9 | Función concedida | Función y al menos una fase activa | Un tenant con la función y sin fases ve lo de hoy |
 
+## Correcciones de CI (28/10)
+
+Dos checks fallaron en la PR #160 (`a4ad811`). Ninguno se resolvió
+desactivando una garantía.
+
+| Check | Causa | Corrección | Evidencia |
+| --- | --- | --- | --- |
+| Kiosk Database · `phase62_order_work_sequence_concurrency.sh`, C4 «a mark after archived_at» | Falso fallo de la prueba. El marcado y `archive_order` bloquean la fila del pedido antes de mirar `archived_at`, así que nunca se acepta una marca después del archivo. Pero las dos guardan `now()`, la hora de inicio de la transacción: un archivo que empieza antes y consigue el bloqueo después queda con una hora anterior a marcas que fueron antes. En `ef31ee1` pasó y en `a4ad811` (solo documentación) falló | C4 deja de comparar horas y comprueba el orden de bloqueo con `orders.row_version` (sube uno en cada escritura, con el bloqueo tomado): una versión por marca aceptada, versiones seguidas, el archivo la última escritura, un evento de actividad por marca y el pedido archivado. Es más estricta que antes. C6 de los post-its no tiene el problema: sus eventos usan `clock_timestamp()` al insertar | Reproducido en local 5/5 con el archivo esperando 0,3 s tras empezar (criterio de horas falla, `row_version` correcto). C4 nueva PASS 6/6, también con ese retraso. Mutante sin la comprobación de `archived_at`: C4 falla 3/3; función restaurada con el mismo md5 |
+| Backup recovery (B1.3) · `public.constraints_md5` | Una sola restricción: `work_stages.work_stages_name_length` (E7). `char_length(name) between 1 and 40 and name = btrim(name)` se guarda como un AND anidado, porque `BETWEEN` se convierte en AND al analizarse; `pg_dump` lo escribe con paréntesis y al restaurar se lee aplanado. Misma regla, otro texto, otro md5 | La restricción se escribe sin `BETWEEN` (`>= 1 and <= 40 and …`), que se lee igual antes y después. Se corrige en la propia `20261028130000`, que solo está aplicada en bases locales (ni Staging ni Production). El resto de `BETWEEN` de E5/E7 van solos o dentro de un OR y no cambian | Simulacro B1.3 en local: antes falla con los mismos md5 que el CI (`42a1b238…` / `8c4e1c01…`) y el diff de restricciones origen/restaurado da solo esa línea; después 9/9 y `RECOVERY_TEST_SUCCESS`. La definición nueva se relee idéntica; la antigua no. Guardia de migraciones PASS (dos migraciones nuevas, ninguna aplicada modificada) |
+
 ## Orden de migraciones
 
 `20261028120000` (E5) y la de E7 van detrás de `20261028090000` (plan Pro),
@@ -115,11 +125,14 @@ facturación, que fija el despliegue `1ea797e` en `gestcopy-staging`. Hasta que
 confirme el final (su paso S9), esta rama no mueve `gestcopy-staging` ni aplica
 migraciones en Staging, salvo decisión del propietario. El runner de copias de
 Staging se puede usar en modo lectura, nunca a la vez que otra copia.
+El propietario lo confirmó el 28/10 (~19:05Z): se espera a S9. Desde las
+18:28Z `gestcopy-staging` está en `49c6b37` (#161, `/auth/confirm`, desplegado
+por la sesión de Stripe).
 
 Pasos, en este orden y sin saltarse ninguno:
 
 1. Confirmación de la sesión de Stripe (S9 terminado). Volver a leer
-   `origin/gestcopy-staging` justo antes de empezar (hoy `1ea797e`) y avisar a
+   `origin/gestcopy-staging` justo antes de empezar (hoy `49c6b37`) y avisar a
    las dos sesiones.
 2. Copia de Staging verificada de menos de 2 h con el runner B1.3 de Staging
    (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
