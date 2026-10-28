@@ -216,8 +216,11 @@ Pasos, en este orden y sin saltarse ninguno:
    `/auth/confirm`. Smoke de pedidos sin funciones (tenant `e2e`): ficha, Hoja
    estándar sin notas, Resguardo. Ninguna escritura en `e2e` sin coordinarla
    antes con Stripe.
-6. Hosts de los tenants de prueba. **El propietario no autoriza todavía
-   añadir dominios en Vercel (28/10, ~22:20Z)**; se decide en la ventana.
+6. Hosts de los tenants de prueba. **Decisión del propietario (28/10,
+   ~22:35Z): opción A.** En la ventana, y solo después de su OK expreso al
+   despliegue, se añaden únicamente los cuatro hosts `e2e-sur4-*` al proyecto
+   `copyflow` con la rama `gestcopy-staging`, y se quitan al cerrar E10. Nada
+   antes de ese OK; ningún otro dominio ni cambio de DNS.
    Comprobación en modo lectura (28/10, ~22:25Z):
    - DNS: cubierto. `gestcopy.com` está en Cloudflare y el comodín
      `*.preview.app.gestcopy.com` ya apunta a Vercel; `e2e-sur4-base` resuelve
@@ -254,6 +257,9 @@ Pasos, en este orden y sin saltarse ninguno:
    `seed-sur4.ts` y después `sur4-features.ts`.
 7. Registro PASS/FAIL en este documento. Si algo falla: retirar concesiones y,
    si hace falta, los ficheros de `supabase/rollbacks/` en orden inverso.
+   Al cerrar E10, pase o falle, se quitan de Vercel los cuatro hosts
+   `e2e-sur4-*` y se comprueba que `e2e`, `demo`, `audit` y los dominios de
+   Production siguen igual.
 
 ### E2E de DEMO (preparado el 28/10)
 
