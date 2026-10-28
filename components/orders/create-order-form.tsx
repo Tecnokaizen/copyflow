@@ -695,6 +695,7 @@ export function CreateOrderForm({
         Descripción
         <RichTextEditor
           ariaLabel="Descripción"
+          textStyles
           value={description}
           disabled={submitting}
           onChange={setDescription}
@@ -709,6 +710,7 @@ export function CreateOrderForm({
         Instrucciones
         <RichTextEditor
           ariaLabel="Instrucciones"
+          textStyles
           value={description}
           disabled={submitting}
           onChange={setDescription}
@@ -818,6 +820,7 @@ export function CreateOrderForm({
         Notas internas
         <RichTextEditor
           ariaLabel="Notas internas"
+          textStyles
           value={notes}
           disabled={submitting}
           onChange={setNotes}

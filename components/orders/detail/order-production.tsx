@@ -74,6 +74,7 @@ export function OrderProduction({
         <FactRow label="Instrucciones">
           <RichTextEditor
             ariaLabel="Instrucciones"
+            textStyles
             value={draft.description}
             onChange={(value) => onDraftChange({ description: value })}
           />
@@ -204,6 +205,7 @@ export function OrderProduction({
         ) : (
           <RichTextContent
             value={order.description}
+            textStyles
             className="gc-fact-value mt-1.5 text-base font-medium leading-relaxed"
           />
         )}
