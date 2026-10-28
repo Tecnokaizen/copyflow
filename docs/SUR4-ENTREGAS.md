@@ -26,7 +26,7 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 | E7 · Secuencia: base de datos | Hecha en local | `99207b4` | Migración `20261028130000_order_work_sequence_v1.sql`: `work_stages` (catálogo por tenant, sin semilla, nunca se borra) y `order_work_steps` (1–10 pasos, persona opcional mientras está pendiente, ejecutor, cuenta que marca, «Le toca» calculado). Función `order_work_sequence` apagada por defecto. RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1`, `team_work_load_v1`, `upsert_work_stage_v1` y `create_suggested_work_stages_v1`. `phase62_order_work_sequence_v1.sql` PASS (D5, D6, D14, D15, R6, tenants, roles, escritura directa, archivado, carga sin duplicar, retirada y vuelta de la función, purga), `phase62_order_work_sequence_concurrency.sh` PASS (C1, C2/C11, C3, C4, C8, C12, C13, C14, sesiones nuevas, TRUNCATE, baja de tenant), `phase63_order_features_isolation.sql` PASS (matriz de cuatro tenants, T1, T2, T4, T9, T10). Rollback probado: se niega con datos, quita concesiones y se vuelve a aplicar. Las 45 suites de la base del release gate PASS en local con E5 y E7 | N15 |
 | E8 · Secuencia: API, Configuración y ficha | Hecha en local | `ac83417` | Rutas de pasos y fases con 404 sin la función; 51 pruebas. En el navegador: marcar un paso con ejecutor, «Paso hecho: Preparación, por Raquel» en el historial, cambio de estado posterior sin conflicto, editor con pasos hechos bloqueados, lista vertical a 390 px, Configuración › Fases de trabajo | N15 |
 | E9 · Secuencia: listas y panel | Hecha en local | `df7856d` | Indicador «Le toca» y filtros «Le toca a» y «Participa» en Pedidos; grupos de Mis pedidos; Mostrador; «Le toca ahora» en el panel. Sin la función o sin fases activas, respuestas iguales a HEAD (13 peticiones comparadas). Recuento sin duplicar comprobado en PostgREST y SQL. En el navegador con `sur4lab` | N15 |
-| E10 · Integración | Pendiente | — | — | Staging autorizado |
+| E10 · Integración | Preparada | — | E2E de DEMO de los cuatro tenants `e2e-sur4-*` (`seed-sur4.ts`, `sur4-features.ts`): PASS en local el 28/10 con la matriz, post-its y secuencia desde la ficha, Hoja, resguardo, retirada y vuelta de funciones, `viewer` y aislamiento. Ensayo de fusión con `97fbc59` hecho. Falta la ventana de Staging | Ronda C, CI verde, OK del propietario, dominios de Vercel |
 | E11 · Ayuda y cierre | Ayuda hecha | — | Cuatro artículos nuevos (post-its, secuencia, fases, Hoja y resguardo) con los nombres finales de los botones; `crear-pedido` ya no dice que las notas se imprimen. Pruebas de ayuda 27/27. Novedades, con la fecha del merge | E10 |
 
 N15 = F12 cerrada y #146 fusionada en `main`.
@@ -224,6 +224,47 @@ Pasos, en este orden y sin saltarse ninguno:
    `e2e-sur4-completo`, todos `.preview.app.gestcopy.com`.
    DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
    (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
-   Nunca en el tenant real de SUR4.
+   Nunca en el tenant real de SUR4. Con los scripts de abajo:
+   `seed-sur4.ts` y después `sur4-features.ts`.
 7. Registro PASS/FAIL en este documento. Si algo falla: retirar concesiones y,
    si hace falta, los ficheros de `supabase/rollbacks/` en orden inverso.
+
+### E2E de DEMO (preparado el 28/10)
+
+Dos scripts en `e2e/staging/`, con el mismo guard, harness y redactor que el
+E2E de Staging V0:
+
+- `seed-sur4.ts` (servidor, clave de servicio): crea o re-sincroniza los
+  cuatro tenants `e2e-sur4-*` con `create_internal_organization_v1`, un
+  propietario sintético por tenant (`{slug}-owner@example.com`, confirmado por
+  la API de administración, sin correo) y un `viewer` en `completo`. Pone las
+  cuatro funciones según la matriz con `set_tenant_feature_v2` (auditada, solo
+  si el estado cambia; `E2E_SUR4_OPERATOR` dice quién lo autoriza). No borra
+  nada ni toca otro tenant.
+- `sur4-features.ts` (navegador): por tenant, equipo (dos personas que
+  reciben pedidos y una que no), servicio, tiendas y cuatro pedidos por la
+  API; lo que muestran la ficha, la API, la Hoja de trabajo y el PDF del
+  resguardo según sus funciones; post-its desde la ficha (interna, imprimible
+  con confirmación, fijar y desfijar, anulada, «Pasar a post-it») y secuencia
+  desde la ficha (fases sugeridas, tres pasos: dos personas y uno sin asignar,
+  el primero hecho). Después: cada función se apaga y se enciende con los datos
+  intactos (siempre se restaura la matriz); el `viewer` lee y no escribe; cada
+  tenant recibe 404 en pedidos, notas, pasos, Hoja y resguardo de los demás, y
+  con su propio JWT PostgREST no ve filas ajenas (todas las suyas llevan su
+  `tenant_id`), las RPC rechazan ids ajenos y la inserción directa falla.
+- El guard deriva los cuatro hosts (no los lee del entorno) y rechaza
+  Production, otros tenants y buckets ajenos. `E2E_SUR4_MODE=local` solo
+  admite `http://{slug}.localhost:<puerto>` y Supabase en `127.0.0.1`, sin R2.
+
+Prueba local (28/10, 22:07Z, pila aislada con las 2 migraciones): **PASS**.
+4 tenants, 0 errores de consola, 0 peticiones bloqueadas; aislamiento con
+38–40 intentos ajenos denegados por tenant. Durante el ajuste solo se
+corrigió el propio script (el aviso que deja «Pasar a post-it» hasta recargar,
+el botón de secuencia que solo aparece con fases, y textos en mayúsculas por
+CSS en la Hoja); ningún fallo de la aplicación. Tipos, lint, pruebas del guard
+(12) y de la puerta de release (41) OK.
+
+Variables del E2E en Staging (fichero local `.env.e2e-sur4.local`, fuera de
+git): `E2E_SUPABASE_URL`, `E2E_R2_BUCKET`, `E2E_SUPABASE_SECRET_KEY`,
+`E2E_SUPABASE_PUBLISHABLE_KEY`, `E2E_SUR4_PASSWORD`, `E2E_SUR4_OPERATOR`,
+`VERCEL_AUTOMATION_BYPASS_SECRET` y `PLAYWRIGHT_MODULE`.
