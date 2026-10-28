@@ -154,6 +154,27 @@ depende de S9:
   SMTP a la vez. `gestcopy-staging` está en `97fbc59` (#161 de
 Stripe, `dpl_BEPEcxjr…`, 19:41Z; rollback `dpl_7HARpUQ…`).
 
+**Decisión del propietario (28/10, ~21:40Z).** La ventana de Post-its (E10)
+se abre después de la ronda C del alta pública (#161), sin esperar a S9. El
+bloqueo real es la ronda C y, por ella, el SMTP de Brevo. Condiciones:
+
+1. Ronda C terminada correctamente sobre la versión actual de Staging
+   (`97fbc59`).
+2. PR #160 con todas las comprobaciones de CI aprobadas.
+3. Ventana prevista comunicada a las sesiones de integración y de Stripe.
+4. Autorización expresa del propietario en esta sesión antes del despliegue.
+5. Ventana exclusiva de 1,5–2 h, sin S9, cambios de SMTP, copias ni otros
+   despliegues a la vez.
+6. Validación de los cuatro tenants sintéticos `e2e-sur4-*`, incluido el
+   aislamiento por `tenant_id`, permisos y RLS.
+7. Resultados registrados aquí. E10 se cierra solo con todas las pruebas en
+   PASS.
+
+Varias funciones pueden avanzar a la vez en ramas o sesiones distintas, pero
+lo que modifica Staging se coordina y va de uno en uno. S9 conserva todos los
+tenants `e2e-*`, también los que se creen después (confirmado por la sesión de
+Stripe, que no borrará por patrón).
+
 Pasos, en este orden y sin saltarse ninguno:
 
 1. Confirmación de la sesión de Stripe (S9 terminado). Volver a leer
