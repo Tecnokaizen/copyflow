@@ -15,9 +15,11 @@ import {
   INVALID_CONFIRM_TYPE,
   MISSING_CONFIRM_PARAMS,
   confirmErrorPath,
+  confirmedCookieOptions,
   confirmedLoginPath,
   confirmedPath,
   parseConfirmCallback,
+  resolveConfirmOutcome,
   resolveConfirmRedirect,
   type ConfirmAuthClient,
 } from "./confirm-callback";
@@ -292,6 +294,87 @@ describe("/auth/confirm when the email is confirmed but there is no session", ()
   });
 });
 
+describe("/auth/confirmed cookie", () => {
+  // Review of 4a542c5 (28/10): the page must not show success when opened
+  // directly. The route sets this cookie only after a real confirmation.
+
+  it("is requested only when Supabase Auth recognised the code", async () => {
+    const cases = [
+      {
+        name: "another device, real code",
+        auth: fakeAuth({
+          exchangeError: MISSING_VERIFIER_MESSAGE,
+          exchangeErrorCode: "pkce_code_verifier_not_found",
+        }),
+        probe: true,
+        query: "next=%2Fonboarding&code=abc",
+        expected: true,
+      },
+      {
+        name: "expired sign-up flow",
+        auth: fakeAuth({
+          exchangeError: "expired",
+          exchangeErrorCode: "flow_state_expired",
+        }),
+        probe: false,
+        query: "code=abc",
+        expected: true,
+      },
+      {
+        name: "another device, made-up code",
+        auth: fakeAuth({
+          exchangeError: MISSING_VERIFIER_MESSAGE,
+          exchangeErrorCode: "pkce_code_verifier_not_found",
+        }),
+        probe: false,
+        query: "code=abc",
+        expected: false,
+      },
+      {
+        name: "session opened",
+        auth: fakeAuth(),
+        probe: true,
+        query: "next=%2Fauth%2Fconfirmed&code=abc",
+        expected: false,
+      },
+      {
+        name: "token_hash verified",
+        auth: fakeAuth(),
+        probe: true,
+        query: "token_hash=h&type=signup",
+        expected: false,
+      },
+      {
+        name: "nothing to verify",
+        auth: fakeAuth(),
+        probe: true,
+        query: "next=%2Fauth%2Fconfirmed",
+        expected: false,
+      },
+    ];
+
+    for (const c of cases) {
+      const outcome = await resolveConfirmOutcome(
+        params(c.query),
+        c.auth.getAuthClient,
+        fakeProbe(c.probe).probe
+      );
+      assert.equal(outcome.emailConfirmedWithoutSession, c.expected, c.name);
+    }
+  });
+
+  it("is short-lived, httpOnly and limited to the confirmed page", () => {
+    assert.deepEqual(confirmedCookieOptions(true), {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/auth/confirmed",
+      secure: true,
+      maxAge: 300,
+    });
+    assert.equal(confirmedCookieOptions(false).secure, false);
+  });
+});
+
 describe("/auth/confirm with token_hash and type (custom email template)", () => {
   it("verifies the token and continues to next", async () => {
     const auth = fakeAuth();
@@ -428,9 +511,22 @@ describe("/auth/confirm route wiring", () => {
       "utf8"
     );
 
-    assert.match(source, /resolveConfirmRedirect\(/);
+    assert.match(source, /resolveConfirmOutcome\(/);
     assert.equal(source.match(/redirect\(/g)?.length, 1);
     assert.doesNotMatch(source, /No token hash or type/);
+  });
+
+  it("sets the confirmed cookie only for a confirmed email without session", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "app/auth/confirm/route.ts"),
+      "utf8"
+    );
+
+    assert.equal(source.match(/\.set\(/g)?.length, 1);
+    assert.match(
+      source,
+      /if \(outcome\.emailConfirmedWithoutSession\) \{\s*\(await cookies\(\)\)\.set\(\s*CONFIRMED_COOKIE,/
+    );
   });
 
   it("passes the Supabase Auth probe with the public URL and key", () => {
@@ -454,5 +550,24 @@ describe("/auth/confirm route wiring", () => {
     assert.match(source, /Correo confirmado/);
     assert.match(source, /Ya puedes iniciar sesión\./);
     assert.match(source, /confirmedLoginPath\(params\.next\)/);
+  });
+
+  it("shows nothing on the confirmed page without the cookie", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "app/auth/confirmed/page.tsx"),
+      "utf8"
+    );
+    const check = source.indexOf("if (!cookieStore.has(CONFIRMED_COOKIE))");
+
+    assert.ok(check > 0, "checks the cookie");
+    assert.match(
+      source.slice(check),
+      /^if \(!cookieStore\.has\(CONFIRMED_COOKIE\)\) \{\s*redirect\(loginPath\);/
+    );
+    // The success text only exists after the check, and the fallback is empty.
+    assert.ok(source.indexOf("Correo confirmado</CardTitle>") > check);
+    assert.ok(source.indexOf("Ya puedes iniciar sesión.") > check);
+    assert.match(source, /<Suspense fallback=\{null\}>/);
+    assert.doesNotMatch(source, /title: "Correo confirmado"/);
   });
 });
