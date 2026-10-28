@@ -21,9 +21,9 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 | E2 · Impresión segura | Pendiente | — | — | N15, N11, auditoría N23, tienda (SUR4) |
 | E3 · Ficha reorganizada | Pendiente | — | — | N15 |
 | E4 · Resguardo PDF | Pendiente | — | — | N15, N9, N12 |
-| E5 · Post-its: base de datos | Hecha en local | `ca03c4e` | Migración `20261028120000_order_notes_v1.sql`: tablas `order_notes`, `order_note_versions` y `order_note_events` (historial solo de añadir), funciones `order_sticky_notes`, `order_custom_labels` y `order_work_sheet_ficha` apagadas por defecto, RLS de lectura por miembro y función activa, escritura solo por RPC. Base local aislada desde cero: invariantes del release gate PASS, `phase60_order_notes_v1.sql` PASS (roles, tres tenants, función apagada y retirada, impresión con autorización, N4/N5, «Pasar a post-it», historial, purga y supresión T11/T12), `phase60_order_notes_concurrency.sh` PASS (C4, C5, C6, C7, C9, sesiones nuevas, baja de tenant). Rollback `supabase/rollbacks/20261028120000_order_notes_v1.sql` probado (quitar y volver a aplicar). Ambas suites añadidas al CI | N15, N3, N4, N5, N8 |
+| E5 · Post-its: base de datos | Hecha en local | `ca03c4e` | Migración `20261028120000_order_notes_v1.sql`: tablas `order_notes`, `order_note_versions` y `order_note_events` (historial solo de añadir), funciones `order_sticky_notes`, `order_custom_labels` y `order_work_sheet_ficha` apagadas por defecto, RLS de lectura por miembro y función activa, escritura solo por RPC. Base local aislada desde cero: invariantes del release gate PASS, `phase61_order_notes_v1.sql` PASS (roles, tres tenants, función apagada y retirada, impresión con autorización, N4/N5, «Pasar a post-it», historial, purga y supresión T11/T12), `phase61_order_notes_concurrency.sh` PASS (C4, C5, C6, C7, C9, sesiones nuevas, baja de tenant). Rollback `supabase/rollbacks/20261028120000_order_notes_v1.sql` probado (quitar y volver a aplicar). Ambas suites añadidas al CI | N15, N3, N4, N5, N8 |
 | E6 · Post-its: API y ficha | Pendiente | — | — | N15 |
-| E7 · Secuencia: base de datos | Hecha en local | `99207b4` | Migración `20261028130000_order_work_sequence_v1.sql`: `work_stages` (catálogo por tenant, sin semilla, nunca se borra) y `order_work_steps` (1–10 pasos, persona opcional mientras está pendiente, ejecutor, cuenta que marca, «Le toca» calculado). Función `order_work_sequence` apagada por defecto. RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1`, `team_work_load_v1`, `upsert_work_stage_v1` y `create_suggested_work_stages_v1`. `phase61_order_work_sequence_v1.sql` PASS (D5, D6, D14, D15, R6, tenants, roles, escritura directa, archivado, carga sin duplicar, retirada y vuelta de la función, purga), `phase61_order_work_sequence_concurrency.sh` PASS (C1, C2/C11, C3, C4, C8, C12, C13, C14, sesiones nuevas, TRUNCATE, baja de tenant), `phase62_order_features_isolation.sql` PASS (matriz de cuatro tenants, T1, T2, T4, T9, T10). Rollback probado: se niega con datos, quita concesiones y se vuelve a aplicar. Las 45 suites de la base del release gate PASS en local con E5 y E7 | N15 |
+| E7 · Secuencia: base de datos | Hecha en local | `99207b4` | Migración `20261028130000_order_work_sequence_v1.sql`: `work_stages` (catálogo por tenant, sin semilla, nunca se borra) y `order_work_steps` (1–10 pasos, persona opcional mientras está pendiente, ejecutor, cuenta que marca, «Le toca» calculado). Función `order_work_sequence` apagada por defecto. RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1`, `team_work_load_v1`, `upsert_work_stage_v1` y `create_suggested_work_stages_v1`. `phase62_order_work_sequence_v1.sql` PASS (D5, D6, D14, D15, R6, tenants, roles, escritura directa, archivado, carga sin duplicar, retirada y vuelta de la función, purga), `phase62_order_work_sequence_concurrency.sh` PASS (C1, C2/C11, C3, C4, C8, C12, C13, C14, sesiones nuevas, TRUNCATE, baja de tenant), `phase63_order_features_isolation.sql` PASS (matriz de cuatro tenants, T1, T2, T4, T9, T10). Rollback probado: se niega con datos, quita concesiones y se vuelve a aplicar. Las 45 suites de la base del release gate PASS en local con E5 y E7 | N15 |
 | E8 · Secuencia: API, Configuración y ficha | Pendiente | — | — | N15 |
 | E9 · Secuencia: listas y panel | Pendiente | — | — | N15 |
 | E10 · Integración | Pendiente | — | — | Staging autorizado |
@@ -61,12 +61,13 @@ Anotadas para la revisión del propietario. Ninguna cambia una decisión de nego
 | E5 | — | Cualquier acción sobre una nota anulada responde `conflict` | La anulación es definitiva; evita reabrir por carrera |
 | E5 | — | La supresión de texto funciona también en pedidos archivados | Una petición de datos personales no espera a que el pedido vuelva a estar activo |
 | E5 | — | El trigger de actividad de contenido no copia `orders.notes` cuando lo vacía «Pasar a post-it» | Si no, el texto antiguo acabaría en `activity_log` |
-| E7 | Las RPC ponen `app.order_write` y entran en `phase58_order_rpc_integrity` | No la mencionan; sus pruebas están en `phase61` | Invariante 7c del release gate, como en E5 |
+| E7 | Las RPC ponen `app.order_write` y entran en `phase58_order_rpc_integrity` | No la mencionan; sus pruebas están en `phase62` | Invariante 7c del release gate, como en E5 |
 | E7 | Errores de F1·01/02 | `member_unavailable` pasa a `member_unassignable` (contrato). Más `invalid_action` en marcar, y `invalid_name`, `invalid_icon`, `invalid_sort_order`, `duplicate_name` y `too_many_stages` en fases | Entradas mal formadas no deben caer en un 500 |
 | E7 | RPC de fases sin definir en F1·01/02 | `upsert_work_stage_v1` (alta y cambio, incluida la desactivación) y `create_suggested_work_stages_v1` (*Crear fases sugeridas*, idempotente). Máximo 30 fases por tenant | El contrato pide una RPC de fases; F1 solo describía la RLS de catálogo |
 | E7 | — | Las fases y los pasos tampoco se leen con `service_role` (solo `authenticated`, con RLS) | Mismo patrón que las líneas de pedido; ninguna ruta de servidor los lee con la clave de servicio |
 | E7 | — | `team_work_load_v1` también devuelve `current_unassigned` y `current_unavailable` (turnos sin persona o con persona no elegible) | Para el filtro *Pasos sin asignar* y el aviso de D6 sin otra consulta |
 | E7 | Paso hecho: ejecutor «Lo hice yo» u otra persona elegible | El ejecutor debe cumplir R6 (activa y puede recibir pedidos), como la persona asignada | Una sola regla de elegibilidad (ajuste 2) |
+| E5/E7 | Pruebas «desde phase60» (contrato, §pruebas) | `phase61` (post-its), `phase62` (secuencia) y `phase63` (aislamiento) | `phase60_commercial_plans_pro.sql` ya existe en `gestcopy-staging` (plan Pro, sesión de Stripe). Renumeradas el 28/10 para no chocar al integrar; las cinco suites vuelven a pasar en local con el nombre nuevo |
 
 ## Orden de migraciones
 
@@ -83,3 +84,40 @@ Production, no aquí.
 - Auditoría N23 en Production, con su propia autorización (antes del merge de E2).
 - Visto bueno de Tamara para #146 (puerta N15).
 - Significado de las fechas de prueba (N10): no bloquea ninguna entrega.
+
+## Ventana de Staging (E10)
+
+Coordinada con la sesión de release (28/10, 01:55Z: no necesita ventana en
+Staging; F12.2 es de solo lectura en Production desde las 20:03Z) y con la
+sesión de Stripe, dueña de `20261028090000`, la última migración aplicada en
+Staging (87).
+
+**Staging congelado (28/10).** La sesión de Stripe tiene en curso su E2E de
+facturación, que fija el despliegue `1ea797e` en `gestcopy-staging`. Hasta que
+confirme el final (su paso S9), esta rama no mueve `gestcopy-staging` ni aplica
+migraciones en Staging, salvo decisión del propietario. El runner de copias de
+Staging se puede usar en modo lectura, nunca a la vez que otra copia.
+
+Pasos, en este orden y sin saltarse ninguno:
+
+1. Confirmación de la sesión de Stripe (S9 terminado). Volver a leer
+   `origin/gestcopy-staging` justo antes de empezar (hoy `1ea797e`) y avisar a
+   las dos sesiones.
+2. Copia de Staging verificada de menos de 2 h con el runner B1.3 de Staging
+   (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
+3. Rama de integración propia (`integration/staging-<fecha>-sur4`) desde
+   `origin/gestcopy-staging`, con esta rama fusionada encima (merge, nunca
+   rebase ni force push). Conflictos ya conocidos: `kiosk-supabase.yml`,
+   `app/api/orders/options/route.ts` (queda el lado de Staging) y las
+   importaciones de #156 en `order-header.tsx`, `order-production.tsx` y
+   `order-quick-actions.tsx`. CI en verde en esa rama.
+4. `supabase db push --dry-run` contra Staging: solo puede listar
+   `20261028120000` y `20261028130000`. Se aplican por separado, cada una con
+   su comprobación (tablas, RLS, funciones apagadas en todos los tenants).
+5. Despliegue de la rama de integración en Staging y smoke de pedidos sin
+   funciones (tenant `e2e`): ficha, Hoja estándar sin notas, Resguardo.
+6. DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
+   (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
+   Nunca en el tenant real de SUR4.
+7. Registro PASS/FAIL en este documento. Si algo falla: retirar concesiones y,
+   si hace falta, los ficheros de `supabase/rollbacks/` en orden inverso.

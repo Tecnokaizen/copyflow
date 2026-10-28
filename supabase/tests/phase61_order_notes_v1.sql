@@ -6,7 +6,7 @@ begin;
 create function pg_temp.ok(p boolean, label text) returns void language plpgsql as $$
 begin
   if p is distinct from true then
-    raise exception 'phase60 notes: %', label;
+    raise exception 'phase61 notes: %', label;
   end if;
 end $$;
 
@@ -18,9 +18,9 @@ begin
     if sqlstate = expected and (msg is null or sqlerrm = msg) then
       return;
     end if;
-    raise exception 'phase60 notes expected % %, got %: % (statement: %)', expected, coalesce(msg, ''), sqlstate, sqlerrm, statement;
+    raise exception 'phase61 notes expected % %, got %: % (statement: %)', expected, coalesce(msg, ''), sqlstate, sqlerrm, statement;
   end;
-  raise exception 'phase60 notes unexpectedly succeeded: %', statement;
+  raise exception 'phase61 notes unexpectedly succeeded: %', statement;
 end $$;
 
 create function pg_temp.as_user(u uuid) returns void language plpgsql as $$
@@ -98,20 +98,20 @@ declare
 begin
   -- Fixtures (postgres).
   insert into auth.users (id, email, raw_user_meta_data) values
-    (a, 'a@phase60.test', '{}'), (ad, 'ad@phase60.test', '{}'), (mg, 'mg@phase60.test', '{}'),
-    (s, 's@phase60.test', '{}'), (s2, 's2@phase60.test', '{}'), (vw, 'vw@phase60.test', '{}'),
-    (b, 'b@phase60.test', '{}'), (c, 'c@phase60.test', '{}'), (gone, 'gone@phase60.test', '{}');
+    (a, 'a@phase61.test', '{}'), (ad, 'ad@phase61.test', '{}'), (mg, 'mg@phase61.test', '{}'),
+    (s, 's@phase61.test', '{}'), (s2, 's2@phase61.test', '{}'), (vw, 'vw@phase61.test', '{}'),
+    (b, 'b@phase61.test', '{}'), (c, 'c@phase61.test', '{}'), (gone, 'gone@phase61.test', '{}');
   insert into public.profiles (id, full_name) values
     (a, 'Ana'), (ad, 'Adela'), (mg, 'Marta'), (s, 'Sara'), (s2, 'Sergio'), (vw, 'Vera'),
     (b, 'Bruno'), (c, 'Carla'), (gone, 'Gonzalo');
   insert into public.tenants (id, name, slug, active) values
-    (ta, 'Phase60 A', 'phase60a', true), (tb, 'Phase60 B', 'phase60b', true), (tc, 'Phase60 C', 'phase60c', true);
+    (ta, 'Phase61 A', 'phase61a', true), (tb, 'Phase61 B', 'phase61b', true), (tc, 'Phase61 C', 'phase61c', true);
   insert into public.memberships (tenant_id, user_id, role, active) values
     (ta, a, 'owner', true), (ta, ad, 'admin', true), (ta, mg, 'manager', true), (ta, s, 'staff', true),
     (ta, s2, 'staff', true), (ta, vw, 'viewer', true), (ta, gone, 'staff', false),
     (tb, b, 'owner', true), (tc, c, 'owner', true);
-  perform public.set_tenant_feature('phase60a', 'order_sticky_notes', true, null);
-  perform public.set_tenant_feature('phase60b', 'order_sticky_notes', true, null);
+  perform public.set_tenant_feature('phase61a', 'order_sticky_notes', true, null);
+  perform public.set_tenant_feature('phase61b', 'order_sticky_notes', true, null);
   insert into public.order_statuses (id, tenant_id, name, code, active, sort_order, is_initial, is_ready, is_closed, is_cancelled) values
     (st_a, ta, 'Recibido', 'received', true, 1, true, false, false, false),
     (st_a_closed, ta, 'Entregado', 'delivered', true, 2, false, false, true, false),
@@ -226,13 +226,13 @@ begin
   set local role authenticated;
   perform pg_temp.ok(pg_temp.err(public.create_order_note_v1(o_c, '<p>x</p>')) = 'not_found', 'feature off: not_found');
   reset role;
-  perform public.set_tenant_feature('phase60c', 'order_sticky_notes', true, null);
+  perform public.set_tenant_feature('phase61c', 'order_sticky_notes', true, null);
   set local role authenticated;
   r := public.create_order_note_v1(o_c, '<p>Nota de C</p>');
   n_c := (r->'note'->>'id')::uuid;
   perform pg_temp.ok(pg_temp.err(r) = 'ok', 'granted: C creates a note');
   reset role;
-  perform public.set_tenant_feature('phase60c', 'order_sticky_notes', false, null);
+  perform public.set_tenant_feature('phase61c', 'order_sticky_notes', false, null);
   set local role authenticated;
   perform pg_temp.ok((select count(*) = 0 from public.order_notes where tenant_id = tc), 'withdrawn: RLS hides the rows');
   perform pg_temp.ok((select count(*) = 0 from public.order_note_versions where tenant_id = tc), 'withdrawn: RLS hides the versions');
@@ -489,7 +489,7 @@ begin
   perform pg_temp.ok((select count(*) = 0 from public.order_notes n where not exists (
     select 1 from public.order_note_versions v where v.tenant_id = n.tenant_id and v.id = n.current_version_id)), 'every note points at a version');
 
-  raise notice 'phase60 order notes PASS';
+  raise notice 'phase61 order notes PASS';
 end $$;
 
 rollback;

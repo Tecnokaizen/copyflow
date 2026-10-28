@@ -29,14 +29,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-sql "insert into auth.users(id,email,raw_user_meta_data) values('$OWNER','owner@phase60c.test','{}'),('$STAFF','staff@phase60c.test','{}');
+sql "insert into auth.users(id,email,raw_user_meta_data) values('$OWNER','owner@phase61c.test','{}'),('$STAFF','staff@phase61c.test','{}');
 insert into public.profiles(id,full_name) values('$OWNER','Dueña'),('$STAFF','Raquel');
-insert into public.tenants(id,name,slug,active) values('$TENANT','Notes concurrency','phase60conc',true);
+insert into public.tenants(id,name,slug,active) values('$TENANT','Notes concurrency','phase61conc',true);
 insert into public.memberships(tenant_id,user_id,role,active) values('$TENANT','$OWNER','owner',true),('$TENANT','$STAFF','staff',true);
 insert into public.order_statuses(tenant_id,name,code,active,sort_order,is_initial,is_ready,is_closed,is_cancelled) values
   ('$TENANT','Recibido','received',true,1,true,false,false,false),
   ('$TENANT','Entregado','delivered',true,2,false,false,true,false);
-select public.set_tenant_feature('phase60conc','order_sticky_notes',true,null);" >/dev/null
+select public.set_tenant_feature('phase61conc','order_sticky_notes',true,null);" >/dev/null
 
 new_order() { # $1 id, $2 status code
   sql "$(as_user "$OWNER" "insert into public.orders(id,tenant_id,title,status_id,created_by) select '$1','$TENANT','Concurrente',id,'$OWNER' from public.order_statuses where tenant_id='$TENANT' and code='${2:-received}'")" >/dev/null

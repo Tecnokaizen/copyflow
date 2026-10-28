@@ -6,7 +6,7 @@ begin;
 create function pg_temp.ok(p boolean, label text) returns void language plpgsql as $$
 begin
   if p is distinct from true then
-    raise exception 'phase62 isolation: %', label;
+    raise exception 'phase63 isolation: %', label;
   end if;
 end $$;
 
@@ -44,7 +44,7 @@ declare
   t_sur4 uuid := 'e6200000-0000-4000-8000-000000000014';
   tids uuid[];
   owners uuid[];
-  slugs text[] := array['phase62base', 'phase62notes', 'phase62seq', 'phase62sur4'];
+  slugs text[] := array['phase63base', 'phase63notes', 'phase63seq', 'phase63sur4'];
   has_notes boolean[] := array[false, true, false, true];
   has_seq boolean[] := array[false, false, true, true];
   has_ficha boolean[] := array[false, false, false, true];
@@ -67,7 +67,7 @@ begin
   owners := array[u_base, u_notes, u_seq, u_sur4];
 
   for i in 1..4 loop
-    insert into auth.users (id, email, raw_user_meta_data) values (owners[i], slugs[i] || '@phase62.test', '{}');
+    insert into auth.users (id, email, raw_user_meta_data) values (owners[i], slugs[i] || '@phase63.test', '{}');
     insert into public.profiles (id, full_name) values (owners[i], 'Owner ' || slugs[i]);
     insert into public.tenants (id, name, slug, active) values (tids[i], slugs[i], slugs[i], true);
     insert into public.memberships (tenant_id, user_id, role, active) values (tids[i], owners[i], 'owner', true);
@@ -161,12 +161,12 @@ begin
   -- Granting one feature to «SUR4» again changes nothing for the others.
   perform pg_temp.as_postgres();
   log_before := (select count(*) from public.tenant_feature_overrides where tenant_id <> t_sur4 and tenant_id = any (tids));
-  perform public.set_tenant_feature('phase62sur4', 'order_work_sequence', false, null);
-  perform public.set_tenant_feature('phase62sur4', 'order_work_sequence', true, null);
+  perform public.set_tenant_feature('phase63sur4', 'order_work_sequence', false, null);
+  perform public.set_tenant_feature('phase63sur4', 'order_work_sequence', true, null);
   perform pg_temp.ok((select count(*) from public.tenant_feature_overrides where tenant_id <> t_sur4 and tenant_id = any (tids)) = log_before, 'regranting SUR4 leaves the others alone');
   perform pg_temp.ok(not public.tenant_has_feature(t_notes, 'order_work_sequence') and not public.tenant_has_feature(t_seq, 'order_sticky_notes'), 'post-its and sequence stay independent');
 
-  raise notice 'phase62 order features isolation PASS';
+  raise notice 'phase63 order features isolation PASS';
 end $$;
 
 rollback;
