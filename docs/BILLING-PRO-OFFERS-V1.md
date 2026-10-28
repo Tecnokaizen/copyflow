@@ -358,7 +358,7 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
 **Ronda con `97fbc59` (autorización del propietario del 28/10, puntos 6 y 7):**
 1. **Alta A en el mismo navegador** (`tecnokaizen+authfix@gmail.com`): pasos 1–4. El resultado esperado es `/onboarding` con sesión.
 2. **Enlace reutilizado:** pulsar otra vez el enlace del alta A. Debe ir a `/auth/error` con «Email link is invalid or has expired».
-3. **Alta B en otro navegador** (otra identidad nueva autorizada por el propietario, por ejemplo `tecnokaizen+authfix2@gmail.com`):
+3. **Alta B en otro navegador** (`tecnokaizen+authfix2@gmail.com`, autorizada por el propietario el 28/10):
    - registrarse en el navegador 1;
    - abrir el enlace del correo **en otro navegador o dispositivo**, que también necesita la sesión de Vercel;
    - debe mostrar «Correo confirmado» y «Ya puedes iniciar sesión.», con el botón «Iniciar sesión»;
