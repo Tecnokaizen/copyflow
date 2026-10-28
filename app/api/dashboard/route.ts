@@ -28,7 +28,7 @@ const ORDER_PREVIEW_SELECT = `
   title,
   priority,
   due_at,
-  assigned_team_member:team_members(name),
+  assigned_team_member:team_members!orders_team_member_fk(name),
   status:order_statuses!inner(name, is_ready, is_closed, is_cancelled)
 `;
 
