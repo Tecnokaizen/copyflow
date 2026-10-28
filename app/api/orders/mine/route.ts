@@ -11,6 +11,17 @@ import {
 } from "@/lib/orders/mine";
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import {
+  bucketMineTurnOrders,
+  loadWorkSequenceEnabled,
+  mergeRowsById,
+  mineTurnFlags,
+  MY_PENDING_STEPS_ALIAS,
+  semiJoinEmbed,
+  summarizeWorkSteps,
+  withWorkTurnSelect,
+  type MineTurnOrder,
+} from "@/lib/orders/work-turn";
+import {
   getZonedDayBounds,
   resolveTimeZone,
 } from "@/lib/time/zoned-day";
@@ -33,23 +44,38 @@ const MINE_SELECT = `
 
 const PAGE_SIZE = 200;
 
+// SUR4 E9: with the work sequence, each order carries its steps, and a second
+// query brings the orders where I have a pending step (semi-join, one row per
+// order). Without it, only the first query runs, exactly as before.
+const MINE_TURN_SELECT = withWorkTurnSelect(MINE_SELECT);
+const MINE_STEPS_SELECT = `${MINE_TURN_SELECT},\n  ${semiJoinEmbed(MY_PENDING_STEPS_ALIAS)}`;
+
+type MineQueryMode =
+  | { kind: "responsible"; select: string }
+  | { kind: "pending_step"; select: string };
+
 async function fetchAssignedActiveOrders(
   supabase: SupabaseClient,
   tenantId: string,
-  assignedTeamMemberId: string
+  assignedTeamMemberId: string,
+  mode: MineQueryMode = { kind: "responsible", select: MINE_SELECT }
 ) {
   const orders: unknown[] = [];
   let offset = 0;
   let total: number | null = null;
 
   while (true) {
-    const { data, error, count } = await applyOperationalOrdersFilter(
-      supabase
-        .from("orders")
-        .select(MINE_SELECT, { count: "exact" })
-        .eq("tenant_id", tenantId)
-        .eq("assigned_team_member_id", assignedTeamMemberId)
-    )
+    const base = supabase
+      .from("orders")
+      .select(mode.select, { count: "exact" })
+      .eq("tenant_id", tenantId);
+    const scoped =
+      mode.kind === "responsible"
+        ? base.eq("assigned_team_member_id", assignedTeamMemberId)
+        : base
+            .eq(`${MY_PENDING_STEPS_ALIAS}.team_member_id`, assignedTeamMemberId)
+            .is(`${MY_PENDING_STEPS_ALIAS}.completed_at`, null);
+    const { data, error, count } = await applyOperationalOrdersFilter(scoped)
       .order("due_at", { ascending: true, nullsFirst: false })
       .order("reference", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
@@ -129,6 +155,19 @@ export async function GET() {
     });
   }
 
+  const workSequence = await loadWorkSequenceEnabled(supabase, scope.tenantId);
+
+  if (workSequence) {
+    return mineWithWorkSequence({
+      supabase,
+      tenantSlug: context.tenant.slug,
+      tenantId: scope.tenantId,
+      teamMember,
+      teamMemberId: scope.assignedTeamMemberId,
+      timezone,
+    });
+  }
+
   const result = await fetchAssignedActiveOrders(
     supabase,
     scope.tenantId,
@@ -167,5 +206,87 @@ export async function GET() {
     count: orders.length,
     sections,
     orders,
+  });
+}
+
+async function mineWithWorkSequence(input: {
+  supabase: SupabaseClient;
+  tenantSlug: string;
+  tenantId: string;
+  teamMember: NonNullable<Awaited<ReturnType<typeof resolveCurrentTeamMember>>>;
+  teamMemberId: string;
+  timezone: string;
+}) {
+  const [responsible, pendingStep] = await Promise.all([
+    fetchAssignedActiveOrders(input.supabase, input.tenantId, input.teamMemberId, {
+      kind: "responsible",
+      select: MINE_TURN_SELECT,
+    }),
+    fetchAssignedActiveOrders(input.supabase, input.tenantId, input.teamMemberId, {
+      kind: "pending_step",
+      select: MINE_STEPS_SELECT,
+    }),
+  ]);
+
+  const failed = responsible.error ?? pendingStep.error;
+  if (failed) {
+    console.error("[GET /api/orders/mine] Could not load orders", {
+      tenantId: input.tenantId,
+      teamMemberId: input.teamMemberId,
+      error: failed,
+    });
+
+    return operationalJson(
+      { error: "Could not load orders" },
+      { status: 500 }
+    );
+  }
+
+  const now = new Date();
+  const orders = mergeRowsById(responsible.orders, pendingStep.orders).flatMap(
+    (row): MineTurnOrder[] => {
+      const order = mapMineOrderRow(row);
+      if (!order) {
+        return [];
+      }
+      const summary = summarizeWorkSteps(
+        (row as { work_steps?: unknown }).work_steps
+      );
+      return [
+        {
+          ...order,
+          work_turn: summary.turn,
+          my_turn: mineTurnFlags(
+            { assignedTeamMemberId: order.assigned_team_member_id, summary },
+            input.teamMemberId
+          ),
+        },
+      ];
+    }
+  );
+
+  const buckets = bucketMineTurnOrders(orders, {
+    now,
+    timeZone: input.timezone,
+  });
+  const all = buckets.find((bucket) => bucket.id === "all");
+  const allOrders = orders.filter(
+    (order) => order.my_turn.responsible || order.my_turn.turn
+  );
+
+  return operationalJson({
+    tenant: input.tenantSlug,
+    linked: true,
+    team_member: input.teamMember,
+    timezone: input.timezone,
+    today: getZonedDayBounds(now, input.timezone).date,
+    // Todo (default): Soy responsable ∪ Me toca, each order once.
+    count: allOrders.length,
+    sections: all?.sections ?? [],
+    orders: allOrders,
+    work_sequence: {
+      default_bucket: "all",
+      buckets,
+    },
   });
 }

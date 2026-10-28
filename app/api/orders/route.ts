@@ -32,6 +32,13 @@ import {
 } from "@/lib/stores/scope";
 import { mapStoreLookup } from "@/lib/stores/types";
 import { resolveTimeZone, getZonedWeekBoundsFromMonday, getZonedWeekMondayCivil, parseCivilDate } from "@/lib/time/zoned-day";
+import {
+  applyWorkTurnFilters,
+  attachWorkTurn,
+  loadWorkSequenceEnabled,
+  withWorkTurnSelect,
+  type WorkTurnListFilters,
+} from "@/lib/orders/work-turn";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PRIORITIES = ["normal", "high", "urgent"] as const;
@@ -411,13 +418,17 @@ async function fetchOrdersByDueAtRange(
     filter?: CalendarRangeFilter | null;
     assignedTeamMemberId?: string | null;
     storeFilter?: StoreListFilter;
+    // SUR4 E9: only with the work sequence on (embed + Le toca a / Participa).
+    workTurn?: WorkTurnListFilters | null;
   }
 ) {
   const orders = [];
   let total: number | null = null;
   let offset = 0;
   const activeOnly = options?.filter === "active";
-  const select = activeOnly ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  const baseSelect = activeOnly ? ORDER_SELECT_ACTIVE : ORDER_SELECT;
+  const workTurn = options?.workTurn ?? null;
+  const select = workTurn ? withWorkTurnSelect(baseSelect, workTurn) : baseSelect;
 
   while (true) {
     let query = supabase
@@ -450,6 +461,10 @@ async function fetchOrdersByDueAtRange(
 
     query = applyStoreListFilter(query, options?.storeFilter);
 
+    if (workTurn) {
+      query = applyWorkTurnFilters(query, workTurn);
+    }
+
     const { data, error, count } = await query
       .order("due_at", { ascending: true })
       .order("id", { ascending: true })
@@ -464,7 +479,8 @@ async function fetchOrdersByDueAtRange(
     }
 
     const rows = data ?? [];
-    orders.push(...omitRowVersionFromList(rows));
+    const listed = omitRowVersionFromList(rows);
+    orders.push(...(workTurn ? listed.map(attachWorkTurn) : listed));
 
     if (rows.length < DUE_AT_RANGE_CHUNK) {
       break;
@@ -487,18 +503,23 @@ async function fetchOrdersByDueAtRange(
 async function fetchActiveOrders(
   supabase: Awaited<ReturnType<typeof createClient>>,
   tenantId: string,
-  storeFilter?: StoreListFilter
+  storeFilter?: StoreListFilter,
+  workSequence = false
 ) {
   const orders = [];
   let total: number | null = null;
   let offset = 0;
+  // Por servicio: the answer carries the turn; its filter stays client side.
+  const select = workSequence
+    ? withWorkTurnSelect(ORDER_SELECT_ACTIVE)
+    : ORDER_SELECT_ACTIVE;
 
   while (true) {
     const { data, error, count } = await applyStoreListFilter(
       applyOperationalOrdersFilter(
         supabase
           .from("orders")
-          .select(ORDER_SELECT_ACTIVE, { count: "exact" })
+          .select(select, { count: "exact" })
           .eq("tenant_id", tenantId)
       ),
       storeFilter
@@ -517,7 +538,8 @@ async function fetchActiveOrders(
     }
 
     const rows = data ?? [];
-    orders.push(...omitRowVersionFromList(rows));
+    const listed = omitRowVersionFromList(rows);
+    orders.push(...(workSequence ? listed.map(attachWorkTurn) : listed));
 
     if (rows.length < DUE_AT_RANGE_CHUNK) {
       break;
@@ -654,6 +676,28 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient();
 
+  // SUR4 E9: without order_work_sequence (or without active stages) both new
+  // params are ignored, as any unknown param is today, and nothing changes.
+  const workSequence = await loadWorkSequenceEnabled(supabase, context.tenant.id);
+  const turnTeamMemberId = workSequence
+    ? searchParams.get("turn_team_member_id")?.trim() || null
+    : null;
+  const participantTeamMemberId = workSequence
+    ? searchParams.get("participant_team_member_id")?.trim() || null
+    : null;
+
+  if (
+    (turnTeamMemberId && !isUuid(turnTeamMemberId)) ||
+    (participantTeamMemberId && !isUuid(participantTeamMemberId))
+  ) {
+    return operationalJson({ error: "Invalid value" }, { status: 400 });
+  }
+
+  const workTurn: WorkTurnListFilters | null = workSequence
+    ? { turnTeamMemberId, participantTeamMemberId }
+    : null;
+  const workSequenceMeta = workSequence ? { work_sequence: true } : {};
+
   let rangeFrom = fromDate.value;
   let rangeTo = toDate.value;
   let weekMeta: {
@@ -701,9 +745,12 @@ export async function GET(request: NextRequest) {
 
   const dateFiltered = Boolean(rangeFrom || rangeTo);
 
-  // Dashboard deep link with only assignee → operative (active) scope.
+  // Dashboard deep link with only assignee (or turn) → operative (active) scope.
   const effectiveFilter: ListFilter | null =
-    listFilter ?? (assignedTeamMemberId || statusId ? "active" : null);
+    listFilter ??
+    (assignedTeamMemberId || statusId || turnTeamMemberId || participantTeamMemberId
+      ? "active"
+      : null);
 
   if (statusId) {
     const statusOk = await belongsToTenant(
@@ -746,15 +793,23 @@ export async function GET(request: NextRequest) {
     const calendarFilter: CalendarRangeFilter | null =
       rawFilter === "active" || rawFilter === "all" ? rawFilter : null;
 
-    if (assignedTeamMemberId) {
-      const assigneeOk = await belongsToTenant(
+    for (const memberId of [
+      assignedTeamMemberId,
+      turnTeamMemberId,
+      participantTeamMemberId,
+    ]) {
+      if (!memberId) {
+        continue;
+      }
+
+      const memberOk = await belongsToTenant(
         supabase,
         "team_members",
-        assignedTeamMemberId,
+        memberId,
         context.tenant.id
       );
 
-      if (!assigneeOk) {
+      if (!memberOk) {
         return operationalJson(
           { error: "Invalid related record for current tenant" },
           { status: 400 }
@@ -771,6 +826,7 @@ export async function GET(request: NextRequest) {
         filter: calendarFilter,
         assignedTeamMemberId,
         storeFilter,
+        workTurn,
       }
     );
 
@@ -793,6 +849,7 @@ export async function GET(request: NextRequest) {
       page: 1,
       page_size: result.orders.length,
       orders: result.orders,
+      ...workSequenceMeta,
       ...(weekMeta
         ? {
             timezone: weekMeta.timezone,
@@ -809,7 +866,8 @@ export async function GET(request: NextRequest) {
     const result = await fetchActiveOrders(
       supabase,
       context.tenant.id,
-      storeFilter
+      storeFilter,
+      workSequence
     );
 
     if (result.error) {
@@ -852,6 +910,7 @@ export async function GET(request: NextRequest) {
       timezone: zonedActive.day.timezone,
       local_date: zonedActive.day.localDate,
       now: activeNow.toISOString(),
+      ...workSequenceMeta,
     });
   }
 
@@ -866,6 +925,9 @@ export async function GET(request: NextRequest) {
   if (searchQuery) {
     // Empty embed for OR-filtering by client.name without constraining DTO embed.
     select = `${select.trim()},\n  ${ORDERS_CLIENT_SEARCH_EMBED}`;
+  }
+  if (workTurn) {
+    select = withWorkTurnSelect(select, workTurn);
   }
 
   const listedAt = new Date();
@@ -931,6 +993,7 @@ export async function GET(request: NextRequest) {
       page_size: pageSize,
       orders: [],
       ...listMeta,
+      ...workSequenceMeta,
     });
   }
 
@@ -975,6 +1038,11 @@ export async function GET(request: NextRequest) {
     }
 
     query = applyStoreListFilter(query, storeFilter);
+
+    if (workTurn) {
+      // Semi-joins (`!inner`): one row per order, so `total` is not inflated.
+      query = applyWorkTurnFilters(query, workTurn);
+    }
 
     if (searchQuery) {
       // Embed name filter (AND on embed) + top-level OR with not.is.null.
@@ -1088,8 +1156,11 @@ export async function GET(request: NextRequest) {
     all_total: allTotalResult.total,
     page,
     page_size: pageSize,
-    orders: omitRowVersionFromList(orders ?? []),
+    orders: workSequence
+      ? omitRowVersionFromList(orders ?? []).map(attachWorkTurn)
+      : omitRowVersionFromList(orders ?? []),
     ...listMeta,
+    ...workSequenceMeta,
   });
 }
 
