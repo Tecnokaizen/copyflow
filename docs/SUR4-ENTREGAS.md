@@ -216,12 +216,38 @@ Pasos, en este orden y sin saltarse ninguno:
    `/auth/confirm`. Smoke de pedidos sin funciones (tenant `e2e`): ficha, Hoja
    estándar sin notas, Resguardo. Ninguna escritura en `e2e` sin coordinarla
    antes con Stripe.
-6. Antes, con autorización del propietario (configuración del proyecto): en
-   Vercel, proyecto `copyflow`, los cuatro dominios con la rama
-   `gestcopy-staging`, como `e2e`, `demo` y `audit`. La app reconoce el tenant
-   por el host, así que cada uno necesita el suyo:
-   `e2e-sur4-base`, `e2e-sur4-postits`, `e2e-sur4-secuencia` y
-   `e2e-sur4-completo`, todos `.preview.app.gestcopy.com`.
+6. Hosts de los tenants de prueba. **El propietario no autoriza todavía
+   añadir dominios en Vercel (28/10, ~22:20Z)**; se decide en la ventana.
+   Comprobación en modo lectura (28/10, ~22:25Z):
+   - DNS: cubierto. `gestcopy.com` está en Cloudflare y el comodín
+     `*.preview.app.gestcopy.com` ya apunta a Vercel; `e2e-sur4-base` resuelve
+     a las mismas IP que `e2e` y `demo`.
+   - App: cubierta. En Preview acepta cualquier slug de una etiqueta bajo
+     `TENANT_PREVIEW_BASE_DOMAIN` (`lib/tenant/hostname.ts`), sin lista ni
+     ajuste por tenant.
+   - Vercel: **no cubierto**. El proyecto `copyflow` solo tiene el comodín
+     `*.app.gestcopy.com` (Production, sin rama), que cubre un nivel
+     (`sur4.app.gestcopy.com`) y no `x.preview.app.gestcopy.com`. Los hosts de
+     Preview están uno a uno con la rama `gestcopy-staging` (`e2e`, `demo`,
+     `audit`) y cada uno tiene su certificado. Un host que Vercel no conoce,
+     como `e2e-sur4-base` o uno inventado, falla en el TLS, antes de llegar a
+     la app.
+   Opciones:
+   - **A, mínima:** los cuatro hosts, igual que `e2e`, `demo` y `audit`:
+     `e2e-sur4-base.preview.app.gestcopy.com`,
+     `e2e-sur4-postits.preview.app.gestcopy.com`,
+     `e2e-sur4-secuencia.preview.app.gestcopy.com` y
+     `e2e-sur4-completo.preview.app.gestcopy.com`. Proyecto `copyflow`
+     (equipo Tecnokaizen), entorno Preview, rama `gestcopy-staging`. Sin cambio
+     de DNS; Vercel saca el certificado de cada uno solo. Production no cambia:
+     sus dominios no se tocan, el comodín de Production no llega a dos niveles
+     y estos hosts sirven el despliegue de Staging, con la base de Staging. Se
+     pueden quitar al cerrar E10.
+   - **B, sin ajuste por tenant:** un solo dominio `*.preview.app.gestcopy.com`
+     con la rama `gestcopy-staging`. Cubre cualquier tenant de Staging futuro,
+     pero un certificado comodín necesita el reto DNS: con Cloudflare, o se
+     delega la zona a Vercel o se añaden registros TXT a mano en cada
+     renovación. Es un cambio de DNS aparte, no para esta ventana.
    DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
    (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
    Nunca en el tenant real de SUR4. Con los scripts de abajo:
