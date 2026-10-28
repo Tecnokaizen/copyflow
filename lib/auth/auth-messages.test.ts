@@ -6,6 +6,7 @@ import {
   RECOVERY_FAILURE_MESSAGES,
   authErrorMessage,
   confirmErrorMessage,
+  isAuthSessionError,
   parseRecoveryFailure,
   type AuthFormContext,
 } from "./auth-messages";
@@ -108,6 +109,25 @@ describe("authErrorMessage", () => {
         assert.ok(message.length > 0);
       }
     }
+  });
+});
+
+describe("isAuthSessionError (no session on the new-password form)", () => {
+  it("recognises a missing or expired recovery session", () => {
+    assert.equal(
+      isAuthSessionError(
+        Object.assign(new Error("Auth session missing!"), { name: "AuthSessionMissingError", status: 400 })
+      ),
+      true
+    );
+    assert.equal(isAuthSessionError(authError("Session not found", "session_not_found")), true);
+    assert.equal(isAuthSessionError(new Error("Auth session missing!")), true);
+  });
+
+  it("ignores other errors", () => {
+    assert.equal(isAuthSessionError(authError("x", "weak_password")), false);
+    assert.equal(isAuthSessionError(authError("x", "same_password")), false);
+    assert.equal(isAuthSessionError(null), false);
   });
 });
 

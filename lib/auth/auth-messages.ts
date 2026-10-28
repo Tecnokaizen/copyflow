@@ -179,6 +179,24 @@ function byMessage(
   return null;
 }
 
+const SESSION_ERROR_CODES = new Set([
+  "session_not_found",
+  "session_expired",
+  "refresh_token_not_found",
+  "refresh_token_already_used",
+  "bad_jwt",
+]);
+
+/** True when the call failed because there is no valid session. */
+export function isAuthSessionError(error: unknown): boolean {
+  const { code, name, message } = errorShape(error);
+  return (
+    (code !== null && SESSION_ERROR_CODES.has(code)) ||
+    name === "AuthSessionMissingError" ||
+    (message?.toLowerCase().includes("auth session missing") ?? false)
+  );
+}
+
 /** Spanish message for an error from a Supabase Auth call on an auth form. */
 export function authErrorMessage(
   error: unknown,
@@ -230,7 +248,7 @@ export const RECOVERY_FAILURE_MESSAGES: Record<RecoveryFailure, string> = {
   link_expired:
     "El enlace para cambiar la contraseña ha caducado o ya se ha usado. Pide uno nuevo.",
   link_other_browser:
-    "Este enlace solo funciona en el navegador y el dispositivo desde los que lo pediste. Ábrelo allí o pide uno nuevo desde aquí. Si ya cambiaste la contraseña con él, inicia sesión.",
+    "Abre el enlace en el mismo navegador donde pediste el cambio, o pide uno nuevo aquí. Si ya cambiaste la contraseña con este enlace, inicia sesión.",
   link_invalid:
     "El enlace para cambiar la contraseña no es válido o ya se ha usado. Pide uno nuevo.",
   session_missing:

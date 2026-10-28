@@ -5,8 +5,12 @@ import { createClient } from "@/lib/supabase/client";
 import {
   PASSWORDS_DO_NOT_MATCH,
   authErrorMessage,
+  isAuthSessionError,
 } from "@/lib/auth/auth-messages";
-import { getPostAuthRedirectPath } from "@/lib/auth/safe-next-path";
+import {
+  authHrefWithNext,
+  getPostAuthRedirectPath,
+} from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import Link from "next/link";
 import { useState } from "react";
 
 type UpdatePasswordFormProps = React.ComponentPropsWithoutRef<"div"> & {
@@ -34,11 +39,13 @@ export function UpdatePasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [sessionLost, setSessionLost] = useState(false);
   const destination = getPostAuthRedirectPath(nextPath);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSessionLost(false);
 
     if (password !== repeatPassword) {
       setError(PASSWORDS_DO_NOT_MATCH);
@@ -57,6 +64,7 @@ export function UpdatePasswordForm({
       window.location.assign(destination);
     } catch (error: unknown) {
       setError(authErrorMessage(error, "update_password"));
+      setSessionLost(isAuthSessionError(error));
       setIsLoading(false);
     }
   };
@@ -104,6 +112,20 @@ export function UpdatePasswordForm({
                 {error && (
                   <p className="text-sm text-[hsl(var(--gc-danger))]" role="alert">
                     {error}
+                    {sessionLost && (
+                      <>
+                        {" "}
+                        <Link
+                          href={authHrefWithNext(
+                            "/auth/forgot-password",
+                            destination
+                          )}
+                          className="underline underline-offset-4"
+                        >
+                          Pedir un enlace nuevo
+                        </Link>
+                      </>
+                    )}
                   </p>
                 )}
                 <Button type="submit" className="w-full" disabled={isLoading}>

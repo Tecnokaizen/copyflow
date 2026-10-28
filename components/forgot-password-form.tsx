@@ -8,6 +8,10 @@ import {
   type RecoveryFailure,
 } from "@/lib/auth/auth-messages";
 import {
+  recoveryFailurePath,
+  recoveryStateFromHash,
+} from "@/lib/auth/recovery-callback";
+import {
   authHrefWithNext,
   buildAuthRecoveryUrl,
   getPostAuthRedirectPath,
@@ -23,7 +27,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 type ForgotPasswordFormProps = React.ComponentPropsWithoutRef<"div"> & {
   /** Internal page to open after the new password is saved. */
@@ -38,12 +43,31 @@ export function ForgotPasswordForm({
   linkFailure = null,
   ...props
 }: ForgotPasswordFormProps) {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const safeNext = getPostAuthRedirectPath(nextPath);
   const loginHref = authHrefWithNext("/auth/login", safeNext);
+
+  // Supabase errors in the fragment never reach the server. Turn them into
+  // `?error=` (the page then shows the message) and drop the fragment, so no
+  // token or error stays in the address bar.
+  useEffect(() => {
+    const { failure, shouldClear } = recoveryStateFromHash(window.location.hash);
+    if (failure && failure !== linkFailure) {
+      router.replace(recoveryFailurePath(failure, safeNext), { scroll: false });
+      return;
+    }
+    if (shouldClear) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${window.location.pathname}${window.location.search}`
+      );
+    }
+  }, [linkFailure, router, safeNext]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();

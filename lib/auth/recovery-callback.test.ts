@@ -16,6 +16,7 @@ import {
   parseRecoveryCallback,
   recoveryFailurePath,
   recoveryFailureReason,
+  recoveryStateFromHash,
   resolveRecoveryRedirect,
   updatePasswordPath,
   type RecoveryAuthClient,
@@ -207,7 +208,7 @@ describe("resolveRecoveryRedirect: link opened in another browser", () => {
 
   it("explains the other-browser case in Spanish and offers a new link", () => {
     const message = RECOVERY_FAILURE_MESSAGES.link_other_browser;
-    assert.match(message, /navegador/);
+    assert.match(message, /mismo navegador donde pediste el cambio/);
     assert.match(message, /pide uno nuevo/i);
   });
 });
@@ -336,5 +337,36 @@ describe("legacyRecoveryForwardPath: links sent before /auth/recovery", () => {
       query({ code: CODE, next: "https://evil.example", redirect: "https://evil.example" })
     );
     assert.equal(forward, `/auth/recovery?code=${CODE}&next=%2F`);
+  });
+});
+
+describe("recoveryStateFromHash: errors Supabase puts in the URL fragment", () => {
+  it("reads an expired link from the fragment (implicit flow, or next to the PKCE query)", () => {
+    assert.deepEqual(
+      recoveryStateFromHash(
+        "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired&sb="
+      ),
+      { failure: "link_expired", shouldClear: true }
+    );
+  });
+
+  it("falls back to error or error_description when error_code is missing", () => {
+    assert.equal(
+      recoveryStateFromHash("#error_description=Email+link+is+invalid+or+has+expired").failure,
+      "link_expired"
+    );
+    assert.equal(recoveryStateFromHash("#error=server_error").failure, "link_invalid");
+  });
+
+  it("clears tokens from the address bar without reporting a failure", () => {
+    assert.deepEqual(
+      recoveryStateFromHash("#access_token=secret&refresh_token=secret&type=recovery"),
+      { failure: null, shouldClear: true }
+    );
+  });
+
+  it("leaves unrelated fragments alone", () => {
+    assert.deepEqual(recoveryStateFromHash(""), { failure: null, shouldClear: false });
+    assert.deepEqual(recoveryStateFromHash("#top"), { failure: null, shouldClear: false });
   });
 });

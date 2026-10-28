@@ -22,6 +22,12 @@ import type { RecoveryFailure } from "@/lib/auth/auth-messages";
  * Any failure goes to `/auth/forgot-password?error=<reason>`, which explains
  * what happened in Spanish and lets the user ask for a new link. A failure
  * never reaches `next`.
+ *
+ * Why not `/auth/confirm`: on `main` it only accepts `token_hash`, and PR #161
+ * (not merged) sends a recognised-but-unexchangeable `code` to "Correo
+ * confirmado. Ya puedes iniciar sesión", which is wrong for a password reset.
+ * A route of its own keeps recovery independent of #161 and only ever opens
+ * a session to change the password.
  */
 
 export const UPDATE_PASSWORD_PATH = "/auth/update-password";
@@ -171,6 +177,46 @@ export async function resolveRecoveryRedirect(
       request.next
     );
   }
+}
+
+/** Auth keys Supabase can put in the URL fragment, where the server cannot see them. */
+const HASH_AUTH_PARAMS = [
+  "error",
+  "error_code",
+  "error_description",
+  "access_token",
+  "refresh_token",
+  "provider_token",
+  "expires_at",
+  "expires_in",
+  "token_type",
+  "type",
+  "sb",
+] as const;
+
+export type HashRecoveryState = {
+  /** Reason from `#error_code=...` (or `#error=`/`#error_description=`), if any. */
+  failure: RecoveryFailure | null;
+  /** True when the fragment carries auth data and should be removed from the URL. */
+  shouldClear: boolean;
+};
+
+/**
+ * Supabase also returns errors in the fragment (`#error_code=otp_expired&...`):
+ * always for the implicit flow, and next to the query for PKCE. The 307 from
+ * `/auth/recovery` keeps the fragment, so `/auth/forgot-password` reads it in
+ * the browser to explain the failure, then removes it from the address bar.
+ */
+export function recoveryStateFromHash(hash: string): HashRecoveryState {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const shouldClear = HASH_AUTH_PARAMS.some((key) => params.has(key));
+
+  const code = nonEmpty(params.get("error_code")) ?? nonEmpty(params.get("error"));
+  const message = nonEmpty(params.get("error_description"));
+  const failure =
+    code || message ? recoveryFailureReason({ code, message }) : null;
+
+  return { failure, shouldClear };
 }
 
 /** Query keys a recovery link can carry. */

@@ -112,6 +112,30 @@ describe("password recovery wiring", () => {
     assert.match(form, /PASSWORDS_DO_NOT_MATCH/);
   });
 
+  it("defaults to the app home, which every tenant role can open", () => {
+    // `/` shows the tenant dashboard for any membership role (homePathForRole),
+    // and the apex page for users without a tenant: the same default as login.
+    const page = readSource("app/page.tsx");
+    assert.match(page, /homePathForRole\(context\.membership\.role\)/);
+    const items = readSource("lib/nav/items.ts");
+    assert.match(items, /canReadOperationalOverview\(role\) \? "\/" :/);
+    const access = readSource("lib/orders/operational-access.ts");
+    assert.match(access, /export function canReadOperationalOverview[^]*?return isMembershipRole\(role\);/);
+  });
+
+  it("offers a new link when the session is gone while on the form", () => {
+    const form = readSource("components/update-password-form.tsx");
+    assert.match(form, /setSessionLost\(isAuthSessionError\(error\)\)/);
+    assert.match(form, /authHrefWithNext\(\s*"\/auth\/forgot-password",\s*destination\s*\)/);
+  });
+
+  it("reads Supabase errors from the fragment on the forgot-password page", () => {
+    const form = readSource("components/forgot-password-form.tsx");
+    assert.match(form, /recoveryStateFromHash\(window\.location\.hash\)/);
+    assert.match(form, /router\.replace\(recoveryFailurePath\(failure, safeNext\)/);
+    assert.match(form, /window\.history\.replaceState\(/);
+  });
+
   it("login keeps next safe and passes it to recovery", () => {
     const form = readSource("components/login-form.tsx");
     assert.match(form, /const safeNext = getPostAuthRedirectPath\(nextPath\)/);
