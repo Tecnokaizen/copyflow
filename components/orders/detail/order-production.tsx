@@ -17,6 +17,8 @@ import {
 import { formatFactLabel } from "@/lib/orders/fact-label";
 import { orderLabels, type OrderLabels } from "@/lib/orders/labels";
 import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
+import { resolveOrderStatusId } from "@/lib/orders/draft";
+import { statusOptionsWithCurrent } from "@/lib/orders/status-options";
 import { resolveOrderQuoteSituation } from "@/lib/orders/quote-situation";
 import {
   fromDateTimeLocalValue,
@@ -95,8 +97,11 @@ export function OrderProduction({
             }
             onChange={(value) => onDraftChange({ status_id: value })}
           >
-            {statuses.map((status) => (
-              <option key={status.id} value={status.id}>
+            {statusOptionsWithCurrent(statuses, {
+              id: resolveOrderStatusId(order, statuses),
+              name: order.status?.name,
+            }).map((status) => (
+              <option key={status.id} value={status.id} disabled={status.unavailable}>
                 {status.name}
               </option>
             ))}
