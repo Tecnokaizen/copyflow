@@ -16,8 +16,8 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 
 | Entrega | Estado | Commit | Evidencias | Bloqueos para el merge |
 | --- | --- | --- | --- | --- |
-| E0 · Decisiones | Hecha | (este commit) | ADR y contrato copiados sin cambios: SHA-256 `eff3f524…` y `9e4c37c5…`, iguales a la exportación del documento (rev 17 y rev 10) | N15 |
-| E1 · Pistas PostgREST | En curso | — | — | N15 |
+| E0 · Decisiones | Hecha | `0cf2639` | ADR y contrato copiados sin cambios: SHA-256 `eff3f524…` y `9e4c37c5…`, iguales a la exportación del documento (rev 17 y rev 10) | N15 |
+| E1 · Pistas PostgREST | Hecha | (este commit) | `!orders_team_member_fk` en los cinco embeds reales del responsable (el documento contaba seis: `orders/mine` y la revisión solo leen la columna). `team_members(*)` pasa a `(id, name, active)`. `lib/orders/postgrest-hints.test.ts` falla sin la pista (comprobado quitándola). PostgREST local responde 200 con las pistas | N15 |
 | E2 · Impresión segura | Pendiente | — | — | N15, N11, auditoría N23, tienda (SUR4) |
 | E3 · Ficha reorganizada | Pendiente | — | — | N15 |
 | E4 · Resguardo PDF | Pendiente | — | — | N15, N9, N12 |

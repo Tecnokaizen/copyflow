@@ -288,7 +288,7 @@ const ORDER_SELECT = `
   service:services(*),
   status:order_statuses(*),
   entry_channel:entry_channels(*),
-  assigned_team_member:team_members(*),
+  assigned_team_member:team_members!orders_team_member_fk(id, name, active),
   order_context:order_contexts(*),
   store:stores(*),
   file_status:file_statuses(*),
