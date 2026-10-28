@@ -4,7 +4,8 @@
  *
  * 1. Every existing `e2e` order renders exactly as the previous code did.
  * 2. Full and quick creation with styles chosen in the toolbar.
- * 3. Detail view, edit after reload, "Añadir nota", print, dark mode, 390 px.
+ * 3. Detail view, edit after reload, "Añadir nota", print (notes never
+ *    printed, SUR4 E2), dark mode, 390 px.
  * 4. Forged HTML is sanitized by the server; a foreign tenant's order is denied;
  *    quotes keep the basic vocabulary.
  *
@@ -315,21 +316,25 @@ async function main() {
       result.checks.appendNote = true;
     });
 
+    // SUR4 E2: the sheet never prints the order notes (N6/N18); styles are
+    // checked on the instructions, and the screen shows the notes notice.
     await h.step("print keeps the styles on the light palette", async () => {
       await p.goto(`${target.baseUrl}/orders/${fullId}/print`);
       await p.locator(".print-rich").first().waitFor({ timeout: 30000 });
-      const printed = await computed(".print-sheet", "Falta el reverso");
+      const printed = await computed(".print-sheet", "NO CORTAR");
       assert.equal(printed.color, lightRed);
       assert.ok(contrast(printed.color, printed.background) >= 4.5);
-      const size = await computed(".print-sheet", "NO CORTAR");
-      assert.ok(Math.abs(size.size / size.base - 1.5) < 0.02);
+      assert.ok(Math.abs(printed.size / printed.base - 1.5) < 0.02);
       assert.equal(await alignOf(".print-sheet", "NO CORTAR"), "justify");
       assert.equal(await alignOf(".print-sheet", "Entregar en caja cerrada"), "right");
-      assert.equal(await alignOf(".print-sheet", "Falta el reverso"), "center");
+      const sheetText = await p.locator(".print-sheet").first().innerText();
+      assert.equal(sheetText.includes("Falta el reverso"), false, "notes are not printed");
+      assert.equal(sheetText.includes("paga al recoger"), false, "notes are not printed");
+      await p.getByText("Este pedido tiene notas internas, que no se imprimen.").waitFor();
       await h.screenshot("impresion-claro");
       await setTheme("dark"); await p.reload(); await p.locator(".print-rich").first().waitFor();
       assert.equal(await p.evaluate(() => document.documentElement.classList.contains("dark")), true);
-      assert.equal((await computed(".print-sheet", "Falta el reverso")).color, lightRed, "print ignores dark mode");
+      assert.equal((await computed(".print-sheet", "NO CORTAR")).color, lightRed, "print ignores dark mode");
       await h.screenshot("impresion-modo-oscuro");
       result.checks.print = true;
     });
