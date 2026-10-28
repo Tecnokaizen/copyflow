@@ -393,7 +393,12 @@ Fuentes: `auth.users`, `auth.sessions`, `auth.flow_state`, `auth.one_time_tokens
 - Dos confirmaciones reales en el mismo navegador, una en Chrome y otra en Safari, abrieron sesión. Ninguna mostró «No token hash or type».
 - Quedan por ver en real los puntos 6 y 7 de la autorización del propietario: el mensaje del enlace reutilizado y «Correo confirmado» cuando no se puede recuperar la sesión.
 
-**Ronda C propuesta, para cerrar:** una identidad nueva, que tiene que autorizar el propietario (por ejemplo `tecnokaizen+authfix3@gmail.com`), sin organización ni pago.
+**Ronda C, autorizada por el propietario el 28/10 (~20:28Z):** tercera identidad sintética `tecnokaizen+authfix3@gmail.com`, solo en Supabase Auth de Staging, sin organización ni pago. Antes de la ronda (20:29:02Z): `gestcopy-staging` en `97fbc59`, 12 usuarios, ningún `+authfix3`, 1 flow state, 140 sesiones, 10 perfiles, 10 membresías, 8 tenants y 10 suscripciones.
+- **Si pasan los dos escenarios:** cierre formal de la incidencia PKCE.
+- **Después de la ronda:** el inventario de limpieza de S9, que no se ejecuta sin autorización.
+- **Decisión del propietario sobre la redirección de Stripe:** corregirla con orígenes de retorno configurados y validados por entorno, sin confiar en cabeceras `Host` no verificadas. Se hace con una propuesta técnica aparte, sin tocar Production ni Stripe Live.
+
+Pasos de la ronda:
 1. **Enlace reutilizado:** en una ventana privada de Safari, con la sesión de Vercel iniciada, pegar el enlace original del alta A sin pulsarlo en el correo. Esperado: `/auth/error` con «Email link is invalid or has expired».
 2. **Cambio de navegador:**
    - registrarse en una ventana de incógnito de Chrome;
