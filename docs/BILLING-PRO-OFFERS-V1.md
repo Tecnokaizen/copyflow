@@ -341,6 +341,8 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
 
 **Estado a las 18:30Z del 28/10:** se cumplen los cuatro. La CI está en verde, la validación combinada pasó, `49c6b37` está en READY (`dpl_7HARpUQ…`), y el propietario autorizó `tecnokaizen+authfix@gmail.com`.
 
+**Actualización a las 19:25Z:** la repetición todavía no se ha hecho; no existe ningún usuario `+authfix`. Se hará con `97fbc59` desplegado («Correo confirmado»). Así una sola ronda cubre los puntos 6 y 7 de la autorización del propietario: el alta en el mismo navegador, el enlace reutilizado y el mensaje cuando no se puede abrir sesión. El cambio de dispositivo necesita una segunda identidad nueva autorizada. Ver «Ronda con `97fbc59`» más abajo.
+
 **Propietario:**
 1. Cerrar todas las ventanas privadas y abrir una nueva. La URL `…vercel.app` está protegida por Vercel, así que en esa ventana hay que iniciar sesión en Vercel primero.
 2. Abrir `…vercel.app/auth/sign-up` y registrarse con el alias autorizado. Anotar la hora.
@@ -353,13 +355,24 @@ Cada paso se autoriza por separado. **No se hacen cobros Live de prueba.** El ú
    - **A, mínimo:** se para en `/onboarding`. Basta para el defecto.
    - **B, completo:** se sigue con la organización y Basic con la tarjeta 4242. Eso crea otro tenant y otra suscripción de Test para S9, y la redirección de Stripe a Production sigue abierta.
 
+**Ronda con `97fbc59` (autorización del propietario del 28/10, puntos 6 y 7):**
+1. **Alta A en el mismo navegador** (`tecnokaizen+authfix@gmail.com`): pasos 1–4. El resultado esperado es `/onboarding` con sesión.
+2. **Enlace reutilizado:** pulsar otra vez el enlace del alta A. Debe ir a `/auth/error` con «Email link is invalid or has expired».
+3. **Alta B en otro navegador** (otra identidad nueva autorizada por el propietario, por ejemplo `tecnokaizen+authfix2@gmail.com`):
+   - registrarse en el navegador 1;
+   - abrir el enlace del correo **en otro navegador o dispositivo**, que también necesita la sesión de Vercel;
+   - debe mostrar «Correo confirmado» y «Ya puedes iniciar sesión.», con el botón «Iniciar sesión»;
+   - el botón lleva a `/auth/login?next=%2Fonboarding`; tras iniciar sesión, llega a `/onboarding`.
+4. **Página abierta directamente:** en una ventana nueva sin la cookie, abrir `…vercel.app/auth/confirmed`. Debe acabar en `/auth/login` sin mostrar «Correo confirmado». Esto también lo comprueba Claude.
+
 **Claude comprueba (solo lectura):**
 - el usuario se crea una sola vez y queda confirmado a la hora del clic;
 - en los logs de Auth, `GET /verify` responde 303 y después `POST /token` con `grant_type=pkce` responde 200, desde la app;
 - hay una sesión activa;
 - sin perfil ni membresía hasta el onboarding, o con ellos en el caso B;
 - sin duplicados ni errores en los logs;
-- el resto de Staging no cambia.
+- el resto de Staging no cambia;
+- en el alta B: el usuario queda confirmado; en los logs, el `POST /token` de la sonda da 400 `bad_code_verifier`, o 422 si pasaron más de 5 minutos; no se abre ninguna sesión hasta el login; el flow state solo desaparece con un canje correcto.
 
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
