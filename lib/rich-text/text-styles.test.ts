@@ -123,6 +123,11 @@ describe("text styles stay out of the fields that do not opt in", () => {
       "components/orders/detail/order-notes.tsx",
       "components/orders/detail/order-quick-actions.tsx",
       "components/print/order-print-document.tsx",
+      // SUR4 E6: post-its are order notes and keep the same styles.
+      "components/orders/notes/note-card.tsx",
+      "components/orders/notes/note-editor-fields.tsx",
+      "components/orders/notes/note-history-dialog.tsx",
+      "components/orders/notes/printable-confirm-dialog.tsx",
       // Shared components that define the prop.
       "components/rich-text/rich-text-editor.tsx",
       "components/rich-text/rich-text-content.tsx",

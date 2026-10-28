@@ -18,6 +18,11 @@ import { OrderHeader } from "@/components/orders/detail/order-header";
 import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
 import { OrderSummary } from "@/components/orders/detail/order-summary";
+import {
+  OrderNotesProvider,
+  OrderPinnedNotesStrip,
+  OrderStickyNotesPanel,
+} from "@/components/orders/notes";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
 import { orderLabels } from "@/lib/orders/labels";
@@ -122,6 +127,8 @@ export function OrderWorkspace() {
   const [sourceQuote,setSourceQuote] = useState<SourceQuote|null>(null);
   const [sourceQuoteRestricted, setSourceQuoteRestricted] = useState(false);
   const [features, setFeatures] = useState<OrderFeatures>(NO_ORDER_FEATURES);
+  // SUR4 E6: each «Añadir nota» opens the post-it composer.
+  const [noteComposeRequest, setNoteComposeRequest] = useState(0);
   const [collection, setCollection] = useState<OrderCollectionData | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1294,6 +1301,7 @@ export function OrderWorkspace() {
   return (
     <AppShell innerClassName="max-w-5xl">
       <AppNav />
+      <OrderNotesProvider orderId={order.id} enabled={features.stickyNotes}>
 
         {!canWrite ? (
           <p className="mb-4 text-sm text-muted-foreground">Solo lectura</p>
@@ -1336,7 +1344,15 @@ export function OrderWorkspace() {
           onArchive={archiveOrder}
           labels={labels}
           collection={collection}
+          onNoteRequest={
+            features.stickyNotes
+              ? () => setNoteComposeRequest((request) => request + 1)
+              : undefined
+          }
         />
+
+        {/* SUR4 E6: pinned post-its, only with order_sticky_notes. */}
+        {features.stickyNotes ? <OrderPinnedNotesStrip /> : null}
 
         {sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null}
 
@@ -1377,12 +1393,30 @@ export function OrderWorkspace() {
                 onChanged={() => setActivityTick((tick) => tick + 1)}
               />
             </div>
-            <div className="order-5 min-w-0">
+            <div className="order-5 flex min-w-0 flex-col gap-6 empty:hidden">
+              {features.stickyNotes ? (
+                <OrderStickyNotesPanel
+                  archived={isOrderArchived(order)}
+                  composeRequest={noteComposeRequest}
+                />
+              ) : null}
               <OrderNotes
                 order={order}
                 draft={draft}
                 editing={editing}
                 onDraftChange={patchDraft}
+                stickyNotes={features.stickyNotes}
+                canWrite={canWrite}
+                archived={isOrderArchived(order)}
+                onLegacyNotesConverted={({ version }) => {
+                  setOrder((current) =>
+                    current ? { ...current, version, notes: null } : current
+                  );
+                  setDraft((current) =>
+                    current ? { ...current, notes: "" } : current
+                  );
+                  setActivityTick((tick) => tick + 1);
+                }}
               />
             </div>
             <div className="order-6 min-w-0">
@@ -1512,6 +1546,7 @@ export function OrderWorkspace() {
             />
           </ClientModal>
         )}
+      </OrderNotesProvider>
     </AppShell>
   );
 }
