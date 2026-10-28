@@ -413,6 +413,12 @@ Pasos de la ronda:
    - después, `POST /token?grant_type=password` desde Safari;
    - una sola sesión.
 
+**Ronda C · 1, enlace reutilizado: PASS (auditado a las 20:38Z).**
+- **Prueba:** a las 20:36:58Z, en una ventana privada de Safari, se pegó un enlace de confirmación ya usado. Era el del alta B (`pkce_5fbe…`, usado a las 20:19:45Z), no el de A, pero prueba lo mismo: un enlace ya consumido.
+- **Supabase:** `GET /verify` con `403: Email link is invalid or has expired` (`One-time token not found`) y redirección 303 a `/auth/confirm`. La app mostró «Email link is invalid or has expired»; el propietario lo vio en pantalla.
+- **Sin efectos:** ningún `POST /token` y ninguna sesión nueva. B sigue con una sola sesión (20:19:47Z). A las 20:38:19Z, Staging sigue igual que en la línea base de las 20:29Z: 12 usuarios, 140 sesiones, 1 flow state, 10 perfiles, 10 membresías, 8 tenants, 10 suscripciones y 6 intentos.
+- **Pendiente:** el alta C entre navegadores. A las 20:38Z no existe `+authfix3`.
+
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
 **Cómo se aplicó S2:**
