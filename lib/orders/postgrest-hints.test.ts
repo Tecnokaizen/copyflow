@@ -29,7 +29,7 @@ const sources = ["app", "lib", "components"].flatMap((dir) =>
 
 // `alias:team_members(` or `team_members(` inside a select string. A
 // `.from("team_members")` call is a table read, not an embed.
-const EMBED = /(?<![.\w"'`])(?:[a-z_]+\s*:\s*)?team_members(?<hint>![a-z_]+)?\s*\(/g;
+const EMBED = /(?<![.\w"'`])(?:[a-z_]+\s*:\s*)?team_members(![a-z_]+)?\s*\(/g;
 
 function embeds() {
   return sources.flatMap((file) => {
@@ -37,7 +37,7 @@ function embeds() {
     return [...text.matchAll(EMBED)].map((match) => ({
       file: path.relative(root, file),
       text: match[0],
-      hint: match.groups?.hint ?? null,
+      hint: match[1] ?? null,
       columns: text.slice(match.index + match[0].length).split(")")[0].trim(),
     }));
   });
