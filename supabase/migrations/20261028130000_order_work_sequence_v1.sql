@@ -102,8 +102,15 @@ create table public.work_stages (
   created_at timestamptz not null default pg_catalog.now(),
   updated_at timestamptz not null default pg_catalog.now(),
   constraint work_stages_tenant_id_unique unique (tenant_id, id),
+  -- No BETWEEN next to AND: it is stored as a nested AND that pg_dump writes out
+  -- and the restore flattens, which changes the definition the B1.3 backup
+  -- check compares (same rule, different text).
   constraint work_stages_name_length
-    check (pg_catalog.char_length(name) between 1 and 40 and name = pg_catalog.btrim(name)),
+    check (
+      pg_catalog.char_length(name) >= 1
+      and pg_catalog.char_length(name) <= 40
+      and name = pg_catalog.btrim(name)
+    ),
   constraint work_stages_icon_check
     check (icon in ('design', 'prepare', 'print', 'finish', 'cut', 'bind', 'review', 'deliver', 'other')),
   constraint work_stages_sort_order_check check (sort_order between 0 and 1000)
