@@ -186,26 +186,28 @@ Pasos, en este orden y sin saltarse ninguno:
    (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
 3. Rama de integración propia (`integration/staging-<fecha>-sur4`) desde
    `origin/gestcopy-staging`, con esta rama fusionada encima (merge, nunca
-   rebase ni force push). CI en verde en esa rama. Conflictos conocidos
-   (informe de la sesión de integración, 28/10 ~18:25Z, contra `1ea797e`):
-   - Seis ficheros de texto enriquecido: Staging ya tiene #146 con otros
-     commits. Queda el lado de Staging, salvo los cambios propios de E2/E3
-     en esos ficheros, que se conservan.
+   rebase ni force push). CI en verde en esa rama. Ensayo local del 28/10
+   contra `97fbc59` (commit local `2619ff9`, sin rama ni push): seis
+   conflictos, todos con resolución clara. Después, `tsc`, lint, 1711
+   unitarias y build OK:
    - `.github/workflows/kiosk-supabase.yml`: se quedan las rutas de voz de
-     Staging (`lib/ai/**`, `app/api/ai/**`) y la de esta rama
+     Staging (`lib/ai/**`, `app/api/ai/**`) y la de las suites
      (`supabase/tests/phase6[0-9]_*`).
-   - `components/orders/detail/order-header.tsx`: estructura de E3 y la
-     prop `currentStatusName={order.status?.name}` de #156 en
-     `<OrderQuickActions>`, detrás de `currentStatusId`.
-   - `components/orders/detail/order-workspace.tsx`: van las dos cosas, el
-     seguimiento de #153 (`<OrderTracking>`) y la franja de post-its fijados.
-     Orden en la ficha: cabecera, seguimiento, post-its fijados, secuencia,
-     presupuesto de origen.
-   - `app/api/orders/options/route.ts` y las importaciones de #156 en
-     `order-production.tsx` y `order-quick-actions.tsx`: queda el lado de
-     Staging (`loadOrderOptions`, `resolveOrderStatusId`,
-     `statusOptionsWithCurrent`, `isSelectableStatus`).
-   `supabase/` no tiene conflictos: las dos migraciones no chocan con Staging.
+   - `app/api/orders/options/route.ts`: lado de Staging. La voz (#90) la pasó a
+     `lib/orders/options-load.ts`, ya con el filtro de R6, que es lo único que
+     `main` cambiaba ahí; esta rama no la toca.
+   - `components/orders/detail/order-header.tsx`: estructura de E3, con
+     `currentStatusName` de #156 en el único `<OrderQuickActions>`.
+   - `components/orders/detail/order-production.tsx`: la importación de
+     `orderLabels` (E2).
+   - `components/orders/detail/order-workspace.tsx`: van las dos cosas. Orden
+     en la ficha: cabecera, seguimiento de #153 (`<OrderTracking>`), post-its
+     fijados, secuencia, presupuesto de origen.
+   - `lib/help/changelog.ts`: el bloque del 28/10 de `main`, ya publicado en
+     Production.
+   Los ficheros de texto enriquecido de #146 ya no chocan. Migraciones tras la
+   fusión: `20261028090000` (Stripe), `20261028120000`, `20261028130000`.
+   Si la punta de Staging cambia, se repite la fusión con estas reglas.
 4. `supabase db push --dry-run` contra Staging: solo puede listar
    `20261028120000` y `20261028130000`. Se aplican por separado, cada una con
    su comprobación (tablas, RLS, funciones apagadas en todos los tenants).
@@ -214,7 +216,13 @@ Pasos, en este orden y sin saltarse ninguno:
    `/auth/confirm`. Smoke de pedidos sin funciones (tenant `e2e`): ficha, Hoja
    estándar sin notas, Resguardo. Ninguna escritura en `e2e` sin coordinarla
    antes con Stripe.
-6. DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
+6. Antes, con autorización del propietario (configuración del proyecto): en
+   Vercel, proyecto `copyflow`, los cuatro dominios con la rama
+   `gestcopy-staging`, como `e2e`, `demo` y `audit`. La app reconoce el tenant
+   por el host, así que cada uno necesita el suyo:
+   `e2e-sur4-base`, `e2e-sur4-postits`, `e2e-sur4-secuencia` y
+   `e2e-sur4-completo`, todos `.preview.app.gestcopy.com`.
+   DEMO: concesiones solo en tenants sintéticos según la matriz del contrato
    (§11), recorrido E2E y retirada y vuelta de cada función con datos dentro.
    Nunca en el tenant real de SUR4.
 7. Registro PASS/FAIL en este documento. Si algo falla: retirar concesiones y,
