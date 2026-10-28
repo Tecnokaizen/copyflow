@@ -129,17 +129,22 @@ confirme el final (su paso S9), esta rama no mueve `gestcopy-staging` ni aplica
 migraciones en Staging, salvo decisión del propietario. El runner de copias de
 Staging se puede usar en modo lectura, nunca a la vez que otra copia.
 El propietario lo confirmó el 28/10 (~19:05Z): se espera a S9. La sesión de
-integración dejó Staging libre por su parte a las 21:16Z, pero eso no
-autoriza el despliegue: sigue haciendo falta el fin de S9 y el OK expreso del
-propietario en esta sesión. `gestcopy-staging` está en `97fbc59` (#161 de
+integración dejó Staging libre por su parte a las 21:16Z, pero solo quiere
+decir que su lote ya no lo bloquea: no autoriza el despliegue. Sigue haciendo
+falta el fin de S9 y el OK expreso del propietario en esta sesión, que ha
+dejado dicho en la sesión de Stripe que Staging no se libera para Post-its sin
+su autorización. Mejor esperar también a que el propietario termine el alta C
+de #161 (Chrome → Safari, unos 5 minutos), que debe correr entera sobre
+`97fbc59` para cerrar las verificaciones de PKCE. `gestcopy-staging` está en `97fbc59` (#161 de
 Stripe, `dpl_BEPEcxjr…`, 19:41Z; rollback `dpl_7HARpUQ…`).
 
 Pasos, en este orden y sin saltarse ninguno:
 
 1. Confirmación de la sesión de Stripe (S9 terminado). Volver a leer
-   `origin/gestcopy-staging` justo antes de empezar (hoy `97fbc59`) y avisar a
-   las dos sesiones. A Stripe, con la hora y el despliegue: tiene pendiente
-   la ronda E2E del propietario sobre #161.
+   `origin/gestcopy-staging` justo antes de empezar (hoy `97fbc59`). Con el
+   OK del propietario, avisar antes a la sesión de integración con la hora y
+   el despliegue nuevo; ella se lo pasa a Stripe, que tiene pendiente la ronda
+   E2E del propietario sobre #161.
 2. Copia de Staging verificada de menos de 2 h con el runner B1.3 de Staging
    (`~/copyflow-ops/staging-backups`), sin otra copia en marcha.
 3. Rama de integración propia (`integration/staging-<fecha>-sur4`) desde
