@@ -13,6 +13,7 @@ import type {
   DashboardResponse,
   DashboardUpcomingOrder,
   DashboardWorkloadMember,
+  DashboardWorkSequenceLoad,
 } from "@/lib/dashboard/types";
 import { formatReviewDueLine } from "@/lib/orders/review";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
@@ -235,6 +236,78 @@ function WorkloadRow({
   );
 }
 
+// SUR4 E9: with the work sequence, each person shows two separate figures,
+// each with its own filtered list. They are never added together.
+function WorkloadSequenceRow({
+  member,
+  maxCount,
+  currentCount,
+}: {
+  member: DashboardWorkloadMember;
+  maxCount: number;
+  currentCount: number;
+}) {
+  const ratio =
+    maxCount > 0 ? Math.min(1, member.active_orders_count / maxCount) : 0;
+
+  return (
+    <div className="rounded-[calc(var(--radius)-2px)] border border-border/60 bg-card/60 px-3.5 py-3.5">
+      <div className="min-w-0">
+        <p className="truncate font-medium text-foreground">{member.name}</p>
+        <p className="mt-0.5 truncate text-sm text-muted-foreground">
+          {member.job_title ?? "Sin puesto"}
+        </p>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Link
+          href={`/orders?view=list&assigned_team_member_id=${member.id}`}
+          className="min-h-11 rounded-md border border-border/70 px-2.5 py-1.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${member.name}: ${member.active_orders_count} pedidos como responsable`}
+        >
+          <span className="block text-xs text-muted-foreground">Responsable</span>
+          <span className="block text-sm font-semibold tabular-nums text-foreground">
+            {member.active_orders_count}
+          </span>
+        </Link>
+        <Link
+          href={`/orders?view=list&turn_team_member_id=${member.id}`}
+          className="min-h-11 rounded-md border border-border/70 px-2.5 py-1.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${member.name}: le toca ahora en ${currentCount} pedidos`}
+        >
+          <span className="block text-xs text-muted-foreground">Le toca ahora</span>
+          <span className="block text-sm font-semibold tabular-nums text-foreground">
+            {currentCount}
+          </span>
+        </Link>
+      </div>
+      <div className="gc-workload-track" aria-hidden>
+        <div
+          className="gc-workload-fill"
+          style={{ width: `${Math.round(ratio * 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function WorkSequenceLoadNote({ load }: { load: DashboardWorkSequenceLoad }) {
+  if (load.current_unassigned === 0 && load.current_unavailable === 0) {
+    return null;
+  }
+
+  return (
+    <p className="mt-3 text-sm text-muted-foreground">
+      {load.current_unassigned > 0
+        ? `Pasos actuales sin persona: ${load.current_unassigned}`
+        : null}
+      {load.current_unassigned > 0 && load.current_unavailable > 0 ? " · " : null}
+      {load.current_unavailable > 0
+        ? `Pasos actuales con persona no disponible: ${load.current_unavailable}`
+        : null}
+    </p>
+  );
+}
+
 export function TenantDashboard() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -327,6 +400,7 @@ export function TenantDashboard() {
 
   const counts = data?.counts;
   const members = data?.workload.members ?? [];
+  const workSequence = data?.workload.work_sequence ?? null;
   const upcoming = data?.upcoming_orders ?? [];
   const attentionOrders = data?.attention_orders ?? [];
   const attentionCount = counts?.needs_attention ?? 0;
@@ -411,7 +485,11 @@ export function TenantDashboard() {
 
       <SectionCard
         title="Carga del equipo"
-        description="Pedidos activos por persona"
+        description={
+          workSequence
+            ? "Pedidos activos por persona: como responsable y los que le tocan ahora"
+            : "Pedidos activos por persona"
+        }
         bodyClassName="p-4 sm:p-5"
       >
         {members.length === 0 ? (
@@ -419,6 +497,20 @@ export function TenantDashboard() {
             title="No hay miembros activos."
             className="rounded-[calc(var(--radius)-4px)] bg-secondary/25 px-4 py-8 text-muted-foreground"
           />
+        ) : workSequence ? (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {members.map((member) => (
+                <WorkloadSequenceRow
+                  key={member.id}
+                  member={member}
+                  maxCount={workloadMax}
+                  currentCount={workSequence.current_by_member[member.id] ?? 0}
+                />
+              ))}
+            </div>
+            <WorkSequenceLoadNote load={workSequence} />
+          </>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {members.map((member) => (

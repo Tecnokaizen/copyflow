@@ -69,6 +69,23 @@ describe("PostgREST hints towards team_members (SUR4 E1)", () => {
     }
   });
 
+  it("the work-sequence list embeds (E9) use order_work_steps_team_member_fk", () => {
+    const hints = embeds()
+      .filter((embed) => embed.file === "lib/orders/work-turn.ts")
+      .map((embed) => embed.hint);
+    assert.deepEqual(hints, ["!order_work_steps_team_member_fk"]);
+    // The list routes reuse that embed instead of writing their own.
+    for (const file of [
+      "app/api/orders/route.ts",
+      "app/api/orders/mine/route.ts",
+      "app/api/orders/counter/route.ts",
+    ]) {
+      const text = readFileSync(path.join(root, file), "utf8");
+      assert.match(text, /withWorkTurnSelect/, file);
+      assert.equal(/order_work_steps\s*[(!]/.test(text), false, file);
+    }
+  });
+
   it("no embed pulls every column of a person", () => {
     assert.deepEqual(
       embeds()
