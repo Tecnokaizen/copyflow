@@ -1,22 +1,66 @@
 # Correo de Auth con Brevo (SMTP transaccional) para Staging y Production — propuesta V2
 
-**Estado:** propuesta. No hay nada configurado en Supabase, en el DNS ni en Brevo. La ronda C del alta pública sigue pendiente hasta tener correo funcional.
+**Estado:** arquitectura aprobada con condiciones el 28/10 (sección 0). E1 está listo para ejecutarse en Staging (11.1), a la espera del OK del propietario. No hay nada configurado en Supabase, en el DNS ni en Brevo. La ronda C del alta pública sigue pendiente hasta tener correo funcional.
 
 **Motivo:** el 28/10/2026, en la ronda C, el límite del correo integrado de Supabase bloqueó un alta en Staging (`429 over_email_send_rate_limit`). Sin correo propio no se puede comercializar Gestcopy: el alta y la recuperación de contraseña dependen del correo. Ver «Repetición del alta pública» en `docs/BILLING-PRO-OFFERS-V1.md`.
 
 **Cambio respecto a la V1:** el proveedor pasa a ser Brevo, que ya usamos, y los subdominios de envío pasan a `auth.gestcopy.com` y `auth-staging.gestcopy.com` (ver 3.3).
 
-## 0. Decisiones del propietario
+## 0. Decisiones (aprobación condicionada del propietario, 28/10)
 
-| # | Decisión | Propuesta |
-| --- | --- | --- |
-| D1 | Brevo como proveedor de Auth | Sí, si pasa la prueba de enlaces de la etapa E4 (ver 8.1) |
-| D2 | Cuentas de Brevo | Una cuenta por entorno (ver 3.1). Alternativa: una cuenta con dos claves |
-| D3 | Cuenta de Production | Cuenta solo para el correo de Auth de Gestcopy, sin campañas |
-| D4 | Subdominios | `auth.gestcopy.com` (Production) y `auth-staging.gestcopy.com` (Staging) |
-| D5 | Plan de Production | Starter, y Standard si el pie «Sent with Brevo» sale también en los transaccionales (ver 9) |
-| D6 | Buzón de informes DMARC (`rua`) | Por ejemplo `dmarc@gestcopy.com` en Hostinger |
-| D7 | Identidades de prueba | Una nueva identidad sintética para Staging, del tipo `tecnokaizen+authfix4@gmail.com`, además de `+authfix3` para la ronda C |
+**Condiciones del propietario:**
+1. Empezar exclusivamente por Staging.
+2. Priorizar Brevo, con una prueba real de que no reescribe los enlaces de autenticación. Si no se puede garantizar, evaluar Postmark o Amazon SES antes de activar nada.
+3. `auth-staging.gestcopy.com` separado de `auth.gestcopy.com`.
+4. No reutilizar credenciales de cuentas comerciales o de marketing.
+5. SPF, DKIM y DMARC según los registros que dé el proveedor.
+6. Verificar los límites de Supabase y de Brevo, la entregabilidad y la retención de los registros de envíos.
+7. Corrección de la recuperación de contraseña, las redirecciones y los textos en español en un PR independiente.
+
+**No autorizado todavía:** Production, Stripe Live y el DNS de Production. La ronda C sigue pendiente.
+
+### Desglose de D1–D7
+
+**D1 · Proveedor: Brevo, prioritario y condicionado a la prueba de enlaces**
+- **La prueba (E1.6):** un correo real por el relé SMTP de Brevo, con tres enlaces con la forma exacta de los de Supabase Auth (alta, recuperación y `token_hash`).
+- **PASS:** los tres llegan idénticos byte a byte, en la parte HTML y en la de texto, sin ningún dominio de seguimiento.
+- **Se repite dos veces:** en E2, con el dominio ya autenticado, y en E4, con correos reales de Supabase.
+- **Si falla cualquiera de las tres, o Brevo no lo garantiza para este plan:**
+  - Brevo no se activa en Supabase;
+  - no se añaden registros de DNS;
+  - se evalúan Postmark y Amazon SES antes de activar nada.
+
+**D2 · Cuentas: una cuenta de Brevo nueva por entorno**
+- Ahora solo la de Staging: «Gestcopy Staging», plan Free.
+- Correo de acceso propio, que no sea el de ninguna cuenta comercial o de marketing.
+- No se reutiliza ninguna clave, usuario ni remitente de esas cuentas.
+
+**D3 · Production: cuenta nueva dedicada, más adelante**
+- Solo para el Auth de Gestcopy: sin campañas ni listas de contactos.
+- Se crea en E7, con autorización. Ahora no se crea.
+
+**D4 · Subdominios separados**
+- `auth-staging.gestcopy.com`: ahora.
+- `auth.gestcopy.com`: en E7.
+- Cada uno con su cuenta, su remitente, su DKIM y su DMARC.
+- **En la zona de Cloudflare, E2 solo añade registros nuevos bajo `auth-staging`.** No se toca ningún registro existente: raíz, MX, SPF y DMARC de la raíz, ni la delegación de `app` a Vercel. `check_dns.sh` lo vigila.
+
+**D5 · Planes**
+- Staging: Free (300 correos al día).
+- Production: Starter, si en E1.6 no aparece el pie de Brevo en el transaccional. Si aparece, Standard o Starter con el extra. Se decide en E7.
+
+**D6 · Informes DMARC (`rua`)**
+- **Buzón:** `dmarc@gestcopy.com`, un buzón o alias en Hostinger que el propietario crea antes de E2.
+- **En Staging:** `_dmarc.auth-staging` con el valor que proponga Brevo. Si no incluye nuestro `rua`, se añade separado por coma.
+- **Aplazado:** el `rua` de la raíz, porque es DNS de Production.
+
+**D7 · Identidades sintéticas, solo en Staging**
+- **Reglas:** sin organizaciones ni pagos. Todas entran en el inventario de S9.
+- **Identidades:**
+  - `tecnokaizen+brevotest@gmail.com`: solo destinatario de la prueba de enlaces de E1. No crea ningún usuario.
+  - `tecnokaizen+authfix3@gmail.com`: solo para la ronda C (T4).
+  - `tecnokaizen+authfix4@gmail.com`: T1–T3, T5–T7 y T10.
+  - `tecnokaizen+authfix5@gmail.com`: solo si se hace T8 (invitación).
 
 ## 1. Auditoría de Production (solo lectura, 28/10 hasta las 21:07Z)
 
@@ -100,7 +144,7 @@ No pegues usuarios, contraseñas ni claves en el chat.
 
 | | Staging | Production |
 | --- | --- | --- |
-| Cuenta de Brevo | Propia («Gestcopy Staging»), plan Free | Propia («Gestcopy»), Starter o Standard. Solo correo de Auth |
+| Cuenta de Brevo | Nueva («Gestcopy Staging»), plan Free | Nueva («Gestcopy»), Starter o Standard. Solo correo de Auth. Ninguna de las dos es una cuenta comercial o de marketing |
 | Subdominio de envío | `auth-staging.gestcopy.com` | `auth.gestcopy.com` |
 | Remitente | `Gestcopy Staging <no-reply@auth-staging.gestcopy.com>` | `Gestcopy <no-reply@auth.gestcopy.com>` |
 | Clave SMTP | `supabase-staging`. Solo en Supabase Staging y en el gestor de contraseñas del propietario | `supabase-production`. Solo en Supabase Production y en el gestor |
@@ -115,9 +159,7 @@ No pegues usuarios, contraseñas ni claves en el chat.
 - **Cupo y estado:** con una sola cuenta, el cupo diario o mensual y una posible suspensión afectarían a los dos entornos.
 - **Alternativa:** una sola cuenta con dos claves y dos subdominios. Es más rápida, pero aísla menos. Solo es aceptable si el propietario asume esos dos riesgos.
 
-**Sobre la cuenta que ya usamos:**
-- Si envía campañas, no conviene usarla para el Auth de Production: Supabase recomienda no mezclar Auth con marketing.
-- Si solo envía transaccionales de Gestcopy y ya está aprobada, puede ser la cuenta de Production. Así se evita esperar la aprobación de una cuenta nueva.
+**Sobre la cuenta que ya usamos:** no se reutiliza ni ella ni sus credenciales (condición 4). Supabase también recomienda no mezclar el Auth con marketing.
 
 ### 3.3 Por qué `auth.*` y no `mail.*`
 
@@ -139,13 +181,13 @@ No pegues usuarios, contraseñas ni claves en el chat.
 | Código de Brevo | `auth-staging.gestcopy.com` | TXT | `brevo-code:…`, del panel | Prueba que el dominio es nuestro. No se borra mientras se use Brevo |
 | DKIM | `brevo1._domainkey.auth-staging` y `brevo2._domainkey.auth-staging`, o `mail._domainkey.auth-staging` | CNAME o TXT | Del panel | Los CNAME en **«DNS only»** (nube gris), nunca con proxy |
 | DMARC | `_dmarc.auth-staging` | TXT | `v=DMARC1; p=none; rua=mailto:dmarc@gestcopy.com; adkim=r; aspf=r` | Política propia del subdominio |
-| SPF | — | — | — | No hace falta. Brevo usa su propio Return-Path, así que la alineación DMARC llega por DKIM |
+| SPF | `auth-staging.gestcopy.com` | TXT | Solo si el panel de Brevo lo da, y tal cual | Según Brevo no hace falta: usa su propio Return-Path, así que la alineación DMARC llega por DKIM. No se inventa ninguno (condición 5) |
 
-**El SPF de la raíz (Hostinger) no se toca.**
+**El SPF de la raíz (Hostinger) no se toca.** En E2 solo se añaden registros nuevos bajo `auth-staging`; `check_dns.sh` comprueba que los registros existentes de `gestcopy.com` siguen igual.
 
 **Plan de DMARC:**
 1. **Subdominios:** `p=none` con `rua` durante 2–4 semanas. Después `p=quarantine`, si los informes muestran que todo lo que envía Brevo sale con DKIM alineado, y más adelante `p=reject`. Staging puede adelantarse.
-2. **Raíz:** hoy `p=none` sin `rua`. Se propone añadir solo el `rua`, sin cambiar la política, como paso aparte. También afecta al correo de Hostinger, pero solo a los informes.
+2. **Raíz:** hoy `p=none` sin `rua`. Se propone añadir solo el `rua`, sin cambiar la política, como paso aparte. También afecta al correo de Hostinger, pero solo a los informes. **Aplazado:** es DNS de Production, todavía no autorizado.
 3. **Buzón:** si `rua` apunta a un buzón de `gestcopy.com`, no hace falta ningún registro de autorización externa.
 
 **Requisitos de Gmail y Yahoo:** piden SPF o DKIM, DMARC publicado (vale `p=none`) y TLS. Se cumplen.
@@ -215,11 +257,16 @@ No pegues usuarios, contraseñas ni claves en el chat.
 - que el correo lleve un dominio ajeno (más aspecto de phishing);
 - que lo bloqueen filtros corporativos.
 
-**Qué hacer:**
-1. En la etapa E1, mirar en el panel la opción de anonimizar el seguimiento y preguntar a soporte si se puede desactivar.
-2. En E4, comprobar que el enlace llega intacto, que el alta se confirma y que la ronda C se comporta según #161.
+**Qué hacer (condición 2 del propietario):**
+1. **E1.6, antes de tocar el DNS o Supabase:** prueba real por el relé SMTP con `brevo_link_test.py` y `check_eml.py`. Basta con que reescriba un solo enlace para que sea FAIL, aunque la redirección funcione.
+2. **E2:** se repite con el remitente del dominio autenticado.
+3. **E4:** se repite con correos reales de Supabase.
 
-**Criterio de parada:** si el enlace se rompe, o Gmail lo marca como spam con SPF, DKIM y DMARC en PASS, se deshace E3 y se elige otro proveedor sin seguimiento por defecto, como Postmark o Amazon SES.
+**Si falla, o Brevo no lo garantiza en este plan:**
+- Brevo no se activa;
+- se evalúan Postmark y Amazon SES (seguimiento, separación por entorno, datos en la UE, límites, registros de envíos y costes) antes de activar nada.
+
+**Criterio de parada en E4:** si el enlace se rompe, o Gmail lo marca como spam con SPF, DKIM y DMARC en PASS, se deshace E3.
 
 ### 8.2 Los enlaces quedan guardados en Brevo
 
@@ -279,7 +326,7 @@ Los mismos en `main` y en Staging `97fbc59`. **No se han tocado.**
 - **Después de cambiar la contraseña:** el formulario navega a `/protected`, la página de ejemplo de la plantilla de Next.js.
 - **Textos:** están en inglés («Reset Your Password», «Check Your Email»).
 
-**Propuesta:** un PR pequeño y aparte, antes del alta comercial:
+**Aprobado preparar (condición 7):** un PR pequeño e independiente desde `main`, antes del alta comercial:
 - destino tras cambiar la contraseña;
 - textos en español;
 - mensaje claro si el enlace se abre en otro navegador.
@@ -329,8 +376,8 @@ Cada etapa necesita la autorización del propietario. Claude no ve ninguna crede
 | Etapa | Qué | Quién | Para seguir |
 | --- | --- | --- | --- |
 | E0 | Decisiones D1–D7 | Propietario | Decididas |
-| E1 | **Brevo Staging:** cuenta, subdominio `auth-staging.gestcopy.com`, remitente, clave `supabase-staging`, IP autorizadas para SMTP desactivado. Revisar la opción de seguimiento y preguntar a soporte | Propietario | Cuenta aprobada para enviar |
-| E2 | **DNS de Staging** en Cloudflare: código de Brevo, DKIM y DMARC | Propietario. Claude comprueba con `dig` | Brevo muestra el dominio «Authenticated» |
+| E1 | **Brevo Staging y prueba de enlaces**, sin tocar el DNS ni Supabase (ver 11.1) | Propietario. Claude comprueba en lectura | E1.6 en PASS y autorización de E2 |
+| E2 | **DNS de Staging** en Cloudflare: solo registros nuevos bajo `auth-staging` (código de Brevo, DKIM, DMARC y SPF si Brevo lo da). Después, repetir E1.6 con `no-reply@auth-staging.gestcopy.com` | Propietario. Claude comprueba con `check_dns.sh` | Brevo muestra el dominio «Authenticated», `check_dns.sh` en OK y E1.6 otra vez en PASS |
 | E3 | **Supabase Staging:** SMTP propio (`smtp-relay.brevo.com`, 587, usuario, clave, remitente y nombre), límite de 30 por hora y asuntos con «[Staging]». Antes, anotar los valores actuales | Propietario | Guardado sin errores |
 | E4 | **Pruebas T1–T12**, ronda C incluida. Después, auditoría de solo lectura | Propietario y Claude | T1–T8 y T10–T11 en PASS, sin parar por 8.1 |
 | E5 | **Observación de Staging, 24–72 h:** informes DMARC y registros de envíos | Claude, en lectura | Sin fallos de DKIM ni rebotes |
@@ -339,6 +386,45 @@ Cada etapa necesita la autorización del propietario. Claude no ve ninguna crede
 | E8 | **Supabase Production:** SMTP, límite y plantillas en español. Ventana anunciada y valores anteriores anotados | Propietario, con autorización explícita | Guardado sin errores |
 | E9 | **Pruebas P1–P3** | Propietario y Claude | PASS |
 | E10 | **Alta comercial abierta:** vigilancia durante 2 semanas y endurecimiento de DMARC a las 2–4 semanas | Propietario y Claude | Umbrales de 7 sin superar |
+
+### 11.1 Procedimiento de E1 (Staging)
+
+**Alcance:**
+- **No toca:** el DNS, Supabase Auth, Production ni Stripe.
+- **Lo único externo:** crear la cuenta de Brevo y enviar un correo de prueba a un alias del propietario.
+
+**Herramientas:** `~/copyflow-ops/auth-smtp-staging/`, fuera del repositorio:
+- `brevo_link_test.py`: envía la prueba.
+- `check_eml.py`: compara el correo recibido.
+- `check_dns.sh`: lectura del DNS y guarda de Production.
+
+**Línea base (28/10, 21:13–21:18Z):**
+- **Supabase Staging:** 12 usuarios (de los `+authfix`, solo `+authfix` y `+authfix2`), 140 sesiones, 1 flow state, 10 perfiles, 10 membresías, 8 tenants y 10 suscripciones. Última confirmación enviada a las 20:18:46Z; ninguna recuperación.
+- **DNS:** nada bajo `auth-staging`. La guarda de Production en OK (raíz TXT, MX, `_dmarc` y delegación de `app` a Vercel).
+
+| Paso | Quién | Qué | Evidencia para Claude (nunca credenciales) |
+| --- | --- | --- | --- |
+| E1.1 | Propietario | Crear una cuenta de Brevo nueva, «Gestcopy Staging», plan Free, con un correo de acceso que no use ninguna cuenta comercial o de marketing. Activar 2FA. Si Brevo pide web o dirección, las de Gestcopy | «Cuenta creada, 2FA activo» |
+| E1.2 | Brevo | Aprobar la cuenta para enviar (sin plazo publicado) | «Aprobada sí/no» |
+| E1.3 | Propietario | Settings → Security → Authorized IPs: el bloqueo de las **claves SMTP** desactivado (es lo predeterminado). No crear claves de API | Estado del bloqueo |
+| E1.4 | Propietario | SMTP & API → SMTP → generar la clave `supabase-staging`. Guardar en el gestor de contraseñas el host `smtp-relay.brevo.com`, el puerto 587, el login SMTP y la clave. Nunca en el chat, en el repositorio ni en Vercel | «Clave creada y guardada» |
+| E1.5 | Propietario, en lectura | **En Brevo:**<br>a) el plan y el límite que muestra;<br>b) las opciones de seguimiento de los transaccionales: si existe anonimizar o desactivar;<br>c) Transactional → Logs: cuánto tiempo atrás muestra y si deja ver el contenido del correo, con sus enlaces;<br>d) el remitente verificado por defecto.<br>**En Supabase Staging:**<br>e) Authentication → Rate Limits: correos por hora;<br>f) Sign In / Providers → Email: Confirm email, caducidad del OTP e intervalo mínimo;<br>g) Emails → SMTP Settings: debe seguir desactivado | Los valores, sin datos de acceso |
+| E1.6 | Propietario, en su terminal | **Prueba de enlaces:**<br>1. `python3 -I ~/copyflow-ops/auth-smtp-staging/brevo_link_test.py --from <remitente verificado> --to tecnokaizen+brevotest@gmail.com`. El script pide el login y la clave sin mostrarlos.<br>2. En Gmail, abrir el correo **sin pulsar los enlaces** → ⋮ → «Descargar mensaje». | La ruta del `.eml`. Claude ejecuta `check_eml.py` y anota: enlaces, dominios, píxel, pie de Brevo y SPF/DKIM/DMARC |
+| E1.7 | Propietario, solo si E1.6 da FAIL | Enviar a soporte de Brevo la consulta de abajo. Si la respuesta no garantiza desactivar la reescritura en este plan: Brevo descartado, sin DNS, y Claude prepara la evaluación de Postmark y SES | La respuesta de Brevo |
+| E1.8 | Claude, en lectura | Anotar en el runbook. Repetir la línea base de Staging y `check_dns.sh`: sin cambios | — |
+
+**Para pasar a E2:** E1.6 en PASS y autorización expresa del propietario. Antes de E2 tiene que existir el buzón `dmarc@gestcopy.com` (D6).
+
+**Consulta a soporte de Brevo (E1.7, la envía el propietario):**
+
+> Asunto: Desactivar el seguimiento de enlaces en correos transaccionales por SMTP
+>
+> Hola: usamos el relé SMTP (`smtp-relay.brevo.com`) para enviar correos de autenticación (confirmación de cuenta y recuperación de contraseña) desde Supabase Auth. Llevan enlaces de un solo uso que no deben modificarse.
+>
+> 1. ¿Se puede desactivar por completo la reescritura de enlaces (seguimiento de clics) y el seguimiento de aperturas en los correos transaccionales de esta cuenta, con el plan actual? Si solo es posible en Enterprise, ¿nos lo podéis confirmar por escrito?
+> 2. ¿Cuánto tiempo se conserva el contenido de los correos transaccionales en los registros, y se puede desactivar ese almacenamiento?
+>
+> Gracias.
 
 **Calendario:**
 - El pago del SUR4 (L0–L8) no necesita esto: su Owner ya tiene cuenta en Production.

@@ -476,6 +476,13 @@ Pasos de la ronda:
   - **Indicio:** entre el 05/09 y el 10/09, 6 direcciones de 4 dominios, que no son alias del propietario, confirmaron el alta 20–87 s después del envío. Production pudo tener ya un SMTP propio, o esas direcciones eran del equipo.
   - **Desde el 10/09:** ningún envío. Supabase no ha enviado nunca una recuperación ni una invitación.
   - **Pendiente:** que el propietario lo compruebe en el panel (sección 1.4 de la propuesta).
+  - **Aprobación condicionada del propietario (28/10, ~21:10Z):**
+    - Lo aprobado: separar el correo de Auth de Staging y Production. Primero solo Staging.
+    - Brevo, solo si pasa una prueba real de que no reescribe los enlaces. Si no, evaluar Postmark o SES antes de activar nada.
+    - Ninguna credencial de cuentas comerciales o de marketing.
+    - La corrección de la recuperación de contraseña va en un PR independiente.
+    - Sin autorizar: Production, Stripe Live y el DNS de Production.
+    - D1–D7 y el procedimiento E1 están en la sección 0 y en la 11.1 de la propuesta. E1 se hará con el OK del propietario.
 - Una autorización por operación. Nada en Production, Stripe Live ni Supabase Auth de Production sin autorización expresa.
 
 | Paso | Qué |
