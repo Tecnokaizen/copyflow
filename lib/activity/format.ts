@@ -1,3 +1,7 @@
+import {
+  isOrderWorkActivityAction,
+  orderWorkActivityHeadline,
+} from "@/lib/activity/order-work-activity";
 import { formatLeadTimeMinutes } from "@/lib/services/types";
 import { richTextToPlainText } from "@/lib/rich-text/html";
 import { assigneeActivityOption } from "@/lib/activity/filters";
@@ -407,6 +411,9 @@ function singleChange(
 }
 
 function extractChanges(event: ActivityEvent): FormattedChange[] {
+  if (isOrderWorkActivityAction(event.action)) {
+    return [];
+  }
   const prev = asRecord(event.previous_values);
   const next = asRecord(event.new_values);
   const field = changedField(event);
@@ -525,6 +532,15 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
 
 function headlineFor(event: ActivityEvent, entity: string) {
   const field = changedField(event);
+  const orderWork = orderWorkActivityHeadline(
+    event.action,
+    asRecord(event.previous_values),
+    asRecord(event.new_values),
+    entity
+  );
+  if (orderWork) {
+    return orderWork;
+  }
 
   switch (event.action) {
     case "order.created":
@@ -695,7 +711,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "order.total_changed",
     "order.payment_recorded",
     "order.payment_voided",
-  ].includes(event.action);
+  ].includes(event.action) || isOrderWorkActivityAction(event.action);
 
   const changes = extractChanges(event);
   const headline = known
