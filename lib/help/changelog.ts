@@ -108,12 +108,56 @@ export const CHANGELOG: ChangelogRelease[] = [
         "Pedidos",
         "Para elegir responsable de un pedido o de un presupuesto, también al convertir un presupuesto, solo aparecen las personas activas que pueden recibir pedidos. Quien deja de poder recibirlos conserva los pedidos que ya tenía hasta que los reasignes."
       ),
+      seguridad(
+        "Pedidos",
+        "Cualquier cambio en un pedido pasa siempre por las mismas comprobaciones de permisos, estado y responsable que se aplican desde la ficha. La forma de trabajar no cambia."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-25",
+    title: "Volver a contratar tras cancelar",
+    entries: [
+      correccion(
+        "Facturación",
+        "Si cancelas la suscripción, puedes volver a contratar el plan desde Facturación. Antes, en algunos casos, aparecía siempre «Estamos confirmando tu suscripción» y no dejaba continuar."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-21",
+    title: "Pie del PDF de presupuestos y copias de seguridad",
+    entries: [
+      correccion(
+        "Presupuestos",
+        "El pie del PDF de presupuestos se imprime tal como lo escribes en Ajustes: cada línea en su sitio, sin cortes a mitad de un dato y respetando los espacios que separan la información. Ya no aparece debajo una línea con la referencia y la moneda; la referencia sigue en la cabecera de cada página."
+      ),
+      seguridad(
+        "Plataforma",
+        "Las copias de seguridad incluyen ahora toda la información necesaria para recuperar la plataforma, y se ha completado con éxito un simulacro de recuperación."
+      ),
     ],
   },
   {
     date: "2026-10-16",
-    title: "Métodos de pago, justificantes, dirección de clientes y notas de presupuesto en pedidos",
+    title: "Métodos de pago, justificantes, dirección de clientes y partidas duplicadas",
     entries: [
+      nuevo(
+        "Presupuestos",
+        "Botón «Duplicar» en cada partida del borrador de un presupuesto: crea una copia justo debajo, con el mismo concepto, descripción, precio, descuento e IVA, para cotizar la misma referencia con otra cantidad. La copia suma en los totales como cualquier otra partida y no se guarda hasta que pulses «Guardar borrador»."
+      ),
+      mejora(
+        "Plataforma",
+        "Gestcopy responde más rápido: la aplicación funciona ahora en Europa, junto a tus datos."
+      ),
+      seguridad(
+        "Plataforma",
+        "Cada copistería se abre solo desde su propia dirección. Si Gestcopy no reconoce la dirección desde la que se accede, no muestra ningún dato."
+      ),
+      seguridad(
+        "Cobros",
+        "El total de un pedido solo cambia con las acciones previstas para ello, como «Definir total», «Modificar total» o al convertir un presupuesto, que comprueban cada cambio."
+      ),
       correccion(
         "Ajustes",
         "El logo de la copistería se muestra con su forma real en la cabecera, sea horizontal o vertical, y al cambiarlo o quitarlo se actualiza al momento, sin recargar la página."

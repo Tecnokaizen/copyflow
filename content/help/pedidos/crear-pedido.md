@@ -16,7 +16,8 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 4. Indica entrega prevista y prioridad (Normal, Alta o Urgente).
 5. Si hay varias tiendas, elige la sede.
 6. Opcional: responsable, notas, archivos u otros campos visibles.
-7. Guarda el pedido.
+7. Opcional: en **Importe y entrega a cuenta**, indica el total y lo que deja el cliente a cuenta. El pendiente se calcula solo.
+8. Guarda el pedido.
 
 ## Destacar información importante
 
@@ -28,7 +29,7 @@ En **Instrucciones** (o **Descripción** en el pedido rápido) y en **Notas inte
 4. Abre **Alineación** y elige Izquierda, Centrada, Derecha o Justificada. Se aplica al párrafo entero, también dentro de una lista.
 5. Para volver al formato normal, elige **Normal**, **Predeterminado** o **Izquierda**, o pulsa **Quitar formato**.
 
-El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo y al añadir notas, y el de las instrucciones también en la Hoja de trabajo. Las notas internas del pedido no se imprimen: en la Hoja de trabajo solo salen los post-its marcados expresamente como imprimibles. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños, colores ni alineación.
+El formato se guarda con el pedido y se ve igual al consultarlo, al editarlo y al añadir notas, y el de las instrucciones también en la Hoja de trabajo. Las notas internas del pedido no se imprimen en la Hoja de trabajo ni en el Resguardo. En modo oscuro los colores se aclaran para que se lean bien. Los presupuestos y el kiosco no usan tamaños, colores ni alineación.
 
 ## Qué ocurre después
 
@@ -43,6 +44,9 @@ Propietario, administrador, responsable y personal. Solo lectura no crea pedidos
 En mostrador llega un trabajo ya aceptado: creas el pedido, eliges el servicio configurado, pones entrega para mañana y dejas la prioridad Normal.
 
 ## Problemas frecuentes
+
+### La sesión caducó mientras creaba el pedido
+Gestcopy guarda lo que llevabas escrito y lo recupera cuando vuelves a iniciar sesión. Los archivos adjuntos hay que seleccionarlos de nuevo. Si aparece «No se ha podido comprobar la sesión», es un fallo momentáneo: vuelve a intentarlo.
 
 ### No aparece el servicio que quiero
 Solo se listan servicios activos de la organización. Actívalo o créalo en Servicios / Configuración si tienes permiso.
