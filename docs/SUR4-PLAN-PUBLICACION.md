@@ -250,7 +250,7 @@ Secuencia, desde las 21:00Z, con un GO por paso:
 | P-3 | integración | #165, ficha, Hoja sin notas y Resguardo | Ídem; comunicación a SUR4 preparada antes |
 | W1 | release | Copia B1.3 de Production, `verify` y restauración aislada | Hashes y manifiesto v2; `RESTORE_DATABASE_ISOLATED_SUCCESS` y comprobaciones R5/R6 sobre la copia restaurada |
 | W2 | integración | Merge de #163 | CI, READY, sondas 6/6, 15 min |
-| W3 | release | Solo `20261028090000` | Dry-run con solo esa; comprobación (0 cambios en la matriz efectiva tenant × función); Stripe confirma Live sin activar y Pro sin publicar |
+| W3 | release | Solo `20261028090000` | Dry-run con solo esa; comprobación (0 cambios en la matriz efectiva tenant × función); comprobación de Stripe (ver abajo) |
 | W4 | release | `20261028120000` | Copia de menos de 2 h; dry-run con solo esa; comprobación de RLS y RPC (huella de `tenant_has_feature` tomada tras W3) |
 | P-5 | integración | #166, post-its | CI, READY, sondas 6/6, 15 min |
 | W5 | release | `20261028130000` | Copia de menos de 2 h (si no, se renueva); dry-run con solo esa; comprobación de RLS y RPC |
@@ -260,6 +260,16 @@ Secuencia, desde las 21:00Z, con un GO por paso:
 Cada migración se aplica antes del merge de la PR que la trae a `main`:
 `090000` con #163, `120000` con #166 y `130000` con #167. Las funciones nacen
 apagadas.
+
+Comprobación de Stripe tras W3 (sesión de Stripe, solo lectura; foto de antes
+de las 16:58Z). En Production, Stripe ya está en Live para Basic desde el
+28/09 (decisión del propietario del 21/10) y eso no cambia. Lo que se
+comprueba es que Pro no tiene nada en Live ni en Test: ni precio, ni oferta,
+ni Checkout, ni suscripción. `090000` deja `pro` activo en `plans`, pero no es
+visible ni contratable: el código de `main` solo acepta `basic` y no hay
+`billing_prices` de Pro. Además: 87 migraciones, la huella nueva de
+`tenant_has_feature`, `clients_import` retenida, los derechos de los 6
+tenants sin cambios y SUR4 igual en tenant, suscripciones y concesión.
 
 Acordado con la sesión de release (29/10, 17:1xZ):
 - W3 se lanza desde el SHA exacto de `main` tras el squash de #163; W4 desde
@@ -322,4 +332,10 @@ merge.
    (W2) y `090000` (W3), cada uno con su GO. Vía para `090000` decidida: la
    portadora #163 (`c90a8b6`).
 4. Fecha y hora de V2: cada migración y el merge de P-5 a P-7, uno a uno.
-5. Concesiones a SUR4 o DEMO (operación aparte).
+   W4 y W5 se lanzan desde la cabeza de #166 y de #167, que no son `main`:
+   la sesión de release pide aprobación expresa del propietario para cada
+   SHA.
+5. Opcional, antes de la ventana: dry-run contra Production desde #163
+   (`c90a8b6`), que solo debería listar `090000`. No aplica nada, pero la CLI
+   crea un rol temporal en Production. Solo con el sí del propietario.
+6. Concesiones a SUR4 o DEMO (operación aparte).
