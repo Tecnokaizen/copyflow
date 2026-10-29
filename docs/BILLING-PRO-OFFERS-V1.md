@@ -444,6 +444,14 @@ Pasos de la ronda:
 - **Actualización del 29/10, ~12:04Z:** según la adenda A1 del acta de coordinación (v2, correcciones del propietario, recogida por la sesión de integración), E10 ya no depende del SMTP ni de la ronda C.
   - Ahora la ventana E10 la lleva la sesión «Staging funcional GESTCOPY» (`local_8c362c45-…`). Ha aceptado las condiciones de `e2e` y `demo`: no tocar suscripciones, planes, ofertas, holds ni concesiones; nada de Stripe; ningún correo de Auth.
   - **Lo que sigue en pie:** E3 (el SMTP de Supabase Auth de Staging) no coincidirá con su ventana. E1 y E2 no tocan Staging.
+- **E10 cerrado en PASS (29/10, ~15:00Z)**, según Staging funcional. Esta sesión lo comprobó en lectura a las 14:59Z.
+  - **La ventana:** de T0 = 13:08Z (GO del propietario) a ~15:00Z. Durante ese tiempo, esta sesión no leyó ni escribió nada en Staging, no lanzó eventos de Stripe en modo test ni hizo push.
+  - **Facturación desde el GO:** 0 webhooks (el último sigue siendo del 28/10 a las 17:25Z), 0 suscripciones cambiadas, 0 checkouts y 0 ofertas tocadas.
+  - **Recuentos:** 17 usuarios, 155 sesiones, 1 flow state, 15 perfiles, 15 membresías, 12 tenants y 10 suscripciones.
+    - Las altas son 5 usuarios sintéticos `@example.com` sin correos y 4 tenants `e2e-sur4-*` sin suscripción.
+    - Es la nueva línea base de E1 (`docs/AUTH-SMTP-TRANSACTIONAL.md` §11.1).
+  - **Staging:** `c7067b9` (`dpl_44GE1RhvVHAi4gruaHRqU1E2CTqq`), 89 migraciones. `20261028090000` sigue aplicada.
+  - Cualquier escritura nueva en Staging sigue necesitando la autorización del propietario.
   - **Su pregunta sobre adelantar P1/P2** (simulacro + 090000 en Production, escenarios A y B) se ha reenviado a la sesión original, que lleva la pista P. Lo decide el propietario.
 
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.

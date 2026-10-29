@@ -398,9 +398,15 @@ Cada etapa necesita la autorización del propietario. Claude no ve ninguna crede
 - `check_eml.py`: compara el correo recibido.
 - `check_dns.sh`: lectura del DNS y guarda de Production.
 
-**Línea base (28/10, 21:13–21:18Z):**
-- **Supabase Staging:** 12 usuarios (de los `+authfix`, solo `+authfix` y `+authfix2`), 140 sesiones, 1 flow state, 10 perfiles, 10 membresías, 8 tenants y 10 suscripciones. Última confirmación enviada a las 20:18:46Z; ninguna recuperación.
+**Línea base (29/10, 14:59Z, tras cerrar E10 de Post-its en PASS):**
+- **Supabase Staging:** 17 usuarios (de los `+authfix`, solo `+authfix` y `+authfix2`), 155 sesiones, 1 flow state, 15 perfiles, 15 membresías, 12 tenants y 10 suscripciones. Última confirmación enviada a las 20:18:46Z del 28/10; ninguna recuperación. Último webhook de Stripe recibido el 28/10 a las 17:25Z (23 en total).
+- **Diferencia con la anterior (28/10, 21:13–21:18Z: 12, 140, 1, 10, 10, 8, 10):** la ha dejado E10, y Claude la ha comprobado en lectura.
+  - 5 usuarios sintéticos `@example.com`, creados ya confirmados con la API de administración, sin ningún correo enviado;
+  - 4 tenants `e2e-sur4-*` y 5 membresías, sin suscripción;
+  - 15 sesiones.
+- **Staging tras E10:** `gestcopy-staging` en `c7067b9` (`dpl_44GE1RhvVHAi4gruaHRqU1E2CTqq`), 89 migraciones (la última `20261028130000`). Copia previa verificada: set `20261029T131008Z`.
 - **DNS:** nada bajo `auth-staging`. La guarda de Production en OK (raíz TXT, MX, `_dmarc` y delegación de `app` a Vercel).
+- **Lo que cambia la línea base:** si E1 empieza más tarde, E1.8 compara con un recuento hecho justo antes de E1. Las sesiones suben con cualquier inicio de sesión (E2E de integración o de Post-its), así que no cuentan como efecto de E1 si no hay usuarios nuevos ni correos enviados.
 
 | Paso | Quién | Qué | Evidencia para Claude (nunca credenciales) |
 | --- | --- | --- | --- |
