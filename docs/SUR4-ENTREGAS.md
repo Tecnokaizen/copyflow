@@ -40,11 +40,11 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 | --- | --- | --- | --- | --- |
 | E0 · Decisiones | Hecha | `0cf2639` | ADR y contrato copiados sin cambios: SHA-256 `eff3f524…` y `9e4c37c5…`, iguales a la exportación del documento (rev 17 y rev 10) | N15 |
 | E1 · Pistas PostgREST | Hecha | `d0129d8` | `!orders_team_member_fk` en los cinco embeds reales del responsable (el documento contaba seis: `orders/mine` y la revisión solo leen la columna). `team_members(*)` pasa a `(id, name, active)`. `lib/orders/postgrest-hints.test.ts` falla sin la pista (comprobado quitándola). PostgREST local responde 200 con las pistas | N15 |
-| E2 · Impresión segura | Hecha en local | `b28bd2e` | La Hoja no lee ni imprime `orders.notes` en ningún tenant (select cerrado `WORK_SHEET_SELECT`); aviso solo en pantalla si el pedido tiene notas. Perfil `standard` = HTML de hoy menos la sección de notas (prueba de igualdad); perfil `ficha` solo con `order_work_sheet_ficha`, decidido en el servidor. Cinco muestras A4 de sur4-0134 caben en una hoja. En local con textos testigo: la Hoja ficha de `sur4lab` saca solo los post-its imprimibles; no salen notas, post-its internos, Drive ni notas del cliente; `baselab` imprime lo de hoy sin notas. `lib/print` 58/58. El E2E de Staging de formato de texto comprueba que las notas ya no salen | N15 (técnica), auditoría N23 (lectura en Production, con autorización). Tienda y N11: decide el propietario (enmienda 29/10) |
+| E2 · Impresión segura | Hecha en local | `b28bd2e` | La Hoja no lee ni imprime `orders.notes` en ningún tenant (select cerrado `WORK_SHEET_SELECT`); aviso solo en pantalla si el pedido tiene notas. Perfil `standard` = HTML de hoy menos la sección de notas (prueba de igualdad); perfil `ficha` solo con `order_work_sheet_ficha`, decidido en el servidor. Cinco muestras A4 de sur4-0134 caben en una hoja. En local con textos testigo: la Hoja ficha de `sur4lab` saca solo los post-its imprimibles; no salen notas, post-its internos, Drive ni notas del cliente; `baselab` imprime lo de hoy sin notas. `lib/print` 58/58. El E2E de Staging de formato de texto comprueba que las notas ya no salen | N15 (técnica). Auditoría N23 hecha (29/10). Tienda y N11 cerradas por el propietario (29/10) |
 | E3 · Ficha reorganizada | Hecha en local | `9b37118` | Cabecera con pedido y cliente a la izquierda e importes y entrega a la derecha, para todos los tenants; etiquetas de SUR4 solo con `order_custom_labels` (en `baselab` siguen «Total del pedido», «Entregado a cuenta», «Pendiente de cobro» e «Instrucciones»). Dos columnas desde `lg`, una en móvil. Textos de historial de post-its y pasos sin texto de notas (T9). Comprobado en el navegador a 390 px y escritorio | N15 |
-| E4 · Resguardo PDF | Hecha en local | `b28bd2e` | `GET /api/orders/[id]/receipt`: PDF de servidor, `private, no-store`, sin R2; 404 para otro tenant. Texto extraído del PDF real en local: cliente, importes, fechas, tienda y descripción; ningún texto testigo de notas o post-its, sin estado ni prioridad (N17) | N15, N9, N12 |
-| E5 · Post-its: base de datos | Hecha en local | `ca03c4e` | Migración `20261028120000_order_notes_v1.sql`: tablas `order_notes`, `order_note_versions` y `order_note_events` (historial solo de añadir), funciones `order_sticky_notes`, `order_custom_labels` y `order_work_sheet_ficha` apagadas por defecto, RLS de lectura por miembro y función activa, escritura solo por RPC. Base local aislada desde cero: invariantes del release gate PASS, `phase61_order_notes_v1.sql` PASS (roles, tres tenants, función apagada y retirada, impresión con autorización, N4/N5, «Pasar a post-it», historial, purga y supresión T11/T12), `phase61_order_notes_concurrency.sh` PASS (C4, C5, C6, C7, C9, sesiones nuevas, baja de tenant). Rollback `supabase/rollbacks/20261028120000_order_notes_v1.sql` probado (quitar y volver a aplicar). Ambas suites añadidas al CI | N15, N3, N4, N5, N8 |
-| E6 · Post-its: API y ficha | Hecha en local | `01170c8` | Rutas de notas con 404 sin la función y para otro tenant; 40 pruebas HTTP y de reglas. En el navegador (`sur4lab`): «+ Añadir nota» abre el compositor, aviso de teléfono, confirmación de imprimible, «Pasar a post-it» y cambio de estado posterior sin conflicto; historial con `order.note_created`, `order.note_printable_authorized` y `order.legacy_notes_converted`. `baselab` mantiene «Notas internas» | N15, N3, N4, N5, N8 |
+| E4 · Resguardo PDF | Hecha en local | `b28bd2e` | `GET /api/orders/[id]/receipt`: PDF de servidor, `private, no-store`, sin R2; 404 para otro tenant. Texto extraído del PDF real en local: cliente, importes, fechas, tienda y descripción; ningún texto testigo de notas o post-its, sin estado ni prioridad (N17) | N15 (N9 y N12 cerradas el 29/10) |
+| E5 · Post-its: base de datos | Hecha en local | `ca03c4e` | Migración `20261028120000_order_notes_v1.sql`: tablas `order_notes`, `order_note_versions` y `order_note_events` (historial solo de añadir), funciones `order_sticky_notes`, `order_custom_labels` y `order_work_sheet_ficha` apagadas por defecto, RLS de lectura por miembro y función activa, escritura solo por RPC. Base local aislada desde cero: invariantes del release gate PASS, `phase61_order_notes_v1.sql` PASS (roles, tres tenants, función apagada y retirada, impresión con autorización, N4/N5, «Pasar a post-it», historial, purga y supresión T11/T12), `phase61_order_notes_concurrency.sh` PASS (C4, C5, C6, C7, C9, sesiones nuevas, baja de tenant). Rollback `supabase/rollbacks/20261028120000_order_notes_v1.sql` probado (quitar y volver a aplicar). Ambas suites añadidas al CI | N15 (N3, N4, N5 y N8 cerradas el 29/10) |
+| E6 · Post-its: API y ficha | Hecha en local | `01170c8` | Rutas de notas con 404 sin la función y para otro tenant; 40 pruebas HTTP y de reglas. En el navegador (`sur4lab`): «+ Añadir nota» abre el compositor, aviso de teléfono, confirmación de imprimible, «Pasar a post-it» y cambio de estado posterior sin conflicto; historial con `order.note_created`, `order.note_printable_authorized` y `order.legacy_notes_converted`. `baselab` mantiene «Notas internas» | N15 (N3, N4, N5 y N8 cerradas el 29/10) |
 | E7 · Secuencia: base de datos | Hecha en local | `99207b4` | Migración `20261028130000_order_work_sequence_v1.sql`: `work_stages` (catálogo por tenant, sin semilla, nunca se borra) y `order_work_steps` (1–10 pasos, persona opcional mientras está pendiente, ejecutor, cuenta que marca, «Le toca» calculado). Función `order_work_sequence` apagada por defecto. RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1`, `team_work_load_v1`, `upsert_work_stage_v1` y `create_suggested_work_stages_v1`. `phase62_order_work_sequence_v1.sql` PASS (D5, D6, D14, D15, R6, tenants, roles, escritura directa, archivado, carga sin duplicar, retirada y vuelta de la función, purga), `phase62_order_work_sequence_concurrency.sh` PASS (C1, C2/C11, C3, C4, C8, C12, C13, C14, sesiones nuevas, TRUNCATE, baja de tenant), `phase63_order_features_isolation.sql` PASS (matriz de cuatro tenants, T1, T2, T4, T9, T10). Rollback probado: se niega con datos, quita concesiones y se vuelve a aplicar. Las 45 suites de la base del release gate PASS en local con E5 y E7 | N15 |
 | E8 · Secuencia: API, Configuración y ficha | Hecha en local | `ac83417` | Rutas de pasos y fases con 404 sin la función; 51 pruebas. En el navegador: marcar un paso con ejecutor, «Paso hecho: Preparación, por Raquel» en el historial, cambio de estado posterior sin conflicto, editor con pasos hechos bloqueados, lista vertical a 390 px, Configuración › Fases de trabajo | N15 |
 | E9 · Secuencia: listas y panel | Hecha en local | `df7856d` | Indicador «Le toca» y filtros «Le toca a» y «Participa» en Pedidos; grupos de Mis pedidos; Mostrador; «Le toca ahora» en el panel. Sin la función o sin fases activas, respuestas iguales a HEAD (13 peticiones comparadas). Recuento sin duplicar comprobado en PostgREST y SQL. En el navegador con `sur4lab` | N15 |
@@ -67,11 +67,15 @@ release por día en `lib/help/changelog.ts`; la entrada de esta rama irá dentro
 del bloque del día del merge (el 28/10 ya tiene «Búsquedas y estados de
 pedido»).
 
-## Decisiones pendientes y cómo se implementan mientras tanto
+## Decisiones (cerradas por el propietario el 29/10)
 
-Se implementa la recomendación escrita en el documento (sección 8). Cada una
-queda aislada para cambiarla sin rehacer la entrega, y ninguna entrega que la
-use se fusiona hasta que el propietario la cierre.
+Se implementó la recomendación escrita en el documento (sección 8). Cada una
+queda aislada para cambiarla sin rehacer la entrega.
+
+**Cierre (29/10/2026, 16:5xZ):** el propietario acepta como definitivas las
+siete recomendaciones implementadas (N3, N4, N5, N8, N9, N11 y N12). La regla
+de la tienda en la Hoja sigue siendo la suya del 27/10. N10 no bloquea nada.
+Ya no hay decisiones pendientes que impidan el merge de las PR de esta rama.
 
 | # | Recomendación implementada | Dónde vive | Si cambia |
 | --- | --- | --- | --- |
@@ -139,7 +143,16 @@ Production, no aquí.
 - Tienda en la Hoja: decide el propietario (enmienda 29/10). Mientras no diga
   otra cosa, se queda su regla del 27/10: solo si el pedido tiene tienda y el
   tenant tiene más de una activa. Ya no se espera respuesta de SUR4.
-- Auditoría N23 en Production, con su propia autorización (antes del merge de E2).
+- Auditoría N23 en Production, con su propia autorización (antes del merge de
+  E2). **Hecha el 29/10 a las 16:5xZ**, autorizada por el propietario: una
+  transacción de solo lectura (`transaction_read_only = on`), solo recuentos
+  por tenant, sin contenido. SUR4 usa las notas internas en una parte
+  apreciable de sus pedidos activos, así que notará que la Hoja deja de
+  imprimirlas; DEMO apenas las usa y el resto de tenants no las usa. Los
+  recuentos exactos están en el acta de coordinación, fuera de este
+  repositorio público. Mitigación al publicar P-3: aviso en pantalla en los
+  pedidos con notas, Novedades y aviso directo a SUR4 (lo envía el
+  propietario).
 - ~~Visto bueno de Tamara para #146 (puerta N15).~~ Ya no hace falta: el
   propietario aceptó #146 funcionalmente el 29/10.
 - Significado de las fechas de prueba (N10): no bloquea ninguna entrega.
