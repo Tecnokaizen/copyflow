@@ -96,7 +96,7 @@ declare
   owner_b uuid := 'e5400000-0000-4000-8000-000000000003';
   outsider uuid := 'e5400000-0000-4000-8000-000000000004';
   tmp_feature uuid := 'e5400000-0000-4000-8000-0000000000f1';
-  basic_plan uuid;
+  core_plan uuid;
   import_feature uuid;
   quotes_feature uuid;
   review_1 timestamptz := now() + interval '7 days';
@@ -238,15 +238,25 @@ begin
     (tenant_a, viewer_a, 'viewer', true),
     (tenant_b, owner_b, 'owner', true);
 
-  select id into basic_plan from public.plans where code = 'basic';
+  -- A core-only plan (no quotes, no clients_import), so a grant is the only
+  -- way to get them. Basic includes both since 20261028090000; mvp does not.
+  select id into core_plan from public.plans where code = 'mvp';
   select id into import_feature from public.features where code = 'clients_import';
   select id into quotes_feature from public.features where code = 'quotes';
-  if basic_plan is null or import_feature is null or quotes_feature is null then
-    raise exception 'phase54: basic plan, clients_import or quotes missing';
+  if core_plan is null or import_feature is null or quotes_feature is null then
+    raise exception 'phase54: mvp plan, clients_import or quotes missing';
+  end if;
+  if exists (
+    select 1 from public.plan_features pf
+    where pf.plan_id = core_plan
+      and pf.feature_id in (import_feature, quotes_feature)
+      and pf.enabled
+  ) then
+    raise exception 'phase54: the fixture plan must not include clients_import or quotes';
   end if;
   insert into public.subscriptions (tenant_id, plan_id, provider, status, livemode) values
-    (tenant_a, basic_plan, 'internal', 'trialing', false),
-    (tenant_b, basic_plan, 'internal', 'active', false);
+    (tenant_a, core_plan, 'internal', 'trialing', false),
+    (tenant_b, core_plan, 'internal', 'active', false);
 
   -- Tenant B holds its own grant; nothing done to A may touch it.
   perform public.set_tenant_feature_v2('phase54b', 'quotes', true, 3,
@@ -441,7 +451,7 @@ begin
 
   -- Override precedence is unchanged: false beats the plan, clear restores it.
   if not pg_temp.p54_has(owner_a, tenant_a, 'core_orders') then
-    raise exception 'phase54: basic plan should grant core_orders';
+    raise exception 'phase54: the core plan should grant core_orders';
   end if;
   perform public.set_tenant_feature_v2('phase54a', 'core_orders', false, null,
     'Precedence check', null, 'phase54-operator');
