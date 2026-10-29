@@ -199,14 +199,13 @@ export const HELP_SECTIONS: HelpSection[] = [
         ["nuevo cliente", "alta cliente", "crear cliente", "dirección"],
         ["guias/crear-cliente-en-pedido", "clientes/editar"]
       ),
-      article(
-        "clientes/importar",
-        "Importar clientes",
-        "Traer la cartera desde otro programa, un CRM o Excel sin duplicar clientes.",
-        "clientes/importar.md",
-        ["importar clientes", "csv", "excel", "xlsx", "migrar", "otro programa", "crm", "plantilla"],
-        ["clientes", "clientes/crear"]
-      ),
+      // «Importar clientes» (clientes/importar.md) stays out of the index while
+      // client import is off in Production. To publish it, add back:
+      // article("clientes/importar", "Importar clientes",
+      //   "Traer la cartera desde otro programa, un CRM o Excel sin duplicar clientes.",
+      //   "clientes/importar.md",
+      //   ["importar clientes", "csv", "excel", "xlsx", "migrar", "otro programa", "crm", "plantilla"],
+      //   ["clientes", "clientes/crear"]),
       article(
         "clientes/editar",
         "Editar un cliente",
