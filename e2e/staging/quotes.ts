@@ -167,11 +167,23 @@ async function main(){
    result.orderReference=o.reference;result.checks.conversion=true;result.checks.notesInheritedAndEscaped=true;result.checks.noPrivateNotesInCustomerFields=true;result.checks.conversionReplay=true;
    await p.goto(`${target.baseUrl}/orders/${result.orderId}`);await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();await h.screenshot('converted-order-with-internal-notes');
    await p.reload();await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();result.checks.orderNotesPersist=true;
+   // #160 (SUR4 E2, N6/N18/N23): the work sheet never prints the order notes,
+   // private or not; the screen says so, and that notice is never printed.
    await p.goto(`${target.baseUrl}/orders/${result.orderId}/print`);
-   await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();
-   assert.ok((await p.locator('body').innerText()).includes('Notas internas'));
-   result.checks.internalWorkshopSheetRetainsNotes=true;
-   await h.screenshot('internal-order-workshop-sheet');
+   const sheet=p.locator('.print-sheet').first();await sheet.waitFor();
+   const sheetText=await sheet.innerText();
+   assert.ok(sheetText.includes(o.reference),'the sheet is the converted order');
+   for(const leak of ['INTERNO-PRIVADO-',publicNote,'<interno>','&lt;interno&gt;','Notas internas'])assert.ok(!sheetText.includes(leak),`work sheet must not print ${leak}`);
+   const notice=p.getByRole('status').filter({hasText:'Este pedido tiene notas internas, que no se imprimen.'});
+   await notice.waitFor();
+   assert.equal(await sheet.locator('.print-notice').count(),0,'the notice is outside the printed sheet');
+   await h.screenshot('order-work-sheet-without-notes');
+   await p.emulateMedia({media:'print'});
+   assert.equal(await notice.isVisible(),false,'the notice is screen-only');
+   const printed=await p.locator('body').innerText();
+   for(const leak of ['INTERNO-PRIVADO-',publicNote])assert.ok(!printed.includes(leak),`print media must not show ${leak}`);
+   await p.emulateMedia({media:'screen'});
+   result.checks.workSheetOmitsOrderNotes=true;
   },180000);
   h.assertNoProductionEgress();
   assert.equal(h.blocked.filter(b=>b.url!=='https://vercel.live/_next-live/feedback/feedback.js').length,0);
