@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
 import { forbidden, notFound } from "next/navigation";
-import { OrderPrintDocument } from "@/components/print/order-print-document";
+import { WorkSheetDocument } from "@/components/print/order-print-document";
 import "@/components/print/print.css";
-import { loadOrderPrint } from "@/lib/print/load-order";
+import { loadWorkSheet } from "@/lib/print/load-order";
 
 export const instant = false;
 
+// SUR4 E2: the order work sheet. The profile (standard or ficha) is decided
+// by loadWorkSheet from the tenant features on the server; this page reads
+// no search parameters, so nothing in the URL can change it (N25).
 type PageProps = {
   params: Promise<{ id: string }>;
 };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const loaded = await loadOrderPrint(id);
+  const loaded = await loadWorkSheet(id);
   return {
     title: {
       absolute: loaded.status === "ok" ? loaded.model.documentTitle : "Pedido",
@@ -22,9 +25,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function OrderPrintPage({ params }: PageProps) {
   const { id } = await params;
-  const loaded = await loadOrderPrint(id);
+  const loaded = await loadWorkSheet(id);
   if (loaded.status === "denied") forbidden();
   if (loaded.status !== "ok") notFound();
 
-  return <OrderPrintDocument model={loaded.model} />;
+  return (
+    <WorkSheetDocument
+      model={loaded.model}
+      legacyNotes={loaded.legacyNotes}
+      receiptHref={`/api/orders/${id}/receipt`}
+    />
+  );
 }

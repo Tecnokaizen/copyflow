@@ -15,6 +15,7 @@ import {
   OrderQuoteSituationValue,
 } from "@/components/orders/detail/order-quote-situation";
 import { formatFactLabel } from "@/lib/orders/fact-label";
+import { orderLabels, type OrderLabels } from "@/lib/orders/labels";
 import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import { resolveOrderStatusId } from "@/lib/orders/draft";
 import { statusOptionsWithCurrent } from "@/lib/orders/status-options";
@@ -45,6 +46,8 @@ export function OrderProduction({
   sourceQuoteRestricted = false,
   onDraftChange,
   onDueAtInvalid,
+  labels = orderLabels({ custom: false }),
+  stickyNotes = false,
 }: {
   order: Order;
   draft: OrderDraft | null;
@@ -60,6 +63,10 @@ export function OrderProduction({
   sourceQuoteRestricted?: boolean;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
   onDueAtInvalid?: (invalid: boolean) => void;
+  /** SUR4 (contract §5): «Instrucciones» or, with order_custom_labels, «Descripción». */
+  labels?: OrderLabels;
+  /** With order_sticky_notes the old notes field is shown as «Notas anteriores». */
+  stickyNotes?: boolean;
 }) {
   const [rejectedLocal, setRejectedLocal] = useState<string | null>(null);
   const quoteSituation = resolveOrderQuoteSituation({
@@ -72,10 +79,10 @@ export function OrderProduction({
 
   if (editing && draft) {
     return (
-      <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
-        <FactRow label="Instrucciones">
+      <SectionCard title="Trabajo" bodyClassName="px-5 py-2 sm:px-6">
+        <FactRow label={labels.description}>
           <RichTextEditor
-            ariaLabel="Instrucciones"
+            ariaLabel={labels.description}
             textStyles
             value={draft.description}
             onChange={(value) => onDraftChange({ description: value })}
@@ -200,12 +207,12 @@ export function OrderProduction({
   const serviceName = order.service?.name;
 
   return (
-    <SectionCard title="Producción" bodyClassName="px-5 py-2 sm:px-6">
+    <SectionCard title="Trabajo" bodyClassName="px-5 py-2 sm:px-6">
       <div className="border-b border-border/60 py-4">
-        <div className="gc-fact-label">{formatFactLabel("Instrucciones")}</div>
+        <div className="gc-fact-label">{formatFactLabel(labels.description)}</div>
         {isRichTextEmpty(order.description) ? (
           <p className="mt-1.5 text-base text-muted-foreground">
-            Sin instrucciones
+            Sin {labels.description.toLowerCase()}
           </p>
         ) : (
           <RichTextContent
@@ -216,7 +223,9 @@ export function OrderProduction({
         )}
         {isRichTextEmpty(order.notes) ? null : (
           <p className="mt-2 text-sm text-muted-foreground">
-            Hay notas internas más abajo.
+            {stickyNotes
+              ? "Hay notas anteriores más abajo."
+              : "Hay notas internas más abajo."}
           </p>
         )}
       </div>

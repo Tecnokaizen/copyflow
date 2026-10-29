@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { OrderPrintDocument } from "@/components/print/order-print-document";
+import { WorkSheetDocument } from "@/components/print/order-print-document";
 import { QuotePrintDocument } from "@/components/print/quote-print-document";
-import { orderPrintModel, printBranding } from "@/lib/print/order-document";
+import { NO_ORDER_FEATURES } from "@/lib/orders/order-features";
+import { printBranding, workSheetModel, type WorkSheetSource } from "@/lib/print/order-document";
 import { quotePrintModel } from "@/lib/print/quote-document";
 import type { PrintBranding } from "@/lib/print/types";
 
@@ -21,55 +22,57 @@ const driveUrl = "https://drive.google.com/folders/secret-folder";
 const orderId = "42bb0a10-018a-47be-89b8-e23e39a6c0c4";
 
 function orderMarkup() {
-  const model = orderPrintModel(
-    {
-      reference: "DEMO-0200",
-      title: "Carteles <VIP>",
-      description:
-        "<p>Instrucción <strong>urgente</strong> y <em>fina</em>.</p><ul><li>corte</li></ul>",
-      notes: "<p>Nota <u>interna</u> <s>vieja</s></p>",
-      priority: "urgent",
-      received_at: "2026-03-15T10:00:00.000Z",
-      due_at: "2026-03-16T10:00:00.000Z",
-      ready_at: "2026-03-17T10:00:00.000Z",
-      delivered_at: null,
-      customer_notification_status: "notified",
-      external_folder_url: driveUrl,
-      client: {
-        name: "Traducciones Nexo",
-        company_name: "Nexo SL",
-        contact_name: "Ana",
-        tax_id: "B12345678",
-        email: "ana@nexo.test",
-        phone: "600000000",
-        notes: "nota privada del cliente",
-      },
-      service: { name: "Cartelería" },
-      store: { name: "Centro" },
-      entry_channel: { name: "Mostrador" },
-      order_context: { name: "Feria" },
-      status: { name: "En producción" },
-      assigned_team_member: { name: "Luis" },
-      file_status: { name: "Listos" },
-      quote_status: { name: "Aceptado" },
-      payment_status: { name: "Pendiente" },
-      delivery_method: { name: "Recogida" },
+  // Extra keys a row could carry (notes, client notes, Drive link) are never
+  // copied: the work sheet builds every block field by field.
+  const source = {
+    reference: "DEMO-0200",
+    title: "Carteles <VIP>",
+    description:
+      "<p>Instrucción <strong>urgente</strong> y <em>fina</em>.</p><ul><li>corte</li></ul>",
+    notes: "<p>Nota <u>interna</u> <s>vieja</s></p>",
+    priority: "urgent",
+    received_at: "2026-03-15T10:00:00.000Z",
+    due_at: "2026-03-16T10:00:00.000Z",
+    ready_at: "2026-03-17T10:00:00.000Z",
+    delivered_at: null,
+    customer_notification_status: "notified",
+    external_folder_url: driveUrl,
+    client: {
+      name: "Traducciones Nexo",
+      company_name: "Nexo SL",
+      contact_name: "Ana",
+      tax_id: "B12345678",
+      email: "ana@nexo.test",
+      phone: "600000000",
+      notes: "nota privada del cliente",
     },
-    {
-      files: ["plano.pdf", "corte.ai", "  ", null],
-      branding,
-      timeZone: "Europe/Madrid",
-    }
-  );
+    service: { name: "Cartelería" },
+    store: { name: "Centro" },
+    entry_channel: { name: "Mostrador" },
+    order_context: { name: "Feria" },
+    status: { name: "En producción" },
+    assigned_team_member: { name: "Luis" },
+    file_status: { name: "Listos" },
+    quote_status: { name: "Aceptado" },
+    payment_status: { name: "Pendiente" },
+    delivery_method: { name: "Recogida" },
+  } as WorkSheetSource;
+  const model = workSheetModel(source, {
+    profile: "standard",
+    features: NO_ORDER_FEATURES,
+    files: ["plano.pdf", "corte.ai", "  ", null],
+    branding,
+    timeZone: "Europe/Madrid",
+  });
 
   return {
     model,
-    html: renderToStaticMarkup(createElement(OrderPrintDocument, { model })),
+    html: renderToStaticMarkup(createElement(WorkSheetDocument, { model })),
   };
 }
 
 describe("order print document", () => {
-  it("prints the work sheet, rich text, notes, files and branding", () => {
+  it("prints the standard work sheet, rich text, files and branding, never the notes", () => {
     const { model, html } = orderMarkup();
 
     assert.equal(model.documentTitle, "Pedido DEMO-0200 — Traducciones Nexo");
@@ -78,8 +81,8 @@ describe("order print document", () => {
     assert.match(html, /Carteles &lt;VIP&gt;/);
     assert.match(html, /<strong>urgente<\/strong>/);
     assert.match(html, /<em>fina<\/em>/);
-    assert.match(html, /<u>interna<\/u>/);
-    assert.match(html, /<s>vieja<\/s>/);
+    assert.equal(html.includes("interna"), false);
+    assert.equal(html.includes("vieja"), false);
     assert.match(html, /Traducciones Nexo/);
     assert.match(html, /Nexo SL/);
     assert.match(html, /ana@nexo\.test/);
@@ -96,7 +99,8 @@ describe("order print document", () => {
     assert.match(html, /Presupuesto del pedido/);
     assert.match(html, /Avisado/);
     assert.match(html, /Recogida/);
-    assert.match(html, /Notas internas/);
+    assert.equal(html.includes("Notas internas"), false);
+    assert.equal("notes" in model, false);
     assert.match(html, /2 archivos/);
     assert.match(html, /plano\.pdf/);
     assert.match(html, />Imprimir</);
@@ -217,13 +221,16 @@ describe("print routes", () => {
       new URL("./load-order.ts", import.meta.url),
       "utf8"
     );
+    assert.match(loader, /export const loadWorkSheet = cache\(/);
+    assert.equal(loader.includes("loadOrderPrint"), false);
     const header = readFileSync(
       new URL("../../components/orders/detail/order-header.tsx", import.meta.url),
       "utf8"
     );
 
     assert.match(loader, /getCurrentContext\(\)/);
-    assert.match(loader, /\.eq\("tenant_id", context\.tenant\.id\)/);
+    assert.match(loader, /const tenantId = context\.tenant\.id;/);
+    assert.match(loader, /\.eq\("tenant_id", tenantId\)/);
     assert.match(page, /forbidden\(\)/);
     assert.match(page, /title:\s*\{\s*absolute:/);
     assert.equal(loader.includes("activity"), false);

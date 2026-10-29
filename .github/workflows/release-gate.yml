@@ -149,6 +149,9 @@ jobs:
             phase58_order_rpc_integrity \
             phase46_payment_receipts \
             phase51_order_lines \
+            phase61_order_notes_v1 \
+            phase62_order_work_sequence_v1 \
+            phase63_order_features_isolation \
             phase13_order_lifecycle \
             phase14_order_archived_immutability \
             phase15_order_concurrency \

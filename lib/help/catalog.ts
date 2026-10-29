@@ -147,6 +147,30 @@ export const HELP_SECTIONS: HelpSection[] = [
         ["subir archivo", "adjunto", "pdf", "ver archivo", "descargar", "borrar archivo"],
         ["guias/archivos-pedido", "configuracion/archivos"]
       ),
+      article(
+        "pedidos/imprimir",
+        "Hoja de trabajo y resguardo",
+        "Los dos documentos A4 del pedido y lo que nunca se imprime.",
+        "pedidos/imprimir.md",
+        ["imprimir", "hoja de trabajo", "resguardo", "pdf cliente", "notas no se imprimen"],
+        ["pedidos/post-its", "pedidos/crear-pedido"]
+      ),
+      article(
+        "pedidos/post-its",
+        "Post-its del pedido",
+        "Notas con autor, estado e historial; cuáles se imprimen.",
+        "pedidos/post-its.md",
+        ["post-it", "nota", "notas anteriores", "pasar a post-it", "imprimible", "suprimir texto"],
+        ["pedidos/imprimir", "pedidos/secuencia-de-trabajo"]
+      ),
+      article(
+        "pedidos/secuencia-de-trabajo",
+        "Secuencia de trabajo",
+        "Pasos del pedido, a quién le toca y cómo marcarlos hechos.",
+        "pedidos/secuencia-de-trabajo.md",
+        ["secuencia", "le toca", "paso hecho", "multirresponsable", "participa", "fases"],
+        ["configuracion/fases-de-trabajo", "equipo/responsables", "equipo/carga-de-trabajo"]
+      ),
     ],
   },
   {
@@ -306,6 +330,14 @@ export const HELP_SECTIONS: HelpSection[] = [
         "configuracion/tiendas.md",
         ["sede", "local", "configurar tienda", "desactivar tienda"],
         ["guias/configurar-tienda", "pedidos/crear-pedido"]
+      ),
+      article(
+        "configuracion/fases-de-trabajo",
+        "Fases de trabajo",
+        "Las fases con las que se arma la secuencia de un pedido.",
+        "configuracion/fases-de-trabajo.md",
+        ["fases", "etapas", "diseño", "impresión", "acabado", "secuencia"],
+        ["pedidos/secuencia-de-trabajo"]
       ),
       article(
         "configuracion/servicios",
