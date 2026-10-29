@@ -119,6 +119,36 @@ describe("e2e SUR4 tenant targets (E10)", () => {
     assert.equal(classifyRequest(own, "https://app.gestcopy.com/"), "production");
   });
 
+  it("staging-branch: every tenant on the gestcopy-staging branch URL, chosen with ?tenant=", () => {
+    const BRANCH = { ...STAGING, E2E_SUR4_MODE: "staging-branch", E2E_SUR4_BRANCH_URL: "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app" };
+    const targets = resolveSur4Targets(BRANCH);
+    assert.equal(targets.mode, "staging-branch");
+    for (const slug of SUR4_TENANT_SLUGS) {
+      assert.equal(targets.tenants[slug].baseUrl, "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app");
+      assert.equal(targets.tenants[slug].previewTenant, slug);
+      assert.equal(targets.tenants[slug].r2Bucket, STAGING_R2_BUCKET);
+    }
+    assert.equal(resolveSur4Targets(STAGING).tenants["e2e-sur4-base"].previewTenant, undefined);
+    rejectsSur4({ ...STAGING, E2E_SUR4_MODE: "staging-branch" }, /E2E_SUR4_BRANCH_URL is required/);
+    for (const url of [
+      "https://copyflow-git-main-tecnokaizen.vercel.app",
+      "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app.evil.com",
+      "https://copyflow.vercel.app",
+      "https://e2e.preview.app.gestcopy.com",
+      "https://app.gestcopy.com",
+      "http://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app",
+      "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app/orders",
+    ]) {
+      assert.throws(() => resolveSur4Targets({ ...BRANCH, E2E_SUR4_BRANCH_URL: url }), StagingGuardError, url);
+    }
+    rejectsSur4({ ...BRANCH, E2E_SUPABASE_URL: `https://${PRODUCTION_REF}.supabase.co` }, /Production/);
+    rejectsSur4({ ...BRANCH, E2E_R2_BUCKET: "gestcopy-files" }, /Production bucket/);
+    const own = targets.tenants["e2e-sur4-base"];
+    assert.equal(classifyRequest(own, "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app/api/orders"), "allow");
+    assert.equal(classifyRequest(own, "https://e2e-sur4-base.preview.app.gestcopy.com/"), "foreign");
+    assert.equal(classifyRequest(own, "https://app.gestcopy.com/"), "production");
+  });
+
   it("staging egress: one tenant never reaches another", () => {
     const targets = resolveSur4Targets(STAGING);
     const own = targets.tenants["e2e-sur4-postits"];
