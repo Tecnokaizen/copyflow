@@ -11,6 +11,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { actionsForEntity } from "@/lib/activity/format";
 import { canViewActivity } from "@/lib/auth/membership-roles";
+import { createLatestRequest, fetchLatestJson } from "@/lib/refresh/latest-request";
 import {
   ENTITY_TYPE_OPTIONS,
   type ActivityResponse,
@@ -71,6 +72,8 @@ export default function ActivityPage() {
   const [forbidden, setForbidden] = useState(false);
   const [roleReady, setRoleReady] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  // Only the latest list request may apply (see lib/refresh/latest-request).
+  const [listRequest] = useState(createLatestRequest);
   const [view, changeView] = useActivityViewMode();
 
   const actionOptions = useMemo(
@@ -99,6 +102,8 @@ export default function ActivityPage() {
       return;
     }
 
+    const ticket = listRequest.start();
+
     async function loadActivity() {
       setLoading(true);
       setError(null);
@@ -125,29 +130,37 @@ export default function ActivityPage() {
           params.set("to", new Date(`${to}T23:59:59.999`).toISOString());
         }
 
-        const response = await fetch(`/api/activity?${params.toString()}`);
-        const result = await response.json();
+        const loaded = await fetchLatestJson(ticket, `/api/activity?${params.toString()}`);
+        if (!loaded) {
+          return;
+        }
 
-        if (response.status === 403 || response.status === 401) {
+        if (loaded.response.status === 403 || loaded.response.status === 401) {
           setForbidden(true);
           return;
         }
 
-        if (!response.ok) {
+        if (!loaded.response.ok) {
           throw new Error("No se pudo cargar el registro de actividad");
         }
 
-        setData(result);
+        setData(loaded.body as ActivityResponse);
       } catch {
+        if (!ticket.isCurrent()) {
+          return;
+        }
         setData(null);
         setError("No se pudo cargar el registro de actividad");
       } finally {
-        setLoading(false);
+        if (ticket.isCurrent()) {
+          setLoading(false);
+        }
       }
     }
 
     loadActivity();
-  }, [roleReady, forbidden, entityType, action, from, to, page, reloadToken]);
+    return () => listRequest.abort();
+  }, [listRequest, roleReady, forbidden, entityType, action, from, to, page, reloadToken]);
 
   const total = data?.total ?? 0;
   const events = data?.events ?? [];
