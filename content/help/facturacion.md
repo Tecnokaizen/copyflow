@@ -25,5 +25,8 @@ Solo el propietario gestiona la facturación. Otros roles no abren esta gestión
 
 ## Problemas frecuentes
 
+### Cancelé la suscripción y quiero volver
+Abre Facturación: si la suscripción está cancelada, vuelve a aparecer **Contratar Gestcopy Basic**. Si ves «Estamos confirmando tu suscripción», espera unos minutos a que se confirme el pago y recarga la página.
+
 ### Quiero más espacio
 La cuota viene del plan. En la app no hay ampliación self-service de almacenamiento: revisa Facturación (propietario) y Archivos y almacenamiento; el espacio no se cambia como un número libre desde esa pantalla.

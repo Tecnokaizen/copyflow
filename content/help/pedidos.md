@@ -6,6 +6,8 @@ title: Pedidos
 
 La lista de pedidos es el trabajo confirmado de la organización. Puedes filtrar, buscar y abrir la ficha para cambiar estado, cliente, contenido, entrega, responsable y archivos.
 
+**Cómo está organizada la ficha.** Arriba tienes lo esencial sin desplazarte: el cliente y su contacto, el estado, la prioridad, los avisos, los importes y la fecha de entrega, junto a **Imprimir pedido** y **Resguardo PDF**. Debajo, en dos columnas: el trabajo, los archivos, las notas y la actividad a un lado; el resumen, el cobro y la entrega al otro. En el móvil todo va en una sola columna.
+
 Un pedido archivado se consulta y se pueden descargar sus archivos, pero ya no se modifica. No hay acción de «reabrir» en Gestcopy: archivar lo saca de las vistas operativas.
 
 ## Cómo hacerlo
@@ -14,7 +16,8 @@ Un pedido archivado se consulta y se pueden descargar sus archivos, pero ya no s
 2. Usa búsqueda y filtros para localizar el trabajo.
 3. Abre la ficha.
 4. Para estado, responsable o notas usa las acciones rápidas (**Cambiar estado**, **Cambiar responsable**, **+ Añadir nota**). Para prioridad, entrega prevista y el resto de campos, pulsa **Editar pedido**, cambia lo necesario en **Producción** u otras secciones y **Guardar cambios**.
-5. Cuando el pedido esté entregado o cancelado y ya no deba aparecer en colas operativas, pulsa **Archivar pedido** y confirma.
+5. Para registrar lo que paga el cliente, usa el bloque **Cobro y entrega** (consulta «Cobros y entregas a cuenta»). Para sacar la Hoja de trabajo o el Resguardo, consulta «Imprimir: Hoja de trabajo y Resguardo».
+6. Cuando el pedido esté entregado o cancelado y ya no deba aparecer en colas operativas, pulsa **Archivar pedido** y confirma.
 
 ## Qué ocurre después
 
