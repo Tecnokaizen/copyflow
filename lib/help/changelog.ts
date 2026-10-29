@@ -65,7 +65,7 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
-    date: "2026-10-30",
+    date: "2026-10-29",
     title: "Formato de texto en los pedidos",
     entries: [
       nuevo(
