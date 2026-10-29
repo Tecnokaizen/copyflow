@@ -142,6 +142,20 @@
   line-height: 1.45;
 }
 
+/* Paper is always white: pin the light text colors even if the app is in dark mode. */
+.print-document {
+  --gc-text-red: 0 74% 42%;
+  --gc-text-orange: 17 88% 40%;
+  --gc-text-green: 163 94% 24%;
+  --gc-text-blue: 224 76% 48%;
+  --gc-text-purple: 272 72% 47%;
+}
+
+.print-rich [data-text-color] {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
 .print-files {
   margin: 0;
   padding-left: 18px;

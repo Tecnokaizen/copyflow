@@ -65,6 +65,16 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-29",
+    title: "Formato de texto en los pedidos",
+    entries: [
+      nuevo(
+        "Pedidos",
+        "Las instrucciones y las notas internas del pedido admiten tamaño de letra, color y alineación de párrafos, y al imprimir se respetan. Los demás textos no cambian."
+      ),
+    ],
+  },
+  {
     date: "2026-10-28",
     title: "Búsquedas y estados de pedido",
     entries: [

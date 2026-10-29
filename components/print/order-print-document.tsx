@@ -17,10 +17,10 @@ export function OrderPrintDocument({ model }: { model: OrderPrintModel }) {
       <PrintFacts title="Cliente" rows={model.client} />
       <PrintFacts title="Pedido" rows={model.order} />
       <PrintFacts title="Fechas" rows={model.dates} />
-      <PrintRichText title="Instrucciones" value={model.description} />
+      <PrintRichText title="Instrucciones" value={model.description} textStyles />
       <PrintFacts title="Producción" rows={model.production} />
       <PrintFacts title="Cobro y entrega" rows={model.payment} />
-      <PrintRichText title="Notas internas" value={model.notes} />
+      <PrintRichText title="Notas internas" value={model.notes} textStyles />
       <PrintFiles countLabel={model.fileCountLabel} files={model.files} />
     </PrintFrame>
   );

@@ -72,16 +72,19 @@ export function PrintFacts({
 export function PrintRichText({
   title,
   value,
+  textStyles = false,
 }: {
   title: string;
   value: string | null;
+  /** Print the stored text sizes and colors (order instructions and notes). */
+  textStyles?: boolean;
 }) {
   if (!value) return null;
 
   return (
     <section className="print-block print-rich">
       <h2 className="print-section-title">{title}</h2>
-      <RichTextContent value={value} />
+      <RichTextContent value={value} textStyles={textStyles} />
     </section>
   );
 }

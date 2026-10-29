@@ -272,6 +272,7 @@ export function OrderQuickActions({
             Nota
             <RichTextEditor
               ariaLabel="Nota"
+              textStyles
               value={note}
               disabled={busy}
               onChange={setNote}

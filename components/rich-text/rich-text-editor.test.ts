@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { Bold } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { PrintRichText } from "@/components/print/print-frame";
 import { RichTextContent } from "@/components/rich-text/rich-text-content";
 import {
   RichTextToolbar,
@@ -30,6 +31,37 @@ describe("RichTextContent", () => {
   });
 });
 
+describe("text styles in rendered content", () => {
+  const value =
+    '<p data-text-align="center" style="text-align:right"><span data-text-size="large" data-text-color="red" style="position:fixed">Urgente</span> resto</p>';
+
+  it("renders sizes and colors only where the field opts in", () => {
+    const styled = renderToStaticMarkup(
+      createElement(RichTextContent, { value, textStyles: true })
+    );
+    assert.match(styled, /<p data-text-align="center"><span data-text-size="large" data-text-color="red">Urgente<\/span> resto<\/p>/);
+    assert.equal(/position:fixed|text-align:right/.test(styled), false);
+
+    const basic = renderToStaticMarkup(createElement(RichTextContent, { value }));
+    assert.match(basic, /<p>Urgente resto<\/p>/);
+    assert.equal(basic.includes("data-text-"), false);
+  });
+
+  it("prints order styles and keeps other print documents basic", () => {
+    const order = renderToStaticMarkup(
+      createElement(PrintRichText, { title: "Instrucciones", value, textStyles: true })
+    );
+    assert.match(order, /print-rich/);
+    assert.match(order, /data-text-color="red"/);
+    assert.match(order, /<p data-text-align="center">/);
+
+    const quote = renderToStaticMarkup(
+      createElement(PrintRichText, { title: "Descripción", value })
+    );
+    assert.equal(quote.includes("data-text-"), false);
+  });
+});
+
 describe("rich text editor frame", () => {
   it("keeps the toolbar scroll inside the editor frame", () => {
     const html = renderToStaticMarkup(
@@ -53,5 +85,25 @@ describe("rich text editor frame", () => {
     assert.match(html, /overflow-x-auto/);
     assert.match(html, /role="toolbar"/);
     assert.match(html, /Negrita/);
+  });
+});
+
+describe("rich text toolbar controls", () => {
+  it("renders custom controls in place, between the buttons", () => {
+    const html = renderToStaticMarkup(
+      createElement(RichTextToolbar, {
+        buttons: [
+          { label: "Negrita", icon: Bold, onClick: () => undefined },
+          {
+            label: "Tamaño del texto",
+            control: createElement("button", { type: "button", "aria-label": "Tamaño del texto: Normal" }),
+          },
+          { label: "Cursiva", icon: Bold, onClick: () => undefined },
+        ],
+      })
+    );
+    const order = ["Negrita", "Tamaño del texto: Normal", "Cursiva"].map((label) => html.indexOf(`aria-label="${label}"`));
+    assert.ok(order.every((index) => index >= 0), html);
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
   });
 });
