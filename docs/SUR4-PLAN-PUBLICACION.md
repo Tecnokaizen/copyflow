@@ -54,8 +54,8 @@ o despliegue en Production. La aceptación de SUR4/Tamara no es condición
 | Tamaño, color y alineación en instrucciones y notas internas (#146) | P-1 | Sí: botones nuevos en el editor del pedido; la impresión respeta los estilos | Bajo; sin migración | E2E de Staging `order-rich-text` (12/12); los otros editores no cambian (prueba de lista permitida) |
 | Pistas PostgREST hacia `team_members` (E1) | P-2 | No | Muy bajo | Prueba que falla sin la pista |
 | Ficha reorganizada (E3) | P-3 | Sí: cabecera nueva y dos columnas desde `lg` | Medio (cambio visual) | Etiquetas de siempre salvo con `order_custom_labels`; Novedades |
-| Hoja de trabajo sin `orders.notes` (E2) | P-4 | Sí: deja de imprimir «Notas internas» | Medio: quien la usaba para notas lo nota | N23 antes del merge, aviso en pantalla si el pedido tiene notas, Novedades y aviso directo a los tenants afectados |
-| Resguardo PDF (E4) | P-4 | Sí: documento adicional, no sustituye a nada | Bajo | 404 para otro tenant; sin R2 |
+| Hoja de trabajo sin `orders.notes` (E2) | P-3 | Sí: deja de imprimir «Notas internas» | Medio: quien la usaba para notas lo nota | N23 antes del merge, aviso en pantalla si el pedido tiene notas, Novedades y aviso directo a los tenants afectados |
+| Resguardo PDF (E4) | P-3 | Sí: documento adicional, no sustituye a nada | Bajo | 404 para otro tenant; sin R2 |
 | Post-its (E5, E6) | P-5 | No: rutas en 404 sin concesión | Bajo | Nacen apagadas en todos los tenants |
 | Secuencia, fases, «Le toca» (E7–E9) | P-6 | No: sin función o sin fases, respuestas iguales a hoy (13 peticiones comparadas) | Bajo | Nacen apagadas |
 | Ayuda (E11) y Novedades | P-7 | Sí, solo texto | Muy bajo | — |
@@ -71,13 +71,31 @@ reescribir #160), CI completa en verde y merge squash. El árbol final de
 | --- | --- | --- | --- | --- |
 | P-1 | #146 (existente), actualizada con `main` y con Novedades | — | No | V1 |
 | P-2 | E1, pistas PostgREST | `d0129d8`, `c956523` | No | V1 |
-| P-3 | E3, ficha reorganizada y etiquetas por concesión | `9b37118`, `ef31ee1` | No | V1 |
-| P-4 | E2 + E4: Hoja segura y Resguardo, más `crear-pedido` en la ayuda | `b28bd2e` | No | V1 |
+| P-3 | E3 + E2 + E4: ficha reorganizada y etiquetas por concesión, Hoja segura y Resguardo, más `crear-pedido` en la ayuda | `9b37118`, `ef31ee1`, `b28bd2e` | No | V1 |
 | P-5 | E5 + E6, post-its; suites `phase61` | `ca03c4e`, `01170c8`, parte de `958660c` | `120000` | V2 |
 | P-6 | E7–E9, secuencia; suites `phase62`/`phase63` | `99207b4`, `8623491`, `38f21dc`, `ac83417`, `df7856d`, resto de `958660c` | `130000` | V2 |
 | P-7 | E11 (ayuda), E2E de E10, ADR, contrato y registro | `19e80c4`, `9e612ef`, `29c1638`, docs | No | V2 |
 
-Los estados intermedios (P-2 a P-4 sin las tablas de E5/E7) no se han probado
+P-3 y P-4 se juntan en una sola PR (29/10, al cortar las ramas). P-5 a P-7 conservan su número:
+- E3 enlaza al Resguardo (`/api/orders/{id}/receipt`), que llega con E4. Por
+  separado, entre un despliegue y otro, la ficha mostraría un enlace que da 404.
+- E4 importa módulos de E3: `lib/orders/order-features`, `labels` y
+  `work-stage-icons`.
+
+Ramas locales, sin subir, en `.claude/worktrees/release-p`:
+
+| Rama | Cabeza | Contenido | Comprobación |
+| --- | --- | --- | --- |
+| `release/p1-rich-text-styles` | `9deab0a` | #146 + `main` `25f6460` sin conflictos, más Novedades | tsc, lint, 1403 pruebas, guarda y build OK |
+| `release/p2-postgrest-hints` | `2ffd541` | E1 | — |
+| `release/p3-ficha-hoja-resguardo` | `5fa3cb5` | E3 + E2 + E4 | La cabecera, con la resolución de `aaf9ba8` |
+
+Las consultas a `order_notes` y `order_work_steps` solo se hacen con la
+función activa y devuelven vacío si hay error. `tenant_has_feature`, tal como
+está en Production (`20260923190000`), responde `false` a un código sin fila.
+Por eso P-3 funciona sin `120000`/`130000`.
+
+Los estados intermedios (P-2 y P-3 sin las tablas de E5/E7) no se han probado
 en Staging tal cual. Al cortar cada rama:
 - tipos, lint, pruebas y build;
 - smoke en local contra una base sin `120000`/`130000`: ficha, Hoja estándar
@@ -96,7 +114,7 @@ horario. Por cada merge:
 - rollback anotado al despliegue anterior.
 
 - **V1, sin migraciones** (jueves 29/10 desde las 20:00Z, o viernes 30/10
-  de 05:30 a 07:00Z): P-1 → P-2 → P-3 → P-4. Requisitos: E10 en PASS y N23
+  de 05:30 a 07:00Z): P-1 → P-2 → P-3. Requisitos: E10 en PASS y N23
   hecha.
 - **V2, con migraciones** (después del P2 de Stripe: `090000` en Production y
   #158 en `main`):
@@ -136,7 +154,7 @@ Escenarios para el viernes:
 Orden en Production recogido en el acta (adenda A2 de la sesión de
 integración): simulacro → `090000` → #158 → #146 → `120000` → `130000` →
 #160, cada paso con su GO. Con la portadora, #158 sale de la cadena: va cuando
-esté lista y no bloquea `120000`/`130000`. P-1 a P-4 no traen migraciones y
+esté lista y no bloquea `120000`/`130000`. P-1 a P-3 no traen migraciones y
 pueden ir antes de `090000` (V1).
 
 ## Rollback
@@ -169,8 +187,8 @@ pueden ir antes de `090000` (V1).
 ## Autorizaciones que hacen falta (Production)
 
 1. Auditoría N23: lectura de recuentos en Production.
-2. Fecha y hora de V1, y merge de P-1 a P-4, uno a uno.
+2. Fecha y hora de V1, y merge de P-1 a P-3, uno a uno.
 3. P1 (copia y simulacro) y P2 de Stripe; los coordina la sesión de Stripe.
-   Antes, la vía para `090000`: portadora o #158 completa.
+   Antes, la vía para `090000`: la portadora (PR en borrador #163, `bdb4d79`, preparada por Stripe con la CI; sin merge ni ventana) o #158 completa.
 4. Fecha y hora de V2: cada migración y el merge de P-5 a P-7, uno a uno.
 5. Concesiones a SUR4.
