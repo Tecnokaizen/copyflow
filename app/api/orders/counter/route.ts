@@ -11,6 +11,10 @@ import {
   type CounterOrder,
 } from "@/lib/orders/counter";
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
+import {
+  loadWorkSequenceEnabled,
+  withWorkTurnSelect,
+} from "@/lib/orders/work-turn";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTeamMember } from "@/lib/team/current-member";
 import { getCurrentContext } from "@/lib/tenant/current-context";
@@ -45,17 +49,21 @@ const PAGE_SIZE = 200;
 
 async function fetchActiveCounterOrders(
   supabase: SupabaseClient,
-  tenantId: string
+  tenantId: string,
+  workSequence = false
 ) {
   const orders: unknown[] = [];
   let offset = 0;
   let total: number | null = null;
+  // SUR4 E9: with the work sequence each order carries its steps (turn line
+  // and «Mis pedidos» = responsable ∪ le toca).
+  const select = workSequence ? withWorkTurnSelect(COUNTER_SELECT) : COUNTER_SELECT;
 
   while (true) {
     const { data, error, count } = await applyOperationalOrdersFilter(
       supabase
         .from("orders")
-        .select(COUNTER_SELECT, { count: "exact" })
+        .select(select, { count: "exact" })
         .eq("tenant_id", tenantId)
     )
       .order("due_at", { ascending: true, nullsFirst: false })
@@ -124,9 +132,14 @@ export async function GET(request: NextRequest) {
       )
     : null;
 
-  const result = await fetchActiveCounterOrders(
+  const workSequence = await loadWorkSequenceEnabled(
     supabase,
     context.tenant.id
+  );
+  const result = await fetchActiveCounterOrders(
+    supabase,
+    context.tenant.id,
+    workSequence
   );
 
   if (result.error) {
@@ -169,5 +182,6 @@ export async function GET(request: NextRequest) {
     can_write: canWriteOrders(context.membership.role),
     count: orders.length,
     buckets,
+    ...(workSequence ? { work_sequence: true } : {}),
   });
 }
