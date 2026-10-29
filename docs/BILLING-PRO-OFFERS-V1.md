@@ -441,6 +441,10 @@ Pasos de la ronda:
 - **Qué hacer al terminar:** avisar a Post-its (`local_af7e9b29-…`), directamente o por integración, con el resultado y con si Staging sigue en `97fbc59`.
 - **Condiciones de Post-its:** ronda C en PASS sobre `97fbc59`, CI de #160 en verde y OK expreso del propietario en su sesión. Una ventana exclusiva de 1,5–2 h, sin S9, sin cambio de SMTP, sin copias y sin otros despliegues.
 - **El SMTP de Staging no choca con su ventana:** se configura antes de la ronda C, porque la ronda lo necesita.
+- **Actualización del 29/10, ~12:04Z:** según la adenda A1 del acta de coordinación (v2, correcciones del propietario, recogida por la sesión de integración), E10 ya no depende del SMTP ni de la ronda C.
+  - Ahora la ventana E10 la lleva la sesión «Staging funcional GESTCOPY» (`local_8c362c45-…`). Ha aceptado las condiciones de `e2e` y `demo`: no tocar suscripciones, planes, ofertas, holds ni concesiones; nada de Stripe; ningún correo de Auth.
+  - **Lo que sigue en pie:** E3 (el SMTP de Supabase Auth de Staging) no coincidirá con su ventana. E1 y E2 no tocan Staging.
+  - **Su pregunta sobre adelantar P1/P2** (simulacro + 090000 en Production, escenarios A y B) se ha reenviado a la sesión original, que lleva la pista P. Lo decide el propietario.
 
 **Cierre:** si pasa, el alta pública queda en PASS y la incidencia `/auth/confirm` se cierra en Staging. Después queda revisar la plantilla «Confirm signup» de Production, sin cambiar nada sin autorización, y llevar #161 a `main` con el orden que fije la sesión de release.
 
