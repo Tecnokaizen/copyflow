@@ -90,6 +90,7 @@ export class Harness {
       if (message.type() === "error") this.consoleErrors.push(this.redactor.text(message.text()).slice(0, 500));
     });
     this.page.on("pageerror", (error: Error) => this.consoleErrors.push(this.redactor.text(`pageerror: ${error.message}`)));
+    if (this.target.previewTenant) await this.selectPreviewTenant(this.target.previewTenant);
   }
 
   /**
@@ -136,6 +137,19 @@ export class Harness {
       ms: startedAt ? Date.now() - startedAt : null,
       ...(failure ? { failure } : {}),
     });
+  }
+
+  /**
+   * Preview override (`staging-branch` mode): `?tenant=<slug>` makes the proxy
+   * set the HttpOnly cookie `gc_preview_tenant` and redirect without the
+   * parameter. Only on the branch URL (an app host); a tenant host ignores it.
+   */
+  async selectPreviewTenant(slug: string) {
+    await this.page.goto(`${this.target.baseUrl}/auth/login?tenant=${encodeURIComponent(slug)}`);
+    const cookies = await this.context.cookies(this.target.baseUrl);
+    const chosen = cookies.find((cookie: { name: string }) => cookie.name === "gc_preview_tenant");
+    if (chosen?.value !== slug) throw new Error(`preview override: gc_preview_tenant is ${chosen?.value ?? "missing"}, expected ${slug}`);
+    this.log(`preview override: tenant ${slug} on ${this.target.host}`);
   }
 
   async step<T>(name: string, fn: () => Promise<T>, timeoutMs = 120_000): Promise<T> {

@@ -26,6 +26,11 @@ export type StagingTarget = {
   supabaseUrl: string;
   supabaseHost: string;
   r2Bucket: string;
+  /**
+   * SUR4 E10 `staging-branch` mode only: the tenant chosen with the Preview
+   * override (`?tenant=` → cookie `gc_preview_tenant`) on the branch URL.
+   */
+  previewTenant?: string;
 };
 
 export class StagingGuardError extends Error {
@@ -137,15 +142,25 @@ export const SUR4_TENANT_SLUGS = [
 ] as const;
 export type Sur4TenantSlug = (typeof SUR4_TENANT_SLUGS)[number];
 
+export type Sur4Mode = "staging" | "staging-branch" | "local";
+
 export type Sur4Targets = {
-  /** `staging`: Vercel Preview + Supabase Staging. `local`: `{slug}.localhost` + a local Supabase stack. */
-  mode: "staging" | "local";
+  /**
+   * `staging`: one Preview host per tenant (`{slug}.preview.app.gestcopy.com`).
+   * `staging-branch`: the `gestcopy-staging` branch URL (`*.vercel.app`) for
+   * every tenant, each chosen with the Preview override `?tenant=`. It needs no
+   * tenant host; E10 uses it to test isolation when the tenant switches.
+   * `local`: `{slug}.localhost` + a local Supabase stack.
+   */
+  mode: Sur4Mode;
   supabaseUrl: string;
   supabaseHost: string;
   tenants: Record<Sur4TenantSlug, StagingTarget>;
 };
 
 const LOCAL_SUPABASE = /^http:\/\/127\.0\.0\.1:(\d{2,5})$/;
+/** Vercel branch alias of `gestcopy-staging` in project `copyflow`: `copyflow-git-gestcopy-staging-<team>.vercel.app`. */
+const STAGING_BRANCH_HOST = /^copyflow-git-gestcopy-staging-[a-z0-9]+(?:-[a-z0-9]+)*\.vercel\.app$/;
 
 /**
  * Staging by default. `E2E_SUR4_MODE=local` targets only loopback: the app on
@@ -154,13 +169,22 @@ const LOCAL_SUPABASE = /^http:\/\/127\.0\.0\.1:(\d{2,5})$/;
  */
 export function resolveSur4Targets(env: Env = process.env): Sur4Targets {
   const mode = env.E2E_SUR4_MODE?.trim() || "staging";
-  if (mode !== "staging" && mode !== "local") throw new StagingGuardError("E2E_SUR4_MODE must be staging or local");
+  if (mode !== "staging" && mode !== "staging-branch" && mode !== "local") {
+    throw new StagingGuardError("E2E_SUR4_MODE must be staging, staging-branch or local");
+  }
 
   let backend: Backend;
   let baseFor: (slug: Sur4TenantSlug) => string;
   if (mode === "staging") {
     backend = stagingBackend(env);
     baseFor = (slug) => `https://${slug}.${PREVIEW_BASE_DOMAIN}`;
+  } else if (mode === "staging-branch") {
+    backend = stagingBackend(env);
+    const branch = parseHttps("E2E_SUR4_BRANCH_URL", required(env, "E2E_SUR4_BRANCH_URL"));
+    if (!STAGING_BRANCH_HOST.test(branch.hostname)) {
+      throw new StagingGuardError("E2E_SUR4_BRANCH_URL must be the gestcopy-staging branch URL (copyflow-git-gestcopy-staging-<team>.vercel.app)");
+    }
+    baseFor = () => branch.origin;
   } else {
     if (env.VERCEL_ENV) throw new StagingGuardError("local mode refuses to run with VERCEL_ENV set");
     const supabaseUrl = required(env, "E2E_SUPABASE_URL").replace(/\/$/, "");
@@ -179,7 +203,9 @@ export function resolveSur4Targets(env: Env = process.env): Sur4Targets {
       const name: string = slug;
       if (FOREIGN_SLUGS.has(name) || name === E2E_TENANT_SLUG) throw new StagingGuardError(`tenant ${slug} is reserved`);
       const base = new URL(baseFor(slug));
-      return [slug, { baseUrl: base.origin, host: base.hostname, ...backend }];
+      const target: StagingTarget = { baseUrl: base.origin, host: base.hostname, ...backend };
+      if (mode === "staging-branch") target.previewTenant = slug;
+      return [slug, target];
     }),
   ) as Record<Sur4TenantSlug, StagingTarget>;
   return { mode, supabaseUrl: backend.supabaseUrl, supabaseHost: backend.supabaseHost, tenants };

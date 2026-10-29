@@ -62,7 +62,7 @@ async function main() {
   const secretKey = env.E2E_SUPABASE_SECRET_KEY ?? "";
   const publishableKey = env.E2E_SUPABASE_PUBLISHABLE_KEY ?? "";
   const operator = (env.E2E_SUR4_OPERATOR ?? "").trim();
-  const bypass = targets.mode === "staging" ? env.VERCEL_AUTOMATION_BYPASS_SECRET : undefined;
+  const bypass = targets.mode === "local" ? undefined : env.VERCEL_AUTOMATION_BYPASS_SECRET;
   assert.ok(password.length >= 16, "E2E_SUR4_PASSWORD is required");
   assert.ok(publishableKey, "E2E_SUPABASE_PUBLISHABLE_KEY is required (PostgREST checks with each tenant's own JWT)");
   assert.ok(operator, "E2E_SUR4_OPERATOR is required (the feature off/on phase is audited)");
@@ -648,7 +648,26 @@ async function main() {
           assert.ok(insert.error, "direct insert into order_notes refused");
           denied += 3;
         }
-        a.checks.isolation = { denied };
+        // staging-branch: one host for every tenant, so also try the override
+        // itself. With its own session, switching the Preview tenant to another
+        // tenant must be refused (not a member), and switching back restores it.
+        let overrideDenied = 0;
+        if (a.target.previewTenant) {
+          for (const b of ctxs) {
+            if (b === a) continue;
+            await a.h.selectPreviewTenant(b.t.slug);
+            for (const url of [`/api/orders/${b.orders.plain.id}`, `/api/orders/${b.orders.plain.id}/notes`, "/api/orders"]) {
+              const r = await call(a, url);
+              assert.ok([401, 403, 404].includes(r.status), `${a.t.slug} as ${b.t.slug} ${url}: HTTP ${r.status}`);
+              assert.equal(JSON.stringify(r.body).includes(b.orders.plain.id), false, "foreign order leaked through the override");
+              overrideDenied++;
+            }
+          }
+          await a.h.selectPreviewTenant(a.t.slug);
+          const own = await call(a, `/api/orders/${a.orders.plain.id}`);
+          assert.equal(own.status, 200, "own tenant restored after the override attempts");
+        }
+        a.checks.isolation = { denied, overrideDenied };
       });
     }
 
