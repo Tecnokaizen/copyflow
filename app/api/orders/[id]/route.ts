@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { toPublicOrderDto } from "@/lib/orders/concurrency";
 import { executeChangeOrderStatus } from "@/lib/orders/change-status-api";
+import { loadOrderFeatures } from "@/lib/orders/order-features";
 import { orderComesFromQuote } from "@/lib/orders/source-quote-link";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
@@ -97,10 +98,13 @@ export async function GET(
   // feature off) only the existence of the link is exposed, never its data.
   const sourceQuoteRestricted =
     !sourceQuote && (await orderComesFromQuote(supabase, context.tenant.id, id));
+  // SUR4 (contract §4): the server decides which A1 features the page shows.
+  const features = await loadOrderFeatures(supabase, context.tenant.id);
   return operationalJson({
     tenant: context.tenant.slug,
     source_quote: sourceQuote ?? null,
     source_quote_restricted: sourceQuoteRestricted,
+    features,
     order: toPublicOrderDto(order as Record<string, unknown>),
   });
 }

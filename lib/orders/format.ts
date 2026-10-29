@@ -1,3 +1,4 @@
+import { orderWorkActivityText } from "@/lib/activity/order-work-activity";
 import { richTextToPlainText } from "@/lib/rich-text/html";
 import { formatOrderMoney } from "@/lib/orders/money";
 import type { ActivityItem } from "@/lib/orders/types";
@@ -257,6 +258,15 @@ export function formatActivityText(item: ActivityItem) {
   if (item.action === "order.file_deleted") {
     const filename = activityFileName(item.metadata);
     return filename ? `Archivo eliminado: ${filename}` : "Archivo eliminado";
+  }
+
+  const orderWork = orderWorkActivityText(
+    item.action,
+    item.previous_values as Record<string, unknown> | null,
+    item.new_values as Record<string, unknown> | null
+  );
+  if (orderWork) {
+    return orderWork;
   }
 
   return item.action;

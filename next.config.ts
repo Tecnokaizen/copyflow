@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@react-pdf/renderer"],
   outputFileTracingIncludes: {
     "/api/quotes/*/versions/*/pdf": ["./assets/fonts/*.woff"],
+    "/api/orders/*/receipt": ["./assets/fonts/*.woff"],
   },
   async headers() {
     const operationalCache = {

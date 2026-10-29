@@ -19,6 +19,9 @@ import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
 import { OrderSummary } from "@/components/orders/detail/order-summary";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
+import { orderLabels } from "@/lib/orders/labels";
+import { NO_ORDER_FEATURES, type OrderFeatures } from "@/lib/orders/order-features";
 import {
   EMPTY_CLIENT_FORM,
   clientToForm,
@@ -118,6 +121,8 @@ export function OrderWorkspace() {
   );
   const [sourceQuote,setSourceQuote] = useState<SourceQuote|null>(null);
   const [sourceQuoteRestricted, setSourceQuoteRestricted] = useState(false);
+  const [features, setFeatures] = useState<OrderFeatures>(NO_ORDER_FEATURES);
+  const [collection, setCollection] = useState<OrderCollectionData | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +259,7 @@ export function OrderWorkspace() {
         setOrder(normalizeLoadedOrder(result.order));
         setSourceQuote(result.source_quote ?? null);
         setSourceQuoteRestricted(result.source_quote_restricted === true);
+        setFeatures({ ...NO_ORDER_FEATURES, ...(result.features ?? {}) });
         setError(null);
         setLoading(false);
       } catch (err) {
@@ -1212,6 +1218,9 @@ export function OrderWorkspace() {
     );
   }
 
+  // SUR4 (contract §5): SUR4's names only with order_custom_labels.
+  const labels = orderLabels({ custom: features.customLabels });
+
   const currentClient =
     order.client_id && order.client?.id ? order.client : null;
 
@@ -1325,71 +1334,91 @@ export function OrderWorkspace() {
           onQuickAssignee={saveQuickAssignee}
           onQuickNote={saveQuickNote}
           onArchive={archiveOrder}
+          labels={labels}
+          collection={collection}
         />
 
         {sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <OrderSummary
-            order={order}
-            draft={draft}
-            editing={editing}
-            orderOptions={orderOptions}
-            orderOptionsLoading={orderOptionsLoading}
-            onDraftChange={patchDraft}
-            clientActions={clientActions}
-          />
-          <OrderProduction
-            key={editSession}
-            order={order}
-            draft={draft}
-            editing={editing}
-            statuses={statuses}
-            orderOptions={orderOptions}
-            orderOptionsLoading={orderOptionsLoading}
-            managementOptions={managementOptions}
-            managementOptionsLoading={managementOptionsLoading}
-            sourceQuote={sourceQuote}
-            sourceQuoteRestricted={sourceQuoteRestricted}
-            onDraftChange={patchDraft}
-            onDueAtInvalid={handleDueAtInvalid}
-          />
-          <OrderFulfillment
-            order={order}
-            draft={draft}
-            editing={editing}
-            managementOptions={managementOptions}
-            managementOptionsLoading={managementOptionsLoading}
-            canWrite={canWrite}
-            onCollectionChanged={() => {
-              setActivityTick((current) => current + 1);
-              setReloadToken((current) => current + 1);
-            }}
-            onDraftChange={patchDraft}
-          />
-          <OrderNotes
-            order={order}
-            draft={draft}
-            editing={editing}
-            onDraftChange={patchDraft}
-          />
-        </div>
-
-        <div className="mt-6">
-          <OrderFilesSection
-            key={order.id}
-            orderId={order.id}
-            canMutate={canMutateOrderActions({
-              canWrite,
-              archived_at: order.archived_at,
-            })}
-            archived={isOrderArchived(order)}
-            onChanged={() => setActivityTick((tick) => tick + 1)}
-          />
-        </div>
-
-        <div className="mt-6">
-          <OrderActivity activity={activity} loading={activityLoading} />
+        {/* SUR4 E3: main column (work, files, notes, activity) and side column
+            (summary, payments and delivery). On mobile the two wrappers dissolve
+            (display: contents) and `order-*` gives the single-column order:
+            work, summary, files, payments, notes, activity. */}
+        <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start">
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6">
+            <div className="order-1 min-w-0">
+              <OrderProduction
+                key={editSession}
+                order={order}
+                draft={draft}
+                editing={editing}
+                statuses={statuses}
+                orderOptions={orderOptions}
+                orderOptionsLoading={orderOptionsLoading}
+                managementOptions={managementOptions}
+                managementOptionsLoading={managementOptionsLoading}
+                sourceQuote={sourceQuote}
+                sourceQuoteRestricted={sourceQuoteRestricted}
+                onDraftChange={patchDraft}
+                onDueAtInvalid={handleDueAtInvalid}
+                labels={labels}
+                stickyNotes={features.stickyNotes}
+              />
+            </div>
+            <div className="order-3 min-w-0">
+              <OrderFilesSection
+                key={order.id}
+                orderId={order.id}
+                canMutate={canMutateOrderActions({
+                  canWrite,
+                  archived_at: order.archived_at,
+                })}
+                archived={isOrderArchived(order)}
+                onChanged={() => setActivityTick((tick) => tick + 1)}
+              />
+            </div>
+            <div className="order-5 min-w-0">
+              <OrderNotes
+                order={order}
+                draft={draft}
+                editing={editing}
+                onDraftChange={patchDraft}
+              />
+            </div>
+            <div className="order-6 min-w-0">
+              <OrderActivity activity={activity} loading={activityLoading} />
+            </div>
+          </div>
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6">
+            <div className="order-2 min-w-0">
+              <OrderSummary
+                order={order}
+                draft={draft}
+                editing={editing}
+                orderOptions={orderOptions}
+                orderOptionsLoading={orderOptionsLoading}
+                onDraftChange={patchDraft}
+                clientActions={clientActions}
+              />
+            </div>
+            <div className="order-4 min-w-0">
+              <OrderFulfillment
+                order={order}
+                draft={draft}
+                editing={editing}
+                managementOptions={managementOptions}
+                managementOptionsLoading={managementOptionsLoading}
+                canWrite={canWrite}
+                onCollectionChanged={() => {
+                  setActivityTick((current) => current + 1);
+                  setReloadToken((current) => current + 1);
+                }}
+                onDraftChange={patchDraft}
+                labels={labels}
+                onCollectionLoaded={setCollection}
+              />
+            </div>
+          </div>
         </div>
 
       {draftTerminalConfirm ? (
