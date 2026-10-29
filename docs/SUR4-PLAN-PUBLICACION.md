@@ -1,21 +1,22 @@
 # Plan de publicación en Production: #146 y #160 (SUR4)
 
 29/10/2026. Objetivo: publicación controlada en la noche del jueves 29/10 al
-viernes 30/10 (ver «Ejecución del 29/10»). Nada de esto se ejecuta sin la
+viernes 30/10, desde las 19:10Z (ver «Ejecución del 29/10»). Nada de esto se ejecuta sin la
 autorización expresa del propietario para cada merge, migración o despliegue
 en Production. La aceptación de SUR4/Tamara no es condición (enmienda de
 gobernanza del 29/10, `docs/SUR4-ENTREGAS.md`).
 
 ## Punto de partida
 
-Comprobado de nuevo el 29/10 a las 16:48Z.
+Comprobado de nuevo el 29/10 a las 17:14Z.
 
 | Pieza | Estado |
 | --- | --- |
 | Production | `main` `25f6460`, 86 migraciones, despliegue `dpl_HLW3tQt1…` |
 | Staging | `c7067b9` tras E10 (PASS), 89 migraciones (`090000`, `120000` y `130000` aplicadas) |
-| #146 | Abierta, `644bd5b`, sin migraciones, CI en verde |
-| #160 | Borrador de integración, `88b5422`, CI en verde; contiene #146 y E0–E11; migraciones `20261028120000` (E5) y `20261028130000` (E7). No se fusiona |
+| #146 | Abierta, `7712c12` (P-1: `main` y Novedades incluidas), sin migraciones, CI en verde |
+| #160 | Borrador de integración, CI en verde; contiene #146 y E0–E11; migraciones `20261028120000` (E5) y `20261028130000` (E7). No se fusiona |
+| P-2 a P-7 | Borradores apilados #164, #165, #166, #167 y #168 (ver «Secuencia de PR») |
 | #163 | Borrador, `c90a8b6`, CI en verde: portadora de `20261028090000` y su rollback, sin código de aplicación |
 | #158 | Plan Pro (Stripe), sigue en borrador; ya no trae `090000` a Production (va por #163) |
 
@@ -127,13 +128,23 @@ P-3 y P-4 se juntan en una sola PR (29/10, al cortar las ramas). P-5 a P-7 conse
   `work-stage-icons`.
 
 Ramas de release (desde el 29/10 a las 16:5xZ las lleva la sesión de
-integración, que se encarga de la publicación):
+integración, que se encarga de la publicación). Están apiladas: cada una
+contiene la anterior, así que la CI prueba el estado acumulado. Tras cada
+merge squash, la PR siguiente se cambia a base `main` y se le fusiona `main`
+(mismo contenido, sin conflictos); su CI vuelve a pasar durante la vigilancia.
 
-| Rama | Cabeza | Contenido | Comprobación |
-| --- | --- | --- | --- |
-| `release/p1-rich-text-styles` | `9deab0a` | #146 + `main` `25f6460` sin conflictos, más Novedades | tsc, lint, 1403 pruebas, guarda y build OK |
-| `release/p2-postgrest-hints` | `2ffd541` | E1 | — |
-| `release/p3-ficha-hoja-resguardo` | `fe511e7` | E3 + E2 + E4, más Novedades y el aviso de notas | La cabecera, con la resolución de `aaf9ba8` |
+| PR | Rama | Cabeza | Contenido | Comprobación local |
+| --- | --- | --- | --- | --- |
+| #146 (P-1) | `feat/orders-rich-text-styles` | `7712c12` | #146 + `main` `25f6460`, más Novedades del 29/10 | CI completa en verde |
+| #164 (P-2) | `release/p2-postgrest-hints` | `849d1b2` | E1 | Release gate en verde |
+| #165 (P-3) | `release/p3-ficha-hoja-resguardo` | `309d55c` | E3 + E2 + E4, Novedades y el aviso de notas | Release gate en verde; guarda (0 migraciones), 1458 pruebas, tsc y lint |
+| #166 (P-5) | `release/p5-postits` | `059f39f` | #163 fusionada + E5 + E6; suites `phase61` | Guarda (2 migraciones), 1499 pruebas y tsc |
+| #167 (P-6) | `release/p6-secuencia` | `b8d2ebf` | E7 + E8 + E9; suites `phase62`/`phase63` | Guarda (3 migraciones), 1592 pruebas, tsc y lint |
+| #168 (P-7) | `release/p7-ayuda-e2e-docs` | `07dabc3` | E11, E2E de E10 y `docs/` | Guarda, 1599 pruebas, tsc y lint |
+
+El árbol de #168 es igual al de #160 salvo los ficheros de #163 y la entrada
+de Novedades del 29/10. Las pruebas locales van con `TZ=UTC`, como la CI: una
+prueba del quiosco depende de la zona horaria.
 
 Las consultas a `order_notes` y `order_work_steps` solo se hacen con la
 función activa y devuelven vacío si hay error. `tenant_has_feature`, tal como
@@ -151,17 +162,18 @@ en Staging tal cual. Al cortar cada rama:
 
 ## Ventanas
 
-Horario de SUR4: lunes a viernes, 07:05–19:40Z. Las ventanas van fuera de ese
-horario. Por cada merge:
+Horario de SUR4: lunes a viernes, hasta las 19:10Z según el propietario
+(29/10; antes figuraba 07:05–19:40Z). Las ventanas van fuera de ese horario. Por cada merge:
 - CI en verde;
 - Vercel READY;
 - sondas 6/6 (`~/copyflow-ops/publicacion-lote-20261028/sondas.sh`);
 - 15 min de vigilancia de logs filtrando por despliegue;
 - rollback anotado al despliegue anterior.
 
-- **V1, sin migraciones** (jueves 29/10 desde las 20:00Z, o viernes 30/10
-  de 05:30 a 07:00Z): P-1 → P-2 → P-3. Requisitos: E10 en PASS y N23
-  hecha.
+- **V1, sin migraciones** (jueves 29/10, entre W3 y W4; ver «Ejecución del
+  29/10»): P-1 → P-2 → P-3. Requisitos: E10 en PASS, N23 hecha y la comunicación a
+  SUR4 sobre la Hoja de trabajo preparada antes de P-3 (la envía el
+  propietario).
 - **V2, con migraciones** (después de #163 en `main` y `090000` en
   Production; ya no espera a #158):
   1. copia B1.3 nueva, verificada y con simulacro aislado;
@@ -191,7 +203,8 @@ Escenarios para el viernes:
 
     Cabe entre las 19:40Z y las 07:05Z si el propietario está disponible para
     cada autorización. Antes de la portadora hace falta el P1: copia,
-    `verify` y simulacro aislado de Production.
+    `verify` y simulacro aislado de Production. La consolidación del
+    propietario (29/10) cambia la hora y el orden: ver «Ejecución del 29/10».
 - **B.** Si el P2 se queda el viernes a partir de las 19:40Z, el viernes SUR4
   prueba la ficha, la Hoja, el Resguardo y el formato de texto. Post-its y
   secuencia llegan desde la noche del viernes (V2 tras el P2). Para Billing no
@@ -216,25 +229,86 @@ Decisiones del propietario del 29/10 (16:5xZ):
 - **Decisiones N3, N4, N5, N8, N9, N11 y N12:** cerradas con la recomendación
   implementada (registro de entregas).
 
-Secuencia, desde las 19:40Z, con un GO por paso:
+Consolidación del propietario (29/10, ~17:0xZ), con el cambio de hora de las
+18:13Z:
+- Inicio a las 19:10Z, al terminar el horario de SUR4. El propietario lo
+  aceptó a las 18:13Z en la sesión de release, «sujeto a las condiciones de
+  cada PR», y dejó claro que eso no autoriza merges, `db push` ni otros
+  cambios en Production. En integración, el GO directo del propietario para
+  #163 vale además como confirmación de la hora (hasta entonces rige su
+  límite anterior de las 22:00 de Madrid).
+- Antes de cualquier migración: copia nueva, integridad verificada,
+  preflight y dry-run. La copia de las 17:27Z no vale para W3.
+- Doble comprobación de Stripe: después de `090000` y otra vez antes de
+  `120000`.
+- La copia debe tener menos de 2 h en cada migración; si no, se renueva antes.
+- Comunicación a SUR4 sobre la Hoja de trabajo aprobada y enviada antes de
+  P-3. Las notas no se convierten ni se borran.
+- E3 entra. Quedan fuera las vistas A/B/C/D, su selector y las preferencias
+  visuales por tenant.
 
-| Paso | Quién | Qué | Puertas |
-| --- | --- | --- | --- |
-| W1 | release | Copia B1.3 de Production, `verify` y restauración aislada | Hashes y manifiesto v2; `RESTORE_DATABASE_ISOLATED_SUCCESS` |
-| P-1 | integración | Merge de #146 (actualizada con `main` y Novedades) | CI, READY, sondas 6/6, 15 min |
-| P-2 | integración | Pistas PostgREST | Ídem |
-| P-3 | integración | Ficha, Hoja sin notas y Resguardo | Ídem, más smoke local sin `120000`/`130000` |
-| W2 | integración | Merge de #163 | Ídem |
-| W3 | release | Solo `20261028090000` | Dry-run con solo esa; comprobación; Stripe confirma Live sin activar y Pro sin publicar |
-| W4 | release | `20261028120000` | Dry-run con solo esa; comprobación (huella de `tenant_has_feature` tomada tras W3) |
-| P-5 | integración | Post-its | CI, READY, sondas, 15 min |
-| W5 | release | `20261028130000` | Dry-run con solo esa; comprobación |
-| P-6 | integración | Secuencia | CI, READY, sondas, 15 min |
-| P-7 | integración | Ayuda, E2E de E10, ADR, contrato y registro; diff final con lo validado | Ídem |
+V1 va entre W3 y W4. No puede ir después de P-7: #166, #167 y #168 están
+apiladas sobre P-3 y ya contienen P-1 a P-3 (E6 se apoya en la ficha de E3).
+Antes de las 19:10Z tampoco, por el horario de SUR4.
 
-W1 no choca con P-1 a P-3, que no tocan la base. Las funciones nacen apagadas.
+Secuencia, desde las 19:10Z, con un GO por paso (horas orientativas):
+
+| Paso | Hora | Quién | Qué | Puertas |
+| --- | --- | --- | --- | --- |
+| W0 | ya | release | Simulacro: restauración aislada del set `20261029T172706Z` (autorizada por el propietario en la sesión de release, 18:1xZ) | `RESTORE_DATABASE_ISOLATED_SUCCESS` y comprobaciones R5/R6 sobre la copia restaurada; limpieza del stack |
+| W1 | 19:10Z | release | Copia nueva de Coolify (la lanza el propietario) | Hashes, manifiesto v2 y huella en vivo igual a Production |
+| W2 | 19:10Z | integración | Merge de #163 | CI, READY, sondas 6/6, 15 min |
+| W3 | ~19:30Z | release | Solo `20261028090000`, desde el SHA de `main` tras W2 | Preflight (fase pre) y dry-run con solo esa; comprobación de fase 87 (0 cambios en la matriz efectiva tenant × función); primera comprobación de Stripe |
+| P-1 | ~19:50Z | integración | Merge de #146 | CI, READY, sondas 6/6, 15 min |
+| P-2 | | integración | #164, pistas PostgREST | Ídem |
+| P-3 | ~20:30Z | integración | #165, ficha, Hoja sin notas y Resguardo | Ídem; aviso a SUR4 enviado antes. Al terminar la vigilancia, aviso a release y a Stripe |
+| S2 | | Stripe | Segunda comprobación de Billing (solo lectura, ~1 min) | PASS antes de W4 |
+| W4 | ~20:45Z | release | `20261028120000`, desde la cabeza de #166 | Copia de menos de ~1 h 50 (si no, se renueva antes); preflight y dry-run con solo esa; comprobación de fase 88, RLS y RPC (huella de `tenant_has_feature` tomada tras W3) |
+| P-5 | | integración | #166, post-its | CI, READY, sondas 6/6, 15 min |
+| W1b | ~21:15Z | release | Segunda copia de Coolify (la lanza el propietario) | Hashes, manifiesto v2 y huella en vivo igual a Production |
+| W5 | | release | `20261028130000`, desde la cabeza de #167 | Preflight y dry-run con solo esa; comprobación de fase 89, RLS y RPC |
+| P-6 | | integración | #167, secuencia | CI, READY, sondas 6/6, 15 min |
+| P-7 | | integración | #168, ayuda, E2E de E10, ADR, contrato y registro; diff final con lo validado | Ídem |
+
+Cada migración se aplica antes del merge de la PR que la trae a `main`:
+`090000` con #163, `120000` con #166 y `130000` con #167. Las funciones nacen
+apagadas.
+
+Comprobación de Stripe (sesión de Stripe, solo lectura; foto de antes de las
+16:58Z), tras W3 y otra vez antes de W4. En Production, Stripe ya está en Live
+para Basic desde el 28/09 (decisión del propietario del 21/10) y eso no
+cambia. Lo que se comprueba es que Pro no tiene nada en Live ni en Test: ni
+precio, ni oferta, ni Checkout, ni suscripción. `090000` deja `pro` activo en
+`plans`, pero no es visible ni contratable: el código de `main` solo acepta
+`basic` y no hay `billing_prices` de Pro. Además: 87 migraciones, la huella
+nueva de `tenant_has_feature`, `clients_import` retenida, los derechos de los
+6 tenants sin cambios y SUR4 igual en tenant, suscripciones y concesión.
+
+Acordado con la sesión de release (29/10, 17:1xZ–18:1xZ):
+- W3 se lanza desde el SHA exacto de `main` tras el squash de #163; W4 desde
+  la cabeza de #166 y W5 desde la de #167. Tras cada retarget, integración
+  envía el SHA nuevo y release comprueba antes del push que el blob de la
+  migración es el mismo (`120000` `0d77750a`, `130000` `b50ded3a`) y que solo
+  añade esa migración.
+- Mientras corre un push y su comprobación no hay merges ni despliegues de
+  Production. P-5 y P-6 van después de la comprobación de fase 88 y 89.
+- Antes de cada push, release mira la edad de la última copia verificada; si
+  pasa de ~1 h 50, pide una renovación. Con la copia de las 19:10Z, W4 tiene
+  que empezar antes de las ~21:00Z; si V1 se retrasa, la segunda copia se
+  adelanta a W4.
+- La copia de renovación se verifica con hashes, manifiesto v2 completo y
+  huella en vivo igual a Production en ese momento (no con
+  `EXPECT=post-r5r6`, que daría falsas diferencias tras `090000`). Su
+  restauración aislada es opcional.
+- Cada copia la lanza el propietario desde Coolify; su autorización directa
+  para cada set y su GO antes de W3, W4 y W5 se dan en la sesión de release.
+
 Las concesiones a SUR4 o DEMO son una operación aparte, auditada y con su
 propia autorización.
+
+Fecha de Novedades: `2026-10-29`. Si P-1 o P-3 se fusionan después de las
+23:00Z (medianoche en Madrid), la fecha se cambia a `2026-10-30` antes del
+merge.
 
 ## Rollback
 
@@ -268,9 +342,16 @@ propia autorización.
 
 1. ~~Auditoría N23: lectura de recuentos en Production.~~ Autorizada y hecha
    el 29/10 (16:5xZ).
-2. Fecha y hora de V1, y merge de P-1 a P-3, uno a uno.
-3. Copia y simulacro (W1, sesión de release), merge de #163 (W2) y
-   `090000` (W3), cada uno con su GO. Vía para `090000` decidida: la portadora
-   #163 (`c90a8b6`).
+2. Merge de P-1 a P-3, uno a uno, entre W3 y W4.
+3. Simulacro (W0) y copia (W1) en la sesión de release, merge de #163 (W2)
+   en integración y `090000` (W3), cada uno con su GO; el de #163 confirma
+   además el inicio a las 19:10Z. Vía para `090000` decidida: la
+   portadora #163 (`c90a8b6`).
 4. Fecha y hora de V2: cada migración y el merge de P-5 a P-7, uno a uno.
-5. Concesiones a SUR4 o DEMO (operación aparte).
+   W4 y W5 se lanzan desde la cabeza de #166 y de #167, que no son `main`:
+   la sesión de release pide aprobación expresa del propietario para cada
+   SHA.
+5. Opcional, antes de la ventana: dry-run contra Production desde #163
+   (`c90a8b6`), que solo debería listar `090000`. No aplica nada, pero la CLI
+   crea un rol temporal en Production. Solo con el sí del propietario.
+6. Concesiones a SUR4 o DEMO (operación aparte).
