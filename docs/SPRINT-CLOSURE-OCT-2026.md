@@ -33,8 +33,17 @@ infraestructura por tenant. No hay código específico de SUR4.
 | Modificación de líneas de pedido | #104 | — | — | — | — | **No implementado**: los pedidos no tienen modelo de líneas. Diseño en `docs/adr/2026-10-15-order-lines-v1.md` |
 | Resiliencia de sesión | — | #94 · `b6427a6` | — | 1141/1141 con `main` `725deff`; 4 smokes de navegador | Sesión caducada → 401 y el borrador se recupera; viewer 403; contexto anónimo 401 | **Integrada**: `main` `8e5dfe1`, con la resolución de `3d1f386` |
 | Logos del tenant | — | #58 · `d487d54` | — | 1157/1157 con `main` `1e50228`; smoke nuevo de cabecera 48/48 (falla sin la corrección); 9 smokes que montan la cabecera | Logos 3:1 y 1:3 proporcionados, sustitución sin recarga, quitar → monograma, escritorio/móvil, claro/oscuro | **Integrada**: `main` `4877db7`. Corregido al integrarla: con la etiqueta Pro de #105, a 320 px el logo apaisado quedaba bajo la etiqueta |
-| Gestcopy AI — Pedidos por voz | #76, #78–#82 | #90 · `bf18b26` (borrador, en conflicto) | `20261012120000_ai_voice_orders_foundation_v1` (sin aplicar) | — | — | No integrar; plan en `docs/AI-VOICE-ORDERS-PLAN.md` |
+| Gestcopy AI — Pedidos por voz | #76, #78–#82 | #90 · `bf18b26` (borrador, en conflicto) | `20261012120000_ai_voice_orders_foundation_v1` (sin aplicar al cierre del sprint; **histórico**, ver la nota) | — | — | No integrar; plan en `docs/AI-VOICE-ORDERS-PLAN.md` |
 | Corrección de total (#91) | — | #91 · `dd3c90c` (en conflicto) | Su migración viajó en #95 (`20261016090000`), ya en Production | — | — | **Cerrada** el 16/10 (00:02 UTC), sustituida por #95: su migración es idéntica a `20261016090000` y su suite SQL está en `main`; la parte de app la cubre #93 (`367d22a`). Rama conservada |
+
+> **Nota (19/10/2026): la fila de la voz es histórica.** Refleja el estado al
+> cierre del sprint. Después, la migración de #90 se renumeró dos veces
+> (`20261012120000` → `20261018150000` → `20261018190000`) y
+> `20261018190000_ai_voice_orders_foundation_v1` se aplicó en Staging el 18/10 a
+> las 18:41 UTC. Staging tiene 84 migraciones: las 79 de `main`, D2/D1 (#135/#136,
+> `20261018160000`–`170000`), A1 (#138, `20261018180000`) y la voz. Production no
+> tiene ninguna de ellas. Orden de merge: #128 (ya en `main`) → #135 → #136 →
+> #138 → #90 → C1. #90 sigue en borrador y sin merge.
 
 ### Hallazgos relevantes
 
