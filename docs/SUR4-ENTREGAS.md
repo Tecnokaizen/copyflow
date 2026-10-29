@@ -48,7 +48,7 @@ y compatibilidad, y con ventana acordada con las sesiones de Stripe y release.
 | E7 · Secuencia: base de datos | Hecha en local | `99207b4` | Migración `20261028130000_order_work_sequence_v1.sql`: `work_stages` (catálogo por tenant, sin semilla, nunca se borra) y `order_work_steps` (1–10 pasos, persona opcional mientras está pendiente, ejecutor, cuenta que marca, «Le toca» calculado). Función `order_work_sequence` apagada por defecto. RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1`, `team_work_load_v1`, `upsert_work_stage_v1` y `create_suggested_work_stages_v1`. `phase62_order_work_sequence_v1.sql` PASS (D5, D6, D14, D15, R6, tenants, roles, escritura directa, archivado, carga sin duplicar, retirada y vuelta de la función, purga), `phase62_order_work_sequence_concurrency.sh` PASS (C1, C2/C11, C3, C4, C8, C12, C13, C14, sesiones nuevas, TRUNCATE, baja de tenant), `phase63_order_features_isolation.sql` PASS (matriz de cuatro tenants, T1, T2, T4, T9, T10). Rollback probado: se niega con datos, quita concesiones y se vuelve a aplicar. Las 45 suites de la base del release gate PASS en local con E5 y E7 | N15 |
 | E8 · Secuencia: API, Configuración y ficha | Hecha en local | `ac83417` | Rutas de pasos y fases con 404 sin la función; 51 pruebas. En el navegador: marcar un paso con ejecutor, «Paso hecho: Preparación, por Raquel» en el historial, cambio de estado posterior sin conflicto, editor con pasos hechos bloqueados, lista vertical a 390 px, Configuración › Fases de trabajo | N15 |
 | E9 · Secuencia: listas y panel | Hecha en local | `df7856d` | Indicador «Le toca» y filtros «Le toca a» y «Participa» en Pedidos; grupos de Mis pedidos; Mostrador; «Le toca ahora» en el panel. Sin la función o sin fases activas, respuestas iguales a HEAD (13 peticiones comparadas). Recuento sin duplicar comprobado en PostgREST y SQL. En el navegador con `sur4lab` | N15 |
-| E10 · Integración | Preparada | `9e612ef` | E2E de DEMO de los cuatro tenants `e2e-sur4-*` (`seed-sur4.ts`, `sur4-features.ts`): PASS en local el 28/10 con la matriz, post-its y secuencia desde la ficha, Hoja, resguardo, retirada y vuelta de funciones, `viewer` y aislamiento. Ensayo de fusión con `97fbc59` hecho. Candidato `496bf6b` (29/10). Falta la ventana de Staging | OK del propietario a la ventana, CI verde del candidato, dominios de Vercel (la ronda C ya no bloquea: cambio de puerta del 29/10) |
+| E10 · Integración | Preparada | `9e612ef` | E2E de DEMO de los cuatro tenants `e2e-sur4-*` (`seed-sur4.ts`, `sur4-features.ts`): PASS en local el 28/10 con la matriz, post-its y secuencia desde la ficha, Hoja, resguardo, retirada y vuelta de funciones, `viewer` y aislamiento. Ensayo de fusión con `97fbc59` hecho. Candidato `496bf6b` (29/10). Falta la ventana de Staging | OK del propietario a la ventana (CI del candidato en verde y hosts `e2e-sur4-*` dados de alta el 29/10; la ronda C ya no bloquea: cambio de puerta del 29/10) |
 | E11 · Ayuda y cierre | Ayuda hecha | — | Cuatro artículos nuevos (post-its, secuencia, fases, Hoja y resguardo) con los nombres finales de los botones; `crear-pedido` ya no dice que las notas se imprimen. Pruebas de ayuda 27/27. Novedades, con la fecha del merge | E10 |
 
 N15 = F12 cerrada (hecho, 28/10) y #146 fusionada en `main` antes que
@@ -249,6 +249,30 @@ desarrollo.
     `demo.preview…`.
   Hay que añadir al E2E el modo `staging-branch` (guarda y arnés). Solo
   cambian las pruebas; el código desplegado no cambia.
+- **Hosts, decisión nueva del propietario (29/10, mensaje a la sesión de
+  integración; sustituye al punto anterior):** «Autorizamos preparar la
+  opción A: registrar exclusivamente los cuatro dominios sintéticos e2e-sur4-*
+  dentro del proyecto Vercel existente, vinculándolos a la rama
+  gestcopy-staging.» Condiciones:
+  - mismo proyecto, core, despliegue y Supabase Staging;
+  - nada por tenant ni DNS;
+  - TLS y asociación a Preview confirmados antes de cualquier E2E;
+  - sin Production ni tenants reales.
+
+  La sesión de integración los dio de alta entre las 12:15 y las 12:16Z:
+  - `verified=true` y sin cambios de DNS;
+  - certificado de Let's Encrypt válido hasta el 27/01/2027;
+  - alias del despliegue de `97fbc59`, con 302 al SSO de Vercel como `e2e`.
+
+  E10 queda así:
+  - **Prueba principal:** por host real (`E2E_SUR4_MODE=staging`), igual que
+    en Production.
+  - **Complemento:** el modo `staging-branch`, para comprobar el aislamiento al
+    cambiar de tenant con el selector.
+
+  La autorización del despliegue y de las migraciones de E10 sigue siendo
+  aparte. El propietario decidirá si los hosts se retiran al cerrar E10 o se
+  quedan hasta publicar; hasta entonces no se tocan.
 - **N15:** la aceptación funcional de #146 (29/10) cubre la parte funcional de
   la puerta. El merge a `main` sigue siendo un paso aparte, con autorización
   (plan de publicación, `docs/SUR4-PLAN-PUBLICACION.md`).
@@ -303,9 +327,9 @@ Pasos, en este orden y sin saltarse ninguno:
    `/auth/confirm`. Smoke de pedidos sin funciones (tenant `e2e`): ficha, Hoja
    estándar sin notas, Resguardo. Ninguna escritura en `e2e` sin coordinarla
    antes con Stripe.
-6. Hosts de los tenants de prueba. **Sustituido el 29/10:** sin dominios
-   nuevos, con la URL de rama y `?tenant=` (ver «Cambio de puerta»). Lo que
-   sigue queda como historial. **Decisión del propietario (28/10,
+6. Hosts de los tenants de prueba. **Hecho el 29/10, 12:16Z:** opción A, con
+   los cuatro hosts dados de alta por la sesión de integración (ver «Cambio
+   de puerta»). Lo que sigue queda como historial. **Decisión del propietario (28/10,
    ~22:35Z): opción A.** En la ventana, y solo después de su OK expreso al
    despliegue, se añaden únicamente los cuatro hosts `e2e-sur4-*` al proyecto
    `copyflow` con la rama `gestcopy-staging`, y se quitan al cerrar E10. Nada

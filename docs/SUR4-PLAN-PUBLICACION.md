@@ -24,6 +24,19 @@ o despliegue en Production. La aceptación de SUR4/Tamara no es condición
      antigua que la última de `main` (regla `migration-order`,
      `ci/release-gate/migration-guard.ts`).
    - `supabase db push` en Production tendría que aplicarla fuera de orden.
+
+   **Vía propuesta por la sesión de Stripe (29/10, 12:18Z; decide el
+   propietario):** una PR portadora desde `main` con solo la migración
+   `090000` y su rollback, como la #150 de voz.
+   - Pasa la guarda, porque `20261028090000` > `20261022130000`.
+   - No cambia el código de Production. Stripe comprobó, en lectura, que
+     Production cumple las precomprobaciones y que `25f6460` funciona con la
+     base nueva.
+   - Desacopla esta entrega de #158, de S10 (que necesita SMTP) y de Stripe
+     Live; #158 entra después sin volver a añadir `090000`.
+   - Efecto buscado M1 (decisión del 27/10): los tenants Basic activos o en
+     prueba ganan Presupuestos por plan. Antes se mira en Production, en
+     lectura, qué tenants afecta (P5 de Stripe).
 3. `120000` antes que `130000`, cada una con su comprobación.
 4. **Copia restaurable de Production** verificada, con simulacro de
    restauración aislada, antes de cualquier migración. Es el P1 del acta; lo
@@ -104,9 +117,27 @@ Escenarios para el viernes:
 
 - **A.** Si el P2 de Stripe puede ir antes de las 07:05Z del viernes, V1 y V2
   van seguidas y SUR4 prueba post-its y secuencia el mismo viernes.
+  - Por la vía de #158 completa no es viable: necesita S10, y S10 necesita
+    SMTP.
+  - Con la PR portadora sí lo es (Stripe, 29/10). El jueves, desde las 19:40Z:
+    1. copia de menos de 2 h;
+    2. merge de la portadora (READY, sondas y vigilancia);
+    3. P2 (`090000`, dry-run, push y comprobación), entre 1 y 1,5 h;
+    4. V1 y V2 de esta entrega.
+
+    Cabe entre las 19:40Z y las 07:05Z si el propietario está disponible para
+    cada autorización. Antes de la portadora hace falta el P1: copia,
+    `verify` y simulacro aislado de Production.
 - **B.** Si el P2 se queda el viernes a partir de las 19:40Z, el viernes SUR4
   prueba la ficha, la Hoja, el Resguardo y el formato de texto. Post-its y
-  secuencia llegan desde la noche del viernes (V2 tras el P2).
+  secuencia llegan desde la noche del viernes (V2 tras el P2). Para Billing no
+  tiene coste: el plazo de Live (02/11, 13:08Z) sigue cubierto.
+
+Orden en Production recogido en el acta (adenda A2 de la sesión de
+integración): simulacro → `090000` → #158 → #146 → `120000` → `130000` →
+#160, cada paso con su GO. Con la portadora, #158 sale de la cadena: va cuando
+esté lista y no bloquea `120000`/`130000`. P-1 a P-4 no traen migraciones y
+pueden ir antes de `090000` (V1).
 
 ## Rollback
 
@@ -140,5 +171,6 @@ Escenarios para el viernes:
 1. Auditoría N23: lectura de recuentos en Production.
 2. Fecha y hora de V1, y merge de P-1 a P-4, uno a uno.
 3. P1 (copia y simulacro) y P2 de Stripe; los coordina la sesión de Stripe.
+   Antes, la vía para `090000`: portadora o #158 completa.
 4. Fecha y hora de V2: cada migración y el merge de P-5 a P-7, uno a uno.
 5. Concesiones a SUR4.

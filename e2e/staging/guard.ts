@@ -148,8 +148,8 @@ export type Sur4Targets = {
   /**
    * `staging`: one Preview host per tenant (`{slug}.preview.app.gestcopy.com`).
    * `staging-branch`: the `gestcopy-staging` branch URL (`*.vercel.app`) for
-   * every tenant, each chosen with the Preview override `?tenant=`; no tenant
-   * host is needed (owner, 29/10: no per-tenant infrastructure).
+   * every tenant, each chosen with the Preview override `?tenant=`. It needs no
+   * tenant host; E10 uses it to test isolation when the tenant switches.
    * `local`: `{slug}.localhost` + a local Supabase stack.
    */
   mode: Sur4Mode;
