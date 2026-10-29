@@ -495,6 +495,21 @@ Pasos de la ronda:
     - D1–D7 y el procedimiento E1 están en la sección 0 y en la 11.1 de la propuesta. E1 se hará con el OK del propietario.
 - Una autorización por operación. Nada en Production, Stripe Live ni Supabase Auth de Production sin autorización expresa.
 
+**Portadora de `090000` y P5 (29/10):**
+- **Por qué:** el propietario quiere publicar #160 (post-its y secuencia) cuanto antes, y la guarda `migration-order` exige que `20261028090000` entre en `main` antes que `20261028120000`/`130000`. La portadora lo hace sin #158, sin S10 y sin Stripe Live.
+- **PR en borrador #163** (`chore/billing-pro-migration-carrier`, sobre `main` `25f6460`):
+  - `bdb4d79`: la migración, el rollback, phase60, phase33/phase54 y `release-gate.yml`, idénticos a #158 `d7339eb`;
+  - `c90a8b6`: la prueba del Release Gate (`internal-subscription-webhook.test.ts`), reforzada. La primera CI falló porque exigía que phase57 fuera la última suite. Ahora comprueba el bucle entero (continuaciones, phase57 y phase60). En local, 15/15, y cuatro copias rotas fallan.
+- **El merge no aplica la migración:** ningún workflow ejecuta `db push`.
+- **Autorizado por el propietario:** solo preparar la PR y la consulta P5. Sin merge, sin migraciones, sin despliegues y sin escrituras en Production. El merge y P2 se autorizarán aparte, después del informe P5 y de una copia con restauración verificada.
+- **Precomprobaciones en Production (12:18Z):** P1–P4 correctas. 86 migraciones, la última `20261022130000`; sin `pro`; 7 funciones; md5 del resolvedor `66f4c1a0…`.
+- **P5 (12:37Z, solo lectura): ningún tenant cambia con `090000`.**
+  - `sur4`: Basic `trialing` (interna) hasta el 02/11 a las 13:53Z. Ya tiene presupuestos por concesión, sin fecha de revisión; `tenant_has_feature` devuelve `true`.
+  - `demo`: `mvp` con concesión.
+  - `billing-sandbox`, `copisteria-caprichos`, `prueba-final` y `tenant-prueba`: sin suscripción vigente.
+  - Importación: nadie tiene concesión, y después sigue apagada (`held`).
+- **Al actualizar #158 con `main`:** quedarse con la versión de `main` de esa prueba.
+
 | Paso | Qué |
 | --- | --- |
 | L0 | Merge de #158, con el orden fijado por la sesión de release, y despliegue |
