@@ -70,7 +70,7 @@ export async function GET(
       service:services(id, name, active, requires_quote),
       status:order_statuses(id, code, name, is_initial, is_ready, is_closed, is_cancelled, active),
       entry_channel:entry_channels(id, code, name, active),
-      assigned_team_member:team_members(id, name, active),
+      assigned_team_member:team_members!orders_team_member_fk(id, name, active),
       order_context:order_contexts(id, name, active),
       store:stores(id, name, active),
       file_status:file_statuses(id, code, name, active),
