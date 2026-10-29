@@ -269,7 +269,7 @@ async function main() {
       return expected as string;
     });
 
-    await h.step("edit after reload, save, reload", async () => {
+    const light = await h.step("edit after reload, save, reload", async () => {
       await p.getByRole("button", { name: "Editar pedido" }).click();
       await p.locator(editor("Instrucciones")).waitFor();
       await select("Instrucciones", "sangrado 3 mm");
@@ -293,7 +293,13 @@ async function main() {
       assert.equal(await storedAlign(stored.description, "Entregar en caja cerrada"), "right");
       assert.equal((await renderedContent()).description, await canonical(normalizeRichText(stored.description, ORDER_RICH_TEXT)));
       assert.equal(await alignOf("main", "NO CORTAR"), "justify");
+      // Light-palette colors the instructions now carry (red was removed from NO CORTAR).
+      const orange = await tokenColor("orange");
+      const green = await tokenColor("green");
+      assert.equal((await computed("main", "sangrado 3 mm"))?.color, orange, "orange on the detail");
+      assert.equal((await computed("main", "Papel 350 g."))?.color, green, "green on the detail");
       result.checks.editRoundTrip = true;
+      return { orange: orange as string, green: green as string };
     });
 
     await h.step("«Añadir nota» keeps earlier styles", async () => {
@@ -321,9 +327,18 @@ async function main() {
     await h.step("print keeps the styles on the light palette", async () => {
       await p.goto(`${target.baseUrl}/orders/${fullId}/print`);
       await p.locator(".print-rich").first().waitFor({ timeout: 30000 });
+      // Colors: the edited orange and the untouched green keep the light palette;
+      // NO CORTAR was reset to the default color and keeps its size.
+      const orange = await computed(".print-sheet", "sangrado 3 mm");
+      assert.equal(orange.color, light.orange);
+      assert.ok(contrast(orange.color, orange.background) >= 4.5);
+      const green = await computed(".print-sheet", "Papel 350 g.");
+      assert.equal(green.color, light.green);
+      assert.ok(contrast(green.color, green.background) >= 4.5);
       const printed = await computed(".print-sheet", "NO CORTAR");
-      assert.equal(printed.color, lightRed);
-      assert.ok(contrast(printed.color, printed.background) >= 4.5);
+      const plain = await computed(".print-sheet", "Entregar en caja cerrada");
+      assert.notEqual(printed.color, lightRed, "red was removed in the edit");
+      assert.equal(printed.color, plain.color, "NO CORTAR prints in the default color");
       assert.ok(Math.abs(printed.size / printed.base - 1.5) < 0.02);
       assert.equal(await alignOf(".print-sheet", "NO CORTAR"), "justify");
       assert.equal(await alignOf(".print-sheet", "Entregar en caja cerrada"), "right");
@@ -334,7 +349,9 @@ async function main() {
       await h.screenshot("impresion-claro");
       await setTheme("dark"); await p.reload(); await p.locator(".print-rich").first().waitFor();
       assert.equal(await p.evaluate(() => document.documentElement.classList.contains("dark")), true);
-      assert.equal((await computed(".print-sheet", "NO CORTAR")).color, lightRed, "print ignores dark mode");
+      assert.equal((await computed(".print-sheet", "sangrado 3 mm")).color, light.orange, "print ignores dark mode");
+      assert.equal((await computed(".print-sheet", "Papel 350 g.")).color, light.green, "print ignores dark mode");
+      assert.equal((await computed(".print-sheet", "NO CORTAR")).color, plain.color, "print ignores dark mode");
       await h.screenshot("impresion-modo-oscuro");
       result.checks.print = true;
     });
