@@ -419,3 +419,40 @@ Variables del E2E en Staging (fichero local `.env.e2e-sur4.local`, fuera de
 git): `E2E_SUPABASE_URL`, `E2E_R2_BUCKET`, `E2E_SUPABASE_SECRET_KEY`,
 `E2E_SUPABASE_PUBLISHABLE_KEY`, `E2E_SUR4_PASSWORD`, `E2E_SUR4_OPERATOR`,
 `VERCEL_AUTOMATION_BYPASS_SECRET` y `PLAYWRIGHT_MODULE`.
+
+### Resultado de E10 (29/10/2026): PASS
+
+GO del propietario a las 13:08Z para W0–W8 y W10 con el candidato `c7067b9`.
+Cierre a las 15:00Z aproximadamente.
+
+- **W0–W1.** Staging en reposo, `gestcopy-staging` en `97fbc59`. Copia nueva
+  `20261029T131008Z`, verificada y restaurada en aislado (RTO 37 s); el primer
+  simulacro chocó con una pila local de restauración que seguía levantada y se
+  repitió con permiso del propietario.
+- **W2–W3.** `20261028120000` y `20261028130000` aplicadas por separado, con
+  dry-run delante; verificación 42/42 y 64/64; 89 migraciones.
+- **W4.** FF de `gestcopy-staging` a `c7067b9`; despliegue
+  `dpl_44GE1RhvVHAi4gruaHRqU1E2CTqq` READY con los hosts de Staging y los
+  cuatro `e2e-sur4-*`.
+- **W5–W6.** Seed de los cuatro tenants `e2e-sur4-*` (sin correos);
+  `sur4-features.ts` PASS por host real y con cambio de tenant: matriz,
+  post-its, secuencia, Hoja, Resguardo, `viewer` y aislamiento (38–40 accesos
+  ajenos denegados por tenant).
+- **W7.** El primer intento (run 40882850916) falló por tres aserciones del
+  E2E desfasadas respecto a #160; la aplicación era correcta y el propietario
+  ordenó STOP. Recuperación autorizada: una rama solo de tests,
+  `e2e/e10-w7-fix` (`86e3813`), y un permiso temporal en el entorno `staging`
+  de GitHub solo para esa rama, retirado al terminar (entorno idéntico al
+  original). El run 40893480059 terminó en `success`, con 12/12 pasos. B2 de
+  `integration-batch` se omite porque el catálogo de servicios de `e2e` está
+  vacío, igual que el 27/10. Sin tráfico a Production ni respuestas 5xx.
+- **W8.** Smoke sin sesión en `e2e.preview` y `demo.preview`: 10/10, sin
+  errores de consola ni 5xx.
+- **W10.** Escrituras solo en `e2e` y `e2e-sur4-*`; facturación sin cambios;
+  ninguna tabla sin RLS; 74 políticas; 89 migraciones.
+
+Pendiente antes de P-3: llevar a #160 las tres correcciones de
+`e2e/e10-w7-fix` (`run.ts`, `quotes.ts` y `order-rich-text.ts`). Siguen fuera de
+este GO W9, el seeder de DEMO y Production. Evidencias completas en
+`~/copyflow-ops/staging-e10-20261029/artifacts/E10-EVIDENCIAS.md`, fuera del
+repositorio.
