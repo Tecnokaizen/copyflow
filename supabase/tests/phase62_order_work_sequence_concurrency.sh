@@ -36,14 +36,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-sql "insert into auth.users(id,email,raw_user_meta_data) values('$OWNER','owner@phase61c.test','{}'),('$STAFF','staff@phase61c.test','{}');
+sql "insert into auth.users(id,email,raw_user_meta_data) values('$OWNER','owner@phase62c.test','{}'),('$STAFF','staff@phase62c.test','{}');
 insert into public.profiles(id,full_name) values('$OWNER','Tamara'),('$STAFF','Raquel');
-insert into public.tenants(id,name,slug,active) values('$TENANT','Sequence concurrency','phase61conc',true);
+insert into public.tenants(id,name,slug,active) values('$TENANT','Sequence concurrency','phase62conc',true);
 insert into public.memberships(tenant_id,user_id,role,active) values('$TENANT','$OWNER','owner',true),('$TENANT','$STAFF','staff',true);
 insert into public.order_statuses(tenant_id,name,code,active,sort_order,is_initial,is_ready,is_closed,is_cancelled) values
   ('$TENANT','Recibido','received',true,1,true,false,false,false),
   ('$TENANT','Entregado','delivered',true,2,false,false,true,false);
-select public.set_tenant_feature('phase61conc','order_work_sequence',true,null);" >/dev/null
+select public.set_tenant_feature('phase62conc','order_work_sequence',true,null);" >/dev/null
 sql "$(as_owner_postgres "insert into public.team_members(id,tenant_id,name,active,can_receive_orders,user_id) values
   ('$RAQUEL','$TENANT','Raquel',true,true,'$STAFF'),('$JESUS','$TENANT','Jesús',true,true,null),('$DAVINIA','$TENANT','Davinia',true,true,null)")" >/dev/null
 [[ "$(rpc "public.create_suggested_work_stages_v1('$TENANT')->>'created'" "$OWNER")" == 4 ]] || fail 'suggested stages'

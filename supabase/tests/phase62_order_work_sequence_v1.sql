@@ -7,7 +7,7 @@ begin;
 create function pg_temp.ok(p boolean, label text) returns void language plpgsql as $$
 begin
   if p is distinct from true then
-    raise exception 'phase61 sequence: %', label;
+    raise exception 'phase62 sequence: %', label;
   end if;
 end $$;
 
@@ -19,9 +19,9 @@ begin
     if sqlstate = expected and (msg is null or sqlerrm = msg) then
       return;
     end if;
-    raise exception 'phase61 sequence expected % %, got %: % (statement: %)', expected, coalesce(msg, ''), sqlstate, sqlerrm, statement;
+    raise exception 'phase62 sequence expected % %, got %: % (statement: %)', expected, coalesce(msg, ''), sqlstate, sqlerrm, statement;
   end;
-  raise exception 'phase61 sequence unexpectedly succeeded: %', statement;
+  raise exception 'phase62 sequence unexpectedly succeeded: %', statement;
 end $$;
 
 create function pg_temp.as_user(u uuid) returns void language plpgsql as $$
@@ -105,14 +105,14 @@ declare
 begin
   -- Fixtures (postgres).
   insert into auth.users (id, email, raw_user_meta_data) values
-    (a, 'a@phase61.test', '{}'), (mg, 'mg@phase61.test', '{}'), (s, 's@phase61.test', '{}'),
-    (s2, 's2@phase61.test', '{}'), (vw, 'vw@phase61.test', '{}'), (b, 'b@phase61.test', '{}'),
-    (c, 'c@phase61.test', '{}'), (gone, 'gone@phase61.test', '{}');
+    (a, 'a@phase62.test', '{}'), (mg, 'mg@phase62.test', '{}'), (s, 's@phase62.test', '{}'),
+    (s2, 's2@phase62.test', '{}'), (vw, 'vw@phase62.test', '{}'), (b, 'b@phase62.test', '{}'),
+    (c, 'c@phase62.test', '{}'), (gone, 'gone@phase62.test', '{}');
   insert into public.profiles (id, full_name) values
     (a, 'Tamara'), (mg, 'Marta'), (s, 'Raquel Cuenta'), (s2, 'Sergio'), (vw, 'Vera'),
     (b, 'Bruno'), (c, 'Carla'), (gone, 'Gonzalo');
   insert into public.tenants (id, name, slug, active) values
-    (ta, 'Phase61 A', 'phase61a', true), (tb, 'Phase61 B', 'phase61b', true), (tc, 'Phase61 C', 'phase61c', true);
+    (ta, 'Phase62 A', 'phase62a', true), (tb, 'Phase62 B', 'phase62b', true), (tc, 'Phase62 C', 'phase62c', true);
   insert into public.memberships (tenant_id, user_id, role, active) values
     (ta, a, 'owner', true), (ta, mg, 'manager', true), (ta, s, 'staff', true), (ta, s2, 'staff', true),
     (ta, vw, 'viewer', true), (ta, gone, 'staff', false), (tb, b, 'owner', true), (tc, c, 'owner', true);
@@ -175,8 +175,8 @@ begin
   perform pg_temp.ok(pg_temp.err(public.team_work_load_v1(ta)) = 'not_found', 'feature off: no load');
   reset role;
 
-  perform public.set_tenant_feature('phase61a', 'order_work_sequence', true, null);
-  perform public.set_tenant_feature('phase61b', 'order_work_sequence', true, null);
+  perform public.set_tenant_feature('phase62a', 'order_work_sequence', true, null);
+  perform public.set_tenant_feature('phase62b', 'order_work_sequence', true, null);
 
   -- Stages: owner, admin and manager; staff and viewer cannot.
   perform pg_temp.as_user(s);
@@ -571,7 +571,7 @@ begin
   reset role;
 
   -- Feature withdrawn with data inside: hidden, kept, back when granted again.
-  perform public.set_tenant_feature('phase61a', 'order_work_sequence', false, null);
+  perform public.set_tenant_feature('phase62a', 'order_work_sequence', false, null);
   perform pg_temp.as_user(a);
   set local role authenticated;
   perform pg_temp.ok((select count(*) = 0 from public.order_work_steps), 'withdrawn: steps hidden');
@@ -579,7 +579,7 @@ begin
   perform pg_temp.ok(pg_temp.err(public.set_order_work_step_done_v1(s2_id, false)) = 'not_found', 'withdrawn: no writes');
   reset role;
   perform pg_temp.ok((select count(*) > 0 from public.order_work_steps where tenant_id = ta), 'withdrawn: data kept');
-  perform public.set_tenant_feature('phase61a', 'order_work_sequence', true, null);
+  perform public.set_tenant_feature('phase62a', 'order_work_sequence', true, null);
   perform pg_temp.as_user(a);
   set local role authenticated;
   perform pg_temp.ok((select count(*) = 3 from public.order_work_steps where order_id = o1), 'granted again: steps back');
@@ -599,7 +599,7 @@ begin
   delete from public.orders where id = o_purge;
   perform pg_temp.ok(not exists (select 1 from public.order_work_steps where order_id = o_purge), 'purge removes done and pending steps');
 
-  raise notice 'phase61 order work sequence PASS';
+  raise notice 'phase62 order work sequence PASS';
 end $$;
 
 rollback;

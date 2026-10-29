@@ -18,12 +18,12 @@ import { OrderHeader } from "@/components/orders/detail/order-header";
 import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
 import { OrderSummary } from "@/components/orders/detail/order-summary";
+import { OrderWorkSequence } from "@/components/orders/work-sequence";
 import {
   OrderNotesProvider,
   OrderPinnedNotesStrip,
   OrderStickyNotesPanel,
 } from "@/components/orders/notes";
-import { OrderWorkSequence } from "@/components/orders/work-sequence";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
 import { orderLabels } from "@/lib/orders/labels";
@@ -1354,6 +1354,7 @@ export function OrderWorkspace() {
 
         {/* SUR4 E6: pinned post-its, only with order_sticky_notes. */}
         {features.stickyNotes ? <OrderPinnedNotesStrip /> : null}
+
         {/* SUR4 E8: work sequence, only with order_work_sequence. */}
         {features.workSequence ? (
           <OrderWorkSequence
