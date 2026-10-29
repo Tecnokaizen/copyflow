@@ -5,6 +5,11 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { RichTextEditor } from "@/components/rich-text/rich-text-editor";
 import { isRichTextEmpty } from "@/lib/rich-text/html";
 import { DraftSelect } from "@/components/orders/detail/order-field";
+import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
+import {
+  isSelectableStatus,
+  statusOptionsWithCurrent,
+} from "@/lib/orders/status-options";
 import {
   ARCHIVE_CONFIRM_COPY,
   canShowArchiveAction,
@@ -22,7 +27,9 @@ export function OrderQuickActions({
   teamMembers,
   optionsLoading,
   currentStatusId,
+  currentStatusName,
   currentAssigneeId,
+  currentAssigneeName,
   archivedAt,
   currentStatus,
   onEdit,
@@ -36,7 +43,9 @@ export function OrderQuickActions({
   teamMembers: OrderOption[];
   optionsLoading: boolean;
   currentStatusId: string;
+  currentStatusName?: string | null;
   currentAssigneeId: string | null;
+  currentAssigneeName?: string | null;
   archivedAt: string | null;
   currentStatus: LifecycleStatusFlags;
   onEdit: () => void;
@@ -153,7 +162,7 @@ export function OrderQuickActions({
         </button>
         <button
           type="button"
-          disabled={busy || statuses.length === 0}
+          disabled={busy || !statuses.some(isSelectableStatus)}
           onClick={openStatus}
           className="gc-action min-h-11 w-full lg:w-auto"
         >
@@ -205,8 +214,11 @@ export function OrderQuickActions({
               className="mt-2 min-h-11 max-w-none text-base"
               onChange={setStatusId}
             >
-              {statuses.map((status) => (
-                <option key={status.id} value={status.id}>
+              {statusOptionsWithCurrent(statuses, {
+                id: currentStatusId,
+                name: currentStatusName,
+              }).map((status) => (
+                <option key={status.id} value={status.id} disabled={status.unavailable}>
                   {status.name}
                 </option>
               ))}
@@ -233,8 +245,11 @@ export function OrderQuickActions({
               onChange={setAssigneeId}
             >
               <option value="">— Sin responsable —</option>
-              {teamMembers.map((member) => (
-                <option key={member.id} value={member.id}>
+              {assigneeOptionsWithCurrent(teamMembers, {
+                id: currentAssigneeId,
+                name: currentAssigneeName,
+              }).map((member) => (
+                <option key={member.id} value={member.id} disabled={member.unavailable}>
                   {member.name}
                 </option>
               ))}

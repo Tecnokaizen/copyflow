@@ -157,7 +157,8 @@ begin
   perform pg_temp.boom(format($q$update public.orders set items_total=5 where id=%L$q$, o1), '42501', 'order_items_columns_rpc_only');
   perform pg_temp.boom(format($q$update public.orders set prices_include_tax=true where id=%L$q$, o1), '42501', 'order_items_columns_rpc_only');
   perform pg_temp.boom(format($q$update public.orders set total_amount=1 where id=%L$q$, o1), '42501', 'total_amount_rpc_only');
-  perform pg_temp.boom(format($q$insert into public.orders(tenant_id,title,status_id,total_mode) values(%L,'x',%L,'items')$q$, ta, st_a), '42501', 'order_items_columns_rpc_only');
+  -- Since 20261022120000 authenticated cannot name total_mode in a direct INSERT.
+  perform pg_temp.boom(format($q$insert into public.orders(tenant_id,title,status_id,total_mode) values(%L,'x',%L,'items')$q$, ta, st_a), '42501', 'permission denied for table orders');
   perform pg_temp.ok((select total_mode = 'manual' and total_amount = 200.00 from public.orders where id = o1), 'direct writes changed nothing');
 
   -- ------------------------------------------------------- 3. manual mode

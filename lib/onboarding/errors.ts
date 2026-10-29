@@ -65,6 +65,10 @@ export function onboardingUserFacingError(
     return "Ya existe una suscripción activa para esta organización.";
   }
 
+  if (code === "subscription_pending_reconciliation") {
+    return "Hay un pago pendiente de conciliar. Contacta con soporte antes de volver a intentarlo.";
+  }
+
   if (status === 400) {
     return "El valor no es válido.";
   }

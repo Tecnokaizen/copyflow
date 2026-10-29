@@ -92,14 +92,18 @@ begin
     raise exception 'phase23: mvp altered unexpectedly';
   end if;
 
-  if exists (
+  -- S2: mvp carries an explicit, finite storage_bytes capacity (no implicit
+  -- unlimited); before S2 it had none.
+  if not exists (
     select 1
     from public.plan_features pf
     join public.features f on f.id = pf.feature_id
     where pf.plan_id = v_mvp_id
       and f.code = 'storage_bytes'
+      and pf.enabled
+      and pf.limit_value is not null
   ) then
-    raise exception 'phase23: mvp unexpectedly gained storage_bytes';
+    raise exception 'phase23: mvp must carry an explicit storage_bytes capacity';
   end if;
 
   -- -------------------------------------------------------------------------
@@ -308,7 +312,48 @@ begin
       null;
   end;
 
-  -- sync: mvp/internal current → canceled; basic/stripe current inserted
+  -- sync with a current mvp/internal row: held (D1). Nothing is written and
+  -- the internal row stays current. Before D1 the sync canceled it.
+  v_sync := public.sync_billing_subscription_v1(
+    v_tenant,
+    v_basic_id,
+    'stripe',
+    'cus_phase23',
+    'sub_phase23_sync',
+    'active',
+    now(),
+    now() + interval '30 days',
+    false,
+    '{}'::jsonb
+  );
+
+  if v_sync ->> 'outcome' is distinct from 'held'
+     or v_sync ->> 'code' is distinct from 'internal_subscription_current'
+     or (v_sync ->> 'internal_subscription_id')::uuid is distinct from v_sub_mvp
+  then
+    raise exception 'phase23: sync must hold while an internal row is current, got %', v_sync;
+  end if;
+
+  if not exists (
+    select 1 from public.subscriptions
+    where id = v_sub_mvp and status = 'active'
+  ) then
+    raise exception 'phase23: held sync must not cancel the internal current row';
+  end if;
+
+  if exists (
+    select 1 from public.subscriptions
+    where provider = 'stripe' and provider_subscription_id = 'sub_phase23_sync'
+  ) then
+    raise exception 'phase23: held sync must not record the Stripe subscription';
+  end if;
+
+  -- Operator closes the internal row (SUR4 cutover D1), then the sync applies:
+  -- basic/stripe current inserted.
+  update public.subscriptions
+  set status = 'canceled'
+  where id = v_sub_mvp;
+
   v_sync := public.sync_billing_subscription_v1(
     v_tenant,
     v_basic_id,
