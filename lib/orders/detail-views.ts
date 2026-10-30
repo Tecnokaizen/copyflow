@@ -68,6 +68,8 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
 export const IMPLEMENTED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
   "classic",
   "operational",
+  "tabs",
+  "production",
   "hybrid",
 ];
 

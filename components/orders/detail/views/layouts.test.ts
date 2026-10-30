@@ -138,8 +138,38 @@ describe("Order Detail Views — layouts never load data", () => {
 });
 
 describe("Order Detail Views — per-view behaviour", () => {
-  it("D leads with the production board even without sequence and post-its", () => {
-    for (const code of ["hybrid"] as const) {
+  it("B keeps every tab panel mounted and shows only «Resumen» first", async () => {
+    const { TabsOrderLayout } = await import("@/components/orders/detail/views/tabs-layout");
+    const html = renderToStaticMarkup(
+      createElement(TabsOrderLayout, { modules: markers(), facts: FACTS })
+    );
+    const panels = html.match(/<div[^>]*role="tabpanel"[^>]*>/g) ?? [];
+    assert.equal(panels.length, 5);
+    assert.equal(panels.filter((tag) => !/\bhidden=""/.test(tag)).length, 1);
+    assert.match(html, /aria-selected="true"[^>]*>Resumen/);
+    // The amounts module (Cobros) is mounted even while hidden.
+    assert.equal(count(html, "fulfillment"), 1);
+  });
+
+  it("C folds administration but keeps it mounted, and opens it while editing", async () => {
+    const { ProductionOrderLayout } = await import("@/components/orders/detail/views/production-layout");
+    const closed = renderToStaticMarkup(
+      createElement(ProductionOrderLayout, { modules: markers(), facts: FACTS })
+    );
+    assert.match(closed, /<details[^>]*data-fold="Administración"/);
+    assert.doesNotMatch(closed, /<details[^>]*open=""[^>]*data-fold="Administración"/);
+    assert.equal(count(closed, "fulfillment"), 1);
+    const editing = renderToStaticMarkup(
+      createElement(ProductionOrderLayout, {
+        modules: markers(),
+        facts: { ...FACTS, editing: true },
+      })
+    );
+    assert.match(editing, /<details[^>]*open=""[^>]*data-fold="Administración"/);
+  });
+
+  it("C and D lead with the production board even without sequence and post-its", () => {
+    for (const code of ["production", "hybrid"] as const) {
       const { Layout } = orderDetailLayout(code);
       const html = renderToStaticMarkup(
         createElement(Layout, {
@@ -152,10 +182,12 @@ describe("Order Detail Views — per-view behaviour", () => {
     }
   });
 
-  it("A and D use the compact header; classic the full one", () => {
+  it("A, C and D use the compact header; classic and B the full one", () => {
     const expectations = {
       classic: "header",
       operational: "headerCompact",
+      tabs: "header",
+      production: "headerCompact",
       hybrid: "headerCompact",
     } as const;
     for (const [code, key] of Object.entries(expectations)) {
