@@ -325,7 +325,7 @@ describe("archived order mutation controls", () => {
     const source = readFileSync(
       join(
         import.meta.dirname,
-        "../../components/orders/detail/order-workspace.tsx",
+        "../../components/orders/detail/order-detail-modules.tsx",
       ),
       "utf8",
     );

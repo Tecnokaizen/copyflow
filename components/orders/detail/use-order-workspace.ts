@@ -1,0 +1,1278 @@
+"use client";
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { canWriteOrders } from "@/lib/auth/membership-roles";
+import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
+import {
+  DEFAULT_ORDER_DETAIL_VIEW,
+  isOrderDetailViewCode,
+  type OrderDetailViewCode,
+} from "@/lib/orders/detail-views";
+import { NO_ORDER_FEATURES, type OrderFeatures } from "@/lib/orders/order-features";
+import {
+  EMPTY_CLIENT_FORM,
+  clientToForm,
+  duplicateMatchLabels,
+  formatCreateDuplicateMessage,
+  mapClientSummary,
+  parseClientDuplicate,
+  toClientPayload,
+  type ClientDuplicate,
+  type ClientFormData,
+  type ClientSummary,
+} from "@/lib/clients/types";
+import {
+  buildDraftSaveSteps,
+  createOrderDraft,
+  isDraftTitleValid,
+  resolveOrderStatusId,
+  type DraftSaveStep,
+} from "@/lib/orders/draft";
+import { MISSING_LOCAL_HOUR_MESSAGE } from "@/lib/orders/format";
+import {
+  applyReturnedVersion,
+  staleSaveMessage,
+} from "@/lib/orders/concurrency";
+import {
+  archiveOrderPath,
+  canMutateOrderActions,
+  isArchivedApiError,
+  isStaleApiError,
+  lifecycleUxErrorMessage,
+  mergeArchivedOrderResult,
+  OrderArchivedError,
+  OrderStaleError,
+  ORDER_ARCHIVED_CODE,
+  parseLifecycleApiError,
+  planStatusSave,
+  type ConfirmCopy,
+} from "@/lib/orders/lifecycle-ux";
+import { appendOrderNote } from "@/lib/orders/notes";
+import type {
+  ActivityItem,
+  ActivityResponse,
+  ClientUiMode,
+  ManagementOptionsResponse,
+  Order,
+  OrderDraft,
+  OrderOptionsResponse,
+  OrderResponse,
+  SourceQuote,
+  OrderStatus,
+} from "@/lib/orders/types";
+import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
+import { fetchLive, type SilentLoadOptions } from "@/lib/refresh/fetch-live";
+import { shouldApplyLiveOrderSnapshot } from "@/lib/refresh/order-snapshot";
+import { useLiveRefresh } from "@/lib/refresh/use-live-refresh";
+
+// Order Detail Views V1 (F1): every load, save and recovery path of the order
+// page lives here, moved verbatim from OrderWorkspace. The views only decide
+// where each module goes; none of them loads data or keeps data state.
+
+export function normalizeLoadedOrder(order: Order): Order {
+  return {
+    ...order,
+    archived_at: order.archived_at ?? null,
+    external_folder_url: order.external_folder_url ?? null,
+    client:
+      order.client_id && order.client?.id ? order.client : null,
+  };
+}
+
+function mapOrderStatusPayload(
+  status: unknown,
+  fallback: Order["status"]
+): Order["status"] {
+  if (!status || typeof status !== "object") {
+    return fallback;
+  }
+  const record = status as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : fallback?.name;
+  const code = typeof record.code === "string" ? record.code : fallback?.code;
+  if (!name || !code) {
+    return fallback;
+  }
+  return {
+    name,
+    code,
+    is_initial: record.is_initial === true,
+    is_ready: record.is_ready === true,
+    is_closed: record.is_closed === true,
+    is_cancelled: record.is_cancelled === true,
+  };
+}
+
+
+export function useOrderWorkspace() {
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [showCreated] = useState(
+    () => searchParams.get("created") === "1"
+  );
+  const [sourceQuote,setSourceQuote] = useState<SourceQuote|null>(null);
+  const [sourceQuoteRestricted, setSourceQuoteRestricted] = useState(false);
+  const [features, setFeatures] = useState<OrderFeatures>(NO_ORDER_FEATURES);
+  // Order Detail Views V1: the tenant's view, decided by the server.
+  const [detailView, setDetailView] = useState<OrderDetailViewCode>(
+    DEFAULT_ORDER_DETAIL_VIEW
+  );
+  // SUR4 E6: each «Añadir nota» opens the post-it composer.
+  const [noteComposeRequest, setNoteComposeRequest] = useState(0);
+  const [collection, setCollection] = useState<OrderCollectionData | null>(null);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<OrderStatus[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityTick, setActivityTick] = useState(0);
+  const [managementOptions, setManagementOptions] =
+    useState<ManagementOptionsResponse | null>(null);
+  const [managementOptionsLoading, setManagementOptionsLoading] =
+    useState(true);
+  const [orderOptions, setOrderOptions] =
+    useState<OrderOptionsResponse | null>(null);
+  const [orderOptionsLoading, setOrderOptionsLoading] = useState(true);
+  const [canWrite, setCanWrite] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<OrderDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [clientSavedDuringEdit, setClientSavedDuringEdit] = useState(false);
+  const [dueAtInvalid, setDueAtInvalid] = useState(false);
+  const [editSession, setEditSession] = useState(0);
+  const handleDueAtInvalid = useCallback((invalid: boolean) => {
+    setDueAtInvalid(invalid);
+    setError((current) => {
+      if (invalid) {
+        return MISSING_LOCAL_HOUR_MESSAGE;
+      }
+      return current === MISSING_LOCAL_HOUR_MESSAGE ? null : current;
+    });
+  }, []);
+
+  const [clientUiMode, setClientUiMode] = useState<ClientUiMode | null>(null);
+  const [savingClient, setSavingClient] = useState(false);
+  const [clientFormInitial, setClientFormInitial] =
+    useState<ClientFormData>(EMPTY_CLIENT_FORM);
+  const [clientActionError, setClientActionError] = useState<string | null>(
+    null
+  );
+  const [clientDuplicate, setClientDuplicate] =
+    useState<ClientDuplicate | null>(null);
+  const [confirmRemoveClient, setConfirmRemoveClient] = useState(false);
+  const [draftTerminalConfirm, setDraftTerminalConfirm] =
+    useState<ConfirmCopy | null>(null);
+  const draftTerminalConfirmedRef = useRef(false);
+  const orderAbortRef = useRef<AbortController | null>(null);
+  const activityAbortRef = useRef<AbortController | null>(null);
+  const orderRef = useRef<Order | null>(null);
+  const editingRef = useRef(false);
+  const savingRef = useRef(false);
+  const quickSavingRef = useRef(false);
+
+  useLayoutEffect(() => {
+    orderRef.current = order;
+    editingRef.current = editing;
+    savingRef.current = saving;
+    quickSavingRef.current = quickSaving;
+  });
+
+  const loadActivity = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        activityAbortRef.current,
+        opts?.signal
+      );
+      activityAbortRef.current = controller;
+
+      try {
+        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
+          signal,
+        });
+
+        if (!response.ok) {
+          if (!silent) {
+            setActivity([]);
+            setActivityLoading(false);
+          }
+          return;
+        }
+
+        const result: ActivityResponse = await response.json();
+        setActivity(result.activity ?? []);
+        setActivityLoading(false);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (!silent) {
+          setActivity([]);
+          setActivityLoading(false);
+        }
+      }
+    },
+    [params.id]
+  );
+
+  const loadOrder = useCallback(
+    async (opts?: SilentLoadOptions) => {
+      const silent = opts?.silent === true;
+      const { controller, signal } = nextLoadSignal(
+        orderAbortRef.current,
+        opts?.signal
+      );
+      orderAbortRef.current = controller;
+
+      try {
+        const response = await fetchLive(`/api/orders/${params.id}`, {
+          signal,
+        });
+        const result: OrderResponse = await response.json();
+
+        if (!response.ok) {
+          throw new Error("No se pudo cargar el pedido");
+        }
+
+        if (!result.order) {
+          throw new Error("Pedido no encontrado");
+        }
+
+        if (
+          silent &&
+          !shouldApplyLiveOrderSnapshot({
+            editing: editingRef.current,
+            saving: savingRef.current,
+            quickSaving: quickSavingRef.current,
+          })
+        ) {
+          return;
+        }
+
+        setOrder(normalizeLoadedOrder(result.order));
+        setSourceQuote(result.source_quote ?? null);
+        setSourceQuoteRestricted(result.source_quote_restricted === true);
+        setFeatures({ ...NO_ORDER_FEATURES, ...(result.features ?? {}) });
+        setDetailView(
+          isOrderDetailViewCode(result.detail_view)
+            ? result.detail_view
+            : DEFAULT_ORDER_DETAIL_VIEW
+        );
+        setError(null);
+        setLoading(false);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        if (silent && orderRef.current) {
+          return;
+        }
+        setOrder(null);
+        setError(
+          err instanceof Error ? err.message : "Error al cargar el pedido"
+        );
+        setLoading(false);
+      }
+    },
+    [params.id]
+  );
+
+  useEffect(() => {
+    async function loadContext() {
+      const response = await fetch("/api/context");
+      if (response.ok) {
+        const context = await response.json();
+        setCanWrite(canWriteOrders(context?.membership?.role));
+        setRole(
+          typeof context?.membership?.role === "string"
+            ? context.membership.role
+            : null
+        );
+      }
+    }
+
+    void loadOrder();
+    void loadContext();
+    return () => {
+      orderAbortRef.current?.abort();
+    };
+  }, [loadOrder, reloadToken]);
+
+  useLiveRefresh({
+    onRefresh: async (signal) => {
+      await Promise.all([
+        loadOrder({ silent: true, signal }),
+        loadActivity({ silent: true, signal }),
+      ]);
+    },
+  });
+
+  useEffect(() => {
+    if (!showCreated) return;
+    router.replace(`/orders/${params.id}`);
+  }, [showCreated, params.id, router]);
+
+  useEffect(() => {
+    async function loadStatuses() {
+      try {
+        const response = await fetch("/api/order-statuses");
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "No se pudieron cargar los estados");
+        }
+
+        setStatuses(result.statuses ?? []);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Error al cargar los estados"
+        );
+      }
+    }
+
+    void loadStatuses();
+  }, []);
+
+  useEffect(() => {
+    async function loadManagementOptions() {
+      try {
+        const response = await fetch("/api/orders/management-options");
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ?? "No se pudieron cargar las opciones de gestión"
+          );
+        }
+
+        setManagementOptions(result);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Error al cargar las opciones de gestión"
+        );
+      } finally {
+        setManagementOptionsLoading(false);
+      }
+    }
+
+    void loadManagementOptions();
+  }, []);
+
+  useEffect(() => {
+    async function loadOrderOptions() {
+      try {
+        const response = await fetch("/api/orders/options");
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ?? "No se pudieron cargar las opciones del pedido"
+          );
+        }
+
+        setOrderOptions({
+          tenant: result.tenant,
+          services: result.services ?? [],
+          entry_channels: result.entry_channels ?? [],
+          order_contexts: result.order_contexts ?? [],
+          team_members: result.team_members ?? [],
+          stores: result.stores ?? [],
+        });
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Error al cargar las opciones del pedido"
+        );
+      } finally {
+        setOrderOptionsLoading(false);
+      }
+    }
+
+    void loadOrderOptions();
+  }, []);
+
+  useEffect(() => {
+    async function loadOrderActivity() {
+      const { controller, signal } = nextLoadSignal(activityAbortRef.current);
+      activityAbortRef.current = controller;
+
+      try {
+        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
+          signal,
+        });
+
+        if (!response.ok) {
+          setActivity([]);
+          return;
+        }
+
+        const result: ActivityResponse = await response.json();
+        setActivity(result.activity ?? []);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        setActivity([]);
+      } finally {
+        setActivityLoading(false);
+      }
+    }
+
+    void loadOrderActivity();
+    return () => {
+      activityAbortRef.current?.abort();
+    };
+  }, [params.id, activityTick]);
+
+  function patchDraft(patch: Partial<OrderDraft>) {
+    setDraft((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function startEditing() {
+    if (!order || !canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      return;
+    }
+    setSaveMessage(null);
+    setError(null);
+    setClientSavedDuringEdit(false);
+    setDraft(createOrderDraft(order, statuses));
+    setDueAtInvalid(false);
+    setEditSession((session) => session + 1);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    if (saving) return;
+    setDraft(null);
+    setDueAtInvalid(false);
+    setEditing(false);
+    setClientSavedDuringEdit(false);
+    setSaveMessage(null);
+    setError(null);
+    setConfirmRemoveClient(false);
+    setClientUiMode(null);
+    draftTerminalConfirmedRef.current = false;
+    setDraftTerminalConfirm(null);
+  }
+
+  /**
+   * Single mutating request of a save step.
+   * Turns the archived-order conflict into OrderArchivedError so callers can
+   * stop mutating instead of pushing the remaining steps at the server.
+   */
+  async function requestSaveStep(
+    path: string,
+    body: unknown,
+    fallbackMessage: string
+  ) {
+    const response = await fetch(path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      if (isArchivedApiError(result)) {
+        throw new OrderArchivedError();
+      }
+      if (isStaleApiError(result)) {
+        throw new OrderStaleError();
+      }
+
+      throw new Error(
+        parseLifecycleApiError(result, result.error ?? fallbackMessage)
+      );
+    }
+
+    return result;
+  }
+
+  async function applySaveStep(
+    current: Order,
+    step: DraftSaveStep
+  ): Promise<Order> {
+    if (step.kind === "status") {
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}`,
+        { status_id: step.status_id, expected_version: current.version },
+        "No se pudo actualizar el estado"
+      );
+      const nextOrder =
+        result.order && typeof result.order === "object"
+          ? (result.order as Partial<Order>)
+          : null;
+      return applyReturnedVersion(
+        {
+          ...current,
+          status_id: step.status_id,
+          status: mapOrderStatusPayload(result.status, current.status),
+          ready_at: nextOrder?.ready_at ?? current.ready_at,
+          delivered_at: nextOrder?.delivered_at ?? current.delivered_at,
+          archived_at: nextOrder?.archived_at ?? current.archived_at,
+        },
+        result
+      );
+    }
+
+    if (step.kind === "content") {
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/content`,
+        { field: step.field, value: step.value, expected_version: current.version },
+        "No se pudo actualizar el contenido del pedido"
+      );
+      if (step.field === "title") {
+        return applyReturnedVersion({ ...current, title: result.order.title }, result);
+      }
+      if (step.field === "description") {
+        return applyReturnedVersion(
+          { ...current, description: result.order.description },
+          result
+        );
+      }
+      if (step.field === "external_folder_url") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            external_folder_url:
+              result.order.external_folder_url ?? step.value ?? null,
+          },
+          result
+        );
+      }
+      return applyReturnedVersion({ ...current, notes: result.order.notes }, result);
+    }
+
+    if (step.kind === "detail") {
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/details`,
+        { field: step.field, value: step.value, expected_version: current.version },
+        "No se pudieron actualizar los datos del pedido"
+      );
+      const nextValue = result.value ?? null;
+      if (step.field === "priority") {
+        return applyReturnedVersion(
+          { ...current, priority: result.order.priority },
+          result
+        );
+      }
+      if (step.field === "service_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            service_id: result.order.service_id,
+            service: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "entry_channel_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            entry_channel_id: result.order.entry_channel_id,
+            entry_channel: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "assigned_team_member_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            assigned_team_member_id: result.order.assigned_team_member_id,
+            assigned_team_member: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "order_context_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            order_context_id: result.order.order_context_id,
+            order_context: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "store_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            store_id: result.order.store_id,
+            store: nextValue,
+          },
+          result
+        );
+      }
+      return applyReturnedVersion({ ...current, due_at: result.order.due_at }, result);
+    }
+
+    if (step.kind === "management") {
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/management`,
+        {
+          field: step.field,
+          value_id: step.value_id,
+          expected_version: current.version,
+        },
+        "No se pudo actualizar la gestión del pedido"
+      );
+      const nextValue = result.value ?? null;
+      if (step.field === "file_status_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            file_status_id: result.order.file_status_id,
+            file_status: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "quote_status_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            quote_status_id: result.order.quote_status_id,
+            quote_status: nextValue,
+          },
+          result
+        );
+      }
+      if (step.field === "payment_status_id") {
+        return applyReturnedVersion(
+          {
+            ...current,
+            payment_status_id: result.order.payment_status_id,
+            payment_status: nextValue,
+          },
+          result
+        );
+      }
+      return applyReturnedVersion(
+        {
+          ...current,
+          delivery_method_id: result.order.delivery_method_id,
+          delivery_method: nextValue,
+        },
+        result
+      );
+    }
+
+    const result = await requestSaveStep(
+      `/api/orders/${current.id}/notification`,
+      {
+        notification_status: step.notification_status,
+        expected_version: current.version,
+      },
+      "No se pudo actualizar el aviso al cliente"
+    );
+    return applyReturnedVersion(
+      {
+        ...current,
+        customer_notification_status: result.order.customer_notification_status,
+      },
+      result
+    );
+  }
+
+  /**
+   * Another writer changed the order while we were mutating it.
+   * Keep the draft and editing session, refresh the server snapshot,
+   * and do not retry or merge automatically.
+   */
+  async function recoverFromStale(succeededCount: number) {
+    setSaveMessage(null);
+    setDraftTerminalConfirm(null);
+    await Promise.all([loadOrder(), loadActivity()]);
+    setError(staleSaveMessage(succeededCount));
+  }
+
+  /**
+   * The order was archived by someone else while we were mutating it.
+   * Drop the draft, resync the ficha from the server and let the normal
+   * archived rendering take over. No browser reload.
+   */
+  async function recoverFromArchivedRace() {
+    setEditing(false);
+    setDraft(null);
+    setClientSavedDuringEdit(false);
+    setClientUiMode(null);
+    setConfirmRemoveClient(false);
+    setDraftTerminalConfirm(null);
+    draftTerminalConfirmedRef.current = false;
+    setSaveMessage(null);
+    setError(lifecycleUxErrorMessage(ORDER_ARCHIVED_CODE));
+
+    await Promise.all([loadOrder(), loadActivity()]);
+  }
+
+  async function saveEditing() {
+    if (!order || !draft || saving) return;
+    if (dueAtInvalid) {
+      setError(MISSING_LOCAL_HOUR_MESSAGE);
+      return;
+    }
+
+    // Revalidate before mutating: the ficha may have been archived since the
+    // draft was opened (live refresh is suppressed while editing).
+    if (!canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      await recoverFromArchivedRace();
+      return;
+    }
+
+    const readyDraft = draft.status_id
+      ? draft
+      : {
+          ...draft,
+          status_id: resolveOrderStatusId(order, statuses),
+        };
+
+    if (!isDraftTitleValid(readyDraft)) {
+      setError("El título no puede estar vacío");
+      return;
+    }
+
+    const steps = buildDraftSaveSteps(order, readyDraft, statuses);
+    if (steps.length === 0) {
+      setEditing(false);
+      setDraft(null);
+      setSaveMessage(null);
+      setError(null);
+      draftTerminalConfirmedRef.current = false;
+      setDraftTerminalConfirm(null);
+      return;
+    }
+
+    const statusStep = steps.find((step) => step.kind === "status");
+    if (statusStep && statusStep.kind === "status") {
+      const nextStatus =
+        statuses.find((item) => item.id === statusStep.status_id) ?? null;
+      const plan = planStatusSave({
+        currentStatusId: resolveOrderStatusId(order, statuses),
+        nextStatusId: statusStep.status_id,
+        nextStatus,
+        terminalConfirmed: draftTerminalConfirmedRef.current,
+      });
+      if (plan.type === "require_terminal_confirm") {
+        setDraftTerminalConfirm(plan.copy);
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError(null);
+    setSaveMessage(null);
+    setDraftTerminalConfirm(null);
+
+    let working = order;
+    const succeeded: string[] = [];
+    const failed: string[] = [];
+
+    let archivedRace = false;
+    let staleRace = false;
+
+    for (const step of steps) {
+      try {
+        working = await applySaveStep(working, step);
+        setOrder(working);
+        succeeded.push(step.label);
+      } catch (err) {
+        if (err instanceof OrderArchivedError) {
+          // Lost the race: stop here instead of pushing the remaining steps.
+          archivedRace = true;
+          break;
+        }
+        if (err instanceof OrderStaleError) {
+          staleRace = true;
+          break;
+        }
+        failed.push(
+          `${step.label}: ${
+            err instanceof Error ? err.message : "Error al guardar"
+          }`
+        );
+      }
+    }
+
+    if (archivedRace) {
+      setSaving(false);
+      await recoverFromArchivedRace();
+      return;
+    }
+
+    if (staleRace) {
+      setSaving(false);
+      await recoverFromStale(succeeded.length);
+      return;
+    }
+
+    await loadActivity();
+    setSaving(false);
+    draftTerminalConfirmedRef.current = false;
+
+    if (failed.length === 0) {
+      setEditing(false);
+      setDraft(null);
+      setClientSavedDuringEdit(false);
+      setSaveMessage(
+        succeeded.length === 1
+          ? "Cambios guardados"
+          : `${succeeded.length} cambios guardados`
+      );
+      return;
+    }
+
+    setDraft(createOrderDraft(working, statuses));
+    setOrder(working);
+
+    if (succeeded.length > 0) {
+      setError(
+        `Guardado parcial. OK: ${succeeded.join(", ")}. Fallos: ${failed.join(
+          " · "
+        )}`
+      );
+    } else {
+      setError(`No se pudieron guardar los cambios. ${failed.join(" · ")}`);
+    }
+  }
+
+  async function confirmDraftTerminalSave() {
+    draftTerminalConfirmedRef.current = true;
+    setDraftTerminalConfirm(null);
+    await saveEditing();
+  }
+
+  async function runQuickSave(
+    label: string,
+    step: DraftSaveStep
+  ): Promise<void> {
+    if (!order || quickSaving) return;
+
+    // Revalidate before mutating, same rule as the draft path.
+    if (!canMutateOrderActions({ canWrite, archived_at: order.archived_at })) {
+      await recoverFromArchivedRace();
+      return;
+    }
+
+    setQuickSaving(true);
+    setError(null);
+    setSaveMessage(null);
+
+    try {
+      const next = await applySaveStep(order, step);
+      setOrder(next);
+      await loadActivity();
+      setSaveMessage(label);
+    } catch (err) {
+      if (err instanceof OrderArchivedError) {
+        setQuickSaving(false);
+        await recoverFromArchivedRace();
+        return;
+      }
+      if (err instanceof OrderStaleError) {
+        setQuickSaving(false);
+        await recoverFromStale(0);
+        return;
+      }
+      setError(
+        err instanceof Error ? err.message : "No se pudo guardar el cambio"
+      );
+      throw err;
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
+  async function saveQuickStatus(statusId: string) {
+    await runQuickSave("Estado actualizado", {
+      kind: "status",
+      status_id: statusId,
+      label: "Estado",
+    });
+  }
+
+  async function saveQuickAssignee(memberId: string | null) {
+    await runQuickSave("Responsable actualizado", {
+      kind: "detail",
+      field: "assigned_team_member_id",
+      value: memberId,
+      label: "Responsable",
+    });
+  }
+
+  async function saveQuickNote(note: string) {
+    if (!order) return;
+
+    const nextNotes = appendOrderNote(order.notes, note);
+    await runQuickSave("Nota añadida", {
+      kind: "content",
+      field: "notes",
+      value: nextNotes,
+      label: "Notas",
+    });
+  }
+
+  async function archiveOrder() {
+    if (!order || quickSaving) return;
+
+    setQuickSaving(true);
+    setError(null);
+    setSaveMessage(null);
+
+    try {
+      const response = await fetch(archiveOrderPath(order.id), {
+        method: "PATCH",
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setQuickSaving(false);
+          await recoverFromArchivedRace();
+          return;
+        }
+        throw new Error(
+          parseLifecycleApiError(
+            result,
+            result.error ?? "No se pudo archivar el pedido"
+          )
+        );
+      }
+
+      setOrder((current) => {
+        if (!current) {
+          return current;
+        }
+        return normalizeLoadedOrder(
+          mergeArchivedOrderResult(current, result.order)
+        );
+      });
+      setEditing(false);
+      setDraft(null);
+      await loadActivity();
+      setSaveMessage(
+        result.replay === true ? "Pedido ya archivado" : "Pedido archivado"
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudo archivar el pedido"
+      );
+      throw err;
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
+  function closeClientUi() {
+    if (savingClient) return;
+    setClientUiMode(null);
+    setClientActionError(null);
+    setClientDuplicate(null);
+  }
+
+  function applyClientToOrder(
+    clientId: string | null,
+    client: ClientSummary | null,
+    result?: unknown
+  ) {
+    setOrder((current) => {
+      if (!current) return current;
+      const next = {
+        ...current,
+        client_id: clientId,
+        client:
+          client && client.id !== "pending"
+            ? {
+                id: client.id,
+                customer_type_id: client.customer_type_id,
+                name: client.name,
+                contact_name: client.contact_name,
+                company_name: client.company_name,
+                tax_id: client.tax_id,
+                email: client.email,
+                phone: client.phone,
+                notes: client.notes,
+              }
+            : null,
+      };
+      return result ? applyReturnedVersion(next, result) : next;
+    });
+  }
+
+  function openEditClient() {
+    const client = order?.client_id && order.client?.id ? order.client : null;
+    if (!client) return;
+    setClientFormInitial(clientToForm(client));
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("edit");
+  }
+
+  function openCreateClient(query = "") {
+    setClientFormInitial({ ...EMPTY_CLIENT_FORM, name: query });
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("create");
+  }
+
+  function openAssignClient() {
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("assign");
+  }
+
+  function openChangeClient() {
+    setClientActionError(null);
+    setClientDuplicate(null);
+    setClientUiMode("change");
+  }
+
+  async function assignExistingClient(
+    clientId: string | null,
+    selected?: ClientSummary | null
+  ) {
+    if (!order || savingClient) return;
+
+    setSavingClient(true);
+    setClientActionError(null);
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/client`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          expected_version: order.version,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setSavingClient(false);
+          await recoverFromArchivedRace();
+          return;
+        }
+        if (isStaleApiError(result)) {
+          setSavingClient(false);
+          await recoverFromStale(0);
+          return;
+        }
+        throw new Error(result.error ?? "No se pudo asignar el cliente");
+      }
+      applyClientToOrder(
+        result.order?.client_id ?? clientId,
+        mapClientSummary(result.client) ?? selected ?? null,
+        result
+      );
+      if (editing) {
+        setClientSavedDuringEdit(true);
+      }
+      setConfirmRemoveClient(false);
+      setClientUiMode(null);
+      setClientDuplicate(null);
+      await loadActivity();
+    } catch (err) {
+      setClientActionError(
+        err instanceof Error ? err.message : "Error al asignar el cliente"
+      );
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  async function saveClientForm(form: ClientFormData) {
+    if (!order || savingClient) return;
+
+    const editingClient =
+      order.client_id && order.client?.id ? order.client : null;
+
+    if (clientUiMode === "edit" && !editingClient) return;
+
+    setSavingClient(true);
+    setClientActionError(null);
+    setClientDuplicate(null);
+
+    try {
+      if (clientUiMode === "edit") {
+        if (!editingClient) return;
+
+        const response = await fetch(`/api/clients/${editingClient.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(toClientPayload(form)),
+        });
+        const result = await response.json();
+
+        if (response.status === 409 && result.code === "client_duplicate") {
+          const duplicate = parseClientDuplicate(result.duplicate);
+          setClientDuplicate(duplicate);
+          const matches = duplicate ? duplicateMatchLabels(duplicate) : [];
+          const who = duplicate?.client_name
+            ? ` (${duplicate.client_name})`
+            : "";
+          setClientActionError(
+            `Ya existe otro cliente con estos datos${who}.${
+              matches.length > 0 ? ` Coincidencia: ${matches.join(", ")}.` : ""
+            }`
+          );
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "No se pudo actualizar el cliente");
+        }
+
+        const summary = mapClientSummary(result.client);
+        if (summary) {
+          applyClientToOrder(order.client_id, summary);
+        } else {
+          setOrder((current) =>
+            current ? { ...current, client: result.client } : current
+          );
+        }
+        if (editing) {
+          setClientSavedDuringEdit(true);
+        }
+        setClientUiMode(null);
+        await loadActivity();
+        return;
+      }
+
+      const response = await fetch(`/api/orders/${order.id}/client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...toClientPayload(form),
+          expected_version: order.version,
+        }),
+      });
+      const result = await response.json();
+
+      if (response.status === 409 && result.code === "client_duplicate") {
+        const duplicate = parseClientDuplicate(result.duplicate);
+        setClientDuplicate(duplicate);
+        setClientActionError(
+          duplicate
+            ? formatCreateDuplicateMessage(duplicate)
+            : "Ya existe un cliente con estos datos."
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        if (isArchivedApiError(result)) {
+          setSavingClient(false);
+          await recoverFromArchivedRace();
+          return;
+        }
+        if (isStaleApiError(result)) {
+          setSavingClient(false);
+          await recoverFromStale(0);
+          return;
+        }
+        throw new Error(result.error ?? "No se pudo crear el cliente");
+      }
+
+      applyClientToOrder(
+        result.order?.client_id ?? null,
+        mapClientSummary(result.client),
+        result
+      );
+      if (editing) {
+        setClientSavedDuringEdit(true);
+      }
+      setClientUiMode(null);
+      await loadActivity();
+    } catch (err) {
+      setClientActionError(
+        err instanceof Error ? err.message : "Error al guardar el cliente"
+      );
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  return {
+    orderId: params.id,
+    showCreated,
+    order,
+    setOrder,
+    loading,
+    setLoading,
+    error,
+    setError,
+    saveMessage,
+    sourceQuote,
+    sourceQuoteRestricted,
+    features,
+    detailView,
+    searchParams,
+    noteComposeRequest,
+    setNoteComposeRequest,
+    collection,
+    setCollection,
+    statuses,
+    activity,
+    activityLoading,
+    setActivityTick,
+    managementOptions,
+    managementOptionsLoading,
+    orderOptions,
+    orderOptionsLoading,
+    canWrite,
+    role,
+    editing,
+    draft,
+    setDraft,
+    saving,
+    quickSaving,
+    setReloadToken,
+    clientSavedDuringEdit,
+    dueAtInvalid,
+    editSession,
+    handleDueAtInvalid,
+    clientUiMode,
+    setClientUiMode,
+    savingClient,
+    clientFormInitial,
+    clientActionError,
+    setClientActionError,
+    clientDuplicate,
+    setClientDuplicate,
+    confirmRemoveClient,
+    setConfirmRemoveClient,
+    draftTerminalConfirm,
+    setDraftTerminalConfirm,
+    draftTerminalConfirmedRef,
+    loadOrder,
+    loadActivity,
+    patchDraft,
+    startEditing,
+    cancelEditing,
+    saveEditing,
+    confirmDraftTerminalSave,
+    saveQuickStatus,
+    saveQuickAssignee,
+    saveQuickNote,
+    archiveOrder,
+    closeClientUi,
+    openEditClient,
+    openCreateClient,
+    openAssignClient,
+    openChangeClient,
+    assignExistingClient,
+    saveClientForm,
+  };
+}
+
+export type OrderWorkspaceController = ReturnType<typeof useOrderWorkspace>;

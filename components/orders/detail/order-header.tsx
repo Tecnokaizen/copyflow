@@ -51,17 +51,23 @@ function OrderHeaderFigures({
   labels,
   collection,
   dueAt,
+  compact = false,
 }: {
   labels: OrderLabels;
   collection: OrderCollection | null;
   dueAt: string | null;
+  compact?: boolean;
 }) {
   const money = (value: string | null | undefined) =>
     value ? formatOrderMoney(value) : "Sin definir";
   return (
     <dl
       aria-label="Importes y entrega"
-      className="grid w-full grid-cols-2 gap-x-4 gap-y-2 rounded-[var(--radius)] border border-border bg-card px-4 py-3 text-sm lg:w-80 lg:shrink-0"
+      className={
+        compact
+          ? "grid w-full grid-cols-2 gap-x-4 gap-y-1 rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm sm:grid-cols-4 lg:w-auto lg:shrink-0"
+          : "grid w-full grid-cols-2 gap-x-4 gap-y-2 rounded-[var(--radius)] border border-border bg-card px-4 py-3 text-sm lg:w-80 lg:shrink-0"
+      }
     >
       {collection ? (
         <>
@@ -117,6 +123,7 @@ export function OrderHeader({
   onArchive,
   labels = STANDARD_LABELS,
   collection = null,
+  density = "comfortable",
 }: {
   order: Order;
   draft: OrderDraft | null;
@@ -141,7 +148,13 @@ export function OrderHeader({
   /** SUR4 (contract §5): names of the amounts. */
   labels?: OrderLabels;
   collection?: OrderCollection | null;
+  /**
+   * Order Detail Views V1: «compact» packs the same data and actions into
+   * less height (views A and D). Nothing is hidden or removed.
+   */
+  density?: "comfortable" | "compact";
 }) {
+  const compact = density === "compact";
   const priority = draft && editing ? draft.priority : order.priority;
   const dueAt = draft && editing ? draft.due_at : order.due_at;
   const title = draft && editing ? draft.title : order.title;
@@ -172,23 +185,37 @@ export function OrderHeader({
   );
 
   return (
-    <header className="mb-6 sm:mb-8">
+    <header className={compact ? "mb-4 sm:mb-5" : "mb-6 sm:mb-8"}>
       <Link
         href="/orders"
-        className="mb-4 inline-block min-h-11 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className={`${compact ? "mb-1" : "mb-4"} inline-block min-h-11 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground`}
       >
         ← Pedidos
       </Link>
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+      <div
+        className={
+          compact
+            ? "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6"
+            : "flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6"
+        }
+      >
         <div className="min-w-0">
           <p className="text-sm font-semibold tracking-wide text-muted-foreground">
             {order.reference}
           </p>
-          <h1 className="mt-1 break-words text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+          <h1
+            className={
+              compact
+                ? "mt-0.5 break-words text-2xl font-bold tracking-tight text-foreground"
+                : "mt-1 break-words text-3xl font-bold tracking-tight text-foreground md:text-4xl"
+            }
+          >
             {title.trim() || "Sin título"}
           </h1>
-          <p className="mt-2 text-base text-foreground">{clientLine(order)}</p>
+          <p className={compact ? "mt-1 text-sm text-foreground" : "mt-2 text-base text-foreground"}>
+            {clientLine(order)}
+          </p>
           {client && hasContact ? (
             <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
               {client.contact_name?.trim() ? (
@@ -213,7 +240,7 @@ export function OrderHeader({
             </p>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className={compact ? "mt-2 flex flex-wrap gap-2" : "mt-4 flex flex-wrap gap-2"}>
             {archived ? (
               <StatusBadge tone="neutral">Archivado</StatusBadge>
             ) : null}
@@ -233,10 +260,11 @@ export function OrderHeader({
           labels={labels}
           collection={collection}
           dueAt={dueAt}
+          compact={compact}
         />
       </div>
 
-      <div className="mt-5 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-start lg:justify-end">
+      <div className={`${compact ? "mt-3" : "mt-5"} flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-start lg:justify-end`}>
         <div className="grid grid-cols-2 gap-2 lg:flex">
           <Link
             href={`/orders/${order.id}/print`}

@@ -1,0 +1,137 @@
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import {
+  builtOrderDetailLayouts,
+  orderDetailLayout,
+} from "@/components/orders/detail/views";
+import {
+  ORDER_DETAIL_MODULE_KEYS,
+  type OrderDetailFacts,
+  type OrderDetailModules,
+} from "@/components/orders/detail/views/contract";
+import {
+  IMPLEMENTED_ORDER_DETAIL_VIEWS,
+  ORDER_DETAIL_VIEW_CODES,
+} from "@/lib/orders/detail-views";
+import { orderLabels } from "@/lib/orders/labels";
+import { NO_ORDER_FEATURES } from "@/lib/orders/order-features";
+import type { Order } from "@/lib/orders/types";
+
+// Order Detail Views V1 — layout contract: every module exactly once, header
+// OR headerCompact, gated modules may be null, and no layout loads data.
+
+function marker(key: string): ReactNode {
+  return createElement("i", { "data-module": key });
+}
+
+function markers(nullKeys: string[] = []): OrderDetailModules {
+  return Object.fromEntries(
+    ORDER_DETAIL_MODULE_KEYS.map((key) => [
+      key,
+      nullKeys.includes(key) ? null : marker(key),
+    ])
+  ) as OrderDetailModules;
+}
+
+const FACTS = {
+  order: {
+    id: "o1",
+    reference: "T-0001",
+    title: "Pedido de prueba",
+    priority: "normal",
+    due_at: null,
+    status: { name: "Pendiente", code: "pending" },
+    assigned_team_member: null,
+    assigned_team_member_id: null,
+    archived_at: null,
+  } as unknown as Order,
+  labels: orderLabels({ custom: false }),
+  features: { ...NO_ORDER_FEATURES, stickyNotes: true, workSequence: true },
+  collection: null,
+  statuses: [],
+  canMutate: true,
+  archived: false,
+  editing: false,
+} satisfies OrderDetailFacts;
+
+const OPTIONAL = ["pinnedNotes", "sequence", "tracking", "stickyNotes", "sourceQuote"];
+const ALWAYS = ["production", "files", "summary", "fulfillment", "activity", "legacyNotes", "notices"];
+
+function count(html: string, key: string) {
+  return html.split(`data-module="${key}"`).length - 1;
+}
+
+describe("Order Detail Views — layout contract", () => {
+  it("registers a layout for every implemented view", () => {
+    const built = new Set(builtOrderDetailLayouts().map(([code]) => code));
+    for (const code of IMPLEMENTED_ORDER_DETAIL_VIEWS) {
+      assert.ok(built.has(code), `${code} is implemented but has no layout`);
+    }
+  });
+
+  it("unknown or unbuilt codes render the classic layout", () => {
+    const classic = orderDetailLayout("classic");
+    const built = new Set(builtOrderDetailLayouts().map(([code]) => code));
+    for (const code of ORDER_DETAIL_VIEW_CODES) {
+      if (!built.has(code)) assert.equal(orderDetailLayout(code), classic);
+    }
+  });
+
+  for (const [code, { Layout }] of builtOrderDetailLayouts()) {
+    describe(code, () => {
+      it("places every module exactly once (one header)", () => {
+        const html = renderToStaticMarkup(
+          createElement(Layout, { modules: markers(), facts: FACTS })
+        );
+        const headers = count(html, "header") + count(html, "headerCompact");
+        assert.equal(headers, 1, "exactly one header variant");
+        for (const key of ORDER_DETAIL_MODULE_KEYS) {
+          if (key === "header" || key === "headerCompact") continue;
+          assert.equal(count(html, key), 1, `${key} must appear exactly once`);
+        }
+      });
+
+      it("renders without the optional modules (features off, no quote)", () => {
+        const html = renderToStaticMarkup(
+          createElement(Layout, {
+            modules: markers(OPTIONAL),
+            facts: { ...FACTS, features: NO_ORDER_FEATURES },
+          })
+        );
+        for (const key of OPTIONAL) assert.equal(count(html, key), 0);
+        for (const key of ALWAYS) {
+          assert.equal(count(html, key), 1, `${key} must still appear`);
+        }
+      });
+
+      it("renders an archived, read-only order with every module", () => {
+        const html = renderToStaticMarkup(
+          createElement(Layout, {
+            modules: markers(),
+            facts: { ...FACTS, canMutate: false, archived: true },
+          })
+        );
+        for (const key of ALWAYS) assert.equal(count(html, key), 1, key);
+      });
+    });
+  }
+});
+
+describe("Order Detail Views — layouts never load data", () => {
+  it("no fetch, Supabase or effects in layout files", () => {
+    const dir = import.meta.dirname;
+    const files = readdirSync(dir).filter((f) => f.endsWith("-layout.tsx"));
+    assert.ok(files.length > 0);
+    for (const file of files) {
+      const source = readFileSync(join(dir, file), "utf8");
+      assert.doesNotMatch(source, /\bfetch\(/, `${file} must not fetch`);
+      assert.doesNotMatch(source, /supabase/i, `${file} must not touch Supabase`);
+      assert.doesNotMatch(source, /useEffect/, `${file} must not run effects`);
+    }
+  });
+});
