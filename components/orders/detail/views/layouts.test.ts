@@ -146,6 +146,11 @@ describe("Order Detail Views — per-view behaviour", () => {
     const panels = html.match(/<div[^>]*role="tabpanel"[^>]*>/g) ?? [];
     assert.equal(panels.length, 5);
     assert.equal(panels.filter((tag) => !/\bhidden=""/.test(tag)).length, 1);
+    // The display class must agree: Tailwind's `flex` would beat [hidden].
+    const hasClass = (tag: string, name: string) =>
+      (tag.match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/).includes(name);
+    assert.equal(panels.filter((tag) => hasClass(tag, "flex")).length, 1);
+    assert.equal(panels.filter((tag) => hasClass(tag, "hidden")).length, 4);
     assert.match(html, /aria-selected="true"[^>]*>Resumen/);
     // The amounts module (Cobros) is mounted even while hidden.
     assert.equal(count(html, "fulfillment"), 1);
