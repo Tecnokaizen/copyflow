@@ -37,8 +37,6 @@ export type WorkSheetNote = {
 export type WorkSheetFicha = {
   /** Store next to the reference, only with more than one active store. */
   store: string | null;
-  /** The three amounts, named by orderLabels. */
-  amounts: PrintFact[];
   dueAt: PrintFact;
   /** Blank fields to fill in by hand (N10). */
   proofFields: string[];
@@ -66,6 +64,8 @@ export type WorkSheetModel = {
   reference: string;
   title: string;
   branding: PrintBranding;
+  /** Shared collection summary, named and formatted like the customer receipt. */
+  amounts: PrintFact[];
   client: PrintFact[];
   order: PrintFact[];
   dates: PrintFact[];
