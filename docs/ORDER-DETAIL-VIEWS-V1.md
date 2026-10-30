@@ -137,6 +137,20 @@ Resultados:
 
 Correcciones que salieron de la validación: el panel de Actividad ya se pliega solo («Actividad · N»), así que se quitó el plegable extra en A y D; en A la secuencia va sin plegable (trae su propio título); en B, `hidden` perdía contra la clase `flex` de Tailwind y las pestañas ocultas se veían; ahora la clase cambia con la pestaña y la prueba comprueba la visibilidad real.
 
+### Revisión visual y ajustes aprobados (30/10)
+
+El propietario revisó las cuatro vistas en local (pedido DEMO-0179, post-its y secuencia) y aprobó tres ajustes, solo de presentación:
+
+1. **A · Operativa (máxima rapidez):** en móvil, tras el título, las acciones en 2×2 (Editar, Cambiar estado, Cambiar responsable, Añadir nota); contacto plegado, imprimir y resguardo en un desplegable, importes en una fila.
+2. **C · Producción (el trabajo pendiente y «Le toca» primero):** cabecera `headerProduction` sin importes (siguen en «Cobro y entrega»), la secuencia justo debajo y, en móvil, los pasos hechos plegados (con «Deshacer») para que «Le toca ahora» se vea sin desplazarse. Claramente distinta de D desde arriba.
+3. **D · Híbrida (equilibrio):** acciones, importes y tablero de producción en el primer pantallazo; los fijados, justo después.
+
+Además, el aviso de vista previa ocupa una línea en móvil.
+
+Reglas que fija el E2E (390×844, contando el aviso de vista previa): «Cambiar estado» y «Cambiar responsable» visibles sin desplazarse en A, C y D; en C la secuencia va antes que el tablero y «Le toca ahora» se ve; en D, importes y luego tablero dentro de la pantalla; en escritorio, importes a la derecha del título; paridad de acciones (las mismas de cabecera, una vez visibles, y las de la secuencia montadas) en las cinco vistas.
+
+Resultado: E2E local 44/44 en F5 y 45/45 en la rama de integración con #153 (`ODV_EXPECT_TRACKING=1`); 1.635 pruebas OK en F5 y 1.654 con #153.
+
 Repetir el E2E (con la app y el Supabase local en marcha):
 
 ```bash
@@ -144,6 +158,8 @@ ODV_BASE_PORT=3100 ODV_PASSWORD=… ODV_DEMO_ORDER=<uuid> ODV_DEMO_ARCHIVED=<uui
 ODV_CAPTURES=public/order-detail-views PLAYWRIGHT_MODULE=<ruta>/playwright/index.mjs \
 node scripts/order-detail-views-local-e2e.mjs
 ```
+
+Con #153 integrada, añadir `ODV_EXPECT_TRACKING=1`.
 
 ## 8. Orden de integración y CI tras cada merge
 
