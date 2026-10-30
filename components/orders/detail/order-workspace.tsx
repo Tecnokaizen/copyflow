@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { ErrorState } from "@/components/gestcopy/error-state";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { OrderFilesSection } from "@/components/files/order-files-section";
+import { OrderTracking } from "@/components/orders/detail/order-tracking";
 import { OrderActivity } from "@/components/orders/detail/order-activity";
 import { OrderFulfillment } from "@/components/orders/detail/order-fulfillment";
 import { OrderSourceQuote } from "@/components/orders/detail/order-source-quote";
@@ -135,6 +136,10 @@ export function OrderWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [statusesLoading, setStatusesLoading] = useState(true);
+  const [statusesError, setStatusesError] = useState(false);
+  const [activityError, setActivityError] = useState(false);
+  const [activityOrderId, setActivityOrderId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
@@ -207,6 +212,8 @@ export function OrderWorkspace() {
         });
 
         if (!response.ok) {
+          if (signal.aborted) return;
+          setActivityError(true);
           if (!silent) {
             setActivity([]);
             setActivityLoading(false);
@@ -215,12 +222,16 @@ export function OrderWorkspace() {
         }
 
         const result: ActivityResponse = await response.json();
+        if (signal.aborted) return;
         setActivity(result.activity ?? []);
+        setActivityOrderId(params.id);
+        setActivityError(false);
         setActivityLoading(false);
       } catch (err) {
-        if (isAbortError(err)) {
+        if (isAbortError(err) || signal.aborted) {
           return;
         }
+        setActivityError(true);
         if (!silent) {
           setActivity([]);
           setActivityLoading(false);
@@ -328,10 +339,14 @@ export function OrderWorkspace() {
         }
 
         setStatuses(result.statuses ?? []);
+        setStatusesError(false);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Error al cargar los estados"
         );
+        setStatusesError(true);
+      } finally {
+        setStatusesLoading(false);
       }
     }
 
@@ -401,36 +416,13 @@ export function OrderWorkspace() {
 
   useEffect(() => {
     async function loadOrderActivity() {
-      const { controller, signal } = nextLoadSignal(activityAbortRef.current);
-      activityAbortRef.current = controller;
-
-      try {
-        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
-          signal,
-        });
-
-        if (!response.ok) {
-          setActivity([]);
-          return;
-        }
-
-        const result: ActivityResponse = await response.json();
-        setActivity(result.activity ?? []);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        setActivity([]);
-      } finally {
-        setActivityLoading(false);
-      }
+      await loadActivity();
     }
-
     void loadOrderActivity();
     return () => {
       activityAbortRef.current?.abort();
     };
-  }, [params.id, activityTick]);
+  }, [loadActivity, activityTick]);
 
   function patchDraft(patch: Partial<OrderDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -1370,6 +1362,14 @@ export function OrderWorkspace() {
             onOrderConflict={() => void loadOrder({ silent: true })}
           />
         ) : null}
+
+        <OrderTracking
+          order={order}
+          statuses={statuses}
+          activity={activityOrderId === order.id ? activity : []}
+          loading={statusesLoading || (activityLoading && !activityError)}
+          unavailable={statusesError || activityError || (!activityLoading && activityOrderId !== order.id)}
+        />
 
         {sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null}
 
