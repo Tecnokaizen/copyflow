@@ -1,6 +1,6 @@
 # Order Detail Views V1 — cuatro vistas de la ficha de pedido
 
-Estado: **Fase 1 en curso** (rama `feat/order-detail-views-v1`, desde `main` f4e0ab5). Sin migraciones, sin cambios en Staging ni en Production.
+Estado (30/10): **F1–F5 terminadas en la rama** `feat/order-detail-views-v1` (desde `main` f4e0ab5), validadas en local con tenants sintéticos. Sin migraciones, sin cambios en Staging ni en Production. Pendiente: revisión, integración en DEMO/Staging coordinada con la sesión operativa y autorización de merge.
 
 ## 1. Auditoría de la ficha actual (30/10)
 
@@ -110,7 +110,30 @@ Ninguna vista aparece como seleccionable hasta F4, con las cuatro terminadas.
 
 #153 sigue en Draft y no se fusiona aquí. Al integrarla: sus mejoras de carga (estado de error de actividad y estados) van en `useOrderWorkspace`, y `<OrderTracking>` va en el módulo `tracking`, que ya colocan las cinco maquetaciones.
 
-## 7. Rollback
+## 7. Validación (F5, 30/10)
+
+Entorno: app de la rama en `next dev` contra un Supabase **local** aislado (89 migraciones), sin tocar Staging ni Production.
+
+- `demo`: seed `demo-commercial.sql`, `order_sticky_notes` y `order_work_sequence` concedidas, secuencia y post-its creados con las RPC de la app; usuarios owner, admin y staff.
+- `plain`: sin funciones, pocos pedidos.
+
+Resultados:
+
+- Pruebas unitarias: 1.635 OK, 0 fallos (con `TZ=UTC`; `lib/kiosk/form-state.test.ts` falla en hora local de Madrid también en `main`, no tiene que ver con esta rama). `tsc`, `lint` (4 avisos previos) y `next build` limpios.
+- E2E local `scripts/order-detail-views-local-e2e.mjs`: **40/40**. Cubre las cinco vistas con todos los módulos y las mismas acciones; 390, 768 y 1280 px sin desplazamiento horizontal; pestañas (solo una visible, cabecera siempre); «Añadir nota» abre la pestaña o el plegable; «Editar pedido» abre «Administración» en C; pedido archivado en solo lectura; tema oscuro; valor de vista previa inválido; Configuración (aplicar con confirmación, volver a la anterior); 409 con revisión obsoleta y 400 con vista inválida; admin puede cambiarla; staff recibe la del tenant, no puede previsualizar ni cambiarla (403/404); `plain` sin secuencia ni post-its; un pedido de `demo` no se ve desde `plain`.
+- Capturas reales (seed local) en `public/order-detail-views/<vista>-desktop.png` y `-mobile.png`.
+
+Correcciones que salieron de la validación: el panel de Actividad ya se pliega solo («Actividad · N»), así que se quitó el plegable extra en A y D; en A la secuencia va sin plegable (trae su propio título); en B, `hidden` perdía contra la clase `flex` de Tailwind y las pestañas ocultas se veían; ahora la clase cambia con la pestaña y la prueba comprueba la visibilidad real.
+
+Repetir el E2E (con la app y el Supabase local en marcha):
+
+```bash
+ODV_BASE_PORT=3100 ODV_PASSWORD=… ODV_DEMO_ORDER=<uuid> ODV_DEMO_ARCHIVED=<uuid> ODV_PLAIN_ORDER=<uuid> \
+ODV_CAPTURES=public/order-detail-views PLAYWRIGHT_MODULE=<ruta>/playwright/index.mjs \
+node scripts/order-detail-views-local-e2e.mjs
+```
+
+## 8. Rollback
 
 - Código: cada fase es una PR independiente; revertirla devuelve la ficha anterior.
 - Datos: borrar la clave `order_detail_view_v1` de `tenant_settings.preferences` (o guardar `classic`) devuelve la ficha actual a ese tenant al instante. No hay migraciones que deshacer.

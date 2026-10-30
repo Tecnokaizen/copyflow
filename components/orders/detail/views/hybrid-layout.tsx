@@ -1,5 +1,5 @@
 import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/contract";
-import { Block, Fold, ProductionBoard } from "@/components/orders/detail/views/parts";
+import { Block, ProductionBoard } from "@/components/orders/detail/views/parts";
 
 // View D · Híbrida (A + C). The compact operational page with production up
 // front: the production board, then the work sequence and the post-its side
@@ -38,9 +38,8 @@ export function HybridOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
           <Block className="order-1">{modules.production}</Block>
           <Block className="order-4">{modules.files}</Block>
           <Block className="order-5">{modules.legacyNotes}</Block>
-          <Fold className="order-6" title="Actividad del pedido">
-            <Block>{modules.activity}</Block>
-          </Fold>
+          {/* Activity folds itself («Actividad · N»). */}
+          <Block className="order-6">{modules.activity}</Block>
         </div>
 
         <aside

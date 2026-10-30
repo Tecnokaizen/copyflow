@@ -21,15 +21,8 @@ export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProp
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           <Block className="order-1">{modules.production}</Block>
           <Block className="order-4">{modules.files}</Block>
-          {modules.sequence ? (
-            <Fold
-              className="order-5"
-              title="Secuencia de trabajo"
-              defaultOpen
-            >
-              <Block>{modules.sequence}</Block>
-            </Fold>
-          ) : null}
+          {/* The sequence brings its own title and counter. */}
+          <Block className="order-5">{modules.sequence}</Block>
           {hasNotes ? (
             <Fold
               className="order-6"
@@ -42,9 +35,8 @@ export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProp
               <Block>{modules.legacyNotes}</Block>
             </Fold>
           ) : null}
-          <Fold className="order-7" title="Actividad del pedido">
-            <Block>{modules.activity}</Block>
-          </Fold>
+          {/* Activity folds itself («Actividad · N»). */}
+          <Block className="order-7">{modules.activity}</Block>
         </div>
 
         <aside
