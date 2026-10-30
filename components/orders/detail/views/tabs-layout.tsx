@@ -41,7 +41,11 @@ function TabPanel({
       aria-labelledby={labelledBy}
       hidden={!active}
       tabIndex={0}
-      className="flex min-w-0 flex-col gap-5 focus-visible:outline-none"
+      // `hidden` alone loses to Tailwind's `flex`: switch display explicitly.
+      className={cn(
+        "min-w-0 flex-col gap-5 focus-visible:outline-none",
+        active ? "flex" : "hidden"
+      )}
     >
       {children}
     </div>
