@@ -94,7 +94,7 @@ describe("order print document", () => {
     assert.match(html, /Recepción/);
     assert.match(html, /15\/03\/2026/);
     assert.match(html, /Terminado/);
-    assert.equal(html.includes("Entregado"), false);
+    assert.equal(html.includes("<dt>Entregado</dt>"), false);
     assert.match(html, /Listos/);
     assert.match(html, /Presupuesto del pedido/);
     assert.match(html, /Avisado/);

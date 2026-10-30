@@ -22,6 +22,7 @@ import { printBranding, workSheetModel, type WorkSheetSource } from "@/lib/print
 import type { PrintBranding, PrintFact, WorkSheetModel } from "@/lib/print/types";
 import * as queries from "@/lib/print/work-sheet-queries";
 import * as rules from "@/lib/print/work-sheet-rules";
+import { customerReceiptModel } from "@/lib/print/receipt";
 import {
   printableService,
   printableStore,
@@ -218,6 +219,8 @@ function fakeSupabase(options: {
   orderTenant?: string;
   files?: string[];
   activeStores?: number;
+  collection?: unknown;
+  collectionError?: boolean;
 }) {
   const calls: Call[] = [];
   const results = (table: string, selected: string) => {
@@ -248,7 +251,10 @@ function fakeSupabase(options: {
       if (name === "tenant_has_feature") {
         return { data: args.p_tenant_id === TENANT && options.features?.[String(args.p_code)] === true, error: null };
       }
-      if (name === "order_collection_v1") return { data: witnessCollection, error: null };
+      if (name === "order_collection_v1") return {
+        data: options.collection === undefined ? witnessCollection : options.collection,
+        error: options.collectionError ? { message: "unavailable" } : null,
+      };
       throw new Error(`unexpected rpc ${name}`);
     },
     from(table: string) {
@@ -325,7 +331,7 @@ function featuresFor(features: OrderFeatures): Partial<Record<string, boolean>> 
 describe("work sheet standard profile (N25)", () => {
   const files = ["plano.pdf", "justificante-entrega.pdf", "subida-pendiente.ai"];
 
-  it("is today's print minus «Notas internas», in the model and on paper", () => {
+  it("preserves today's blocks minus «Notas internas», adding only the shared summary", () => {
     const order = witnessOrder();
     const legacy = legacyOrderPrintModel(order, { files, branding: brand, timeZone: "Europe/Madrid" });
     const model = workSheetModel(order as WorkSheetSource, {
@@ -342,9 +348,9 @@ describe("work sheet standard profile (N25)", () => {
       assert.deepEqual(model[key as keyof WorkSheetModel], value, key);
     }
     assert.equal("notes" in model, false);
-    // Only the new, empty blocks are added.
+    // The shared summary is the only change to the pre-existing print blocks.
     const added = Object.keys(model).filter((key) => !(key in legacy)).sort();
-    assert.deepEqual(added, ["descriptionTitle", "ficha", "printableNotes", "profile", "steps"]);
+    assert.deepEqual(added, ["amounts", "descriptionTitle", "ficha", "printableNotes", "profile", "steps"]);
     assert.equal(model.descriptionTitle, "Instrucciones");
     assert.deepEqual([model.profile, model.ficha, model.steps, model.printableNotes], ["standard", null, [], []]);
     // Payment receipts and pending uploads are listed, as today.
@@ -356,7 +362,12 @@ describe("work sheet standard profile (N25)", () => {
     );
     assert.ok(legacyHtml.includes(notesHtml));
     const html = renderToStaticMarkup(createElement(WorkSheetDocument, { model }));
-    assert.equal(html, legacyHtml.replace(notesHtml, ""));
+    const withoutSummary = html.replace(
+      /<section class="print-block ws-title-summary">(<h1 class="print-title">.*?<\/h1>)<section class="ws-summary" aria-label="Resumen económico">.*?<\/dl><\/section><\/section>/,
+      "$1"
+    );
+    assert.notEqual(withoutSummary, html, "the new heading is present");
+    assert.equal(withoutSummary, legacyHtml.replace(notesHtml, ""));
   });
 
   it("adds steps and printable post-its after today's blocks, only with feature and data", () => {
@@ -438,7 +449,7 @@ describe("work sheet profile (N25)", () => {
     assert.equal(denied.supabase.calls.length, 0);
     const foreign = loaderHarness({ orderTenant: "tenant-b", features: featuresFor(ALL_ON) });
     assert.equal((await foreign.load()).status, "not_found");
-    assert.equal(foreign.supabase.calls.some((call) => ["order_notes", "order_work_steps", "order_files"].includes(call.table)), false);
+    assert.equal(foreign.supabase.calls.some((call) => ["order_notes", "order_work_steps", "order_files", "rpc:order_collection_v1"].includes(call.table)), false);
   });
 });
 
@@ -479,7 +490,7 @@ describe("closed selects (contract §6)", () => {
     const h = loaderHarness({ features: featuresFor(NO_ORDER_FEATURES) });
     await h.load();
     const tables = new Set(h.supabase.calls.map((call) => call.table));
-    for (const table of ["order_notes", "order_work_steps", "stores", "rpc:order_collection_v1"]) {
+    for (const table of ["order_notes", "order_work_steps", "stores"]) {
       assert.equal(tables.has(table), false, table);
     }
     assert.ok(tables.has("order_files"));
@@ -576,8 +587,8 @@ describe("work sheet ficha profile (N19, N20)", () => {
       "Prioridad", "Urgente", "Fecha de recepción", "Archivos", "Recibido", "Presupuesto", "Aceptado", "Documento interno"]) {
       assert.ok(html.includes(present), present);
     }
-    // Reading order of sur4-0134: client and amounts, description, responsable, bottom row.
-    const order = ["Imprenta Sol", "Total del pedido", "Fecha de entrega", "Requiere prueba", "Instrucciones", "Responsable", "Fecha de recepción"]
+    // Summary beside the title; existing client/date, description and bottom blocks keep their order.
+    const order = ["Total del pedido", "Imprenta Sol", "Fecha de entrega", "Requiere prueba", "Instrucciones", "Responsable", "Fecha de recepción"]
       .map((text) => html.indexOf(text));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
     assert.match(html, /@page ws-ficha \{ @bottom-left \{ content: "Documento interno \\00B7  Impreso el 28\/10\/2026, 11:00"; \} \}/);
@@ -589,7 +600,7 @@ describe("work sheet ficha profile (N19, N20)", () => {
       amounts: { total: null, paid: "0.00", pending: null },
       features: { ...NO_ORDER_FEATURES, workSheetFicha: true, customLabels: true },
     });
-    assert.deepEqual(model.ficha?.amounts, [
+    assert.deepEqual(model.amounts, [
       { label: "Total pedido", value: "Sin definir" },
       { label: "A cuenta", value: "0,00 €" },
       { label: "Falta por abonar", value: "Sin definir" },
@@ -629,6 +640,57 @@ describe("work sheet ficha profile (N19, N20)", () => {
   });
 });
 
+describe("shared work sheet collection summary", () => {
+  const scenarios = [
+    { name: "partial advance", total: "1250.00", paid: "250.00", pending: "1000.00", expected: ["1.250,00 €", "250,00 €", "1.000,00 €"] },
+    { name: "no advance", total: "120.00", paid: "0.00", pending: "120.00", expected: ["120,00 €", "0,00 €", "120,00 €"] },
+    { name: "paid in full", total: "120.00", paid: "120.00", pending: "0.00", expected: ["120,00 €", "120,00 €", "0,00 €"] },
+    { name: "zero total", total: "0.00", paid: "0.00", pending: "0.00", expected: ["0,00 €", "0,00 €", "0,00 €"] },
+    { name: "cents", total: "1234.56", paid: "234.55", pending: "1000.01", expected: ["1.234,56 €", "234,55 €", "1.000,01 €"] },
+    { name: "undefined total", total: null, paid: "0.00", pending: null, expected: ["Sin definir", "0,00 €", "Sin definir"] },
+  ];
+  for (const profile of ["standard", "ficha"] as const) {
+    for (const customLabels of [false, true]) {
+      for (const scenario of scenarios) {
+        it(`${profile}, labels ${customLabels ? "custom" : "standard"}, ${scenario.name}: reads the real snapshot once and matches the receipt`, async () => {
+          const features = { ...NO_ORDER_FEATURES, workSheetFicha: profile === "ficha", customLabels };
+          const h = loaderHarness({ features: featuresFor(features), collection: {
+            ...witnessCollection, total_amount: scenario.total, paid_amount: scenario.paid, pending_amount: scenario.pending,
+          } });
+          const loaded = await h.load();
+          assert.equal(loaded.status, "ok");
+          if (loaded.status !== "ok") return;
+          assert.equal(loaded.model.profile, profile);
+          assert.deepEqual(loaded.model.amounts.map((row) => row.value), scenario.expected);
+          const receipt = customerReceiptModel(witnessOrder(), {
+            customLabels, amounts: { total: scenario.total, paid: scenario.paid, pending: scenario.pending },
+            businessName: "Taller Norte", brandColor: "#163b4c", footer: "", timeZone: "Europe/Madrid", printedAt: new Date("2026-10-30T10:00:00Z"),
+          });
+          assert.deepEqual(loaded.model.amounts, receipt.amounts);
+          assert.deepEqual(h.supabase.calls.filter((call) => call.table === "rpc:order_collection_v1").map((call) => call.args), [[{ p_order_id: ORDER_ID }]]);
+          const html = render(loaded.model);
+          const heading = html.slice(html.indexOf('class="ws-summary"'), html.indexOf('</dl>', html.indexOf('class="ws-summary"')));
+          assert.equal(html.split('aria-label="Resumen económico"').length - 1, 1);
+          for (const { label, value } of loaded.model.amounts) {
+            assert.ok(heading.includes(`<dt>${label}</dt><dd>${value}</dd>`));
+            assert.equal(html.split(`<dt>${label}</dt>`).length - 1, 1, `${label} never repeated below`);
+          }
+          // No payment detail (method, reason, receipt) leaks from the RPC.
+          assert.equal(html.includes("TESTIGO-COBRO"), false);
+        });
+      }
+    }
+    for (const failure of [{ collectionError: true }, { collection: { ok: false, error: "not_found" } }]) {
+      it(`${profile}: unavailable collection never invents a zero balance (${JSON.stringify(failure)})`, async () => {
+        const h = loaderHarness({ ...failure, features: featuresFor({ ...NO_ORDER_FEATURES, workSheetFicha: profile === "ficha" }) });
+        const loaded = await h.load();
+        assert.equal(loaded.status, "ok");
+        if (loaded.status === "ok") assert.deepEqual(loaded.model.amounts.map((row) => row.value), ["—", "—", "—"]);
+      });
+    }
+  }
+});
+
 describe("A4 samples of sur4-0134 (N14)", () => {
   it("renders every sample as a standalone page with the ficha layout", () => {
     const samples = sur4WorkSheetSamples();
@@ -658,7 +720,7 @@ describe("A4 samples of sur4-0134 (N14)", () => {
     assert.deepEqual([base.steps.length, base.printableNotes.length], [0, 0]);
     assert.deepEqual([full.steps.length, full.printableNotes.length], [3, 5]);
     assert.equal(outside.ficha?.service, "Plastificado");
-    assert.equal(outside.ficha?.amounts[0].value, "Sin definir");
+    assert.equal(outside.amounts[0].value, "Sin definir");
     assert.equal(oneStore.ficha?.store, null);
     const html = renderWorkSheetHtml(full);
     assert.match(html, /Secuencia de trabajo/);
