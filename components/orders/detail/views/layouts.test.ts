@@ -23,7 +23,10 @@ import { NO_ORDER_FEATURES } from "@/lib/orders/order-features";
 import type { Order } from "@/lib/orders/types";
 
 // Order Detail Views V1 — layout contract: every module exactly once, header
-// OR headerCompact, gated modules may be null, and no layout loads data.
+// variant (header, headerCompact or headerProduction), gated modules may be
+// null, and no layout loads data.
+
+const HEADER_KEYS = ["header", "headerCompact", "headerProduction"];
 
 function marker(key: string): ReactNode {
   return createElement("i", { "data-module": key });
@@ -89,10 +92,10 @@ describe("Order Detail Views — layout contract", () => {
         const html = renderToStaticMarkup(
           createElement(Layout, { modules: markers(), facts: FACTS })
         );
-        const headers = count(html, "header") + count(html, "headerCompact");
+        const headers = HEADER_KEYS.reduce((sum, key) => sum + count(html, key), 0);
         assert.equal(headers, 1, "exactly one header variant");
         for (const key of ORDER_DETAIL_MODULE_KEYS) {
-          if (key === "header" || key === "headerCompact") continue;
+          if (HEADER_KEYS.includes(key)) continue;
           assert.equal(count(html, key), 1, `${key} must appear exactly once`);
         }
       });
@@ -187,12 +190,12 @@ describe("Order Detail Views — per-view behaviour", () => {
     }
   });
 
-  it("A, C and D use the compact header; classic and B the full one", () => {
+  it("A and D use the compact header, C the production one; classic and B the full one", () => {
     const expectations = {
       classic: "header",
       operational: "headerCompact",
       tabs: "header",
-      production: "headerCompact",
+      production: "headerProduction",
       hybrid: "headerCompact",
     } as const;
     for (const [code, key] of Object.entries(expectations)) {

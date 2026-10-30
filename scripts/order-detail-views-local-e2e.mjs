@@ -5,6 +5,7 @@
 // http://<slug>.localhost:<port>, and:
 //   ODV_BASE_PORT=3100 ODV_PASSWORD=... ODV_DEMO_ORDER=<uuid with sequence+post-its>
 //   ODV_DEMO_ARCHIVED=<uuid> ODV_PLAIN_ORDER=<uuid> [ODV_CAPTURES=<dir>] [ODV_SHOTS=<dir>]
+//   [ODV_EXPECT_TRACKING=1 once #153 is integrated]
 //   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs
 // Users: owner|admin|staff@demo.test (demo has order_sticky_notes and
 // order_work_sequence) and owner@plain.test (no features).
@@ -25,6 +26,8 @@ const DEMO_ARCHIVED = process.env.ODV_DEMO_ARCHIVED;
 const PLAIN_ORDER = process.env.ODV_PLAIN_ORDER;
 const CAPTURES = process.env.ODV_CAPTURES || null;
 const SHOTS = process.env.ODV_SHOTS || null;
+// With #153 (Seguimiento del pedido) integrated: ODV_EXPECT_TRACKING=1.
+const EXPECT_TRACKING = process.env.ODV_EXPECT_TRACKING === "1";
 assert.ok(PASSWORD && DEMO_ORDER && DEMO_ARCHIVED && PLAIN_ORDER, "missing ODV_* env");
 
 const base = (slug) => `http://${slug}.localhost:${PORT}`;
@@ -59,6 +62,18 @@ async function openOrder(page, slug, orderId, view) {
   // Let the self-loading modules (amounts, files, sequence, post-its) settle.
   await page.waitForLoadState("networkidle").catch(() => {});
   return page.getAttribute("[data-order-detail-view]", "data-order-detail-view");
+}
+
+// Seguimiento del pedido (#153): one timeline per view, visible, loaded.
+async function assertTracking(page, view) {
+  const timeline = page.locator('ol[aria-label="Recorrido del pedido"]');
+  if (!EXPECT_TRACKING) {
+    assert.equal(await timeline.count(), 0, `${view}: tracking without #153`);
+    return;
+  }
+  assert.equal(await timeline.count(), 1, `${view}: tracking count`);
+  await page.waitForSelector('ol[aria-label="Recorrido del pedido"][data-tracking-status="ready"]', { timeout: 15000 });
+  assert.ok(await timeline.isVisible(), `${view}: tracking hidden`);
 }
 
 async function noHorizontalScroll(page) {
@@ -127,7 +142,21 @@ try {
         assert.ok(await page.getByText(label, { exact: true }).count(), `${view}: no «${label}»`);
       }
       // The header amounts come from «Cobro y entrega», mounted in every view.
-      await page.waitForSelector('[aria-label="Importes y entrega"] >> text=Pendiente de cobro', { timeout: 15000 });
+      // C shows no amounts in its header: they stay in «Cobro y entrega».
+      if (view === "production") {
+        assert.equal(await page.locator('[aria-label="Importes y entrega"]').count(), 0, "C: no header amounts");
+        await page.waitForSelector("text=Pendiente de cobro", { state: "attached", timeout: 15000 });
+      } else {
+        await page.waitForSelector('[aria-label="Importes y entrega"] >> text=Pendiente de cobro', { timeout: 15000 });
+      }
+      await assertTracking(page, view);
+      // Desktop: the amounts sit to the right of the title.
+      const amountsLeft = await page.evaluate(() => {
+        const a = document.querySelector('[aria-label="Importes y entrega"]');
+        const h = document.querySelector("[data-order-detail-view] h1");
+        return a && h ? a.getBoundingClientRect().left < h.getBoundingClientRect().left : false;
+      });
+      assert.equal(amountsLeft, false, `${view}: amounts left of the title`);
     });
 
     for (const width of WIDTHS) {
@@ -139,6 +168,54 @@ try {
       });
     }
   }
+
+  // Phones: the worker changes status or assignee without scrolling (A, C, D),
+  // and C starts with the work sequence, D with the amounts and the board.
+  const firstScreen = {};
+  for (const view of ["operational", "production", "hybrid"]) {
+    await step(`mobile · ${view} · status and assignee on the first screen`, async () => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await openOrder(page, "demo", DEMO_ORDER, view);
+      for (const label of ["Cambiar estado", "Cambiar responsable"]) {
+        const button = page.getByRole("button", { name: label, exact: true });
+        const box = await button.boundingBox();
+        assert.ok(box && box.y + box.height <= 844, `${view}: «${label}» below the first screen (${box?.y})`);
+      }
+      firstScreen[view] = await page.evaluate(() => {
+        const y = (el) => (el ? Math.round(el.getBoundingClientRect().top) : null);
+        const sequence = [...document.querySelectorAll("section h2")].find((h) =>
+          h.textContent.startsWith("Secuencia de trabajo")
+        );
+        return {
+          sequence: y(sequence),
+          board: y(document.querySelector('[aria-label="Producción del pedido"]')),
+          amounts: y(document.querySelector('[aria-label="Importes y entrega"]')),
+        };
+      });
+    });
+  }
+  await step("mobile · C and D differ from the top", async () => {
+    const c = firstScreen.production;
+    const d = firstScreen.hybrid;
+    assert.ok(c && d, "first-screen data");
+    assert.equal(c.amounts, null, "C: no header amounts");
+    assert.ok(c.sequence !== null && c.sequence < 844 && c.sequence < c.board, `C: sequence first (${JSON.stringify(c)})`);
+    assert.ok(d.amounts !== null && d.amounts < d.board && d.board < 844, `D: amounts, then board (${JSON.stringify(d)})`);
+  });
+
+  await step("mobile · C shows «Le toca ahora» on the first screen; done steps fold", async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openOrder(page, "demo", DEMO_ORDER, "production");
+    // The desktop row of cards is in the DOM but hidden on phones.
+    const current = page.getByText("Le toca ahora", { exact: true }).filter({ visible: true }).first();
+    await current.waitFor({ state: "visible", timeout: 15000 });
+    const box = await current.boundingBox();
+    assert.ok(box && box.y + box.height <= 844, `«Le toca ahora» at ${box?.y}`);
+    const folded = page.locator("[data-done-steps] summary");
+    assert.match((await folded.textContent()) ?? "", /pasos? hechos?/);
+    await folded.click();
+    assert.ok(await page.locator("[data-done-steps] li").first().isVisible(), "done steps reachable");
+  });
 
   await step("tabs · every tab shows its section; header stays", async () => {
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -286,6 +363,7 @@ try {
       for (const title of ["Trabajo", "Resumen", "Cobro y entrega", "Archivos", "Actividad", "Notas internas"]) {
         assert.ok(titles.includes(title), `${view}: missing «${title}»`);
       }
+      await assertTracking(plain.page, view);
       await shot(plain.page, `plain-${view}-1280`);
     });
   }
