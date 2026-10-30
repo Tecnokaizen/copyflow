@@ -137,9 +137,19 @@ try {
         assert.ok(titles.includes(title), `${view}: missing «${title}» in ${titles}`);
       }
       assert.ok(await page.getByText("Secuencia de trabajo").count(), `${view}: no sequence`);
-      // Same actions in every view.
-      for (const label of ["Imprimir pedido", "Resguardo PDF", "Editar pedido"]) {
+      // Functional parity: the same header actions in every view, once each
+      // on screen (printing may also sit in the phone-only fold).
+      for (const label of ["Imprimir pedido", "Resguardo PDF"]) {
         assert.ok(await page.getByText(label, { exact: true }).count(), `${view}: no «${label}»`);
+      }
+      for (const label of ["Editar pedido", "Cambiar estado", "Cambiar responsable", "+ Añadir nota"]) {
+        const visible = page.getByRole("button", { name: label, exact: true }).filter({ visible: true });
+        assert.equal(await visible.count(), 1, `${view}: «${label}» visible once`);
+      }
+      // The same sequence actions, mounted in every view (in B, inside the
+      // «Trabajo» tab).
+      for (const label of ["Editar secuencia", "Marcar hecho"]) {
+        assert.ok(await page.locator("button", { hasText: label }).count(), `${view}: no «${label}»`);
       }
       // The header amounts come from «Cobro y entrega», mounted in every view.
       // C shows no amounts in its header: they stay in «Cobro y entrega».
