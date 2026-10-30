@@ -90,6 +90,8 @@ export type OrderResponse = {
   source_quote_restricted?: boolean;
   /** SUR4 (contract §4): A1 features of the order page, decided by the server. */
   features?: import("./order-features").OrderFeatures;
+  /** Order Detail Views V1: the tenant's view of this page (fallback classic). */
+  detail_view?: string;
   tenant: string;
   order: Order;
 };
