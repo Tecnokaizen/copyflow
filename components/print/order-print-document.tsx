@@ -53,7 +53,7 @@ export function WorkSheetDocument({ model, receiptHref, legacyNotes = false }: W
       receiptHref={receiptHref}
       notice={notice}
     >
-      <h1 className="print-title">{model.title}</h1>
+      <WorkSheetHeading model={model} />
       <PrintFacts title="Cliente" rows={model.client} />
       <PrintFacts title="Pedido" rows={model.order} />
       <PrintFacts title="Fechas" rows={model.dates} />
@@ -64,6 +64,18 @@ export function WorkSheetDocument({ model, receiptHref, legacyNotes = false }: W
       <WorkSheetSteps steps={model.steps} />
       <WorkSheetNotes notes={model.printableNotes} />
     </PrintFrame>
+  );
+}
+
+/** One heading for both profiles; dates and delivery details keep their own blocks. */
+function WorkSheetHeading({ model }: { model: WorkSheetModel }) {
+  return (
+    <section className="print-block ws-title-summary">
+      <h1 className="print-title">{model.title}</h1>
+      <section className="ws-summary" aria-label="Resumen económico">
+        <FactList rows={model.amounts} className="ws-facts ws-amounts" />
+      </section>
+    </section>
   );
 }
 
@@ -109,14 +121,13 @@ function FichaWorkSheet({
       notice={notice}
       sheetClassName="ws-ficha"
     >
-      <h1 className="print-title">{model.title}</h1>
+      <WorkSheetHeading model={model} />
       <section className="print-block ws-head">
         <div className="ws-head-client">
           <h2 className="print-section-title">Cliente</h2>
           <FactList rows={model.client} className="ws-facts" />
         </div>
         <div className="ws-head-side">
-          <FactList rows={ficha.amounts} className="ws-facts ws-amounts" />
           <FactList rows={[ficha.dueAt]} className="ws-facts ws-due" />
           <dl className="ws-facts ws-proof">
             {ficha.proofFields.map((label) => (
