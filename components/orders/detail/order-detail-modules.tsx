@@ -327,6 +327,7 @@ export function buildOrderDetailModules(
     }),
     archived: isOrderArchived(order),
     editing,
+    noteComposeRequest,
   };
 
   const dialogs = (
