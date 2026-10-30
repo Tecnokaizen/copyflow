@@ -62,11 +62,13 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
   },
 };
 
-// Views that are fully built. Only these can be previewed or applied; the
-// rest resolve to the classic page. Grows phase by phase (F2: A and D, F3: B
-// and C); the settings selector only ships once all four are here.
+// Views that are fully built. Only these can be previewed or applied; any
+// other stored value resolves to the classic page. The settings selector only
+// offers a view listed here.
 export const IMPLEMENTED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
   "classic",
+  "operational",
+  "hybrid",
 ];
 
 export function isOrderDetailViewCode(value: unknown): value is OrderDetailViewCode {

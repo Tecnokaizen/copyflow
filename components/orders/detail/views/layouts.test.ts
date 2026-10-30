@@ -57,6 +57,7 @@ const FACTS = {
   canMutate: true,
   archived: false,
   editing: false,
+  noteComposeRequest: 0,
 } satisfies OrderDetailFacts;
 
 const OPTIONAL = ["pinnedNotes", "sequence", "tracking", "stickyNotes", "sourceQuote"];
@@ -133,5 +134,57 @@ describe("Order Detail Views — layouts never load data", () => {
       assert.doesNotMatch(source, /supabase/i, `${file} must not touch Supabase`);
       assert.doesNotMatch(source, /useEffect/, `${file} must not run effects`);
     }
+  });
+});
+
+describe("Order Detail Views — per-view behaviour", () => {
+  it("D leads with the production board even without sequence and post-its", () => {
+    for (const code of ["hybrid"] as const) {
+      const { Layout } = orderDetailLayout(code);
+      const html = renderToStaticMarkup(
+        createElement(Layout, {
+          modules: markers(OPTIONAL),
+          facts: { ...FACTS, features: NO_ORDER_FEATURES },
+        })
+      );
+      assert.match(html, /aria-label="Producción del pedido"/, code);
+      assert.match(html, /Sin responsable/, code);
+    }
+  });
+
+  it("A and D use the compact header; classic the full one", () => {
+    const expectations = {
+      classic: "header",
+      operational: "headerCompact",
+      hybrid: "headerCompact",
+    } as const;
+    for (const [code, key] of Object.entries(expectations)) {
+      const { Layout } = orderDetailLayout(code as keyof typeof expectations);
+      const html = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+      assert.equal(count(html, key), 1, `${code} uses ${key}`);
+    }
+  });
+});
+
+describe("nextStatusHint", () => {
+  it("follows the tenant catalog, skips cancelled and inactive, stops at closed", async () => {
+    const { nextStatusHint } = await import("@/components/orders/detail/views/parts");
+    const statuses = [
+      { id: "s1", code: "recibido", name: "Recibido", is_initial: true },
+      { id: "s2", code: "anulado", name: "Anulado", is_cancelled: true },
+      { id: "s3", code: "diseno", name: "Diseño", active: false },
+      { id: "s4", code: "produccion", name: "Producción" },
+      { id: "s5", code: "recogido", name: "Recogido", is_closed: true },
+    ] as unknown as OrderDetailFacts["statuses"];
+    const at = (id: string, status: Record<string, unknown>) =>
+      ({
+        ...FACTS,
+        statuses,
+        order: { ...FACTS.order, status_id: id, status },
+      }) as OrderDetailFacts;
+    assert.equal(nextStatusHint(at("s1", { code: "recibido", name: "Recibido" }))?.name, "Producción");
+    assert.equal(nextStatusHint(at("s4", { code: "produccion", name: "Producción" }))?.name, "Recogido");
+    assert.equal(nextStatusHint(at("s5", { code: "recogido", name: "Recogido", is_closed: true })), null);
+    assert.equal(nextStatusHint(at("zz", { code: "otro", name: "Otro" })), null);
   });
 });

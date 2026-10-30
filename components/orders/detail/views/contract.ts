@@ -47,6 +47,12 @@ export type OrderDetailFacts = {
   canMutate: boolean;
   archived: boolean;
   editing: boolean;
+  /**
+   * Increments on each header «Añadir nota» (post-its on). A layout that
+   * hides the post-its panel must reveal it in the same render, because the
+   * panel scrolls to its composer right after.
+   */
+  noteComposeRequest: number;
 };
 
 export type OrderDetailLayoutProps = {
