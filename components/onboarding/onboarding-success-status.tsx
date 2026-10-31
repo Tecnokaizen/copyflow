@@ -13,6 +13,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { safeOnboardingEntryUrl } from "@/lib/onboarding/entry-destination";
+import {
+  STATUS_POLL_INTERVAL_MS,
+  nextOnboardingPollStep,
+  type OnboardingSuccessView,
+} from "@/lib/onboarding/success-polling";
 
 type StatusPayload = {
   state?: "awaiting_payment" | "processing" | "active" | "failed" | "disabled";
@@ -24,11 +29,20 @@ type StatusPayload = {
   };
 };
 
-export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
-  const [state, setState] = useState<string>("processing");
+export function OnboardingSuccessStatus({
+  sessionId,
+  signedInEmail = null,
+}: {
+  sessionId: string;
+  signedInEmail?: string | null;
+}) {
+  const [state, setState] = useState<OnboardingSuccessView>("processing");
   const [slug, setSlug] = useState<string | null>(null);
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
+  const [lastHttpStatus, setLastHttpStatus] = useState<number | null>(null);
+  // Bumped by «Volver a comprobar» to start a new polling round.
+  const [round, setRound] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +53,8 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
         return;
       }
       setAttempts(attempt);
+      let httpStatus: number | null = null;
+      let body: StatusPayload | null = null;
       try {
         const response = await fetch(
           `/api/onboarding/status?session_id=${encodeURIComponent(sessionId)}`,
@@ -48,44 +64,48 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
             credentials: "include",
           }
         );
+        httpStatus = response.status;
         if (response.ok) {
-          const body = (await response.json()) as StatusPayload;
-          if (body.state) {
-            setState(body.state);
-          }
-          if (typeof body.tenant?.slug === "string") {
-            setSlug(body.tenant.slug);
-            // Server-built destination, re-checked here: same origin outside
-            // Production, the real tenant host only on the Production app.
-            setEntryUrl(
-              safeOnboardingEntryUrl(
-                body.tenant.entry_url,
-                body.tenant.slug,
-                window.location
-              )
-            );
-          }
-          if (body.state === "active") {
-            return;
-          }
-          if (body.state === "failed" || body.state === "disabled") {
-            return;
-          }
+          body = (await response.json().catch(() => null)) as StatusPayload | null;
         }
       } catch {
-        // keep processing
+        httpStatus = null; // network failure: retried below
+      }
+      if (cancelled) {
+        return;
+      }
+      setLastHttpStatus(httpStatus);
+
+      if (body && typeof body.tenant?.slug === "string") {
+        setSlug(body.tenant.slug);
+        // Server-built destination, re-checked here: same origin outside
+        // Production, the real tenant host only on the Production app.
+        setEntryUrl(
+          safeOnboardingEntryUrl(
+            body.tenant.entry_url,
+            body.tenant.slug,
+            window.location
+          )
+        );
       }
 
-      if (attempt >= 24) {
-        setState((current) =>
-          current === "processing" ? "processing" : current
-        );
+      // Never hide an error: stop on a non-retryable answer and always end on
+      // a visible state after the last attempt.
+      const step = nextOnboardingPollStep({
+        httpStatus,
+        bodyState: body?.state,
+        attempt,
+      });
+      if (step.view) {
+        setState(step.view);
+      }
+      if (!step.pollAgain) {
         return;
       }
 
       timer = setTimeout(() => {
         void poll(attempt + 1);
-      }, 2500);
+      }, STATUS_POLL_INTERVAL_MS);
     }
 
     void poll(1);
@@ -96,7 +116,14 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
         clearTimeout(timer);
       }
     };
-  }, [sessionId]);
+  }, [sessionId, round]);
+
+  function checkAgain() {
+    setState("processing");
+    setAttempts(0);
+    setLastHttpStatus(null);
+    setRound((current) => current + 1);
+  }
 
   useEffect(() => {
     if (state !== "active" || !entryUrl) {
@@ -160,6 +187,91 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
         </CardHeader>
         <CardContent>
           <LogoutButton variant="outline" className="w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "forbidden") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Esta cuenta no puede confirmar el pago</CardTitle>
+          <CardDescription>
+            {signedInEmail
+              ? `Has iniciado sesión como ${signedInEmail}, que no es la cuenta propietaria de la organización de este pago.`
+              : "Has iniciado sesión con una cuenta que no es la propietaria de la organización de este pago."}{" "}
+            Cierra sesión, entra con la cuenta con la que hiciste el alta y vuelve a abrir este enlace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LogoutButton variant="outline" className="w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "unauthenticated") {
+    const next = `/onboarding/success?session_id=${encodeURIComponent(sessionId)}`;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Tu sesión ha terminado</CardTitle>
+          <CardDescription>
+            Vuelve a iniciar sesión con la cuenta con la que hiciste el alta para
+            terminar de confirmar el pago.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild className="w-full">
+            <Link href={`/auth/login?next=${encodeURIComponent(next)}`}>Iniciar sesión</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "invalid") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">No podemos validar este pago</CardTitle>
+          <CardDescription>
+            El enlace de confirmación no corresponde a un pago reconocido
+            {lastHttpStatus ? ` (código ${lastHttpStatus})` : ""}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button type="button" className="w-full" onClick={checkAgain}>
+            Volver a comprobar
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/onboarding">Volver al onboarding</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "timeout") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">Todavía no podemos confirmar tu suscripción</CardTitle>
+          <CardDescription>
+            La comprobación ha tardado más de lo esperado. Puedes volver a
+            comprobarlo: no se repite el pago.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {lastHttpStatus === null
+              ? "Última respuesta: sin conexión con el servidor."
+              : `Última respuesta: código ${lastHttpStatus}.`}
+          </p>
+          <Button type="button" className="w-full" onClick={checkAgain}>
+            Volver a comprobar
+          </Button>
         </CardContent>
       </Card>
     );
