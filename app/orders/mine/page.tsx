@@ -16,6 +16,7 @@ import {
 import { canAccessCounter } from "@/lib/nav/items";
 import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import type { MineQueueSection } from "@/lib/orders/mine";
+import type { MineTurnBucket } from "@/lib/orders/work-turn";
 import {
   MINE_ORDERS_PAGE_DESCRIPTION,
   unlinkedMineOrdersCopy,
@@ -29,6 +30,8 @@ type MineResponse = {
   timezone?: string;
   today?: string;
   sections?: MineQueueSection[];
+  /** SUR4 E9: only with the work sequence (chips Todo / Me toca / …). */
+  work_sequence?: { buckets?: MineTurnBucket[] };
   error?: string;
 };
 
@@ -170,6 +173,7 @@ function MyOrdersContent() {
         <MyOrdersQueue
           linked={data?.linked === true}
           sections={data?.sections ?? []}
+          turnBuckets={data?.work_sequence?.buckets}
           today={data?.today ?? ""}
           timezone={data?.timezone ?? "Europe/Madrid"}
           unlinkedCopy={unlinkedMineOrdersCopy({

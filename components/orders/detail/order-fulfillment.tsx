@@ -9,6 +9,8 @@ import {
   formatCustomerNotificationStatus,
   formatDate,
 } from "@/lib/orders/format";
+import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
+import type { OrderLabels } from "@/lib/orders/labels";
 import type {
   ManagementOptionsResponse,
   Order,
@@ -24,6 +26,8 @@ export function OrderFulfillment({
   canWrite,
   onCollectionChanged,
   onDraftChange,
+  labels,
+  onCollectionLoaded,
 }: {
   order: Order;
   draft: OrderDraft | null;
@@ -33,6 +37,8 @@ export function OrderFulfillment({
   canWrite: boolean;
   onCollectionChanged: () => void;
   onDraftChange: (patch: Partial<OrderDraft>) => void;
+  labels?: OrderLabels;
+  onCollectionLoaded?: (collection: OrderCollectionData) => void;
 }) {
   if (editing && draft) {
     return (
@@ -97,6 +103,8 @@ export function OrderFulfillment({
           archived={Boolean(order.archived_at)}
           editing
           onChanged={onCollectionChanged}
+          labels={labels}
+          onCollectionLoaded={onCollectionLoaded}
         />
       </SectionCard>
     );
@@ -117,9 +125,6 @@ export function OrderFulfillment({
           )}
         />
       </FactRow>
-      <FactRow label="Fecha prevista" emphasis>
-        <FactValue value={formatDate(order.due_at)} />
-      </FactRow>
       <FactRow label="Terminado">
         <FactValue value={formatDate(order.ready_at)} />
       </FactRow>
@@ -133,6 +138,8 @@ export function OrderFulfillment({
         archived={Boolean(order.archived_at)}
         editing={false}
         onChanged={onCollectionChanged}
+        labels={labels}
+        onCollectionLoaded={onCollectionLoaded}
       />
     </SectionCard>
   );

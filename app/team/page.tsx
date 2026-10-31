@@ -10,6 +10,7 @@ import { TeamMemberForm } from "@/components/team/team-member-form";
 import { TeamMemberLinkModal } from "@/components/team/team-member-link-modal";
 import { TeamModal } from "@/components/team/team-modal";
 import { canWriteTeam } from "@/lib/auth/membership-roles";
+import { createLatestRequest, fetchLatestJson } from "@/lib/refresh/latest-request";
 import {
   PERSONAL_HAS_ACCESS_LABEL,
   PERSONAL_NO_ACCESS_LABEL,
@@ -49,6 +50,8 @@ export default function TeamPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // Only the latest list request may apply (see lib/refresh/latest-request).
+  const [listRequest] = useState(createLatestRequest);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -71,6 +74,8 @@ export default function TeamPage() {
   }, []);
 
   useEffect(() => {
+    const ticket = listRequest.start();
+
     async function loadTeam() {
       setLoading(true);
       setError(null);
@@ -84,26 +89,35 @@ export default function TeamPage() {
           params.set("search", search);
         }
 
-        const response = await fetch(`/api/team?${params.toString()}`);
-        const result = await response.json();
+        const loaded = await fetchLatestJson(ticket, `/api/team?${params.toString()}`);
+        if (!loaded) {
+          return;
+        }
 
-        if (!response.ok) {
+        if (!loaded.response.ok) {
           throw new Error("No se pudo cargar el equipo");
         }
 
-        setData(result);
+        setData(loaded.body as TeamListResponse);
       } catch {
+        if (!ticket.isCurrent()) {
+          return;
+        }
         setData(null);
         setError("No se pudo cargar el equipo");
       } finally {
-        setLoading(false);
+        if (ticket.isCurrent()) {
+          setLoading(false);
+        }
       }
     }
 
     loadTeam();
-  }, [search, active, reloadToken]);
+    return () => listRequest.abort();
+  }, [listRequest, search, active, reloadToken]);
 
   async function refreshList() {
+    const ticket = listRequest.start();
     const params = new URLSearchParams({
       active,
     });
@@ -112,10 +126,16 @@ export default function TeamPage() {
       params.set("search", search);
     }
 
-    const response = await fetch(`/api/team?${params.toString()}`);
-    const result = await response.json();
-    if (response.ok) {
-      setData(result);
+    try {
+      const loaded = await fetchLatestJson(ticket, `/api/team?${params.toString()}`);
+      if (loaded?.response.ok) {
+        setData(loaded.body as TeamListResponse);
+      }
+    } finally {
+      // It may have superseded a load that showed the spinner.
+      if (ticket.isCurrent()) {
+        setLoading(false);
+      }
     }
   }
 

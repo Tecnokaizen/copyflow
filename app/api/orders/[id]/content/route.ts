@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { normalizePlainTitle } from "@/lib/orders/create";
 import { persistRichText } from "@/lib/rich-text/html";
+import { ORDER_RICH_TEXT } from "@/lib/orders/rich-text";
 
 const CONTENT_FIELDS = [
   "title",
@@ -49,7 +50,7 @@ function normalizeContentValue(
     if (typeof rawValue !== "string") {
       return { ok: false };
     }
-    return { ok: true, value: persistRichText(rawValue) };
+    return { ok: true, value: persistRichText(rawValue, ORDER_RICH_TEXT) };
   }
 
   if (rawValue == null) {

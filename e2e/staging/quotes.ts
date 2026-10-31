@@ -73,7 +73,17 @@ async function main(){
   });
   await h.step('multiline quote and independent duplicate through UI',async()=>{
    await p.goto(target.baseUrl+'/quotes/new');
-   await p.getByLabel('Título / trabajo',{exact:true}).fill(title);
+   // Creations left unacknowledged by earlier runs (last 48 h) lock the form behind the recovery panel.
+   // Fail with that cause instead of a fill timeout; acknowledging them is an owner decision, never done here.
+   const titleField=p.getByLabel('Título / trabajo',{exact:true});
+   const recoveryPanel=p.getByRole('region',{name:'Recuperación de presupuesto',exact:true});
+   await recoveryPanel.or(titleField.and(p.locator(':enabled'))).first().waitFor({timeout:30000});
+   if(await recoveryPanel.isVisible()){
+    const pending=await call('/api/quotes/creation-recovery');
+    const refs=(pending.body.receipts??[]).map((r:any)=>r.reference).join(', ')||`HTTP ${pending.status}`;
+    throw new Error(`/quotes/new is locked by unacknowledged quote creations from earlier runs (${refs}). They clear 48 h after creation, or with "Crear otro presupuesto" once the owner approves.`);
+   }
+   await titleField.fill(title);
    await p.getByPlaceholder(/^Buscar cliente por nombre/).fill(client);
    await p.getByRole('button',{name:new RegExp(client)}).click();
    await p.locator('[contenteditable="true"][aria-label="Descripción del trabajo"]').fill('Trabajo de prueba multilínea\nImpresión y acabado');
@@ -157,11 +167,23 @@ async function main(){
    result.orderReference=o.reference;result.checks.conversion=true;result.checks.notesInheritedAndEscaped=true;result.checks.noPrivateNotesInCustomerFields=true;result.checks.conversionReplay=true;
    await p.goto(`${target.baseUrl}/orders/${result.orderId}`);await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();await h.screenshot('converted-order-with-internal-notes');
    await p.reload();await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();result.checks.orderNotesPersist=true;
+   // #160 (SUR4 E2, N6/N18/N23): the work sheet never prints the order notes,
+   // private or not; the screen says so, and that notice is never printed.
    await p.goto(`${target.baseUrl}/orders/${result.orderId}/print`);
-   await p.getByText('INTERNO-PRIVADO-'+run,{exact:false}).first().waitFor();
-   assert.ok((await p.locator('body').innerText()).includes('Notas internas'));
-   result.checks.internalWorkshopSheetRetainsNotes=true;
-   await h.screenshot('internal-order-workshop-sheet');
+   const sheet=p.locator('.print-sheet').first();await sheet.waitFor();
+   const sheetText=await sheet.innerText();
+   assert.ok(sheetText.includes(o.reference),'the sheet is the converted order');
+   for(const leak of ['INTERNO-PRIVADO-',publicNote,'<interno>','&lt;interno&gt;','Notas internas'])assert.ok(!sheetText.includes(leak),`work sheet must not print ${leak}`);
+   const notice=p.getByRole('status').filter({hasText:'Este pedido tiene notas internas, que no se imprimen.'});
+   await notice.waitFor();
+   assert.equal(await sheet.locator('.print-notice').count(),0,'the notice is outside the printed sheet');
+   await h.screenshot('order-work-sheet-without-notes');
+   await p.emulateMedia({media:'print'});
+   assert.equal(await notice.isVisible(),false,'the notice is screen-only');
+   const printed=await p.locator('body').innerText();
+   for(const leak of ['INTERNO-PRIVADO-',publicNote])assert.ok(!printed.includes(leak),`print media must not show ${leak}`);
+   await p.emulateMedia({media:'screen'});
+   result.checks.workSheetOmitsOrderNotes=true;
   },180000);
   h.assertNoProductionEgress();
   assert.equal(h.blocked.filter(b=>b.url!=='https://vercel.live/_next-live/feedback/feedback.js').length,0);

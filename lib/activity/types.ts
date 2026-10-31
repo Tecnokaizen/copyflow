@@ -1,4 +1,9 @@
 import { canViewActivity } from "@/lib/auth/membership-roles";
+import {
+  NOTE_ACTIVITY_ACTIONS,
+  ORDER_WORK_ACTIVITY_OPTIONS,
+  WORK_STEP_ACTIVITY_ACTIONS,
+} from "@/lib/activity/order-work-activity";
 
 export const ACTIVITY_ENTITY_TYPES = [
   "order",
@@ -27,6 +32,8 @@ export const ACTIVITY_ACTIONS = [
   "order.total_changed",
   "order.payment_recorded",
   "order.payment_voided",
+  ...NOTE_ACTIVITY_ACTIONS,
+  ...WORK_STEP_ACTIVITY_ACTIONS,
   "service.created",
   "service.updated",
   "team_member.created",
@@ -119,6 +126,7 @@ export const ACTION_OPTIONS: { value: ActivityAction; label: string }[] = [
   { value: "order.total_changed", label: "Total del pedido" },
   { value: "order.payment_recorded", label: "Entrega a cuenta" },
   { value: "order.payment_voided", label: "Entrega anulada" },
+  ...ORDER_WORK_ACTIVITY_OPTIONS,
   { value: "client.created", label: "Cliente creado" },
   { value: "client.updated", label: "Cliente actualizado" },
   { value: "service.created", label: "Servicio creado" },

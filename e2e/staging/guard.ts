@@ -26,6 +26,11 @@ export type StagingTarget = {
   supabaseUrl: string;
   supabaseHost: string;
   r2Bucket: string;
+  /**
+   * SUR4 E10 `staging-branch` mode only: the tenant chosen with the Preview
+   * override (`?tenant=` → cookie `gc_preview_tenant`) on the branch URL.
+   */
+  previewTenant?: string;
 };
 
 export class StagingGuardError extends Error {
@@ -82,6 +87,34 @@ export function isProductionHost(host: string): boolean {
   return PRODUCTION_HOSTS.some((pattern) => pattern.test(host));
 }
 
+type Backend = { supabaseUrl: string; supabaseHost: string; r2Bucket: string };
+
+/** Staging Supabase project and R2 bucket, and nothing in the environment that disagrees. */
+function stagingBackend(env: Env): Backend {
+  const supabase = parseHttps("E2E_SUPABASE_URL", required(env, "E2E_SUPABASE_URL"));
+  const kind = classifySupabaseHost(supabase.hostname);
+  if (kind === "production") throw new StagingGuardError("E2E_SUPABASE_URL points to Production");
+  if (kind !== "staging") throw new StagingGuardError("E2E_SUPABASE_URL is not the Staging project");
+
+  const bucket = required(env, "E2E_R2_BUCKET");
+  if (PRODUCTION_R2_BUCKETS.has(bucket)) throw new StagingGuardError("E2E_R2_BUCKET is the Production bucket");
+  if (bucket !== STAGING_R2_BUCKET) throw new StagingGuardError(`E2E_R2_BUCKET must be ${STAGING_R2_BUCKET}`);
+
+  refuseAmbiguity(env, supabase.origin);
+  if (env.VERCEL_ENV === "production") throw new StagingGuardError("refusing to run with VERCEL_ENV=production");
+  return { supabaseUrl: supabase.origin, supabaseHost: supabase.hostname, r2Bucket: bucket };
+}
+
+/** A Production Supabase key or URL in the same environment makes the run ambiguous. */
+function refuseAmbiguity(env: Env, supabaseOrigin: string) {
+  for (const name of ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL"]) {
+    const value = env[name]?.trim();
+    if (value && value.replace(/\/$/, "") !== supabaseOrigin) {
+      throw new StagingGuardError(`${name} disagrees with E2E_SUPABASE_URL`);
+    }
+  }
+}
+
 export function resolveStagingTarget(env: Env = process.env): StagingTarget {
   const base = parseHttps("E2E_BASE_URL", required(env, "E2E_BASE_URL"));
   const expectedHost = `${E2E_TENANT_SLUG}.${PREVIEW_BASE_DOMAIN}`;
@@ -93,31 +126,89 @@ export function resolveStagingTarget(env: Env = process.env): StagingTarget {
     throw new StagingGuardError(`E2E_BASE_URL must be https://${expectedHost}`);
   }
 
-  const supabase = parseHttps("E2E_SUPABASE_URL", required(env, "E2E_SUPABASE_URL"));
-  const kind = classifySupabaseHost(supabase.hostname);
-  if (kind === "production") throw new StagingGuardError("E2E_SUPABASE_URL points to Production");
-  if (kind !== "staging") throw new StagingGuardError("E2E_SUPABASE_URL is not the Staging project");
+  return { baseUrl: base.origin, host: base.hostname, ...stagingBackend(env) };
+}
 
-  const bucket = required(env, "E2E_R2_BUCKET");
-  if (PRODUCTION_R2_BUCKETS.has(bucket)) throw new StagingGuardError("E2E_R2_BUCKET is the Production bucket");
-  if (bucket !== STAGING_R2_BUCKET) throw new StagingGuardError(`E2E_R2_BUCKET must be ${STAGING_R2_BUCKET}`);
+/**
+ * SUR4 E10 (contract §11): the four synthetic tenants of the feature matrix.
+ * Their hosts are derived here, never read from the environment, so a run can
+ * only reach these tenants (and `demo`, `audit`, `sur4`, `e2e` never).
+ */
+export const SUR4_TENANT_SLUGS = [
+  "e2e-sur4-base",
+  "e2e-sur4-postits",
+  "e2e-sur4-secuencia",
+  "e2e-sur4-completo",
+] as const;
+export type Sur4TenantSlug = (typeof SUR4_TENANT_SLUGS)[number];
 
-  // A Production Supabase key or URL in the same environment makes the run ambiguous.
-  for (const name of ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL"]) {
-    const value = env[name]?.trim();
-    if (value && value.replace(/\/$/, "") !== supabase.origin) {
-      throw new StagingGuardError(`${name} disagrees with E2E_SUPABASE_URL`);
-    }
+export type Sur4Mode = "staging" | "staging-branch" | "local";
+
+export type Sur4Targets = {
+  /**
+   * `staging`: one Preview host per tenant (`{slug}.preview.app.gestcopy.com`).
+   * `staging-branch`: the `gestcopy-staging` branch URL (`*.vercel.app`) for
+   * every tenant, each chosen with the Preview override `?tenant=`. It needs no
+   * tenant host; E10 uses it to test isolation when the tenant switches.
+   * `local`: `{slug}.localhost` + a local Supabase stack.
+   */
+  mode: Sur4Mode;
+  supabaseUrl: string;
+  supabaseHost: string;
+  tenants: Record<Sur4TenantSlug, StagingTarget>;
+};
+
+const LOCAL_SUPABASE = /^http:\/\/127\.0\.0\.1:(\d{2,5})$/;
+/** Vercel branch alias of `gestcopy-staging` in project `copyflow`: `copyflow-git-gestcopy-staging-<team>.vercel.app`. */
+const STAGING_BRANCH_HOST = /^copyflow-git-gestcopy-staging-[a-z0-9]+(?:-[a-z0-9]+)*\.vercel\.app$/;
+
+/**
+ * Staging by default. `E2E_SUR4_MODE=local` targets only loopback: the app on
+ * `http://{slug}.localhost:{E2E_SUR4_LOCAL_PORT}` and Supabase on
+ * `http://127.0.0.1:{port}`, with no R2 bucket (every R2 request is blocked).
+ */
+export function resolveSur4Targets(env: Env = process.env): Sur4Targets {
+  const mode = env.E2E_SUR4_MODE?.trim() || "staging";
+  if (mode !== "staging" && mode !== "staging-branch" && mode !== "local") {
+    throw new StagingGuardError("E2E_SUR4_MODE must be staging, staging-branch or local");
   }
-  if (env.VERCEL_ENV === "production") throw new StagingGuardError("refusing to run with VERCEL_ENV=production");
 
-  return {
-    baseUrl: base.origin,
-    host: base.hostname,
-    supabaseUrl: supabase.origin,
-    supabaseHost: supabase.hostname,
-    r2Bucket: bucket,
-  };
+  let backend: Backend;
+  let baseFor: (slug: Sur4TenantSlug) => string;
+  if (mode === "staging") {
+    backend = stagingBackend(env);
+    baseFor = (slug) => `https://${slug}.${PREVIEW_BASE_DOMAIN}`;
+  } else if (mode === "staging-branch") {
+    backend = stagingBackend(env);
+    const branch = parseHttps("E2E_SUR4_BRANCH_URL", required(env, "E2E_SUR4_BRANCH_URL"));
+    if (!STAGING_BRANCH_HOST.test(branch.hostname)) {
+      throw new StagingGuardError("E2E_SUR4_BRANCH_URL must be the gestcopy-staging branch URL (copyflow-git-gestcopy-staging-<team>.vercel.app)");
+    }
+    baseFor = () => branch.origin;
+  } else {
+    if (env.VERCEL_ENV) throw new StagingGuardError("local mode refuses to run with VERCEL_ENV set");
+    const supabaseUrl = required(env, "E2E_SUPABASE_URL").replace(/\/$/, "");
+    if (!LOCAL_SUPABASE.test(supabaseUrl)) {
+      throw new StagingGuardError("local mode needs E2E_SUPABASE_URL=http://127.0.0.1:<port>");
+    }
+    refuseAmbiguity(env, supabaseUrl);
+    const port = required(env, "E2E_SUR4_LOCAL_PORT");
+    if (!/^\d{2,5}$/.test(port)) throw new StagingGuardError("E2E_SUR4_LOCAL_PORT must be a port number");
+    backend = { supabaseUrl, supabaseHost: "127.0.0.1", r2Bucket: "" };
+    baseFor = (slug) => `http://${slug}.localhost:${port}`;
+  }
+
+  const tenants = Object.fromEntries(
+    SUR4_TENANT_SLUGS.map((slug) => {
+      const name: string = slug;
+      if (FOREIGN_SLUGS.has(name) || name === E2E_TENANT_SLUG) throw new StagingGuardError(`tenant ${slug} is reserved`);
+      const base = new URL(baseFor(slug));
+      const target: StagingTarget = { baseUrl: base.origin, host: base.hostname, ...backend };
+      if (mode === "staging-branch") target.previewTenant = slug;
+      return [slug, target];
+    }),
+  ) as Record<Sur4TenantSlug, StagingTarget>;
+  return { mode, supabaseUrl: backend.supabaseUrl, supabaseHost: backend.supabaseHost, tenants };
 }
 
 /**
