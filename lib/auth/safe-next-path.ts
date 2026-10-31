@@ -71,6 +71,24 @@ export function sessionResumePath(pathname: string, search = "") {
   return candidate;
 }
 
+const API_ENTRY = /^\/api(?:\/|$)/;
+
+/**
+ * Where to land after signing in or setting a new password.
+ * Only internal app pages: auth screens would loop and API routes are not pages.
+ */
+export function getPostAuthRedirectPath(
+  raw: string | null | undefined,
+  fallback = "/"
+): string {
+  const candidate = getSafeNextPath(raw, fallback);
+  const pathOnly = candidate.split(/[?#]/, 1)[0] ?? candidate;
+  if (AUTH_ENTRY.test(pathOnly) || API_ENTRY.test(pathOnly)) {
+    return fallback;
+  }
+  return candidate;
+}
+
 export function authHrefWithNext(
   authPath: string,
   next: string | null | undefined
@@ -102,6 +120,21 @@ export function buildAuthConfirmUrl(
   const destination = getSafeNextPath(next);
   const url = new URL("/auth/confirm", origin);
   url.searchParams.set("next", destination);
+  return url.toString();
+}
+
+export const AUTH_RECOVERY_PATH = "/auth/recovery";
+
+/**
+ * `redirectTo` for password recovery emails. Always carries `?next=`, so an
+ * email template can append `&token_hash=...&type=recovery` to it.
+ */
+export function buildAuthRecoveryUrl(
+  origin: string,
+  next: string | null | undefined
+): string {
+  const url = new URL(AUTH_RECOVERY_PATH, origin);
+  url.searchParams.set("next", getPostAuthRedirectPath(next));
   return url.toString();
 }
 
