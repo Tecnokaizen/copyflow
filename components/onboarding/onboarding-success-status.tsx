@@ -12,20 +12,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  resolveTenantOrigin,
-  tenantRequestContextFromLocation,
-} from "@/lib/tenant/domains";
+import { safeOnboardingEntryUrl } from "@/lib/onboarding/entry-destination";
 
 type StatusPayload = {
   state?: "awaiting_payment" | "processing" | "active" | "failed" | "disabled";
-  tenant?: { slug?: string; name?: string; active?: boolean };
+  tenant?: {
+    slug?: string;
+    name?: string;
+    active?: boolean;
+    entry_url?: string | null;
+  };
 };
 
 export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
   const [state, setState] = useState<string>("processing");
   const [slug, setSlug] = useState<string | null>(null);
-  const [tenantOrigin, setTenantOrigin] = useState<string | null>(null);
+  const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
@@ -53,11 +55,15 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
           }
           if (typeof body.tenant?.slug === "string") {
             setSlug(body.tenant.slug);
-            const origin = resolveTenantOrigin(
-              body.tenant.slug,
-              tenantRequestContextFromLocation(window.location)
+            // Server-built destination, re-checked here: same origin outside
+            // Production, the real tenant host only on the Production app.
+            setEntryUrl(
+              safeOnboardingEntryUrl(
+                body.tenant.entry_url,
+                body.tenant.slug,
+                window.location
+              )
             );
-            setTenantOrigin(`${origin}/auth/login`);
           }
           if (body.state === "active") {
             return;
@@ -93,14 +99,14 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   useEffect(() => {
-    if (state !== "active" || !tenantOrigin) {
+    if (state !== "active" || !entryUrl) {
       return;
     }
     const timeout = window.setTimeout(() => {
-      window.location.assign(tenantOrigin);
+      window.location.assign(entryUrl);
     }, 1800);
     return () => window.clearTimeout(timeout);
-  }, [state, tenantOrigin]);
+  }, [state, entryUrl]);
 
   if (state === "active") {
     return (
@@ -108,14 +114,15 @@ export function OnboardingSuccessStatus({ sessionId }: { sessionId: string }) {
         <CardHeader>
           <CardTitle className="text-2xl">Tu espacio Gestcopy está listo</CardTitle>
           <CardDescription>
-            Te estamos llevando a iniciar sesión en tu copistería
-            {slug ? ` (${slug})` : ""}.
+            {entryUrl
+              ? `Te estamos llevando a iniciar sesión en tu copistería${slug ? ` (${slug})` : ""}.`
+              : `Tu copistería${slug ? ` (${slug})` : ""} ya está activa, pero no hemos podido preparar el acceso automático desde esta dirección.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {tenantOrigin ? (
+          {entryUrl ? (
             <Button asChild className="w-full">
-              <a href={tenantOrigin}>Entrar ahora</a>
+              <a href={entryUrl}>Entrar ahora</a>
             </Button>
           ) : null}
         </CardContent>

@@ -72,8 +72,12 @@ export function buildOnboardingReturnUrls(origins: BillingReturnOrigins) {
   };
 }
 
-export function buildBillingReturnUrls(origins: BillingReturnOrigins, tenantSlug: string) {
+function assertTenantSlug(tenantSlug: string) {
   if (!SLUG_PATTERN.test(tenantSlug) || tenantSlug.length > 63) throw new Error("invalid_tenant_slug");
+}
+
+export function buildBillingReturnUrls(origins: BillingReturnOrigins, tenantSlug: string) {
+  assertTenantSlug(tenantSlug);
   const origin = origins.environment === "production" ? tenantOrigin(tenantSlug) : origins.appOrigin;
   const selector = origins.environment === "preview" ? `tenant=${encodeURIComponent(tenantSlug)}` : "";
   const base = `${origin}/settings/billing`;
@@ -82,6 +86,23 @@ export function buildBillingReturnUrls(origins: BillingReturnOrigins, tenantSlug
     cancelUrl: `${base}?${selector ? `${selector}&` : ""}canceled=1`,
     portalUrl: `${base}${selector ? `?${selector}` : ""}`,
   };
+}
+
+/**
+ * Where onboarding sends the new Owner once the tenant is active.
+ * - Production: the real tenant login, unchanged (`https://{slug}.app.gestcopy.com/auth/login`).
+ * - Preview: the same trusted app origin with `?tenant=slug`. The session cookies are
+ *   host-scoped, so staying on this origin keeps the user signed in, and the proxy turns
+ *   `?tenant=` into the Preview tenant cookie. Never a Production host.
+ * - Development: the adapter supplies the local `{slug}.localhost` origin.
+ */
+export function buildOnboardingEntryUrl(origins: BillingReturnOrigins, tenantSlug: string): string {
+  assertTenantSlug(tenantSlug);
+  if (origins.environment === "production") return `${tenantOrigin(tenantSlug)}/auth/login`;
+  if (origins.environment === "preview") {
+    return `${origins.appOrigin}/?tenant=${encodeURIComponent(tenantSlug)}`;
+  }
+  return `${origins.appOrigin}/auth/login`;
 }
 
 /** Old open sessions must not retain a return to another environment. */
