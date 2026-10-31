@@ -6,6 +6,7 @@ import { activateTenantAfterBilling } from "@/lib/onboarding/activate";
 import { isQualifyingActivationStatus } from "@/lib/onboarding/pending-tenant";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { finalizeCheckoutAttempt } from "@/lib/billing/checkout-attempts";
+import { redeemTenantOffer } from "@/lib/billing/offers";
 import { subscriptionIdFromInvoice } from "@/lib/billing/invoice-subscription";
 import { resolvePlanFromStripePriceId } from "@/lib/billing/resolve-plan-from-price";
 import {
@@ -269,6 +270,45 @@ async function syncSubscriptionFromStripe(input: {
   return { status: "processed" };
 }
 
+/**
+ * A Checkout paid with a tenant billing offer marks the offer redeemed, even
+ * when the subscription sync was held: the coupon was used in Stripe. The RPC
+ * is idempotent, so a retried event replays both steps safely.
+ */
+async function redeemOfferAfterCheckout(input: {
+  synced: WebhookProcessResult;
+  session: Stripe.Checkout.Session;
+  subscriptionId: string;
+  livemode: boolean;
+}): Promise<WebhookProcessResult> {
+  const offerId = input.session.metadata?.offer_id;
+  const tenantId =
+    input.session.client_reference_id ?? input.session.metadata?.tenant_id;
+  if (!offerId || !tenantId) {
+    return input.synced;
+  }
+
+  const redeemed = await redeemTenantOffer({
+    offerId,
+    tenantId,
+    livemode: input.livemode,
+    checkoutSessionId: input.session.id,
+    providerSubscriptionId: input.subscriptionId,
+  });
+
+  if (redeemed.outcome === "error" && input.synced.status === "processed") {
+    return { status: "failed", errorCode: "offer_redeem_failed", retryable: true };
+  }
+  if (redeemed.outcome === "rejected") {
+    console.error("[billing.webhook] offer redemption rejected", {
+      offerId,
+      sessionId: input.session.id,
+      reason: redeemed.reason,
+    });
+  }
+  return input.synced;
+}
+
 async function loadStripeSubscription(
   stripe: Stripe,
   subscriptionId: string
@@ -343,13 +383,19 @@ export async function processStripeEvent(input: {
           retryable: false,
         };
       }
-      return syncSubscriptionFromStripe({
+      const synced = await syncSubscriptionFromStripe({
         subscription,
         livemode: event.livemode,
         eventId: event.id,
         eventCreatedAt,
         sessionClientReferenceId: session.client_reference_id,
         sessionMetadataTenantId: session.metadata?.tenant_id,
+      });
+      return redeemOfferAfterCheckout({
+        synced,
+        session,
+        subscriptionId,
+        livemode: event.livemode,
       });
     }
 
