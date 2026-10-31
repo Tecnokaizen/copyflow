@@ -2,7 +2,9 @@
 
 Alcance, dependencias, riesgos y procedimiento de aplicación, verificación y recuperación. Complementa [BILLING-PRO-OFFERS-V1.md](BILLING-PRO-OFFERS-V1.md) (PR #158).
 
-**Estado (28/10/2026):**
+**Estado vigente (31/10/2026):** aplicada en Staging y Production. En Production se aplicó el 29/10 a las 19:47:23Z, por la portadora #163. Postcheck de Billing PASS a las 19:49:54Z. **No repetir, no reparar historial ni revertir en el cierre de checkout.** Evidencia: `~/copyflow-ops/billing-pro-sur4-p2/post-090000-billing-check-1-20261029T194939Z.md`. Los procedimientos siguientes documentan la aplicación histórica, no autorizan una nueva.
+
+**Estado histórico (28/10/2026):**
 - **Staging** (`fmmfsbhcwxkaszrrarpw`): aplicada. 87 migraciones. Autorización, verificación y compatibilidad en la sección 0.
 - Hay una copia completa de Staging, cifrada y restaurada con éxito en una base aislada, tomada **después** de aplicarla.
 - **Production** (`wsclqvlzjdgwkxbolhoy`): no aplicada ni autorizada.

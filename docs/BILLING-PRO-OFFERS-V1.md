@@ -1,6 +1,15 @@
 # Facturación · Gestcopy Pro y oferta SUR4 (V1)
 
-**Estado (28/10/2026):** rama `feat/billing-pro-plan-sur4` (base `main` e218939), PR en borrador [#158](https://github.com/Tecnokaizen/copyflow/pull/158).
+**Estado vigente (31/10/2026):** PR borrador [#158](https://github.com/Tecnokaizen/copyflow/pull/158) actualizada con `main` e148ec3. Conservados los 34 commits locales de documentación y la prueba reforzada de #163, idéntica a main. El historial de migraciones y el workflow Release Gate coinciden con main. Ningún merge a main, deploy Production ni operación Live está autorizado por esta actualización.
+
+**Hechos cerrados; NO REPETIR:**
+- F12 PASS, acta `~/copyflow-ops/billing-d2-d1/evidence/f11-f12-result-20261027T2222Z.md`.
+- `20261028090000` aplicada en Production el 29/10; postcheck PASS `~/copyflow-ops/billing-pro-sur4-p2/post-090000-billing-check-1-20261029T194939Z.md`, contrastado por la auditoría del 31/10. L1 queda sustituido por lectura; nunca ejecutar db push ni rollback para este cierre.
+- Main/Production avanzó a F4/#174 antes de esta sesión. F4, F5 y #153 quedan fuera del trabajo de checkout.
+
+**Bloqueos:** #161/S10 (ronda C entre navegadores y correo funcional), retorno Stripe (#177 y su E2E), auditoría directa de Stripe Gestcopy Live, CI de la combinación y copia v2 <2 h antes de publicar. La auditoría del 31/10 constató 2 precios Basic, 0 precios Pro y 0 ofertas en Production; este estado necesita una nueva comprobación antes de L2/L6. Portal Pro solo en Preview. No confundir hechos históricos con una lectura actual.
+
+**Secuencia exacta de GO:** véase [BILLING-STRIPE-CLOSE-20261031.md](BILLING-STRIPE-CLOSE-20261031.md).
 
 **Incluye las decisiones del 28/10:**
 - **D1:** calendario fijo de la oferta.
@@ -8,7 +17,7 @@
 
 **Fuera de alcance:** Stripe Tax y las decisiones fiscales.
 
-**Nada aplicado en Production ni en Stripe Live.** Staging queda pendiente del E2E de la sección 8.
+**Código de contratación Pro y objetos Live pendientes. La migración ya está aplicada en Production.** La sección 8 conserva evidencia histórica; el acta vigente prevalece sobre estados antiguos.
 
 **Migración:** alcance, dependencias, efecto en RLS y procedimiento de aplicación, verificación y recuperación en [BILLING-PRO-MIGRATION-20261028090000.md](BILLING-PRO-MIGRATION-20261028090000.md).
 
@@ -484,7 +493,7 @@ Pasos de la ronda:
 ### Production y Stripe Live (no autorizados)
 
 **Requisitos:**
-- F12 cerrado.
+- F12 ya cerrado: conservar su acta, no repetirlo.
 - Copia v2 de menos de 2 h.
 - E2E correcto.
 - Incidencia S10 del alta pública cerrada: es bloqueante (#161 y nueva prueba E2E en Staging).
@@ -521,7 +530,7 @@ Pasos de la ronda:
 | Paso | Qué |
 | --- | --- |
 | L0 | Merge de #158, con el orden fijado por la sesión de release, y despliegue |
-| L1 | Aplicar `20261028090000` (dry-run, después push). Postcheck: una migración más (hoy 86, la última `20261022130000`), plan `pro`, `plan_features` y `clients_import` `held`. **SUR4 sin importación.** |
+| L1 | **COMPLETADO. NO EJECUTAR.** `20261028090000` ya está aplicada en Production. Solo lectura del historial, plan Pro, derechos y `clients_import:held`. |
 | L2 | `bootstrap-stripe-catalog.ts --plan pro --inspect`, después `--create --confirm-live` |
 | L3 | Confirmar la configuración del portal por defecto sin cambio de plan. Después `tenant-billing-offer.ts portal` y `--confirm-live`, y `STRIPE_PORTAL_CONFIGURATION_PLAN_CHANGE` en Vercel Production con redespliegue. **Obligatorio antes de L7.** |
 | L4 | `tenant-billing-offer.ts coupon --coupon-id gestcopy-sur4-pro-39 --redeem-by 2026-11-02T13:53:09Z --name "Gestcopy Pro · oferta SUR4"`, después `--confirm-live` |
