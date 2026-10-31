@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { CHECKOUT_MODE_MISMATCH_CODE } from "@/lib/billing/checkout-attempts";
 import { resolveTenantIdFromCheckoutSession } from "@/lib/billing/tenant-from-webhook";
+import { onboardingEntryUrl } from "@/lib/billing/return-urls";
 import { getStripe } from "@/lib/billing/stripe";
 import {
   assertStripeConfig,
@@ -179,6 +180,12 @@ export async function GET(request: NextRequest) {
         : null,
   });
 
+  // Built from server configuration only (never the Host header). Only once active.
+  const entryUrl =
+    state === "active" && typeof tenant.slug === "string"
+      ? onboardingEntryUrl(request, tenant.slug)
+      : null;
+
   // session_id alone never activates — only report DB truth.
   return json(
     {
@@ -192,6 +199,7 @@ export async function GET(request: NextRequest) {
           typeof tenant.provisioning_state === "string"
             ? tenant.provisioning_state
             : null,
+        entry_url: entryUrl,
       },
       subscription: subscription
         ? {

@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
-  buildBillingReturnUrls, buildOnboardingReturnUrls, checkoutReturnUrlsMatch,
+  buildBillingReturnUrls, buildOnboardingEntryUrl, buildOnboardingReturnUrls, checkoutReturnUrlsMatch,
   resolveBillingReturnOrigins, type BillingReturnEnv,
 } from "./return-origins";
+import { resolveTenantOrigin } from "@/lib/tenant/domains";
 
 const preview: BillingReturnEnv = {
   VERCEL: "1", VERCEL_ENV: "preview", NODE_ENV: "production", STRIPE_MODE: "test",
@@ -133,5 +134,48 @@ describe("Stripe return URL builders and open sessions", () => {
     const service = checkout.slice(checkout.indexOf("export async function createCheckoutSessionForTenant"));
     assert.ok(service.indexOf("billingReturnUrls(") < service.indexOf("tenantHasCurrentNonStripeSubscription("));
     assert.match(service, /resolveReusableCheckoutSession\([\s\S]*?returnUrls,/);
+  });
+});
+
+describe("Onboarding entry URL (second hop after the Stripe success return)", () => {
+  it("keeps the Production tenant login byte for byte, with Test or Live", () => {
+    for (const STRIPE_MODE of ["test", "live"]) {
+      for (const configured of [undefined, "https://app.gestcopy.com", "https://app.gestcopy.com/"]) {
+        const resolved = origins({ ...production, STRIPE_MODE, BILLING_RETURN_APP_ORIGIN: configured });
+        assert.equal(buildOnboardingEntryUrl(resolved, "sur4"), "https://sur4.app.gestcopy.com/auth/login");
+      }
+    }
+    // Same value the success page built in the browser before this change.
+    const legacy = `${resolveTenantOrigin("s10-retornos-1031", { protocol: "https:", hostname: "app.gestcopy.com" })}/auth/login`;
+    assert.equal(buildOnboardingEntryUrl(origins(production), "s10-retornos-1031"), legacy);
+  });
+  it("stays on the configured Preview origin with ?tenant=slug, never a Production host", () => {
+    const resolved = origins(preview);
+    const url = buildOnboardingEntryUrl(resolved, "s10-retornos-1031");
+    assert.equal(url, "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app/?tenant=s10-retornos-1031");
+    assert.doesNotMatch(url, /app\.gestcopy\.com/);
+    for (const host of [preview.VERCEL_URL, preview.TENANT_PREVIEW_BASE_DOMAIN]) {
+      const other = origins({ ...preview, BILLING_RETURN_APP_ORIGIN: `https://${host}` });
+      assert.equal(buildOnboardingEntryUrl(other, "acme"), `https://${host}/?tenant=acme`);
+    }
+  });
+  it("ignores manipulated Host and forwarded host data", () => {
+    const spoofed = origins({ ...preview, Host: "evil.example", "X-Forwarded-Host": "sur4.app.gestcopy.com" });
+    assert.equal(buildOnboardingEntryUrl(spoofed, "acme"), buildOnboardingEntryUrl(origins(preview), "acme"));
+  });
+  it("gives no Preview entry when the Preview origin is missing or invalid", () => {
+    reject({ ...preview, BILLING_RETURN_APP_ORIGIN: undefined }, "not_configured");
+    reject({ ...preview, BILLING_RETURN_APP_ORIGIN: "https://sur4.app.gestcopy.com" }, "preview_origin_not_allowed");
+  });
+  it("refuses unsafe tenant slugs in every environment", () => {
+    for (const env of [preview, production]) {
+      for (const slug of ["", "../evil", "sur4.evil", "sur4&tenant=evil", "evil/x", "a b", "UPPER", "a".repeat(64)]) {
+        assert.throws(() => buildOnboardingEntryUrl(origins(env), slug), /invalid_tenant_slug/);
+      }
+    }
+  });
+  it("uses the validated local tenant origin in development", () => {
+    const local = { ...origins({ NODE_ENV: "development", STRIPE_MODE: "test" }), appOrigin: "http://acme.localhost:3000" };
+    assert.equal(buildOnboardingEntryUrl(local, "acme"), "http://acme.localhost:3000/auth/login");
   });
 });

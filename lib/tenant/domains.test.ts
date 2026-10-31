@@ -69,13 +69,14 @@ describe("tenant domains", () => {
     );
   });
 
-  it("onboarding success redirect uses resolveTenantOrigin, not production-only tenantOrigin", () => {
+  it("onboarding success redirect uses the server entry URL, never a client-built tenant host", () => {
     const success = readSource(
       "components/onboarding/onboarding-success-status.tsx"
     );
-    assert.match(success, /resolveTenantOrigin/);
-    assert.match(success, /tenantRequestContextFromLocation\(window\.location\)/);
-    assert.match(success, /\/auth\/login/);
+    // The destination comes from /api/onboarding/status (lib/billing/return-origins)
+    // and is re-checked by safeOnboardingEntryUrl; see entry-destination.test.ts.
+    assert.match(success, /safeOnboardingEntryUrl\(/);
+    assert.doesNotMatch(success, /resolveTenantOrigin|tenantRequestContextFromLocation/);
     assert.doesNotMatch(
       success,
       /window\.location\.assign\(tenantOrigin\(/
