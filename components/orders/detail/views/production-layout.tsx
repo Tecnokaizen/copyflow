@@ -1,43 +1,40 @@
 import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/contract";
 import { Block, Fold, ProductionBoard } from "@/components/orders/detail/views/parts";
+import { WorkSequencePresentationProvider } from "@/components/orders/work-sequence";
 
-// View C · Producción. For the workshop: what to do now comes first.
-// Compact header, production board (status, responsible, delivery, priority,
-// next status), then the work sequence and the post-its, then Trabajo and
-// Archivos side by side. Summary, payments, notes, quote and activity go in
-// «Administración», folded but mounted, and open while editing the draft.
+// On phones the sequence shows pending steps first (done ones fold away).
+const PENDING_FIRST = { pendingFirstOnMobile: true };
+
+// View C · Producción. For the workshop: what is pending and «Le toca» come
+// first. Production header (no amounts: they stay in «Cobro y entrega»), the
+// work sequence right below it, then the production board (status,
+// responsible, delivery, priority, next status), pinned and regular post-its,
+// and Trabajo and Archivos side by side. Summary, payments, notes, quote and
+// activity go in «Administración», folded but mounted, and open while editing.
 //
-// Mobile order: header, tablero, secuencia, post-its, Trabajo, Archivos,
-// Administración.
+// Without the sequence (feature off) the board leads.
+// Mobile order: header with actions, secuencia, tablero, fijados, post-its,
+// Trabajo, Archivos, seguimiento, Administración.
 export function ProductionOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
-  const highlights = [modules.sequence, modules.stickyNotes].filter(Boolean).length;
-
   return (
     <>
       {modules.notices}
-      {modules.headerCompact}
+      {modules.headerProduction}
+      <WorkSequencePresentationProvider value={PENDING_FIRST}>
+        <Block className="mb-4">{modules.sequence}</Block>
+      </WorkSequencePresentationProvider>
+
+      <ProductionBoard facts={facts} className="mb-4 sm:py-5" />
       <Block className="mb-4">{modules.pinnedNotes}</Block>
-
-      <ProductionBoard facts={facts} className="mb-5 sm:py-5" />
-      <Block className="mb-5">{modules.tracking}</Block>
-
-      {highlights > 0 ? (
-        <div
-          className={
-            highlights === 2
-              ? "mb-6 grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start"
-              : "mb-6 grid gap-5"
-          }
-        >
-          <Block>{modules.sequence}</Block>
-          <Block>{modules.stickyNotes}</Block>
-        </div>
-      ) : null}
+      <Block className="mb-6">{modules.stickyNotes}</Block>
 
       <div className="mb-6 grid gap-5 lg:grid-cols-2 lg:items-start">
         <Block>{modules.production}</Block>
         <Block>{modules.files}</Block>
       </div>
+
+      {/* Seguimiento (#153) after the floor work, before Administración. */}
+      <Block className="mb-6">{modules.tracking}</Block>
 
       <Fold
         title="Administración"

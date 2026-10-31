@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, ListOrdered, Pencil } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { MarkStepDoneDialog } from "@/components/orders/work-sequence/mark-step-done-dialog";
+import { useWorkSequencePresentation } from "@/components/orders/work-sequence/presentation";
 import { useAssignableMembers } from "@/components/orders/work-sequence/use-assignable-members";
 import { WorkSequenceEditor } from "@/components/orders/work-sequence/work-sequence-editor";
 import { WorkStepCard } from "@/components/orders/work-sequence/work-step-card";
@@ -58,6 +59,7 @@ export function OrderWorkSequence({
   className,
 }: OrderWorkSequenceProps) {
   const headingId = useId();
+  const { pendingFirstOnMobile } = useWorkSequencePresentation();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [notice, setNotice] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -318,9 +320,37 @@ export function OrderWorkSequence({
         ))}
       </ol>
 
+      {/* Order Detail Views V1 (view C, phones): done steps fold into one
+          line so the pending work and «Le toca» come first. */}
+      {pendingFirstOnMobile && progress.done > 0 && progress.done < steps.length ? (
+        <details className="mt-3 sm:hidden" data-done-steps>
+          <summary className="flex min-h-9 cursor-pointer items-center text-sm text-muted-foreground underline-offset-4 hover:underline">
+            {progress.done === 1 ? "1 paso hecho" : `${progress.done} pasos hechos`}
+          </summary>
+          <ol className="ml-1.5 mt-2 space-y-3 border-l-2 border-border pl-4">
+            {steps
+              .filter((step) => step.done)
+              .map((step) => (
+                <li key={step.id} className="relative">
+                  <span
+                    aria-hidden="true"
+                    className="absolute -left-[1.4rem] top-3 size-3 rounded-full border-2 border-foreground bg-foreground"
+                  />
+                  <WorkStepCard step={step} layout="row" {...cardProps} />
+                </li>
+              ))}
+          </ol>
+        </details>
+      ) : null}
+
       {/* Mobile: vertical list with the line of steps on the left. */}
       <ol className="ml-1.5 mt-3 space-y-3 border-l-2 border-border pl-4 sm:hidden">
-        {steps.map((step) => (
+        {steps
+          .filter(
+            (step) =>
+              !(pendingFirstOnMobile && step.done && progress.done < steps.length)
+          )
+          .map((step) => (
           <li key={step.id} className="relative">
             <span
               aria-hidden="true"

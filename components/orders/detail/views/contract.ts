@@ -9,7 +9,8 @@ import type { Order, OrderStatus } from "@/lib/orders/types";
 //
 // OrderWorkspace builds every module once and hands them to one layout. A
 // layout only decides where each module goes:
-// - it places every non-null module exactly once (header OR headerCompact);
+// - it places every non-null module exactly once, and exactly one header
+//   variant (header, headerCompact or headerProduction);
 // - it never loads data or keeps data state;
 // - hiding is not unmounting: tabs use `hidden` and folds use <details>, so a
 //   module keeps its state (uploads, forms) and never loads twice;
@@ -20,6 +21,7 @@ export const ORDER_DETAIL_MODULE_KEYS = [
   "notices",
   "header",
   "headerCompact",
+  "headerProduction",
   "pinnedNotes",
   "sequence",
   "tracking",
