@@ -184,12 +184,15 @@ describe("trusted Gestcopy origins", () => {
   it("checkout and onboarding use trusted origin resolvers", () => {
     const checkout = readSource("lib/billing/checkout.ts");
     const onboarding = readSource("app/api/onboarding/route.ts");
-    assert.match(checkout, /resolveTrustedTenantOrigin/);
+    assert.match(checkout, /billingReturnUrls/);
     assert.match(checkout, /resolveTrustedAppOrigin|appHostOriginFromRequest/);
     assert.doesNotMatch(
       checkout,
       /x-forwarded-host[\s\S]*\$\{proto\}:\/\/\$\{host/
     );
-    assert.match(onboarding, /appHostOriginFromRequest/);
+    assert.match(onboarding, /onboardingReturnUrls/);
+    const adapter = readSource("lib/billing/return-urls.ts");
+    assert.match(adapter, /resolveTrustedTenantOrigin/);
+    assert.match(adapter, /resolveBillingReturnOrigins/);
   });
 });

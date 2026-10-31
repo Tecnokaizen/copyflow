@@ -1,6 +1,10 @@
 # Orígenes de retorno de Stripe por entorno (propuesta V1)
 
-**Estado:** propuesta. No hay nada implementado ni cambiado en Vercel, Production ni Stripe Live.
+**Estado (31/10/2026):** implementación preparada en `fix/billing-return-origins-v1`, sobre `main` e148ec3. Sin cambios en Production ni Stripe Live. La configuración y el E2E de Staging se registrarán en el acta de cierre.
+
+**Validación local inicial:** 50/50 pruebas enfocadas en Node 22, incluidas las del handler real con PostgREST simulado. El guard devuelve 503 sin peticiones de datos ni llamadas a Stripe para configuración inválida. Release Gate: 0 migraciones cambiadas, PASS. CI completa pendiente.
+
+**Ajustes respecto a la propuesta:** el adaptador de servidor está en `lib/billing/return-urls.ts`; no modifica los resolvedores compartidos de otros flujos. Además, una sesión Checkout abierta con URLs antiguas se expira antes de reservar otra; un fallo o carrera durante esa expiración queda reintentable y bloquea crear otra sesión. Las sesiones completadas conservan el camino de reconciliación.
 
 **Origen:** incidencia «redirección de Checkout de Staging a Production» (`docs/BILLING-PRO-OFFERS-V1.md`). El 28/10 el propietario decidió corregirla con orígenes de retorno configurados y validados por entorno, sin confiar en cabeceras `Host` no verificadas.
 
