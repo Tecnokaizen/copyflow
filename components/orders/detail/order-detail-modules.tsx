@@ -196,6 +196,7 @@ export function buildOrderDetailModules(
     notices,
     header: <OrderHeader {...headerProps} />,
     headerCompact: <OrderHeader {...headerProps} density="compact" />,
+    headerProduction: <OrderHeader {...headerProps} density="production" />,
 
     // SUR4 E6: pinned post-its, only with order_sticky_notes.
     pinnedNotes: features.stickyNotes ? <OrderPinnedNotesStrip /> : null,

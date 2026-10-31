@@ -84,7 +84,6 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
       {modules.notices}
       {modules.header}
       <Block className="mb-4">{modules.pinnedNotes}</Block>
-      <Block className="mb-4">{modules.tracking}</Block>
 
       <div
         role="tablist"
@@ -128,6 +127,7 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
       <TabPanel id={panelId("summary")} labelledBy={tabId("summary")} active={active === "summary"}>
         <Block>{modules.sourceQuote}</Block>
         <Block>{modules.summary}</Block>
+        <Block>{modules.tracking}</Block>
       </TabPanel>
 
       <TabPanel id={panelId("work")} labelledBy={tabId("work")} active={active === "work"}>

@@ -13,6 +13,7 @@ import {
 } from "@/lib/auth/membership-roles";
 import { workSequenceEnabled } from "@/lib/orders/work-sequence/server";
 import { canManageQuickOrderLayout } from "@/lib/settings/quick-order-layout";
+import { canManageOrderDetailView } from "@/lib/settings/order-detail-view";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
@@ -29,6 +30,8 @@ export default async function SettingsPage() {
     context.membership.role
   );
   const showBilling = canManageBilling(context.membership.role);
+  // Order Detail Views V1: owner/admin choose the tenant's order page view.
+  const showPersonalization = canManageOrderDetailView(context.membership.role);
   const showOrganization = canManageOrganizationIdentity(
     context.membership.role
   );
@@ -147,6 +150,25 @@ export default async function SettingsPage() {
           </SectionCard>
         ) : null}
       </div>
+
+      {showPersonalization ? (
+        <section aria-labelledby="settings-personalization" className="mt-8">
+          <h2 id="settings-personalization" className="gc-section-title mb-4">
+            Personalización
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <SectionCard
+              title="Vista de pedidos"
+              description="Elige cómo se organiza la ficha de pedido para todo el equipo: operativa, por pestañas, de producción o híbrida."
+              bodyClassName="p-5 sm:p-6"
+            >
+              <Button asChild variant="outline">
+                <Link href="/settings/order-detail-view">Elegir vista</Link>
+              </Button>
+            </SectionCard>
+          </div>
+        </section>
+      ) : null}
     </AppShell>
   );
 }

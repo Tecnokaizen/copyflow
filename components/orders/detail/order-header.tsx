@@ -52,22 +52,24 @@ function OrderHeaderFigures({
   collection,
   dueAt,
   compact = false,
+  className = "",
 }: {
   labels: OrderLabels;
   collection: OrderCollection | null;
   dueAt: string | null;
   compact?: boolean;
+  className?: string;
 }) {
   const money = (value: string | null | undefined) =>
     value ? formatOrderMoney(value) : "Sin definir";
   return (
     <dl
       aria-label="Importes y entrega"
-      className={
+      className={`${
         compact
-          ? "grid w-full grid-cols-2 gap-x-4 gap-y-1 rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm sm:grid-cols-4 lg:w-auto lg:shrink-0"
+          ? "grid w-full grid-cols-4 gap-x-2 rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-xs sm:gap-x-4 sm:text-sm lg:w-auto lg:shrink-0"
           : "grid w-full grid-cols-2 gap-x-4 gap-y-2 rounded-[var(--radius)] border border-border bg-card px-4 py-3 text-sm lg:w-80 lg:shrink-0"
-      }
+      } ${className}`}
     >
       {collection ? (
         <>
@@ -85,15 +87,31 @@ function OrderHeaderFigures({
           </div>
           <div className="min-w-0">
             <dt className="text-muted-foreground">{labels.due}</dt>
-            <dd className="text-base font-bold tabular-nums text-foreground">
+            <dd
+              className={`${
+                compact ? "text-sm sm:text-base" : "text-base"
+              } font-bold tabular-nums text-foreground`}
+            >
               {money(collection.pending_amount)}
             </dd>
           </div>
         </>
       ) : null}
-      <div className={collection ? "min-w-0" : "col-span-2 min-w-0"}>
+      <div
+        className={
+          collection
+            ? "min-w-0"
+            : compact
+              ? "col-span-4 min-w-0"
+              : "col-span-2 min-w-0"
+        }
+      >
         <dt className="text-muted-foreground">Entrega</dt>
-        <dd className="text-base font-bold tabular-nums text-foreground">
+        <dd
+          className={`${
+            compact ? "text-sm sm:text-base" : "text-base"
+          } font-bold tabular-nums text-foreground`}
+        >
           {formatDate(dueAt)}
         </dd>
       </div>
@@ -149,12 +167,17 @@ export function OrderHeader({
   labels?: OrderLabels;
   collection?: OrderCollection | null;
   /**
-   * Order Detail Views V1: «compact» packs the same data and actions into
-   * less height (views A and D). Nothing is hidden or removed.
+   * Order Detail Views V1. Same data, actions and permissions in every
+   * density; only the arrangement changes:
+   * - «compact» (A, D): on phones the quick actions come right after the
+   *   title, the amounts fit one row, contact and printing fold away.
+   * - «production» (C): like compact, without the amounts in the header
+   *   (they stay in «Cobro y entrega»), so the work comes first.
    */
-  density?: "comfortable" | "compact";
+  density?: "comfortable" | "compact" | "production";
 }) {
-  const compact = density === "compact";
+  const lean = density !== "comfortable";
+  const showFigures = density !== "production";
   const priority = draft && editing ? draft.priority : order.priority;
   const dueAt = draft && editing ? draft.due_at : order.due_at;
   const title = draft && editing ? draft.title : order.title;
@@ -184,63 +207,109 @@ export function OrderHeader({
         client.email?.trim())
   );
 
+  const contact =
+    client && hasContact ? (
+      <>
+        {client.contact_name?.trim() ? (
+          <span>Contacto: {client.contact_name}</span>
+        ) : null}
+        {client.phone?.trim() ? (
+          <a
+            href={`tel:${client.phone.replace(/\s+/g, "")}`}
+            className="underline-offset-4 hover:underline"
+          >
+            {client.phone}
+          </a>
+        ) : null}
+        {client.email?.trim() ? (
+          <a
+            href={`mailto:${client.email}`}
+            className="break-all underline-offset-4 hover:underline"
+          >
+            {client.email}
+          </a>
+        ) : null}
+      </>
+    ) : null;
+
+  const printLinks = (
+    <>
+      <Link
+        href={`/orders/${order.id}/print`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="gc-action min-h-11 w-full lg:w-auto"
+        title="Hoja de trabajo interna, en A4"
+      >
+        Imprimir pedido
+      </Link>
+      <a
+        href={`/api/orders/${order.id}/receipt`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="gc-action min-h-11 w-full lg:w-auto"
+        title="Resguardo para el cliente, en PDF"
+      >
+        Resguardo PDF
+      </a>
+    </>
+  );
+
   return (
-    <header className={compact ? "mb-4 sm:mb-5" : "mb-6 sm:mb-8"}>
+    <header className={lean ? "mb-4 flex flex-col sm:mb-5" : "mb-6 sm:mb-8"}>
       <Link
         href="/orders"
-        className={`${compact ? "mb-1" : "mb-4"} inline-block min-h-11 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground`}
+        className={`${lean ? "mb-1 self-start" : "mb-4"} inline-block min-h-11 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground`}
       >
         ← Pedidos
       </Link>
 
+      {/* Lean densities: on phones this wrapper dissolves so the actions
+          (order-2) sit between the title (order-1) and the amounts (order-3). */}
       <div
         className={
-          compact
-            ? "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6"
+          lean
+            ? "contents lg:order-1 lg:flex lg:flex-row lg:items-center lg:justify-between lg:gap-6"
             : "flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6"
         }
       >
-        <div className="min-w-0">
+        <div className={lean ? "order-1 min-w-0" : "min-w-0"}>
           <p className="text-sm font-semibold tracking-wide text-muted-foreground">
             {order.reference}
           </p>
           <h1
             className={
-              compact
-                ? "mt-0.5 break-words text-2xl font-bold tracking-tight text-foreground"
+              lean
+                ? "mt-0.5 break-words text-xl font-bold tracking-tight text-foreground sm:text-2xl"
                 : "mt-1 break-words text-3xl font-bold tracking-tight text-foreground md:text-4xl"
             }
           >
             {title.trim() || "Sin título"}
           </h1>
-          <p className={compact ? "mt-1 text-sm text-foreground" : "mt-2 text-base text-foreground"}>
+          <p className={lean ? "mt-1 text-sm text-foreground" : "mt-2 text-base text-foreground"}>
             {clientLine(order)}
           </p>
-          {client && hasContact ? (
-            <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              {client.contact_name?.trim() ? (
-                <span>Contacto: {client.contact_name}</span>
-              ) : null}
-              {client.phone?.trim() ? (
-                <a
-                  href={`tel:${client.phone.replace(/\s+/g, "")}`}
-                  className="underline-offset-4 hover:underline"
-                >
-                  {client.phone}
-                </a>
-              ) : null}
-              {client.email?.trim() ? (
-                <a
-                  href={`mailto:${client.email}`}
-                  className="break-all underline-offset-4 hover:underline"
-                >
-                  {client.email}
-                </a>
-              ) : null}
-            </p>
+          {contact ? (
+            lean ? (
+              <>
+                <details className="mt-0.5 text-sm text-muted-foreground sm:hidden">
+                  <summary className="inline-flex min-h-9 cursor-pointer items-center underline-offset-4 hover:underline">
+                    Contacto
+                  </summary>
+                  <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{contact}</p>
+                </details>
+                <p className="mt-1 hidden flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground sm:flex">
+                  {contact}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                {contact}
+              </p>
+            )
           ) : null}
 
-          <div className={compact ? "mt-2 flex flex-wrap gap-2" : "mt-4 flex flex-wrap gap-2"}>
+          <div className={lean ? "mt-2 flex flex-wrap gap-2" : "mt-4 flex flex-wrap gap-2"}>
             {archived ? (
               <StatusBadge tone="neutral">Archivado</StatusBadge>
             ) : null}
@@ -256,34 +325,24 @@ export function OrderHeader({
           </div>
         </div>
 
-        <OrderHeaderFigures
-          labels={labels}
-          collection={collection}
-          dueAt={dueAt}
-          compact={compact}
-        />
+        {showFigures ? (
+          <OrderHeaderFigures
+            labels={labels}
+            collection={collection}
+            dueAt={dueAt}
+            compact={lean}
+            className={lean ? "order-3 mt-3 lg:mt-0" : ""}
+          />
+        ) : null}
       </div>
 
-      <div className={`${compact ? "mt-3" : "mt-5"} flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-start lg:justify-end`}>
-        <div className="grid grid-cols-2 gap-2 lg:flex">
-          <Link
-            href={`/orders/${order.id}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gc-action min-h-11 w-full lg:w-auto"
-            title="Hoja de trabajo interna, en A4"
-          >
-            Imprimir pedido
-          </Link>
-          <a
-            href={`/api/orders/${order.id}/receipt`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gc-action min-h-11 w-full lg:w-auto"
-            title="Resguardo para el cliente, en PDF"
-          >
-            Resguardo PDF
-          </a>
+      <div
+        className={`${
+          lean ? "order-2 mt-3 lg:order-2" : "mt-5"
+        } flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-start lg:justify-end`}
+      >
+        <div className={lean ? "hidden gap-2 lg:flex" : "grid grid-cols-2 gap-2 lg:flex"}>
+          {printLinks}
         </div>
         {editing ? (
           <div className="flex flex-col gap-2 lg:items-end">
@@ -330,7 +389,17 @@ export function OrderHeader({
             onSaveNote={onQuickNote}
             onNoteRequest={onNoteRequest}
             onArchive={onArchive}
+            compact={lean}
           />
+        ) : null}
+        {/* Lean densities, phones: printing folds away below the actions. */}
+        {lean ? (
+          <details className="lg:hidden">
+            <summary className="gc-action min-h-11 w-full cursor-pointer list-none text-center [&::-webkit-details-marker]:hidden">
+              Imprimir y resguardo
+            </summary>
+            <div className="mt-2 grid grid-cols-2 gap-2">{printLinks}</div>
+          </details>
         ) : null}
       </div>
     </header>

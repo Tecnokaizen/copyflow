@@ -1,13 +1,13 @@
 import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/contract";
-import { Block, Fold, ProductionBoard } from "@/components/orders/detail/views/parts";
+import { Block, ProductionBoard } from "@/components/orders/detail/views/parts";
 
 // View D · Híbrida (A + C). The compact operational page with production up
 // front: the production board, then the work sequence and the post-its side
 // by side, then Trabajo and Archivos with payments and summary beside them.
 //
 // Without sequence and post-its (features off) the board alone leads.
-// Mobile order: header, tablero, secuencia, post-its, Trabajo, Cobro y entrega,
-// Resumen, Archivos, notas, actividad.
+// Mobile order: header (acciones, importes), tablero, fijados, secuencia, post-its, Trabajo, Cobro y entrega,
+// Resumen, Archivos, seguimiento, notas, actividad.
 export function HybridOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
   const highlights = [modules.sequence, modules.stickyNotes].filter(Boolean).length;
 
@@ -15,10 +15,10 @@ export function HybridOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
     <>
       {modules.notices}
       {modules.headerCompact}
-      <Block className="mb-4">{modules.pinnedNotes}</Block>
-      <Block className="mb-4">{modules.tracking}</Block>
-
-      <ProductionBoard facts={facts} className="mb-5" />
+      {/* Balance on the first screen: amounts and actions (header), then the
+          board; pinned post-its right after it. */}
+      <ProductionBoard facts={facts} className="mb-4" />
+      <Block className="mb-5">{modules.pinnedNotes}</Block>
 
       {highlights > 0 ? (
         <div
@@ -37,10 +37,11 @@ export function HybridOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           <Block className="order-1">{modules.production}</Block>
           <Block className="order-4">{modules.files}</Block>
+          {/* Seguimiento (#153) below the work; the board leads the page. */}
+          <Block className="order-5">{modules.tracking}</Block>
           <Block className="order-5">{modules.legacyNotes}</Block>
-          <Fold className="order-6" title="Actividad del pedido">
-            <Block>{modules.activity}</Block>
-          </Fold>
+          {/* Activity folds itself («Actividad · N»). */}
+          <Block className="order-6">{modules.activity}</Block>
         </div>
 
         <aside

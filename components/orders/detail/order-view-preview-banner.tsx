@@ -22,22 +22,31 @@ export function OrderViewPreviewBanner({
   appliedView: OrderDetailViewCode;
 }) {
   return (
+    // One line on phones: the preview must not push the page it previews.
     <div
       role="status"
-      className="mb-4 flex flex-col gap-2 rounded-[var(--radius)] border border-primary/40 bg-primary/5 px-4 py-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between"
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius)] border border-primary/40 bg-primary/5 px-3 py-1.5 text-sm text-foreground sm:px-4 sm:py-2"
     >
-      <p>
-        <span className="font-semibold">Vista previa: {viewName(view)}.</span>{" "}
-        No se ha guardado nada. Tu equipo sigue viendo «{viewName(appliedView)}».
+      <p className="min-w-0 flex-1">
+        <span className="font-semibold">Vista previa: {viewName(view)}</span>
+        <span className="hidden sm:inline">
+          . No se ha guardado nada. Tu equipo sigue viendo «{viewName(appliedView)}».
+        </span>
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Link href="/settings/order-detail-view" className="gc-action min-h-11">
-          Volver a Configuración
-        </Link>
-        <Link href={`/orders/${orderId}`} className="gc-action min-h-11">
-          Salir de la vista previa
-        </Link>
-      </div>
+      <Link
+        href="/settings/order-detail-view"
+        className="inline-flex min-h-9 items-center font-medium text-primary underline-offset-4 hover:underline"
+        title="Volver a Configuración"
+      >
+        Configuración
+      </Link>
+      <Link
+        href={`/orders/${orderId}`}
+        className="inline-flex min-h-9 items-center font-medium text-primary underline-offset-4 hover:underline"
+        title="Salir de la vista previa"
+      >
+        Salir
+      </Link>
     </div>
   );
 }

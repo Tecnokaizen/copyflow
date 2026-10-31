@@ -5,7 +5,7 @@ import { Block, Fold } from "@/components/orders/detail/views/parts";
 // main column; payments and summary always beside it; sequence, post-its,
 // notes and activity in folds below the work so the page stays short.
 //
-// Mobile order: header, Trabajo, Cobro y entrega, Resumen, Archivos,
+// Mobile order: header, Trabajo, Cobro y entrega, Resumen, Archivos, seguimiento,
 // secuencia, post-its y notas, actividad.
 export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
   const hasNotes = Boolean(modules.stickyNotes) || Boolean(modules.legacyNotes);
@@ -15,21 +15,15 @@ export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProp
       {modules.notices}
       {modules.headerCompact}
       <Block className="mb-4">{modules.pinnedNotes}</Block>
-      <Block className="mb-4">{modules.tracking}</Block>
 
       <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] lg:items-start lg:gap-6">
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           <Block className="order-1">{modules.production}</Block>
           <Block className="order-4">{modules.files}</Block>
-          {modules.sequence ? (
-            <Fold
-              className="order-5"
-              title="Secuencia de trabajo"
-              defaultOpen
-            >
-              <Block>{modules.sequence}</Block>
-            </Fold>
-          ) : null}
+          {/* Seguimiento (#153) after the work, so Trabajo stays first. */}
+          <Block className="order-5">{modules.tracking}</Block>
+          {/* The sequence brings its own title and counter. */}
+          <Block className="order-5">{modules.sequence}</Block>
           {hasNotes ? (
             <Fold
               className="order-6"
@@ -42,9 +36,8 @@ export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProp
               <Block>{modules.legacyNotes}</Block>
             </Fold>
           ) : null}
-          <Fold className="order-7" title="Actividad del pedido">
-            <Block>{modules.activity}</Block>
-          </Fold>
+          {/* Activity folds itself («Actividad · N»). */}
+          <Block className="order-7">{modules.activity}</Block>
         </div>
 
         <aside
