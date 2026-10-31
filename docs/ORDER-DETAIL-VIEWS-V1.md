@@ -1,6 +1,6 @@
 # Order Detail Views V1 — cuatro vistas de la ficha de pedido
 
-Estado (30/10): **F1–F5 terminadas en la rama** `feat/order-detail-views-v1` (desde `main` f4e0ab5), validadas en local con tenants sintéticos. Sin migraciones, sin cambios en Staging ni en Production. Pendiente: revisión, integración en DEMO/Staging coordinada con la sesión operativa y autorización de merge.
+Estado (31/10): **F1–F4 publicadas en Production** (`main` e148ec3: #171, #172, #173 y #174, cada una con GO del propietario). F5 (#175: esta documentación y la E2E local) e integración con #153 pendientes. Sin migraciones. La ficha actual (`classic`) sigue siendo la predeterminada; ningún tenant tiene la clave hasta que un owner o admin guarde una vista.
 
 ## 1. Auditoría de la ficha actual (30/10)
 
@@ -105,8 +105,8 @@ PR apiladas en Draft (30/10), cada una con base en la anterior:
 | F1 | #171 | `…-f1` → `main` | Extracción (`useOrderWorkspace`, módulos, contrato, layout clásico). Sin cambio visible. |
 | F2 | #172 | `…-f2` → `…-f1` | Vistas A y D, pruebas de contrato. |
 | F3 | #173 | `…-f3` → `…-f2` | Vistas B y C. |
-| F4 | #174 | `…-f4` → `…-f3` | Configuración › Vista de pedidos, API, preferencia por tenant. |
-| F5 | #175 | `…-f5` → `…-f4` | E2E local, capturas, ajustes y esta documentación. |
+| F4 | #174 | `…-f4` → `…-f3` | Configuración › Vista de pedidos, API, preferencia por tenant; las diez capturas del selector y los ajustes visuales aprobados de A, C y D (31/10). |
+| F5 | #175 | `…-f5` → `…-f4` | E2E local y esta documentación. |
 
 Ninguna vista aparece como seleccionable hasta F4, con las cuatro terminadas.
 
