@@ -4,6 +4,10 @@
  * Usage:
  *   npx tsx scripts/billing/bootstrap-stripe-catalog.ts --inspect
  *   npx tsx scripts/billing/bootstrap-stripe-catalog.ts --create --confirm-test
+ *   npx tsx scripts/billing/bootstrap-stripe-catalog.ts --plan pro --create --confirm-test
+ *
+ * --plan basic (default) | pro. The Stripe amount must equal the plan's
+ * price_monthly in the database (20261028090000 adds pro at 79 EUR).
  *
  * Never creates Live objects unless STRIPE_MODE=live AND --confirm-live.
  * Does not run automatically on app boot.
@@ -22,6 +26,17 @@ function hasFlag(name: string) {
   return process.argv.includes(name);
 }
 
+function flagValue(name: string): string | null {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? (process.argv[index + 1] ?? null) : null;
+}
+
+const CATALOG = {
+  basic: { productName: "Gestcopy Basic", unitAmount: 3900 },
+  pro: { productName: "Gestcopy Pro", unitAmount: 7900 },
+} as const;
+type CatalogPlan = keyof typeof CATALOG;
+
 function requireEnv(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -35,6 +50,13 @@ async function main() {
   const create = hasFlag("--create");
   const confirmTest = hasFlag("--confirm-test");
   const confirmLive = hasFlag("--confirm-live");
+  const planCode = (flagValue("--plan") ?? "basic") as CatalogPlan;
+  if (!(planCode in CATALOG)) {
+    console.error("--plan must be basic or pro");
+    process.exitCode = 1;
+    return;
+  }
+  const catalog = CATALOG[planCode];
 
   const config = assertStripeConfig();
   if (!config.ok) {
@@ -80,12 +102,24 @@ async function main() {
 
   const { data: plan, error: planError } = await admin
     .from("plans")
-    .select("id, code, name, active")
-    .eq("code", "basic")
+    .select("id, code, name, active, price_monthly, currency")
+    .eq("code", planCode)
     .maybeSingle();
 
   if (planError || !plan) {
-    console.error("Plan basic not found in DB");
+    console.error(`Plan ${planCode} not found in DB`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    Math.round(Number(plan.price_monthly) * 100) !== catalog.unitAmount ||
+    String(plan.currency).toUpperCase() !== "EUR" ||
+    plan.active !== true
+  ) {
+    console.error(
+      `Plan ${planCode} in DB (${plan.price_monthly} ${plan.currency}, active=${plan.active}) does not match the catalog (${catalog.unitAmount / 100} EUR)`
+    );
     process.exitCode = 1;
     return;
   }
@@ -135,19 +169,19 @@ async function main() {
   });
 
   const product = await stripe.products.create({
-    name: "Gestcopy Basic",
+    name: catalog.productName,
     metadata: {
-      gestcopy_plan_code: "basic",
+      gestcopy_plan_code: planCode,
     },
   });
 
   const price = await stripe.prices.create({
     product: product.id,
-    unit_amount: 3900,
+    unit_amount: catalog.unitAmount,
     currency: "eur",
     recurring: { interval: "month" },
     metadata: {
-      gestcopy_plan_code: "basic",
+      gestcopy_plan_code: planCode,
     },
   });
 
@@ -158,7 +192,7 @@ async function main() {
     provider_price_id: price.id,
     billing_interval: "month",
     currency: "EUR",
-    unit_amount: 3900,
+    unit_amount: catalog.unitAmount,
     livemode,
     active: true,
   });

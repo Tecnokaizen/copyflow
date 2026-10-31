@@ -1,3 +1,5 @@
+import { assertBillingReturnConfig } from "@/lib/billing/return-urls";
+import { BILLING_RETURN_ORIGIN_ERROR } from "@/lib/billing/return-origins";
 import { NextRequest, NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
@@ -8,13 +10,22 @@ import {
   CheckoutPendingReconciliationError,
   CheckoutProcessingError,
   CheckoutTransientError,
+  CheckoutOfferUnavailableError,
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   INTERNAL_SUBSCRIPTION_CURRENT_CODE,
   SUBSCRIPTION_PENDING_RECONCILIATION_CODE,
   createCheckoutSessionForTenant,
   parseCheckoutRequest,
 } from "@/lib/billing/checkout";
-import { assertStripeConfig } from "@/lib/billing/stripe-config";
+import {
+  OFFER_UNAVAILABLE_CODE,
+  acceptOfferForCheckout,
+  type AcceptedOffer,
+} from "@/lib/billing/offers";
+import {
+  assertStripeConfig,
+  stripeModeToLivemode,
+} from "@/lib/billing/stripe-config";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 
 const NO_STORE = {
@@ -31,6 +42,12 @@ export async function POST(request: NextRequest) {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
   }
 
+  const returnConfig = assertBillingReturnConfig();
+  if (!returnConfig.ok) {
+    console.error("[billing.return-origin] invalid configuration", { reason: returnConfig.reason });
+    return json({ error: "Billing return origin is not configured", code: BILLING_RETURN_ORIGIN_ERROR }, 503);
+  }
+
   const stripeConfig = assertStripeConfig();
   if (!stripeConfig.ok) {
     return json({ error: "Billing is not configured" }, 503);
@@ -45,10 +62,33 @@ export async function POST(request: NextRequest) {
 
   const parsed = parseCheckoutRequest(body);
   if (!parsed.ok) {
-    return json({ error: parsed.error }, 400);
+    return json(
+      parsed.code ? { error: parsed.error, code: parsed.code } : { error: parsed.error },
+      parsed.code ? 403 : 400
+    );
   }
 
   try {
+    // Offer Checkout: the owner accepts the terms shown (hash), recorded now.
+    let offer: AcceptedOffer | null = null;
+    if (parsed.offer) {
+      const accepted = await acceptOfferForCheckout({
+        tenantId: context.tenant.id,
+        userId: context.user.id,
+        planCode: parsed.planCode,
+        offerId: parsed.offer.offerId,
+        termsHash: parsed.offer.termsHash,
+        livemode: stripeModeToLivemode(stripeConfig.mode),
+      });
+      if (!accepted.ok) {
+        return json(
+          { error: "The offer is not available with these terms", code: accepted.code },
+          409
+        );
+      }
+      offer = accepted.accepted;
+    }
+
     const session = await createCheckoutSessionForTenant({
       request,
       tenantId: context.tenant.id,
@@ -57,6 +97,7 @@ export async function POST(request: NextRequest) {
       billingInterval: parsed.billingInterval,
       customerEmail: context.user.email,
       flow: "billing",
+      offer,
     });
 
     return json({ url: session.url, session_id: session.sessionId }, 200);
@@ -94,6 +135,12 @@ export async function POST(request: NextRequest) {
           error: "Checkout completed; subscription confirmation in progress",
           code: CHECKOUT_PROCESSING_CODE,
         },
+        409
+      );
+    }
+    if (error instanceof CheckoutOfferUnavailableError) {
+      return json(
+        { error: "The offer cannot be used right now", code: OFFER_UNAVAILABLE_CODE },
         409
       );
     }

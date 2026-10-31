@@ -1,5 +1,7 @@
 import "server-only";
 
+import { billingReturnUrls } from "@/lib/billing/return-urls";
+
 import { NextRequest } from "next/server";
 
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
@@ -18,20 +20,26 @@ import {
   tenantHasCurrentNonStripeSubscription,
 } from "@/lib/billing/current-subscription";
 import { resolveStripePrice } from "@/lib/billing/resolve-price";
+import { offerCheckoutExpiresAtUnix } from "@/lib/billing/offer-terms";
+import {
+  OFFER_UNAVAILABLE_CODE,
+  verifyOfferCoupon,
+  type AcceptedOffer,
+} from "@/lib/billing/offers";
+import { isSelfServePlanCode } from "@/lib/billing/access";
 import { getStripe } from "@/lib/billing/stripe";
 import {
   getStripeMode,
+  portalConfigurationForPlan,
   stripeModeToLivemode,
 } from "@/lib/billing/stripe-config";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   BillingIntervalAllowed,
   BillingPlanCode,
 } from "@/lib/billing/access";
 import { CURRENT_SUBSCRIPTION_EXISTS_CODE } from "@/lib/billing/webhook-errors";
-import {
-  resolveTrustedAppOrigin,
-  resolveTrustedTenantOrigin,
-} from "@/lib/tenant/request-origin";
+import { resolveTrustedAppOrigin } from "@/lib/tenant/request-origin";
 
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
@@ -96,6 +104,25 @@ export class CheckoutPriceModeMismatchError extends Error {
   }
 }
 
+/**
+ * The offer cannot be used in a Checkout now: its window closed (anchor or
+ * redeem_by too close) or the Stripe coupon does not match the offer.
+ */
+export class CheckoutOfferUnavailableError extends Error {
+  readonly code = OFFER_UNAVAILABLE_CODE;
+
+  constructor(readonly reason: string) {
+    super(`Billing offer unavailable: ${reason}`);
+    this.name = "CheckoutOfferUnavailableError";
+  }
+}
+
+/** Stripe Checkout custom text is limited to 1200 characters. */
+export function offerSubmitMessage(lines: string[]): string {
+  const text = lines.join(" ");
+  return text.length <= 1200 ? text : `${text.slice(0, 1199)}…`;
+}
+
 /** @deprecated Prefer resolveTrustedAppOrigin — kept for onboarding call sites. */
 export function appHostOriginFromRequest(request: NextRequest): string {
   return resolveTrustedAppOrigin(request);
@@ -114,6 +141,7 @@ async function createStripeCheckoutForAttempt(input: {
   idempotencyKey: string;
   expiresAt: string;
   livemode: boolean;
+  offer?: AcceptedOffer | null;
 }): Promise<{ url: string; sessionId: string }> {
   const price = await resolveStripePrice({
     planCode: input.planCode,
@@ -125,17 +153,59 @@ async function createStripeCheckoutForAttempt(input: {
   }
 
   const stripe = getStripe();
+  const offer = input.offer ?? null;
+  let expiresAtUnix = reservedExpiresAtUnix(input.expiresAt);
+  if (offer) {
+    if (
+      offer.offer.planCode !== input.planCode ||
+      offer.offer.livemode !== input.livemode
+    ) {
+      throw new CheckoutOfferUnavailableError("offer_plan_or_mode_mismatch");
+    }
+    const capped = offerCheckoutExpiresAtUnix({
+      terms: offer.terms,
+      reservedExpiresAtUnix: expiresAtUnix,
+      nowMs: Date.now(),
+    });
+    if (capped === null) {
+      throw new CheckoutOfferUnavailableError("offer_window_closed");
+    }
+    expiresAtUnix = capped;
+    const couponCheck = await verifyOfferCoupon({
+      stripe,
+      offer: offer.offer,
+      productId: price.providerProductId,
+      sessionExpiresAtUnix: expiresAtUnix,
+    });
+    if (!couponCheck.ok) {
+      console.error("[billing.checkout] offer coupon check failed", {
+        offerId: offer.offer.offerId,
+        reason: couponCheck.reason,
+      });
+      throw new CheckoutOfferUnavailableError(couponCheck.reason);
+    }
+  }
+
   const existingCustomerId = await resolveStripeCustomerIdForTenant(
     input.tenantId,
     input.livemode
   );
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const successUrl =
     input.successUrl ??
-    `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+    returns.successUrl;
   const cancelUrl =
-    input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
-  const expiresAtUnix = reservedExpiresAtUnix(input.expiresAt);
+    input.cancelUrl ?? returns.cancelUrl;
+
+  // Offer: the coupon, the accepted terms on the payment page and, when the
+  // terms are anchored, no charge until the anchor (no proration).
+  const offerMetadata: Record<string, string> = offer
+    ? { offer_id: offer.offer.offerId, offer_terms_hash: offer.terms.hash }
+    : {};
+  const anchorUnix =
+    offer?.terms.anchorAt != null
+      ? Math.floor(Date.parse(offer.terms.anchorAt) / 1000)
+      : null;
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -150,16 +220,29 @@ async function createStripeCheckoutForAttempt(input: {
         : input.customerEmail
           ? { customer_email: input.customerEmail }
           : {}),
+      ...(offer
+        ? {
+            discounts: [{ coupon: offer.offer.providerCouponId }],
+            custom_text: {
+              submit: { message: offerSubmitMessage(offer.terms.lines) },
+            },
+          }
+        : {}),
       metadata: {
         tenant_id: input.tenantId,
         plan_code: input.planCode,
         checkout_attempt_id: input.attemptId,
+        ...offerMetadata,
       },
       subscription_data: {
         metadata: {
           tenant_id: input.tenantId,
           plan_code: input.planCode,
+          ...offerMetadata,
         },
+        ...(anchorUnix !== null
+          ? { billing_cycle_anchor: anchorUnix, proration_behavior: "none" as const }
+          : {}),
       },
     },
     { idempotencyKey: input.idempotencyKey }
@@ -195,8 +278,20 @@ export async function createCheckoutSessionForTenant(input: {
   /** Absolute cancel URL. */
   cancelUrl?: string;
   flow?: "billing" | "onboarding";
+  /** Required for plans that are not self-serve (Pro). */
+  offer?: AcceptedOffer | null;
 }): Promise<{ url: string; sessionId: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
+  const returnUrls = {
+    successUrl: input.successUrl ?? returns.successUrl,
+    cancelUrl: input.cancelUrl ?? returns.cancelUrl,
+  };
   const livemode = stripeModeToLivemode(getStripeMode());
+  const offer = input.offer ?? null;
+
+  if (!offer && !isSelfServePlanCode(input.planCode)) {
+    throw new CheckoutOfferUnavailableError("offer_required");
+  }
 
   // Internal trials/pilots are invisible to the prepare RPC (Stripe rows only).
   if (await tenantHasCurrentNonStripeSubscription(input.tenantId)) {
@@ -230,10 +325,17 @@ export async function createCheckoutSessionForTenant(input: {
     }
 
     if (prepared.outcome === "reuse") {
+      // An open session for another plan, offer or terms is expired, not reused.
       const resolved = await resolveReusableCheckoutSession({
         attemptId: prepared.attemptId,
         sessionId: prepared.sessionId,
         livemode,
+        returnUrls,
+        expected: {
+          planCode: input.planCode,
+          offerId: offer?.offer.offerId ?? null,
+          termsHash: offer?.terms.hash ?? null,
+        },
       });
 
       if (resolved.kind === "open") {
@@ -261,6 +363,7 @@ export async function createCheckoutSessionForTenant(input: {
       idempotencyKey: prepared.idempotencyKey,
       expiresAt: prepared.expiresAt,
       livemode,
+      offer,
     });
   }
 
@@ -272,18 +375,43 @@ export async function createPortalSessionForTenant(input: {
   tenantId: string;
   tenantSlug: string;
 }): Promise<{ url: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const customerId = await resolveStripeCustomerIdForTenant(input.tenantId);
   if (!customerId) {
     throw new Error("missing_stripe_customer");
   }
 
   const stripe = getStripe();
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
+  const configuration = portalConfigurationForPlan(
+    await currentStripePlanCode(input.tenantId)
+  );
 
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${origin}/settings/billing`,
+    return_url: returns.portalUrl,
+    ...(configuration ? { configuration } : {}),
   });
 
   return { url: session.url };
+}
+
+/** Plan of the tenant's current Stripe subscription in STRIPE_MODE, if any. */
+async function currentStripePlanCode(tenantId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("subscriptions")
+    .select("plans ( code )")
+    .eq("tenant_id", tenantId)
+    .eq("provider", "stripe")
+    .eq("livemode", stripeModeToLivemode(getStripeMode()))
+    .in("status", ["trialing", "active", "past_due"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    throw new Error(`Failed to load current plan: ${error.message}`);
+  }
+  const plans = (data?.[0] as { plans?: { code?: string } | { code?: string }[] } | undefined)
+    ?.plans;
+  const plan = Array.isArray(plans) ? plans[0] : plans;
+  return typeof plan?.code === "string" ? plan.code : null;
 }
