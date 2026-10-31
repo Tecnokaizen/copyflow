@@ -83,6 +83,8 @@ const probe = `
   for (const scenario of scenarios) {
     current = scenario;
     requests = [];
+    process.env.VERCEL_ENV = scenario.invalidOrigin ? "preview" : "production";
+    process.env.BILLING_RETURN_APP_ORIGIN = "";
     const request = new NextRequest(
       "https://tenant-fixture.gestcopy.example/api/billing/checkout-session",
       {
@@ -138,6 +140,8 @@ const expiredTrial = {
 };
 
 const scenarios = [
+  { name: "invalid-return-origin", context: owner, requestBody: validBody, rows: [], invalidOrigin: true },
+  { name: "invalid-origin-before-offer", context: owner, requestBody: { plan_code: "pro", billing_interval: "month", offer_id: "11111111-1111-4111-8111-111111111111", terms_hash: "a".repeat(64) }, rows: [], invalidOrigin: true },
   {
     name: "internal-expired-period",
     context: owner,
@@ -242,6 +246,8 @@ function runProbe(): Map<string, ProbeResult> {
     NEXT_PUBLIC_SUPABASE_URL: "http://supabase.fixture.invalid",
     SUPABASE_SECRET_KEY: "fixture-not-a-real-key",
     STRIPE_MODE: "test",
+    VERCEL_ENV: "production",
+    BILLING_RETURN_APP_ORIGIN: "",
     STRIPE_SECRET_KEY: "sk_test_fixture",
     STRIPE_WEBHOOK_SECRET: "fixture-not-a-real-webhook-secret",
     PROBE_ROOT: root,
@@ -387,5 +393,18 @@ describe("internal subscription checkout guard · integration (route → supabas
     });
     assert.equal(entry.requests.length, 1);
     assertGuardQuery(entry.requests[0]);
+  });
+});
+
+
+describe("billing origin guard · real route integration", () => {
+  it("returns 503 before a subscription lookup, offer acceptance, attempt or Stripe call", () => {
+    const results = runProbe();
+    for (const name of ["invalid-return-origin", "invalid-origin-before-offer"]) {
+      const result = results.get(name)!;
+      assert.equal(result.status, 503);
+      assert.equal(result.body?.code, "billing_return_origin_not_configured");
+      assert.deepEqual(result.requests, []);
+    }
   });
 });

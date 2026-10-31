@@ -177,14 +177,45 @@ describe("webhook guard for current internal subscriptions", () => {
   });
 });
 
+/**
+ * Items of the release-gate `for suite in \ … do` loop that runs phase57, in
+ * order. Every item line except the last must end in " \" and the last must
+ * not: a broken continuation would silently drop suites or run one of them
+ * as a shell command.
+ */
+function billingGateSuites(workflow: string): string[] {
+  const loops = [...workflow.matchAll(/^[ \t]*for suite in \\\n([\s\S]*?)\n[ \t]*do$/gm)]
+    .map((match) => match[1].split("\n"))
+    .filter((lines) =>
+      lines.some((line) => /^[ \t]+phase57_billing_internal_subscription_guard( \\)?$/.test(line))
+    );
+  assert.equal(loops.length, 1, "exactly one release-gate loop must run phase57");
+  const [lines] = loops;
+  lines.forEach((line, index) => {
+    const isLast = index === lines.length - 1;
+    assert.match(
+      line,
+      isLast ? /^[ \t]+[a-z0-9_]+$/ : /^[ \t]+[a-z0-9_]+ \\$/,
+      `broken shell continuation in the billing suite loop: ${JSON.stringify(line)}`
+    );
+  });
+  return lines.map((line) => line.trim().replace(/ \\$/, ""));
+}
+
 describe("release gate", () => {
   it("runs the D1 suite and the two-session lock test", () => {
     const workflow = read(".github/workflows/release-gate.yml");
-    assert.match(workflow, /^\s+phase57_billing_internal_subscription_guard( \\)?$/m);
+    assert.ok(billingGateSuites(workflow).includes("phase57_billing_internal_subscription_guard"));
     assert.match(
       workflow,
       /bash supabase\/tests\/phase57_billing_lock_concurrency\.sh "\$\{LOCAL_DB_URL\}"/
     );
+  });
+
+  it("runs the Pro plan suite (phase60) in the same loop as phase57", () => {
+    const suites = billingGateSuites(read(".github/workflows/release-gate.yml"));
+    assert.ok(suites.includes("phase57_billing_internal_subscription_guard"));
+    assert.ok(suites.includes("phase60_commercial_plans_pro"));
   });
 });
 

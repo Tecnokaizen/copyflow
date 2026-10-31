@@ -1,5 +1,7 @@
 import "server-only";
 
+import { billingReturnUrls } from "@/lib/billing/return-urls";
+
 import { NextRequest } from "next/server";
 
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
@@ -37,10 +39,7 @@ import type {
   BillingPlanCode,
 } from "@/lib/billing/access";
 import { CURRENT_SUBSCRIPTION_EXISTS_CODE } from "@/lib/billing/webhook-errors";
-import {
-  resolveTrustedAppOrigin,
-  resolveTrustedTenantOrigin,
-} from "@/lib/tenant/request-origin";
+import { resolveTrustedAppOrigin } from "@/lib/tenant/request-origin";
 
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
@@ -191,12 +190,12 @@ async function createStripeCheckoutForAttempt(input: {
     input.tenantId,
     input.livemode
   );
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const successUrl =
     input.successUrl ??
-    `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+    returns.successUrl;
   const cancelUrl =
-    input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
+    input.cancelUrl ?? returns.cancelUrl;
 
   // Offer: the coupon, the accepted terms on the payment page and, when the
   // terms are anchored, no charge until the anchor (no proration).
@@ -282,6 +281,11 @@ export async function createCheckoutSessionForTenant(input: {
   /** Required for plans that are not self-serve (Pro). */
   offer?: AcceptedOffer | null;
 }): Promise<{ url: string; sessionId: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
+  const returnUrls = {
+    successUrl: input.successUrl ?? returns.successUrl,
+    cancelUrl: input.cancelUrl ?? returns.cancelUrl,
+  };
   const livemode = stripeModeToLivemode(getStripeMode());
   const offer = input.offer ?? null;
 
@@ -326,6 +330,7 @@ export async function createCheckoutSessionForTenant(input: {
         attemptId: prepared.attemptId,
         sessionId: prepared.sessionId,
         livemode,
+        returnUrls,
         expected: {
           planCode: input.planCode,
           offerId: offer?.offer.offerId ?? null,
@@ -370,20 +375,20 @@ export async function createPortalSessionForTenant(input: {
   tenantId: string;
   tenantSlug: string;
 }): Promise<{ url: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const customerId = await resolveStripeCustomerIdForTenant(input.tenantId);
   if (!customerId) {
     throw new Error("missing_stripe_customer");
   }
 
   const stripe = getStripe();
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
   const configuration = portalConfigurationForPlan(
     await currentStripePlanCode(input.tenantId)
   );
 
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${origin}/settings/billing`,
+    return_url: returns.portalUrl,
     ...(configuration ? { configuration } : {}),
   });
 
