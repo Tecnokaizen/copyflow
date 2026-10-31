@@ -1,3 +1,6 @@
+import { onboardingReturnUrls } from "@/lib/billing/return-urls";
+import { assertBillingReturnConfig } from "@/lib/billing/return-urls";
+import { BILLING_RETURN_ORIGIN_ERROR } from "@/lib/billing/return-origins";
 import { NextRequest, NextResponse } from "next/server";
 
 import {
@@ -10,7 +13,6 @@ import {
   CURRENT_SUBSCRIPTION_EXISTS_CODE,
   INTERNAL_SUBSCRIPTION_CURRENT_CODE,
   SUBSCRIPTION_PENDING_RECONCILIATION_CODE,
-  appHostOriginFromRequest,
   createCheckoutSessionForTenant,
 } from "@/lib/billing/checkout";
 import {
@@ -136,7 +138,7 @@ async function startOnboardingCheckout(input: {
   tenantSlug: string;
   customerEmail?: string | null;
 }): Promise<{ url: string; sessionId: string }> {
-  const origin = appHostOriginFromRequest(input.request);
+  const returns = onboardingReturnUrls(input.request);
 
   return createCheckoutSessionForTenant({
     request: input.request,
@@ -145,8 +147,8 @@ async function startOnboardingCheckout(input: {
     planCode: "basic",
     billingInterval: "month",
     customerEmail: input.customerEmail,
-    successUrl: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${origin}/onboarding?canceled=1`,
+    successUrl: returns.successUrl,
+    cancelUrl: returns.cancelUrl,
     flow: "onboarding",
   });
 }
@@ -157,6 +159,12 @@ export async function GET(request: NextRequest) {
       { error: "Onboarding is only available on the app host" },
       403
     );
+  }
+
+  const returnConfig = assertBillingReturnConfig();
+  if (!returnConfig.ok) {
+    console.error("[billing.return-origin] invalid configuration", { reason: returnConfig.reason });
+    return json({ error: "Billing return origin is not configured", code: BILLING_RETURN_ORIGIN_ERROR }, 503);
   }
 
   const stripeConfig = assertStripeConfig();
@@ -229,6 +237,12 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return json({ error: "Unauthorized" }, 401);
+  }
+
+  const returnConfig = assertBillingReturnConfig();
+  if (!returnConfig.ok) {
+    console.error("[billing.return-origin] invalid configuration", { reason: returnConfig.reason });
+    return json({ error: "Billing return origin is not configured", code: BILLING_RETURN_ORIGIN_ERROR }, 503);
   }
 
   const stripeConfig = assertStripeConfig();
