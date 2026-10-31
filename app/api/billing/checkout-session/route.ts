@@ -1,3 +1,5 @@
+import { assertBillingReturnConfig } from "@/lib/billing/return-urls";
+import { BILLING_RETURN_ORIGIN_ERROR } from "@/lib/billing/return-origins";
 import { NextRequest, NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
@@ -29,6 +31,12 @@ export async function POST(request: NextRequest) {
   const context = await getCurrentContext();
   if (!context || !canManageBilling(context.membership.role)) {
     return json({ error: "Unauthorized or tenant access denied" }, 403);
+  }
+
+  const returnConfig = assertBillingReturnConfig();
+  if (!returnConfig.ok) {
+    console.error("[billing.return-origin] invalid configuration", { reason: returnConfig.reason });
+    return json({ error: "Billing return origin is not configured", code: BILLING_RETURN_ORIGIN_ERROR }, 503);
   }
 
   const stripeConfig = assertStripeConfig();

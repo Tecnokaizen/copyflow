@@ -1,5 +1,7 @@
 import "server-only";
 
+import { billingReturnUrls } from "@/lib/billing/return-urls";
+
 import { NextRequest } from "next/server";
 
 import { resolveStripeCustomerIdForTenant } from "@/lib/billing/customer";
@@ -28,10 +30,7 @@ import type {
   BillingPlanCode,
 } from "@/lib/billing/access";
 import { CURRENT_SUBSCRIPTION_EXISTS_CODE } from "@/lib/billing/webhook-errors";
-import {
-  resolveTrustedAppOrigin,
-  resolveTrustedTenantOrigin,
-} from "@/lib/tenant/request-origin";
+import { resolveTrustedAppOrigin } from "@/lib/tenant/request-origin";
 
 export { parseCheckoutRequest };
 export { CURRENT_SUBSCRIPTION_EXISTS_CODE };
@@ -129,12 +128,12 @@ async function createStripeCheckoutForAttempt(input: {
     input.tenantId,
     input.livemode
   );
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const successUrl =
     input.successUrl ??
-    `${origin}/settings/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+    returns.successUrl;
   const cancelUrl =
-    input.cancelUrl ?? `${origin}/settings/billing?canceled=1`;
+    input.cancelUrl ?? returns.cancelUrl;
   const expiresAtUnix = reservedExpiresAtUnix(input.expiresAt);
 
   const session = await stripe.checkout.sessions.create(
@@ -196,6 +195,11 @@ export async function createCheckoutSessionForTenant(input: {
   cancelUrl?: string;
   flow?: "billing" | "onboarding";
 }): Promise<{ url: string; sessionId: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
+  const returnUrls = {
+    successUrl: input.successUrl ?? returns.successUrl,
+    cancelUrl: input.cancelUrl ?? returns.cancelUrl,
+  };
   const livemode = stripeModeToLivemode(getStripeMode());
 
   // Internal trials/pilots are invisible to the prepare RPC (Stripe rows only).
@@ -234,6 +238,7 @@ export async function createCheckoutSessionForTenant(input: {
         attemptId: prepared.attemptId,
         sessionId: prepared.sessionId,
         livemode,
+        returnUrls,
       });
 
       if (resolved.kind === "open") {
@@ -272,17 +277,17 @@ export async function createPortalSessionForTenant(input: {
   tenantId: string;
   tenantSlug: string;
 }): Promise<{ url: string }> {
+  const returns = billingReturnUrls(input.request, input.tenantSlug);
   const customerId = await resolveStripeCustomerIdForTenant(input.tenantId);
   if (!customerId) {
     throw new Error("missing_stripe_customer");
   }
 
   const stripe = getStripe();
-  const origin = resolveTrustedTenantOrigin(input.request, input.tenantSlug);
 
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${origin}/settings/billing`,
+    return_url: returns.portalUrl,
   });
 
   return { url: session.url };

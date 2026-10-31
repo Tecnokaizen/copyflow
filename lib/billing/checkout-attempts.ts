@@ -1,5 +1,7 @@
 import "server-only";
 
+import { checkoutReturnUrlsMatch } from "./return-origins";
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/billing/stripe";
 import {
@@ -219,6 +221,7 @@ export async function resolveReusableCheckoutSession(input: {
   sessionId: string;
   /** Derived server-side from STRIPE_MODE when omitted. */
   livemode?: boolean;
+  returnUrls?: { successUrl: string; cancelUrl: string };
 }): Promise<ResolveReusableResult> {
   const expectedLivemode =
     input.livemode ?? stripeModeToLivemode(getStripeMode());
@@ -247,6 +250,18 @@ export async function resolveReusableCheckoutSession(input: {
       expectedLivemode,
     });
     throw new CheckoutModeMismatchError();
+  }
+
+  if (session.status === "open" && input.returnUrls && !checkoutReturnUrlsMatch(session, input.returnUrls)) {
+    try {
+      await stripe.checkout.sessions.expire(session.id);
+    } catch (cause) {
+      // Completion can race expiration: never reserve a replacement or charge
+      // again while the outcome of the existing session is uncertain.
+      return { kind: "retryable", sessionId: session.id, cause };
+    }
+    await finalizeCheckoutAttempt({ attemptId: input.attemptId, sessionId: session.id, status: "expired" });
+    return { kind: "expired", sessionId: session.id };
   }
 
   if (session.status === "open" && session.url) {
