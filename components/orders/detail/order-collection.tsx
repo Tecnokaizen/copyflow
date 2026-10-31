@@ -13,6 +13,9 @@ import { parsePaymentPayload, type PaymentPayload } from "@/lib/orders/payment-p
 import { canonicalMoney } from "@/lib/orders/money";
 import { ORDER_FILE_ACCEPT, completeOrderFileUpload, requestOrderFileDownload, triggerBrowserDownload, uploadOrderFile } from "@/lib/files/client";
 import { collectionLabel, formatOrderMoney } from "@/lib/orders/money";
+import { orderLabels, type OrderLabels } from "@/lib/orders/labels";
+
+const STANDARD_LABELS = orderLabels({ custom: false });
 
 export function OrderCollection({
   orderId,
@@ -21,6 +24,8 @@ export function OrderCollection({
   editing = false,
   onChanged,
   onInteractionChange,
+  labels = STANDARD_LABELS,
+  onCollectionLoaded,
 }: {
   orderId: string;
   canWrite: boolean;
@@ -28,6 +33,10 @@ export function OrderCollection({
   editing?: boolean;
   onChanged: () => void;
   onInteractionChange?: (active: boolean) => void;
+  // SUR4 (contract §5): names of the three amounts; today's names by default.
+  labels?: OrderLabels;
+  // SUR4 E3: the order header shows the same amounts without a second request.
+  onCollectionLoaded?: (collection: OrderCollection) => void;
 }) {
   const [collection, setCollection] = useState<OrderCollection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +66,10 @@ export function OrderCollection({
   useEffect(() => {
     onInteractionChange?.(busy || paymentOpen || totalOpen || voiding !== null);
   }, [busy, paymentOpen, totalOpen, voiding, onInteractionChange]);
+
+  useEffect(() => {
+    if (collection) onCollectionLoaded?.(collection);
+  }, [collection, onCollectionLoaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -299,13 +312,13 @@ export function OrderCollection({
       {error && !paymentOpen && !totalOpen && !voiding ? <p className="px-0 py-3 text-sm text-destructive">{error}</p> : null}
       {collection ? (
         <>
-          <FactRow label="Total del pedido" emphasis>
+          <FactRow label={labels.total} emphasis>
             <FactValue value={collection.total_amount ? formatOrderMoney(collection.total_amount) : null} empty="Sin definir" />
           </FactRow>
-          <FactRow label="Entregado a cuenta">
+          <FactRow label={labels.paid}>
             <FactValue value={formatOrderMoney(collection.paid_amount)} />
           </FactRow>
-          <FactRow label="Pendiente de cobro" emphasis>
+          <FactRow label={labels.due} emphasis>
             <FactValue value={collection.pending_amount ? formatOrderMoney(collection.pending_amount) : null} empty="Sin definir" />
           </FactRow>
           <FactRow label="Situación">
@@ -441,7 +454,7 @@ export function OrderCollection({
 
       {actionsEnabled && totalOpen && collection ? (
         <ConfirmDialog
-          title="Total del pedido"
+          title={labels.total}
           description="El total no puede quedar por debajo de lo ya entregado a cuenta."
           confirmLabel="Guardar total"
           busy={busy}

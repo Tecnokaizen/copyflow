@@ -356,7 +356,8 @@ describe("E2A productive callers and workspace contracts", () => {
   });
 
   it("workspace send/propagate version, stop on stale, keep draft", () => {
-    const source = read("components/orders/detail/order-workspace.tsx");
+    // Order Detail Views V1: the save paths moved verbatim to useOrderWorkspace.
+    const source = read("components/orders/detail/use-order-workspace.ts");
 
     assert.match(source, /expected_version:\s*current\.version/);
     assert.match(source, /applyReturnedVersion/);
@@ -375,7 +376,7 @@ describe("E2A productive callers and workspace contracts", () => {
   });
 
   it("quick actions and client assignment send order.version", () => {
-    const source = read("components/orders/detail/order-workspace.tsx");
+    const source = read("components/orders/detail/use-order-workspace.ts");
     assert.match(source, /expected_version:\s*order\.version/);
     assert.match(source, /isStaleApiError\(result\)/);
   });
@@ -393,6 +394,8 @@ describe("E2A productive callers and workspace contracts", () => {
       ["app", "api", "orders", "[id]", "notification", "route.ts"],
       ["app", "api", "orders", "[id]", "client", "route.ts"],
       ["components", "orders", "detail", "order-workspace.tsx"],
+      ["components", "orders", "detail", "use-order-workspace.ts"],
+      ["components", "orders", "detail", "order-detail-modules.tsx"],
     ];
     for (const parts of files) {
       assertNoNumericVersionConversion(read(...parts), parts.join("/"));
@@ -414,6 +417,7 @@ describe("E2B: v1 RPCs absent from all productive callers", () => {
     [["app", "api", "orders", "[id]", "client", "route.ts"], "PATCH client"],
     [["app", "api", "orders", "route.ts"], "POST/GET orders"],
     [["components", "orders", "detail", "order-workspace.tsx"], "OrderWorkspace"],
+    [["components", "orders", "detail", "use-order-workspace.ts"], "useOrderWorkspace"],
     [["lib", "orders", "change-status-api.ts"], "change-status-api"],
     [["lib", "orders", "concurrency.ts"], "concurrency helpers"],
     [["lib", "orders", "lifecycle-rpc-error.ts"], "lifecycle-rpc-error"],
@@ -485,7 +489,7 @@ describe("E2B: v1 RPCs absent from all productive callers", () => {
   it("no silent fallback to v1 via try/catch swallowing stale errors", () => {
     // Stale errors (GCO01 / ORDER_STALE) must surface, never be silently caught
     // and retried with a v1 call.
-    const workspace = read("components", "orders", "detail", "order-workspace.tsx");
+    const workspace = read("components", "orders", "detail", "use-order-workspace.ts");
     // Must NOT contain a pattern like: catch(...){ .rpc("change_order_content" }
     for (const v1Name of v1RpcNames) {
       const catchFallbackPattern = new RegExp(

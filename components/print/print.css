@@ -1,4 +1,5 @@
 .print-document {
+  color-scheme: light;
   min-height: 100vh;
   max-width: 100%;
   overflow-x: clip;
@@ -36,6 +37,58 @@
   background: #111111;
   color: #ffffff;
   border-color: #111111;
+}
+
+/* SUR4 E4: «Resguardo» opens the customer PDF; it looks like the buttons. */
+.print-toolbar a.print-toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 6px;
+  border: 1px solid #cfcfcf;
+  background: #ffffff;
+  color: #111111;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.print-toolbar button,
+.print-toolbar a.print-toolbar-link {
+  gap: 8px;
+}
+
+.print-toolbar button:has(.print-toolbar-icon) {
+  display: inline-flex;
+  align-items: center;
+}
+
+.print-toolbar-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.print-toolbar button:focus-visible,
+.print-toolbar a.print-toolbar-link:focus-visible {
+  outline: 2px solid #111111;
+  outline-offset: 2px;
+}
+
+/* N23: on screen only, never on paper. */
+.print-notice {
+  width: min(210mm, 100%);
+  margin: 0 auto 16px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid #d9b65c;
+  border-radius: 6px;
+  background: #fff8e1;
+  color: #4a3b00;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .print-sheet {
@@ -142,6 +195,20 @@
   line-height: 1.45;
 }
 
+/* Paper is always white: pin the light text colors even if the app is in dark mode. */
+.print-document {
+  --gc-text-red: 0 74% 42%;
+  --gc-text-orange: 17 88% 40%;
+  --gc-text-green: 163 94% 24%;
+  --gc-text-blue: 224 76% 48%;
+  --gc-text-purple: 272 72% 47%;
+}
+
+.print-rich [data-text-color] {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
 .print-files {
   margin: 0;
   padding-left: 18px;
@@ -151,6 +218,265 @@
 .print-muted {
   margin: 0;
   font-size: 14px;
+}
+
+.print-reference-block {
+  text-align: right;
+}
+
+.print-reference-note {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+/* SUR4 E2: work sequence and printable post-its (both profiles). */
+.ws-step-list,
+.ws-note-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The list may continue on the next page between items, never inside one. */
+.print-block.ws-steps,
+.print-block.ws-notes,
+.print-block.ws-assignee {
+  break-inside: auto;
+}
+
+.ws-steps .print-section-title,
+.ws-notes .print-section-title {
+  break-after: avoid;
+}
+
+.ws-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.6mm 0;
+  border-bottom: 1px solid #ececec;
+  font-size: 13px;
+  break-inside: avoid;
+}
+
+.ws-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid #111111;
+  border-radius: 2px;
+}
+
+.ws-check-mark {
+  width: 12px;
+  height: 12px;
+}
+
+.ws-step-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.ws-step-name {
+  font-weight: 600;
+}
+
+.ws-step-person {
+  color: #333333;
+}
+
+.ws-step-current {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ws-note {
+  margin: 0 0 1.5mm;
+  padding: 0.5mm 3mm;
+  border-left: 3px solid #111111;
+  background: #f6f6f6;
+  font-size: 13px;
+  line-height: 1.4;
+  break-inside: avoid;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.ws-note-list .ws-note p {
+  margin: 0;
+}
+
+/* SUR4 E2: ficha profile, the layout of sur4-0134 (N19, N20). Compact, so a
+   typical order (15 lines, 3 steps, 5 post-its) fits one A4. */
+.ws-ficha {
+  page: ws-ficha;
+}
+
+.ws-ficha .print-header {
+  margin-bottom: 5mm;
+  padding-bottom: 3mm;
+}
+
+.ws-ficha .print-title {
+  margin-bottom: 4mm;
+  font-size: 20px;
+}
+
+.ws-ficha .print-block {
+  margin-bottom: 3.5mm;
+}
+
+.ws-ficha .print-rich {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.ws-ficha .print-rich p {
+  margin: 0 0 1px;
+}
+
+.ws-steps {
+  margin-top: 2mm;
+}
+
+.ws-head-client .print-fact {
+  display: grid;
+  grid-template-columns: 20mm minmax(0, 1fr);
+  gap: 2mm;
+  align-items: baseline;
+}
+
+.ws-head-client .print-fact dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ws-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6mm;
+}
+
+.ws-facts {
+  display: grid;
+  gap: 1.5mm;
+  margin: 0;
+}
+
+.ws-head-side {
+  display: grid;
+  gap: 1.5mm;
+  align-content: start;
+}
+
+.ws-amounts .print-fact,
+.ws-due .print-fact,
+.ws-proof .print-fact {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4mm;
+  border-bottom: 1px solid #d9d9d9;
+  padding-bottom: 0.5mm;
+}
+
+.ws-amounts .print-fact dd,
+.ws-due dd {
+  font-weight: 700;
+  text-align: right;
+}
+
+/* Shared heading: title left, collection summary right, in both profiles. */
+.ws-title-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78mm;
+  gap: 6mm;
+  align-items: start;
+  line-height: 1.2;
+}
+
+.ws-title-summary .print-title {
+  margin: 0;
+}
+
+/* Pin compact ficha facts against the app's inherited body line height. */
+.ws-ficha .ws-facts,
+.ws-ficha .print-section-title {
+  line-height: 1.2;
+}
+
+.ws-summary .print-fact dt {
+  font-size: 12px;
+  color: #333333;
+}
+
+.ws-amounts .print-fact dd {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-summary .print-fact:first-child dt,
+.ws-summary .print-fact:last-child dt {
+  font-weight: 700;
+}
+
+@media screen and (max-width: 720px) {
+  .ws-title-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ws-blank dd {
+  flex: 1;
+  min-width: 30mm;
+  min-height: 5mm;
+}
+
+.ws-description {
+  min-height: 40mm;
+  padding: 2.5mm 4mm;
+  border: 1px solid #111111;
+  border-radius: 2px;
+}
+
+.ws-service {
+  margin: 0 0 2mm;
+  font-weight: 700;
+}
+
+.ws-inline .print-fact {
+  display: flex;
+  gap: 3mm;
+  align-items: baseline;
+}
+
+.ws-bottom-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3mm 6mm;
+  padding-top: 2mm;
+  border-top: 1px solid #d9d9d9;
+}
+
+.ws-footer {
+  margin-top: 6mm;
+  padding-top: 2mm;
+  border-top: 1px solid #d9d9d9;
+  font-size: 11px;
+  color: #555555;
+}
+
+@media (max-width: 720px) {
+  .ws-head,
+  .ws-bottom-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -181,8 +507,29 @@
   margin: 16mm;
 }
 
+/* Ficha footer on every page: «Documento interno» and the print date come
+   from the page itself (bottom-left); the page number from here. */
+@page ws-ficha {
+  size: A4;
+  margin: 14mm 14mm 18mm;
+
+  @bottom-left {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    color: #555555;
+  }
+
+  @bottom-right {
+    content: "Página " counter(page) " de " counter(pages);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    color: #555555;
+  }
+}
+
 @media print {
-  .print-toolbar {
+  .print-toolbar,
+  .print-screen-only {
     display: none !important;
     position: static !important;
   }

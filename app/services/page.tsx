@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/gestcopy/page-header";
 import { ServiceForm } from "@/components/services/service-form";
 import { ServiceModal } from "@/components/services/service-modal";
 import { canWriteServices } from "@/lib/auth/membership-roles";
+import { createLatestRequest, fetchLatestJson } from "@/lib/refresh/latest-request";
 import { plainTextSnippet } from "@/lib/rich-text/html";
 import {
   EMPTY_SERVICE_FORM,
@@ -58,6 +59,8 @@ export default function ServicesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // Only the latest list request may apply (see lib/refresh/latest-request).
+  const [listRequest] = useState(createLatestRequest);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -89,6 +92,8 @@ export default function ServicesPage() {
   }, []);
 
   useEffect(() => {
+    const ticket = listRequest.start();
+
     async function loadServices() {
       setLoading(true);
       setError(null);
@@ -106,26 +111,35 @@ export default function ServicesPage() {
           params.set("category_id", categoryId);
         }
 
-        const response = await fetch(`/api/services?${params.toString()}`);
-        const result = await response.json();
+        const loaded = await fetchLatestJson(ticket, `/api/services?${params.toString()}`);
+        if (!loaded) {
+          return;
+        }
 
-        if (!response.ok) {
+        if (!loaded.response.ok) {
           throw new Error("No se pudieron cargar los servicios");
         }
 
-        setData(result);
+        setData(loaded.body as ServiceListResponse);
       } catch {
+        if (!ticket.isCurrent()) {
+          return;
+        }
         setData(null);
         setError("No se pudieron cargar los servicios");
       } finally {
-        setLoading(false);
+        if (ticket.isCurrent()) {
+          setLoading(false);
+        }
       }
     }
 
     loadServices();
-  }, [search, categoryId, active, reloadToken]);
+    return () => listRequest.abort();
+  }, [listRequest, search, categoryId, active, reloadToken]);
 
   async function refreshList() {
+    const ticket = listRequest.start();
     const params = new URLSearchParams({
       active,
     });
@@ -138,10 +152,16 @@ export default function ServicesPage() {
       params.set("category_id", categoryId);
     }
 
-    const response = await fetch(`/api/services?${params.toString()}`);
-    const result = await response.json();
-    if (response.ok) {
-      setData(result);
+    try {
+      const loaded = await fetchLatestJson(ticket, `/api/services?${params.toString()}`);
+      if (loaded?.response.ok) {
+        setData(loaded.body as ServiceListResponse);
+      }
+    } finally {
+      // It may have superseded a load that showed the spinner.
+      if (ticket.isCurrent()) {
+        setLoading(false);
+      }
     }
   }
 

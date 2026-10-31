@@ -65,6 +65,42 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-29",
+    title: "Ficha del pedido, Hoja de trabajo, Resguardo y formato de texto",
+    entries: [
+      nuevo(
+        "Pedidos",
+        "Las instrucciones y las notas internas del pedido admiten tamaño de letra, color y alineación de párrafos, y al imprimir se respetan. Los demás textos no cambian."
+      ),
+      mejora(
+        "Pedidos",
+        "La ficha del pedido se reorganiza. Arriba quedan el cliente y su contacto, el estado, la prioridad y los avisos, junto a los importes y la fecha de entrega, sin tener que desplazarte. Debajo, en dos columnas: el trabajo, los archivos, las notas y la actividad a un lado, y el resumen, el cobro y la entrega al otro. En el móvil todo va en una sola columna."
+      ),
+      mejora(
+        "Impresión",
+        "La Hoja de trabajo ya no imprime las notas internas del pedido. Si el pedido las tiene, al abrir la impresión verás en pantalla el aviso «Este pedido tiene notas internas, que no se imprimen»."
+      ),
+      nuevo(
+        "Impresión",
+        "Resguardo en PDF para entregar al cliente, desde la ficha del pedido, junto a «Imprimir pedido». Incluye los datos del cliente, los importes, las fechas y la descripción del trabajo, sin las notas internas."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-28",
+    title: "Búsquedas y estados de pedido",
+    entries: [
+      correccion(
+        "Búsquedas",
+        "Las listas de clientes, equipo, servicios y actividad muestran siempre el resultado de lo último que has buscado o filtrado, aunque una respuesta anterior llegue más tarde."
+      ),
+      correccion(
+        "Pedidos",
+        "Al cambiar el estado de un pedido ya no aparecen los estados desactivados. Si un pedido tiene un estado que se ha desactivado, se sigue viendo como «(desactivado)» hasta que le pongas otro."
+      ),
+    ],
+  },
+  {
     date: "2026-10-27",
     title: "Responsable de pedidos y presupuestos",
     entries: [

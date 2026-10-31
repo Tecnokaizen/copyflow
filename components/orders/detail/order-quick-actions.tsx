@@ -7,6 +7,10 @@ import { isRichTextEmpty } from "@/lib/rich-text/html";
 import { DraftSelect } from "@/components/orders/detail/order-field";
 import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import {
+  isSelectableStatus,
+  statusOptionsWithCurrent,
+} from "@/lib/orders/status-options";
+import {
   ARCHIVE_CONFIRM_COPY,
   canShowArchiveAction,
   planStatusSave,
@@ -23,6 +27,7 @@ export function OrderQuickActions({
   teamMembers,
   optionsLoading,
   currentStatusId,
+  currentStatusName,
   currentAssigneeId,
   currentAssigneeName,
   archivedAt,
@@ -31,13 +36,16 @@ export function OrderQuickActions({
   onSaveStatus,
   onSaveAssignee,
   onSaveNote,
+  onNoteRequest,
   onArchive,
+  compact = false,
 }: {
   busy: boolean;
   statuses: OrderStatus[];
   teamMembers: OrderOption[];
   optionsLoading: boolean;
   currentStatusId: string;
+  currentStatusName?: string | null;
   currentAssigneeId: string | null;
   currentAssigneeName?: string | null;
   archivedAt: string | null;
@@ -46,7 +54,11 @@ export function OrderQuickActions({
   onSaveStatus: (statusId: string) => Promise<void>;
   onSaveAssignee: (memberId: string | null) => Promise<void>;
   onSaveNote: (note: string) => Promise<void>;
+  /** SUR4 E6: with Post-its the button opens the Post-it composer instead. */
+  onNoteRequest?: () => void;
   onArchive: () => Promise<void>;
+  /** Order Detail Views V1: two columns on phones, same buttons. */
+  compact?: boolean;
 }) {
   const [panel, setPanel] = useState<QuickPanel>(null);
   const [statusId, setStatusId] = useState(currentStatusId);
@@ -80,6 +92,10 @@ export function OrderQuickActions({
   }
 
   function openNote() {
+    if (onNoteRequest) {
+      onNoteRequest();
+      return;
+    }
     setNote("");
     setPanel("note");
   }
@@ -145,7 +161,11 @@ export function OrderQuickActions({
 
   return (
     <>
-      <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end">
+      <div
+        className={`grid w-full gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end ${
+          compact ? "grid-cols-2 [&>button]:px-2" : "grid-cols-1"
+        }`}
+      >
         <button
           type="button"
           disabled={busy}
@@ -156,7 +176,7 @@ export function OrderQuickActions({
         </button>
         <button
           type="button"
-          disabled={busy || statuses.length === 0}
+          disabled={busy || !statuses.some(isSelectableStatus)}
           onClick={openStatus}
           className="gc-action min-h-11 w-full lg:w-auto"
         >
@@ -208,8 +228,11 @@ export function OrderQuickActions({
               className="mt-2 min-h-11 max-w-none text-base"
               onChange={setStatusId}
             >
-              {statuses.map((status) => (
-                <option key={status.id} value={status.id}>
+              {statusOptionsWithCurrent(statuses, {
+                id: currentStatusId,
+                name: currentStatusName,
+              }).map((status) => (
+                <option key={status.id} value={status.id} disabled={status.unavailable}>
                   {status.name}
                 </option>
               ))}
@@ -263,6 +286,7 @@ export function OrderQuickActions({
             Nota
             <RichTextEditor
               ariaLabel="Nota"
+              textStyles
               value={note}
               disabled={busy}
               onChange={setNote}

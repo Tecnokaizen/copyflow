@@ -7,18 +7,34 @@ export function PrintFrame({
   branding,
   kind,
   reference,
+  referenceNote = null,
+  receiptHref,
+  notice = null,
+  sheetClassName,
   children,
 }: {
   branding: PrintBranding;
   kind: string;
   reference: string;
+  /** A short line under the reference (the store of the ficha work sheet). */
+  referenceNote?: string | null;
+  /** Order work sheet: lets the user open the customer receipt instead. */
+  receiptHref?: string;
+  /** Shown on screen only, never printed (N23). */
+  notice?: string | null;
+  sheetClassName?: string;
   children: ReactNode;
 }) {
   return (
     <div className="print-document">
-      <PrintToolbar />
+      <PrintToolbar receiptHref={receiptHref} />
+      {notice ? (
+        <p className="print-notice print-screen-only" role="status">
+          {notice}
+        </p>
+      ) : null}
       <article
-        className="print-sheet"
+        className={sheetClassName ? `print-sheet ${sheetClassName}` : "print-sheet"}
         style={
           branding.brandColor
             ? { borderTopColor: branding.brandColor }
@@ -37,7 +53,14 @@ export function PrintFrame({
               <p className="print-kind">{kind}</p>
             </div>
           </div>
-          <p className="print-reference">{reference}</p>
+          {referenceNote ? (
+            <div className="print-reference-block">
+              <p className="print-reference">{reference}</p>
+              <p className="print-reference-note">{referenceNote}</p>
+            </div>
+          ) : (
+            <p className="print-reference">{reference}</p>
+          )}
         </header>
         {children}
       </article>
@@ -72,16 +95,19 @@ export function PrintFacts({
 export function PrintRichText({
   title,
   value,
+  textStyles = false,
 }: {
   title: string;
   value: string | null;
+  /** Print the stored text sizes and colors (order instructions and notes). */
+  textStyles?: boolean;
 }) {
   if (!value) return null;
 
   return (
     <section className="print-block print-rich">
       <h2 className="print-section-title">{title}</h2>
-      <RichTextContent value={value} />
+      <RichTextContent value={value} textStyles={textStyles} />
     </section>
   );
 }

@@ -17,6 +17,8 @@ Defines el flujo: cuál es el estado inicial y cuáles marcan listo, entregado o
 
 Los pedidos nuevos arrancan en el estado inicial. Los cambios de estado en la ficha usan este catálogo.
 
+Un estado desactivado ya no se ofrece al cambiar el estado de un pedido. Los pedidos que ya lo tienen lo siguen mostrando como «(desactivado)» hasta que les pongas otro.
+
 ## Quién puede hacerlo
 
 Propietario, administrador y responsable.

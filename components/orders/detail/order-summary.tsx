@@ -8,7 +8,6 @@ import {
 import {
   displayValue,
   formatDate,
-  formatPriority,
 } from "@/lib/orders/format";
 import type {
   Order,
@@ -34,11 +33,6 @@ export function OrderSummary({
   clientActions?: React.ReactNode;
 }) {
   const client = order.client_id && order.client?.id ? order.client : null;
-  const serviceName =
-    editing && draft
-      ? orderOptions?.services.find((item) => item.id === draft.service_id)
-          ?.name ?? (draft.service_id ? "—" : null)
-      : order.service?.name;
   const channelName =
     editing && draft
       ? orderOptions?.entry_channels.find(
@@ -63,9 +57,6 @@ export function OrderSummary({
           (item) => item.id === draft.assigned_team_member_id
         )?.name ?? null
       : order.assigned_team_member?.name;
-  const dueAt = editing && draft ? draft.due_at : order.due_at;
-  const priority = editing && draft ? draft.priority : order.priority;
-  const hasContact = Boolean(client?.email?.trim() || client?.phone?.trim());
 
   return (
     <SectionCard title="Resumen" bodyClassName="px-5 py-2 sm:px-6">
@@ -144,57 +135,19 @@ export function OrderSummary({
         </>
       ) : (
         <>
-          <FactRow label="Cliente" emphasis>
-            {client ? (
-              <div className="space-y-1">
-                <div>{client.name}</div>
-                {client.company_name ? (
-                  <div className="text-sm font-normal text-muted-foreground">
-                    {client.company_name}
-                  </div>
-                ) : null}
-                {client.contact_name ? (
-                  <div className="text-sm font-normal text-muted-foreground">
-                    Contacto: {client.contact_name}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <span className="font-normal text-muted-foreground">
-                Sin cliente
-              </span>
-            )}
-          </FactRow>
-          {hasContact ? (
-            <FactRow label="Contacto">
-              <div className="space-y-1">
-                {client?.phone?.trim() ? <div>{client.phone}</div> : null}
-                {client?.email?.trim() ? (
-                  <div>{displayValue(client.email)}</div>
-                ) : null}
-              </div>
-            </FactRow>
-          ) : null}
+          {/* SUR4 E3: client and contact, due date and priority live in the
+              header (sur4-0134 layout); the service lives in «Trabajo». */}
           <FactRow label="Canal">
             <FactValue value={channelName} />
           </FactRow>
           <FactRow label="Tienda">
             <FactValue value={storeName} empty="Sin tienda" />
           </FactRow>
-          <FactRow label="Servicio">
-            <FactValue value={serviceName} />
-          </FactRow>
           <FactRow label="Recepción">
             <FactValue value={formatDate(order.received_at)} />
           </FactRow>
-          <FactRow label="Entrega prevista" emphasis>
-            <FactValue value={formatDate(dueAt)} />
-          </FactRow>
           <FactRow label="Responsable" emphasis>
             <FactValue value={assigneeName} empty="Sin responsable" />
-          </FactRow>
-          <FactRow label="Prioridad" emphasis>
-            <FactValue value={formatPriority(priority)} />
           </FactRow>
           {contextName ? (
             <FactRow label="Contexto">
