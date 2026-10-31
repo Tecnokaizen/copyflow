@@ -1,6 +1,6 @@
 # Order Detail Views V1 — cuatro vistas de la ficha de pedido
 
-Estado: **Fase 1 en curso** (rama `feat/order-detail-views-v1`, desde `main` f4e0ab5). Sin migraciones, sin cambios en Staging ni en Production.
+Estado (31/10): **F1–F4 publicadas en Production** (`main` e148ec3: #171, #172, #173 y #174, cada una con GO del propietario). F5 (#175: esta documentación y la E2E local) e integración con #153 pendientes. Sin migraciones. La ficha actual (`classic`) sigue siendo la predeterminada; ningún tenant tiene la clave hasta que un owner o admin guarde una vista.
 
 ## 1. Auditoría de la ficha actual (30/10)
 
@@ -98,19 +98,91 @@ Sin `order_work_sequence` ni `order_sticky_notes`, C y D muestran el tablero de 
 
 ## 5. Fases y PR
 
-1. **F1** — extracción (`useOrderWorkspace`, módulos, contrato, layout clásico). Sin cambio visible. PR propia.
-2. **F2** — A y D, pruebas de contrato y de paridad, capturas 390/768/1280.
-3. **F3** — B y C.
-4. **F4** — selector en Configuración, API, capturas reales, vista previa, confirmación y «volver a la anterior».
-5. **F5** — E2E con tenants sintéticos, roles, funciones on/off; integración en DEMO/Staging coordinada con la sesión operativa.
+PR apiladas en Draft (30/10), cada una con base en la anterior:
+
+| Fase | PR | Rama → base | Contenido |
+|---|---|---|---|
+| F1 | #171 | `…-f1` → `main` | Extracción (`useOrderWorkspace`, módulos, contrato, layout clásico). Sin cambio visible. |
+| F2 | #172 | `…-f2` → `…-f1` | Vistas A y D, pruebas de contrato. |
+| F3 | #173 | `…-f3` → `…-f2` | Vistas B y C. |
+| F4 | #174 | `…-f4` → `…-f3` | Configuración › Vista de pedidos, API, preferencia por tenant; las diez capturas del selector y los ajustes visuales aprobados de A, C y D (31/10). |
+| F5 | #175 | `…-f5` → `…-f4` | E2E local y esta documentación. |
 
 Ninguna vista aparece como seleccionable hasta F4, con las cuatro terminadas.
 
-## 6. Relación con #153
+## 6. Relación con #153 (Seguimiento del pedido)
 
-#153 sigue en Draft y no se fusiona aquí. Al integrarla: sus mejoras de carga (estado de error de actividad y estados) van en `useOrderWorkspace`, y `<OrderTracking>` va en el módulo `tracking`, que ya colocan las cinco maquetaciones.
+#153 sigue en Draft; ni se fusiona ni se modifica su rama desde aquí.
 
-## 7. Rollback
+Integración preparada en una rama **local** propia, `feat/order-detail-views-v1-tracking` (sobre F5 + merge de `feat/order-visual-tracking-v1` @ `a9b5be9`), sin publicar:
+
+- Conflicto único en `order-workspace.tsx`, resuelto con la extracción: los estados `statusesLoading`, `statusesError`, `activityError` y `activityOrderId` y la carga de actividad única vía `loadActivity` pasan tal cual a `useOrderWorkspace`; `<OrderTracking>` ocupa el módulo `tracking` con las mismas props.
+- Posición: la ficha clásica lo pone donde #153 (tras la secuencia). En A y D va en la columna principal tras Archivos; en B, dentro de «Resumen»; en C, tras Trabajo y Archivos y antes de «Administración». Arriba del todo (≈320 px) ocultaba lo propio de cada vista.
+- Verificado en local: 1.654 pruebas OK, `tsc` y `lint` limpios, E2E 40/40 con un único recorrido visible y cargado en cada vista y tenant, y el smoke de #153 (`order-tracking-ui-smoke.mjs`) sin fallos.
+
+Cuando #153 esté lista se puede (a) fusionar #153 primero y rebasar esta integración, o (b) fusionar F1–F5 primero y aplicar en #153 la resolución de esta rama. La opción se decide con la sesión de #153.
+
+## 7. Validación (F5, 30/10)
+
+Entorno: app de la rama en `next dev` contra un Supabase **local** aislado (89 migraciones), sin tocar Staging ni Production.
+
+- `demo`: seed `demo-commercial.sql`, `order_sticky_notes` y `order_work_sequence` concedidas, secuencia y post-its creados con las RPC de la app; usuarios owner, admin y staff.
+- `plain`: sin funciones, pocos pedidos.
+
+Resultados:
+
+- Pruebas unitarias: 1.635 OK, 0 fallos (con `TZ=UTC`; `lib/kiosk/form-state.test.ts` falla en hora local de Madrid también en `main`, no tiene que ver con esta rama). `tsc`, `lint` (4 avisos previos) y `next build` limpios.
+- E2E local `scripts/order-detail-views-local-e2e.mjs`: **40/40**. Cubre las cinco vistas con todos los módulos y las mismas acciones; 390, 768 y 1280 px sin desplazamiento horizontal; pestañas (solo una visible, cabecera siempre); «Añadir nota» abre la pestaña o el plegable; «Editar pedido» abre «Administración» en C; pedido archivado en solo lectura; tema oscuro; valor de vista previa inválido; Configuración (aplicar con confirmación, volver a la anterior); 409 con revisión obsoleta y 400 con vista inválida; admin puede cambiarla; staff recibe la del tenant, no puede previsualizar ni cambiarla (403/404); `plain` sin secuencia ni post-its; un pedido de `demo` no se ve desde `plain`.
+- Capturas reales (seed local) en `public/order-detail-views/<vista>-desktop.png` y `-mobile.png`.
+
+Correcciones que salieron de la validación: el panel de Actividad ya se pliega solo («Actividad · N»), así que se quitó el plegable extra en A y D; en A la secuencia va sin plegable (trae su propio título); en B, `hidden` perdía contra la clase `flex` de Tailwind y las pestañas ocultas se veían; ahora la clase cambia con la pestaña y la prueba comprueba la visibilidad real.
+
+### Revisión visual y ajustes aprobados (30/10)
+
+El propietario revisó las cuatro vistas en local (pedido DEMO-0179, post-its y secuencia) y aprobó tres ajustes, solo de presentación:
+
+1. **A · Operativa (máxima rapidez):** en móvil, tras el título, las acciones en 2×2 (Editar, Cambiar estado, Cambiar responsable, Añadir nota); contacto plegado, imprimir y resguardo en un desplegable, importes en una fila.
+2. **C · Producción (el trabajo pendiente y «Le toca» primero):** cabecera `headerProduction` sin importes (siguen en «Cobro y entrega»), la secuencia justo debajo y, en móvil, los pasos hechos plegados (con «Deshacer») para que «Le toca ahora» se vea sin desplazarse. Claramente distinta de D desde arriba.
+3. **D · Híbrida (equilibrio):** acciones, importes y tablero de producción en el primer pantallazo; los fijados, justo después.
+
+Además, el aviso de vista previa ocupa una línea en móvil.
+
+Reglas que fija el E2E (390×844, contando el aviso de vista previa): «Cambiar estado» y «Cambiar responsable» visibles sin desplazarse en A, C y D; en C la secuencia va antes que el tablero y «Le toca ahora» se ve; en D, importes y luego tablero dentro de la pantalla; en escritorio, importes a la derecha del título; paridad de acciones (las mismas de cabecera, una vez visibles, y las de la secuencia montadas) en las cinco vistas.
+
+Resultado: E2E local 44/44 en F5 y 45/45 en la rama de integración con #153 (`ODV_EXPECT_TRACKING=1`); 1.635 pruebas OK en F5 y 1.654 con #153.
+
+Repetir el E2E (con la app y el Supabase local en marcha):
+
+```bash
+ODV_BASE_PORT=3100 ODV_PASSWORD=… ODV_DEMO_ORDER=<uuid> ODV_DEMO_ARCHIVED=<uuid> ODV_PLAIN_ORDER=<uuid> \
+ODV_CAPTURES=public/order-detail-views PLAYWRIGHT_MODULE=<ruta>/playwright/index.mjs \
+node scripts/order-detail-views-local-e2e.mjs
+```
+
+Con #153 integrada, añadir `ODV_EXPECT_TRACKING=1`.
+
+## 8. Orden de integración y CI tras cada merge
+
+Nada de esto se ejecuta sin autorización del propietario. Siempre squash o merge desde GitHub, sin force push, y la ficha clásica como predeterminada (ningún tenant tiene la clave al fusionar).
+
+1. **#171 (F1) → `main`.** Al fusionar, borrar la rama `…-f1` para que GitHub cambie la base de #172 a `main`.
+2. **#172 (F2)**, ya con base `main` → fusionar y borrar `…-f2`.
+3. **#173 (F3)** → igual.
+4. **#174 (F4)** → igual. Desde aquí owner/admin ven «Personalización › Vista de pedidos».
+5. **#175 (F5)** → igual.
+6. **Integración con #153**, según lo acordado en §6.
+
+Si una PR intermedia se fusiona con squash, la siguiente arrastra los commits ya incluidos: antes de fusionarla, `git rebase --onto origin/main <rama-anterior> <rama>` y push normal (rama nueva si hace falta, nunca force push sin OK).
+
+Controles requeridos en cada PR antes de fusionar y en `main` después:
+
+- **Release gate** (`release-gate.yml`, solo PR contra `main` y push a `main`): guarda de migraciones, `npx tsx --test`, `tsc`, `lint`, `build`; invariantes de seguridad y aislamiento entre tenants en Supabase local; recuperación de backups B1.3. Las PR F2–F5 solo lo ejecutan cuando su base pasa a ser `main`: no fusionar hasta verlo en verde.
+- **pedido-v2** (`pedido-v2.yml`, por rutas: `components/orders/**`, `lib/orders/**`, `app/api/orders/**`…): pruebas, `tsc`, `lint`, `build`, SQL de pedidos y smokes de navegador (pedido v2, cobro, cliente en línea, presupuestos, recibos, texto enriquecido; con #153, también seguimiento).
+- **tamara-operativa** (`tamara-operativa.yml`, rutas `app/orders/**`, `app/api/orders/**`…): F1 toca `app/api/orders/[id]`, así que también debe pasar.
+- **Después de cada merge en `main`:** release gate en verde sobre el commit de `main`; la ficha clásica se ve igual en un pedido real del entorno de previsualización; el E2E local de §7 (con F4+) sigue 40/40.
+- **Antes de cualquier despliegue a DEMO, Staging o Production:** autorización expresa. No hay migraciones; activar una vista es guardar la preferencia por tenant.
+
+## 9. Rollback
 
 - Código: cada fase es una PR independiente; revertirla devuelve la ficha anterior.
 - Datos: borrar la clave `order_detail_view_v1` de `tenant_settings.preferences` (o guardar `classic`) devuelve la ficha actual a ese tenant al instante. No hay migraciones que deshacer.
