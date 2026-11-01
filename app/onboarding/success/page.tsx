@@ -43,7 +43,10 @@ export default async function OnboardingSuccessPage({
         <LogoutButton variant="outline" />
         <div className="w-full">
           {sessionId.startsWith("cs_") ? (
-            <OnboardingSuccessStatus sessionId={sessionId} />
+            <OnboardingSuccessStatus
+              sessionId={sessionId}
+              signedInEmail={user.email ?? null}
+            />
           ) : (
             <Card>
               <CardHeader>
