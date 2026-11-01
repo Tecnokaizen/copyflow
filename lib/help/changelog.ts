@@ -90,8 +90,32 @@ export const CHANGELOG: ChangelogRelease[] = [
   },
   {
     date: "2026-10-29",
-    title: "Ficha del pedido, Hoja de trabajo, Resguardo y formato de texto",
+    title: "Post-its, secuencia de trabajo, ficha del pedido, Resguardo y formato de texto",
     entries: [
+      nuevo(
+        "Pedidos",
+        "Post-its del pedido: notas cortas con su autor, su fecha y su estado (Abierta, Resuelta o Anulada). Puedes dirigirlos a una persona con «Para», fijarlos arriba de la ficha y consultar su historial. Nadie los borra: se resuelven o se anulan con un motivo."
+      ),
+      nuevo(
+        "Impresión",
+        "Un post-it sale en la Hoja de trabajo solo si lo marcas como imprimible. Antes de confirmarlo ves el texto tal como se imprimirá, con un aviso si contiene un email o un teléfono. El Resguardo no lleva post-its."
+      ),
+      mejora(
+        "Pedidos",
+        "Las notas que ya tenía un pedido se muestran como «Notas anteriores», en solo lectura. Con «Pasar a post-it» las conviertes en un post-it de una sola vez."
+      ),
+      nuevo(
+        "Pedidos",
+        "Secuencia de trabajo: además del responsable, un pedido puede tener sus pasos (Diseño, Preparación, Impresión…), cada uno con la persona que lo hace. La ficha marca a quién le toca ahora; al terminar, pulsa «Marcar hecho» y, si te equivocas, «Deshacer». Completar la secuencia no cambia el estado ni el responsable."
+      ),
+      nuevo(
+        "Pedidos",
+        "«Mis pedidos» separa lo que te toca, lo que llevas como responsable y lo que te llegará más adelante. La lista de pedidos muestra a quién le toca y se puede filtrar por «Le toca a» y «Participa», y la carga del equipo del panel diario añade la columna «Le toca ahora»."
+      ),
+      nuevo(
+        "Ajustes",
+        "Fases de trabajo en Configuración: crea las fases con las que se arman las secuencias, con nombre, icono y orden, o empieza con las sugeridas (Diseño, Preparación, Impresión y Acabado)."
+      ),
       nuevo(
         "Pedidos",
         "Las instrucciones y las notas internas del pedido admiten tamaño de letra, color y alineación de párrafos, y al imprimir se respetan. Los demás textos no cambian."
