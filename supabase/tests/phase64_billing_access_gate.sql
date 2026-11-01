@@ -115,6 +115,34 @@ begin
   v_eval := public.resolve_tenant_billing_access_v1(t_past_due);
   perform pg_temp.ok((v_eval ->> 'grace_until')::timestamptz = t0 + interval '4 days', 'grace_until reported');
   perform pg_temp.ok(pg_temp.st(t_unpaid) = 'subscription_ended', 'unpaid suspended');
+
+  -- Grace counts from the period that actually went unpaid: a real
+  -- active → past_due transition is logged with its period start, and Stripe
+  -- rolling the period forward while still unpaid does not restart the grace.
+  update public.subscriptions set status = 'active', current_period_start = t0 - interval '10 days'
+  where tenant_id = t_cancel;  -- reuse: becomes a plain active Stripe sub
+  update public.subscriptions set cancel_at_period_end = false where tenant_id = t_cancel;
+  update public.subscriptions set status = 'past_due' where tenant_id = t_cancel;
+  perform pg_temp.ok((select e.period_start from billing_private.subscription_status_events e
+                      join public.subscriptions s on s.id = e.subscription_id
+                      where s.tenant_id = t_cancel and e.to_status = 'past_due') = t0 - interval '10 days',
+                     'past_due entry logged with the unpaid period start');
+  perform pg_temp.ok(pg_temp.st(t_cancel, t0 - interval '4 days') = 'past_due_grace', 'grace day 6 of the unpaid period');
+  perform pg_temp.ok(pg_temp.st(t_cancel, t0 - interval '3 days') = 'past_due_suspended', 'suspended after 7 days');
+  update public.subscriptions set current_period_start = t0 + interval '20 days' where tenant_id = t_cancel;
+  perform pg_temp.ok(pg_temp.st(t_cancel, t0) = 'past_due_suspended', 'period roll-forward does not restart grace');
+  v_eval := public.resolve_tenant_billing_access_v1(t_cancel, t0);
+  perform pg_temp.ok((v_eval ->> 'unpaid_from')::timestamptz = t0 - interval '10 days', 'unpaid_from reported');
+  -- Payment confirmed → active again, transition logged.
+  update public.subscriptions set status = 'active' where tenant_id = t_cancel;
+  perform pg_temp.ok(pg_temp.st(t_cancel, t0) = 'subscription_active', 'Stripe payment reactivates');
+  perform pg_temp.ok((select count(*) from billing_private.subscription_status_events e
+                      join public.subscriptions s on s.id = e.subscription_id
+                      where s.tenant_id = t_cancel) = 3, 'insert, past_due and active transitions audited');
+  -- An expired internal trial never gets the past_due grace.
+  perform pg_temp.ok(pg_temp.st(t_trial, t0 + interval '1 day') = 'trial_expired', 'internal trial expiry is not a payment failure');
+  -- Restore the canceling fixture used below.
+  update public.subscriptions set cancel_at_period_end = true where tenant_id = t_cancel;
   perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'no subscription suspended');
   perform pg_temp.ok(pg_temp.st(null) = 'unknown_tenant', 'null tenant');
   perform pg_temp.ok(pg_temp.st(gen_random_uuid()) = 'unknown_tenant', 'missing tenant');

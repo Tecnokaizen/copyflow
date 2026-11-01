@@ -47,19 +47,29 @@ Los calcula `billing_private.evaluate_tenant_billing_access(tenant, at)`.
 
 **Caso SUR4:** Checkout antes de las 14:08 → conversión → Stripe `active`, con la primera factura a las 14:53. No hay suspensión. Si el webhook llegara después de las 14:53, `checkout_pending` cubre hasta 2 h tras el fin de la prueba. Esto está probado en phase64 (bloque B).
 
-## 4. Política de gracia propuesta (pendiente de aprobación)
+## 4. Política de gracia — APROBADA por el propietario (01/11/2026)
 
-| Situación | Propuesta |
-|---|---|
-| Prueba vencida | Sin gracia ni prórroga automática. Suspensión al minuto exacto de `current_period_end` |
-| Pago recurrente fallido (`past_due`) | **7 días de gracia** desde el inicio del periodo impagado. Stripe sigue reintentando (Smart Retries) |
-| Tras la gracia | Suspensión. El Owner paga desde el Portal y se reactiva al llegar `invoice.paid` / `customer.subscription.updated` |
-| Stripe pasa a `unpaid` o `canceled` | Suspensión. Con `unpaid`, pagar la factura reactiva. Con `canceled`, hace falta un Checkout nuevo (el Owner tiene acceso) |
-| Cancelación al final del periodo | Servicio completo hasta el fin; suspensión cuando Stripe envía `deleted` |
+Aprobada solo como política y para incorporarla al diseño y a las pruebas de #179. **No autoriza** fusionar, aplicar migraciones, desplegar ni activar `observe`/`enforce`.
 
-La gracia (`past_due_grace_days`, de 0 a 30) y la ventana de checkout pendiente (`checkout_pending_minutes`) se cambian con `set_billing_access_gate_settings_v1`, con auditoría y sin migración.
+| Condición aprobada | Implementación | Prueba (phase64) |
+|---|---|---|
+| 1. 7 días desde el inicio del periodo **efectivamente** impagado | `subscription_status_events` guarda `period_start` al entrar en `past_due`. La gracia se cuenta desde ahí, aunque Stripe renueve el periodo sin cobrar | `past_due entry logged…`, `period roll-forward does not restart grace` |
+| 2. Durante la gracia, acceso operativo y regularización | `past_due_grace` = acceso; Portal y Checkout exentos | `past_due within grace`, `grace day 6…` |
+| 3. Después, suspensión sin borrar datos | `past_due_suspended`; el trigger solo bloquea escrituras, no borra | `suspended after 7 days`, `suspended tenant keeps and reads its data` |
+| 4. Owner con Facturación, Checkout, Portal y recuperación | Rutas exentas en el proxy; escrituras de facturación con `service_role` | Unitarias `keeps billing, Checkout, Portal and auth open…` |
+| 5. Reactivación automática al confirmar Stripe | El estado se recalcula desde `subscriptions`; el webhook pone `active` | `Stripe payment reactivates`, `reactivated tenant writes` |
+| 6. Registrar y auditar transiciones | `billing_private.subscription_status_events` (alta y cada cambio de estado, con rol), historial de ajustes y de exenciones | `insert, past_due and active transitions audited`, `settings changes audited`, `exemption audited` |
+| 7. Exenciones explícitas y auditadas | `set_tenant_billing_access_exemption_v1` (autorizante y motivo obligatorios, caducidad opcional) | Bloque de exenciones |
+| 8. Prueba interna vencida ≠ pago Stripe fallido | Estados distintos (`trial_expired` frente a `past_due_*`); las internas nunca tienen gracia | `internal trial expiry is not a payment failure` |
 
-**Recomendación complementaria (Stripe Dashboard, fuera de este PR):** configurar los reintentos para que el último sea ≥ 7 días y que la acción final sea «marcar como impagada» (no cancelar), para que el cliente conserve la suscripción y pueda regularizar.
+Resto de la política:
+- **Prueba vencida:** sin gracia ni prórroga.
+- **`unpaid`/`canceled`:** suspensión. Con `unpaid`, pagar reactiva; con `canceled`, hace falta un Checkout nuevo.
+- **Cancelación al final del periodo:** servicio completo hasta el fin.
+
+Los valores (`past_due_grace_days` = 7, `checkout_pending_minutes` = 120) se cambian con `set_billing_access_gate_settings_v1`, con auditoría.
+
+**Recomendación complementaria (Stripe Dashboard, fuera de este PR):** configurar los reintentos para que el último sea ≥ 7 días y que la acción final sea «marcar como impagada».
 
 ## 5. Aplicación
 
@@ -91,7 +101,7 @@ Solo en hosts de tenant y solo si `BILLING_ACCESS_GATE_PROXY=on`:
 | D0 | Merge + deploy con `BILLING_ACCESS_GATE_PROXY` sin definir | Ninguno |
 | D1 | Migración en Staging → phase64 + E2E en Staging | Ninguno en Production |
 | D2 | Migración en Production (modo `off`) | Ninguno: el trigger evalúa y permite |
-| D3 | **Decidir los tenants actuales** (ver §7) y crear exenciones si procede | — |
+| D3 | **Propuesta al propietario para los 4 tenants sin suscripción vigente** (ver §7) y exenciones solo con GO | — |
 | D4 | `BILLING_ACCESS_GATE_PROXY=on` + modo `observe` ≥ 48 h | Solo logs `[billing.access-gate] observe` |
 | D5 | Modo `enforce` | Suspensión real |
 

@@ -61,6 +61,60 @@ comment on table billing_private.tenant_access_exemptions is
   'Operator-granted commercial exemptions (internal, demo or support tenants). An exemption never changes subscriptions or tenants.active.';
 
 -- ---------------------------------------------------------------------------
+-- Subscription status transitions (audit + start of the unpaid period)
+-- ---------------------------------------------------------------------------
+create table if not exists billing_private.subscription_status_events (
+  id bigint generated always as identity primary key,
+  subscription_id uuid not null,
+  tenant_id uuid not null,
+  provider text,
+  from_status text,
+  to_status text not null,
+  period_start timestamptz,
+  actor_role text,
+  at timestamptz not null default pg_catalog.now()
+);
+
+create index if not exists subscription_status_events_sub_idx
+  on billing_private.subscription_status_events (subscription_id, at desc);
+create index if not exists subscription_status_events_tenant_idx
+  on billing_private.subscription_status_events (tenant_id, at desc);
+
+alter table billing_private.subscription_status_events enable row level security;
+revoke all on table billing_private.subscription_status_events
+  from public, anon, authenticated, service_role;
+
+comment on table billing_private.subscription_status_events is
+  'Append-only log of subscription status changes (webhook sync, operators). period_start = current_period_start when the status was entered: past_due grace counts from the period that actually went unpaid, even if Stripe later rolls the period forward.';
+
+create or replace function billing_private.tg_log_subscription_status()
+  returns trigger
+  language plpgsql
+  security definer
+  set search_path to ''
+  as $function$
+begin
+  if tg_op = 'INSERT' or old.status is distinct from new.status then
+    insert into billing_private.subscription_status_events
+      (subscription_id, tenant_id, provider, from_status, to_status, period_start, actor_role)
+    values
+      (new.id, new.tenant_id, new.provider,
+       case when tg_op = 'UPDATE' then old.status end, new.status,
+       new.current_period_start, nullif(coalesce(auth.role(), ''), ''));
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function billing_private.tg_log_subscription_status()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_subscription_status_events on public.subscriptions;
+create trigger trg_subscription_status_events
+  after insert or update of status on public.subscriptions
+  for each row execute function billing_private.tg_log_subscription_status();
+
+-- ---------------------------------------------------------------------------
 -- Core evaluation (private). Pure read; p_at makes it testable.
 -- ---------------------------------------------------------------------------
 create or replace function billing_private.evaluate_tenant_billing_access (
@@ -86,6 +140,7 @@ declare
   v_allowed boolean;
   v_tenant_active boolean;
   v_provisioning text;
+  v_unpaid_from timestamptz;
 begin
   select * into v_settings from billing_private.access_gate_settings where id;
   if not found then
@@ -146,8 +201,19 @@ begin
         v_state := case when v_sub.cancel_at_period_end or v_sub.cancel_at is not null
                         then 'subscription_canceling' else 'subscription_active' end;
       else
-        -- past_due: grace counted from the start of the unpaid period.
-        v_grace_until := coalesce(v_sub.current_period_start, v_sub.updated_at)
+        -- past_due: grace counted from the start of the period that actually
+        -- went unpaid (recorded when past_due was entered), not from a later
+        -- period Stripe may roll forward while still unpaid. Rows that became
+        -- past_due before this migration fall back to current_period_start.
+        select coalesce(e.period_start, e.at) into v_unpaid_from
+        from billing_private.subscription_status_events e
+        where e.subscription_id = v_sub.id
+          and e.to_status = 'past_due'
+          and e.from_status is distinct from 'past_due'
+        order by e.at desc, e.id desc
+        limit 1;
+        v_unpaid_from := coalesce(v_unpaid_from, v_sub.current_period_start, v_sub.updated_at);
+        v_grace_until := v_unpaid_from
           + pg_catalog.make_interval(days => v_settings.past_due_grace_days);
         v_allowed := v_at < v_grace_until;
         v_state := case when v_allowed then 'past_due_grace' else 'past_due_suspended' end;
@@ -213,6 +279,7 @@ begin
     'provider', coalesce(v_sub.provider, v_last.provider),
     'status', coalesce(v_sub.status, v_last.status),
     'period_end', coalesce(v_sub.current_period_end, v_last.current_period_end),
+    'unpaid_from', v_unpaid_from,
     'grace_until', v_grace_until,
     'pending_until', case when v_state = 'checkout_pending' then v_pending_until end,
     'evaluated_at', v_at
