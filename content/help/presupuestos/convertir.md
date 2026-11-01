@@ -11,12 +11,15 @@ Para poder convertir, la organización necesita un estado inicial de pedido acti
 ## Cómo hacerlo
 
 1. Abre el presupuesto (normalmente ya aceptado o listo para producir).
-2. Pulsa Convertir en pedido.
-3. Espera la confirmación y abre el pedido creado si lo necesitas.
+2. Pulsa **Convertir en pedido**.
+3. Revisa la tienda, el servicio y el responsable. Como responsable solo aparecen las personas activas que pueden recibir pedidos.
+4. Confirma y espera la confirmación y abre el pedido creado si lo necesitas.
 
 ## Qué ocurre después
 
 Tienes un pedido nuevo editable. El presupuesto muestra el enlace al pedido. Los archivos del presupuesto no se duplican automáticamente en el pedido.
+
+Las condiciones y las notas internas del presupuesto pasan a las **notas internas** del pedido, cada bloque con el número del presupuesto, para que el taller las tenga a mano. No se copian a ningún campo que vea el cliente.
 
 ## Quién puede hacerlo
 

@@ -6,13 +6,13 @@ title: Crear un cliente
 
 Das de alta un cliente nuevo con al menos el nombre. El resto de datos de contacto son opcionales y ayudan a localizar el trabajo después.
 
-También puedes crear el cliente mientras creas o editas un pedido, sin salir del flujo.
+También puedes crear el cliente mientras creas o editas un pedido o un presupuesto, sin salir del flujo. La dirección postal es opcional y se muestra en la ficha del cliente.
 
 ## Cómo hacerlo
 
 1. Entra en Clientes y elige crear, o usa Crear cliente dentro del pedido.
 2. Indica el nombre.
-3. Completa teléfono, correo u otros datos si los tienes.
+3. Completa teléfono, correo, **Dirección (opcional)** u otros datos si los tienes.
 4. Guarda.
 
 ## Qué ocurre después

@@ -4,7 +4,7 @@ title: Editar un cliente
 
 ## Qué puedes hacer aquí
 
-Actualizas datos de contacto o notas. El historial de pedidos no se borra al guardar.
+Actualizas datos de contacto, la dirección postal o las notas. El historial de pedidos no se borra al guardar.
 
 ## Cómo hacerlo
 

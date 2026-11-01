@@ -6,7 +6,7 @@ title: Hoja de trabajo y resguardo
 
 Desde la ficha del pedido puedes sacar dos documentos en A4:
 
-- **Hoja de trabajo** (**Imprimir pedido**): el documento interno para el taller, con el cliente, el trabajo, las fechas, el responsable y el cobro.
+- **Hoja de trabajo** (**Imprimir pedido**): el documento interno para el taller, con el cliente, el trabajo, las fechas, el responsable y el cobro. Arriba a la derecha lleva un resumen con el total del pedido, lo entregado a cuenta y lo pendiente de cobro.
 - **Resguardo** (**Resguardo PDF**): el justificante para el cliente, con sus datos, la descripción del trabajo, los importes, las fechas y el lugar de recogida.
 
 ## Cómo hacerlo
@@ -15,6 +15,8 @@ Desde la ficha del pedido puedes sacar dos documentos en A4:
 2. Pulsa **Imprimir pedido** para la Hoja de trabajo, o **Resguardo PDF** para el resguardo.
 3. En la vista de impresión, **Hoja de trabajo** abre el diálogo de impresión del navegador y **Resguardo** abre el PDF en otra pestaña.
 4. Imprime o guarda el documento desde el navegador.
+
+Los documentos salen con los datos del pedido en ese momento. Si lo cambias, vuelve a abrirlos para tener la versión al día.
 
 ## Qué no se imprime
 
@@ -29,4 +31,10 @@ Cualquier persona con acceso al pedido.
 ## Problemas frecuentes
 
 ### Mis notas ya no salen en la hoja
-Es lo previsto: las notas internas se quedan en pantalla. Si usas post-its, pasa la nota a post-it y márcalo como imprimible.
+Es lo previsto: las notas internas se quedan en pantalla. Lo que deba ir en papel, escríbelo en **Instrucciones**. Si usas post-its, pasa la nota a post-it y márcalo como imprimible.
+
+### En la hoja los importes salen como «Sin definir»
+El pedido todavía no tiene total. Defínelo en el bloque **Cobro y entrega** de la ficha y vuelve a abrir la hoja.
+
+### No se abre la pestaña nueva
+Revisa si el navegador está bloqueando las ventanas emergentes de Gestcopy.

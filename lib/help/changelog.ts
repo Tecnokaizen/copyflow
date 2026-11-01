@@ -65,9 +65,57 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
-    date: "2026-10-29",
-    title: "Ficha del pedido, Hoja de trabajo, Resguardo y formato de texto",
+    date: "2026-10-31",
+    title: "Elige cómo se ve la ficha del pedido",
     entries: [
+      nuevo(
+        "Ajustes",
+        "En Configuración, apartado Personalización, «Vista de pedidos» permite elegir cómo se organiza la ficha del pedido para todo el equipo: la ficha actual, A · Operativa, B · Pestañas, C · Producción o D · Híbrida. Cada opción muestra capturas de escritorio y móvil y una vista previa sobre un pedido real antes de aplicarla, y siempre puedes volver a la anterior. Lo elige el propietario o un administrador; los datos y los permisos no cambian."
+      ),
+      mejora(
+        "Pedidos",
+        "La ficha actual sigue siendo la predeterminada: si nadie elige otra vista, el pedido se ve exactamente igual que antes."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-30",
+    title: "Importes en la Hoja de trabajo",
+    entries: [
+      mejora(
+        "Impresión",
+        "La Hoja de trabajo muestra arriba a la derecha un resumen con el total del pedido, lo entregado a cuenta y lo pendiente de cobro, con los mismos importes que la ficha y el Resguardo. Si el pedido aún no tiene total, aparece «Sin definir»."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-29",
+    title: "Post-its, secuencia de trabajo, ficha del pedido, Resguardo y formato de texto",
+    entries: [
+      nuevo(
+        "Pedidos",
+        "Post-its del pedido: notas cortas con su autor, su fecha y su estado (Abierta, Resuelta o Anulada). Puedes dirigirlos a una persona con «Para», fijarlos arriba de la ficha y consultar su historial. Nadie los borra: se resuelven o se anulan con un motivo."
+      ),
+      nuevo(
+        "Impresión",
+        "Un post-it sale en la Hoja de trabajo solo si lo marcas como imprimible. Antes de confirmarlo ves el texto tal como se imprimirá, con un aviso si contiene un email o un teléfono. El Resguardo no lleva post-its."
+      ),
+      mejora(
+        "Pedidos",
+        "Las notas que ya tenía un pedido se muestran como «Notas anteriores», en solo lectura. Con «Pasar a post-it» las conviertes en un post-it de una sola vez."
+      ),
+      nuevo(
+        "Pedidos",
+        "Secuencia de trabajo: además del responsable, un pedido puede tener sus pasos (Diseño, Preparación, Impresión…), cada uno con la persona que lo hace. La ficha marca a quién le toca ahora; al terminar, pulsa «Marcar hecho» y, si te equivocas, «Deshacer». Completar la secuencia no cambia el estado ni el responsable."
+      ),
+      nuevo(
+        "Pedidos",
+        "«Mis pedidos» separa lo que te toca, lo que llevas como responsable y lo que te llegará más adelante. La lista de pedidos muestra a quién le toca y se puede filtrar por «Le toca a» y «Participa», y la carga del equipo del panel diario añade la columna «Le toca ahora»."
+      ),
+      nuevo(
+        "Ajustes",
+        "Fases de trabajo en Configuración: crea las fases con las que se arman las secuencias, con nombre, icono y orden, o empieza con las sugeridas (Diseño, Preparación, Impresión y Acabado)."
+      ),
       nuevo(
         "Pedidos",
         "Las instrucciones y las notas internas del pedido admiten tamaño de letra, color y alineación de párrafos, y al imprimir se respetan. Los demás textos no cambian."
@@ -108,12 +156,56 @@ export const CHANGELOG: ChangelogRelease[] = [
         "Pedidos",
         "Para elegir responsable de un pedido o de un presupuesto, también al convertir un presupuesto, solo aparecen las personas activas que pueden recibir pedidos. Quien deja de poder recibirlos conserva los pedidos que ya tenía hasta que los reasignes."
       ),
+      seguridad(
+        "Pedidos",
+        "Cualquier cambio en un pedido pasa siempre por las mismas comprobaciones de permisos, estado y responsable que se aplican desde la ficha. La forma de trabajar no cambia."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-25",
+    title: "Volver a contratar tras cancelar",
+    entries: [
+      correccion(
+        "Facturación",
+        "Si cancelas la suscripción, puedes volver a contratar el plan desde Facturación. Antes, en algunos casos, aparecía siempre «Estamos confirmando tu suscripción» y no dejaba continuar."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-21",
+    title: "Pie del PDF de presupuestos y copias de seguridad",
+    entries: [
+      correccion(
+        "Presupuestos",
+        "El pie del PDF de presupuestos se imprime tal como lo escribes en Ajustes: cada línea en su sitio, sin cortes a mitad de un dato y respetando los espacios que separan la información. Ya no aparece debajo una línea con la referencia y la moneda; la referencia sigue en la cabecera de cada página."
+      ),
+      seguridad(
+        "Plataforma",
+        "Las copias de seguridad incluyen ahora toda la información necesaria para recuperar la plataforma, y se ha completado con éxito un simulacro de recuperación."
+      ),
     ],
   },
   {
     date: "2026-10-16",
-    title: "Métodos de pago, justificantes, dirección de clientes y notas de presupuesto en pedidos",
+    title: "Métodos de pago, justificantes, dirección de clientes y partidas duplicadas",
     entries: [
+      nuevo(
+        "Presupuestos",
+        "Botón «Duplicar» en cada partida del borrador de un presupuesto: crea una copia justo debajo, con el mismo concepto, descripción, precio, descuento e IVA, para cotizar la misma referencia con otra cantidad. La copia suma en los totales como cualquier otra partida y no se guarda hasta que pulses «Guardar borrador»."
+      ),
+      mejora(
+        "Plataforma",
+        "Gestcopy responde más rápido: la aplicación funciona ahora en Europa, junto a tus datos."
+      ),
+      seguridad(
+        "Plataforma",
+        "Cada copistería se abre solo desde su propia dirección. Si Gestcopy no reconoce la dirección desde la que se accede, no muestra ningún dato."
+      ),
+      seguridad(
+        "Cobros",
+        "El total de un pedido solo cambia con las acciones previstas para ello, como «Definir total», «Modificar total» o al convertir un presupuesto, que comprueban cada cambio."
+      ),
       correccion(
         "Ajustes",
         "El logo de la copistería se muestra con su forma real en la cabecera, sea horizontal o vertical, y al cambiarlo o quitarlo se actualiza al momento, sin recargar la página."

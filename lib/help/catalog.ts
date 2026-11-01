@@ -140,6 +140,28 @@ export const HELP_SECTIONS: HelpSection[] = [
         ["guias/fecha-entrega", "panel-diario"]
       ),
       article(
+        "pedidos/cobros",
+        "Cobros y entregas a cuenta",
+        "Total del pedido, entregas a cuenta, método de pago y justificantes.",
+        "pedidos/cobros.md",
+        [
+          "cobro",
+          "cobrar",
+          "entrega a cuenta",
+          "a cuenta",
+          "señal",
+          "pendiente de cobro",
+          "método de pago",
+          "bizum",
+          "tarjeta",
+          "efectivo",
+          "transferencia",
+          "justificante",
+          "anular entrega",
+        ],
+        ["pedidos/imprimir", "pedidos/entregas", "pedidos/crear-pedido"]
+      ),
+      article(
         "pedidos/archivos",
         "Archivos del pedido",
         "Subir, previsualizar, descargar y borrar documentos del trabajo.",
@@ -152,8 +174,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         "Hoja de trabajo y resguardo",
         "Los dos documentos A4 del pedido y lo que nunca se imprime.",
         "pedidos/imprimir.md",
-        ["imprimir", "hoja de trabajo", "resguardo", "pdf cliente", "notas no se imprimen"],
-        ["pedidos/post-its", "pedidos/crear-pedido"]
+        ["imprimir", "hoja de trabajo", "resguardo", "pdf cliente", "ticket", "notas no se imprimen", "importes"],
+        ["pedidos/cobros", "pedidos/post-its", "pedidos/crear-pedido"]
       ),
       article(
         "pedidos/post-its",
@@ -190,17 +212,16 @@ export const HELP_SECTIONS: HelpSection[] = [
         "Crear un cliente",
         "Alta de un cliente nuevo desde Clientes o desde un pedido.",
         "clientes/crear.md",
-        ["nuevo cliente", "alta cliente", "crear cliente"],
+        ["nuevo cliente", "alta cliente", "crear cliente", "dirección"],
         ["guias/crear-cliente-en-pedido", "clientes/editar"]
       ),
-      article(
-        "clientes/importar",
-        "Importar clientes",
-        "Traer la cartera desde otro programa, un CRM o Excel sin duplicar clientes.",
-        "clientes/importar.md",
-        ["importar clientes", "csv", "excel", "xlsx", "migrar", "otro programa", "crm", "plantilla"],
-        ["clientes", "clientes/crear"]
-      ),
+      // «Importar clientes» (clientes/importar.md) stays out of the index while
+      // client import is off in Production. To publish it, add back:
+      // article("clientes/importar", "Importar clientes",
+      //   "Traer la cartera desde otro programa, un CRM o Excel sin duplicar clientes.",
+      //   "clientes/importar.md",
+      //   ["importar clientes", "csv", "excel", "xlsx", "migrar", "otro programa", "crm", "plantilla"],
+      //   ["clientes", "clientes/crear"]),
       article(
         "clientes/editar",
         "Editar un cliente",
@@ -236,7 +257,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         "Crear un presupuesto",
         "Registrar una solicitud todavía no confirmada.",
         "presupuestos/crear.md",
-        ["nuevo presupuesto", "alta presupuesto"],
+        ["nuevo presupuesto", "alta presupuesto", "partidas", "duplicar partida", "añadir línea", "pie de presupuesto"],
         ["guias/crear-presupuesto", "presupuestos/estados"]
       ),
       article(
@@ -320,7 +341,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         "Identidad de empresa",
         "Nombre visible, logo y color de marca.",
         "configuracion/identidad.md",
-        ["logo", "marca", "nombre visible", "color"],
+        ["logo", "marca", "nombre visible", "color", "pie de presupuestos"],
         ["configuracion", "facturacion"]
       ),
       article(
@@ -378,6 +399,23 @@ export const HELP_SECTIONS: HelpSection[] = [
         "configuracion/pedido-rapido.md",
         ["campos pedido rápido", "layout mostrador", "configurar pedido rápido"],
         ["guias/configurar-pedido-rapido", "pedidos/pedido-rapido"]
+      ),
+      article(
+        "configuracion/vista-de-pedidos",
+        "Vista de pedidos",
+        "Elegir cómo se organiza la ficha del pedido para todo el equipo.",
+        "configuracion/vista-de-pedidos.md",
+        [
+          "vista de pedidos",
+          "ficha del pedido",
+          "personalización",
+          "operativa",
+          "pestañas",
+          "producción",
+          "híbrida",
+          "diseño de la ficha",
+        ],
+        ["pedidos", "configuracion"]
       ),
     ],
   },
