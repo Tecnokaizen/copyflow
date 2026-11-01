@@ -84,6 +84,8 @@ declare
   v_trial_end timestamptz;
   v_state text;
   v_allowed boolean;
+  v_tenant_active boolean;
+  v_provisioning text;
 begin
   select * into v_settings from billing_private.access_gate_settings where id;
   if not found then
@@ -95,6 +97,23 @@ begin
   if p_tenant_id is null then
     return pg_catalog.jsonb_build_object(
       'allowed', false, 'state', 'unknown_tenant', 'mode', v_settings.mode,
+      'enforced', v_settings.mode = 'enforce');
+  end if;
+
+  -- 0. Tenants under the administrative gate (inactive, pending_billing
+  --    onboarding) are not the commercial gate's business: tenants.active and
+  --    the inactive-tenant gate already govern them, and paid onboarding seeds
+  --    the new tenant before any subscription exists.
+  select t.active, t.provisioning_state into v_tenant_active, v_provisioning
+  from public.tenants t where t.id = p_tenant_id;
+  if not found then
+    return pg_catalog.jsonb_build_object(
+      'allowed', false, 'state', 'unknown_tenant', 'mode', v_settings.mode,
+      'enforced', v_settings.mode = 'enforce');
+  end if;
+  if v_tenant_active is not true or v_provisioning = 'pending_billing' then
+    return pg_catalog.jsonb_build_object(
+      'allowed', true, 'state', 'administrative_gate', 'mode', v_settings.mode,
       'enforced', v_settings.mode = 'enforce');
   end if;
 
@@ -205,7 +224,7 @@ revoke all on function billing_private.evaluate_tenant_billing_access(uuid, time
   from public, anon, authenticated, service_role;
 
 comment on function billing_private.evaluate_tenant_billing_access(uuid, timestamptz) is
-  'Billing Access Gate V1 core. allowed + state: exempt | subscription_active | subscription_canceling | past_due_grace | trial_active | internal_active | reconciliation_pending | checkout_pending (allowed); past_due_suspended | trial_expired | internal_expired | subscription_ended | no_subscription (suspended). Ignores tenants.active.';
+  'Billing Access Gate V1 core. allowed + state: administrative_gate (inactive or pending_billing tenant: governed by tenants.active) | exempt | subscription_active | subscription_canceling | past_due_grace | trial_active | internal_active | reconciliation_pending | checkout_pending (allowed); past_due_suspended | trial_expired | internal_expired | subscription_ended | no_subscription (suspended). Ignores tenants.active.';
 
 -- ---------------------------------------------------------------------------
 -- Public wrappers
@@ -436,6 +455,11 @@ begin
   -- SECURITY DEFINER RPCs they call). service_role and no-JWT sessions pass.
   if v_role <> all (array['authenticated', 'anon']::text[]) then
     return coalesce(new, old);
+  end if;
+
+  -- A new tenant row is created by controlled onboarding RPCs.
+  if tg_table_name = 'tenants' and tg_op = 'INSERT' then
+    return new;
   end if;
 
   v_row := pg_catalog.to_jsonb(case when tg_op = 'DELETE' then old else new end);

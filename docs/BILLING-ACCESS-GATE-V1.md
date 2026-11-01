@@ -26,6 +26,7 @@ Los calcula `billing_private.evaluate_tenant_billing_access(tenant, at)`.
 
 | Estado | Acceso | Regla |
 |---|---|---|
+| `administrative_gate` | ✅ (no aplica) | Tenant inactivo o `pending_billing`: lo gobiernan `tenants.active` y la puerta de inactividad. Permite el onboarding de pago, que siembra el tenant antes de tener suscripción |
 | `exempt` | ✅ | Exención de operador vigente (`tenant_access_exemptions`) |
 | `subscription_active` | ✅ | Stripe `active`/`trialing`. Stripe es la fuente de verdad de las fechas |
 | `subscription_canceling` | ✅ | Stripe activa con `cancel_at_period_end` o `cancel_at` |
@@ -67,6 +68,7 @@ La gracia (`past_due_grace_days`, de 0 a 30) y la ventana de checkout pendiente 
 - Trigger `trg_billing_access_gate` en 35 tablas operativas: pedidos, archivos, notas, pagos, clientes, presupuestos, catálogos, equipo, invitaciones, membresías, ajustes, dominios, importaciones, uso de IA y `tenants`.
 - Solo actúa con JWT de usuario (`auth.role()` = `authenticated` o `anon`). Eso incluye las RPC `SECURITY DEFINER` que llaman los usuarios y el kiosko anónimo.
 - `service_role` (webhook, facturación, soporte) y las sesiones sin JWT (migraciones, cron) pasan.
+- No actúa en el `INSERT` de `tenants` (alta por RPC controlada).
 - Error **`PT402 billing_suspended`**. PostgREST lo devuelve como HTTP 402; el `detail` lleva el estado.
 - Caché de una evaluación por tenant y transacción.
 - **No bloquea:** `activity_log`, contadores, tablas de facturación, `subscriptions`, `files_private.storage_deletions` (la limpieza en R2 continúa) ni las lecturas.

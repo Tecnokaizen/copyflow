@@ -117,6 +117,7 @@ begin
   perform pg_temp.ok(pg_temp.st(t_unpaid) = 'subscription_ended', 'unpaid suspended');
   perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'no subscription suspended');
   perform pg_temp.ok(pg_temp.st(null) = 'unknown_tenant', 'null tenant');
+  perform pg_temp.ok(pg_temp.st(gen_random_uuid()) = 'unknown_tenant', 'missing tenant');
 
   -- Cancellation reaches its end: Stripe sends deleted → canceled.
   update public.subscriptions set status = 'canceled' where tenant_id = t_cancel;
@@ -261,6 +262,22 @@ begin
   perform pg_temp.ok(not has_function_privilege('authenticated', 'public.set_tenant_billing_access_exemption_v1(uuid, boolean, timestamptz, text, text)', 'execute'), 'exemptions service-only');
   perform pg_temp.ok(not has_function_privilege('anon', 'public.current_tenant_billing_access_v1(text)', 'execute'), 'anon cannot read gate');
   perform pg_temp.ok(not has_table_privilege('authenticated', 'billing_private.access_gate_settings', 'select'), 'settings table private');
+
+  -- Paid onboarding under enforce: create_organization (user JWT) seeds a
+  -- pending_billing tenant with no subscription and is not blocked.
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', outsider::text, true);
+  execute 'set local role authenticated';
+  v_eval := public.create_organization('P64 Onboarding', 'p64-onboarding');
+  execute 'reset role';
+  perform pg_temp.ok((select provisioning_state from public.tenants where slug = 'p64-onboarding') = 'pending_billing', 'onboarding works under enforce: ' || coalesce(v_eval::text, 'null'));
+  perform pg_temp.ok(pg_temp.st((select id from public.tenants where slug = 'p64-onboarding')) = 'administrative_gate', 'pending tenant left to the administrative gate');
+  -- An administratively inactive tenant is not reported as a billing suspension.
+  perform set_config('request.jwt.claim.role', '', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+  update public.tenants set active = false where id = t_unpaid;
+  perform pg_temp.ok(pg_temp.st(t_unpaid) = 'administrative_gate', 'inactive tenant: administrative gate');
+  update public.tenants set active = true where id = t_unpaid;
 
   -- Reactivation: payment confirmed → next transaction writes again.
   update public.subscriptions set provider = 'stripe', status = 'active', provider_subscription_id = 'sub_phase64_a',
