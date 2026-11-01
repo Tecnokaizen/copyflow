@@ -1,5 +1,7 @@
 import "server-only";
 
+import { checkoutReturnUrlsMatch } from "./return-origins";
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/billing/stripe";
 import {
@@ -9,7 +11,9 @@ import {
 import {
   CHECKOUT_IDEMPOTENCY_KEY_PREFIX,
   checkoutIdempotencyKey,
+  checkoutSessionMatches,
   reservedExpiresAtUnix,
+  type ExpectedCheckoutSession,
 } from "@/lib/billing/checkout-attempts-keys";
 
 export {
@@ -211,6 +215,34 @@ export type ResolveReusableResult =
   | { kind: "retryable"; sessionId: string; cause: unknown };
 
 /**
+ * An open session that sells another plan, offer or terms is expired in
+ * Stripe first; only then is the attempt closed. If Stripe refuses (it may
+ * have just been paid), nothing is forgotten: the caller retries.
+ */
+async function expireMismatchedSession(input: {
+  stripe: ReturnType<typeof getStripe>;
+  attemptId: string;
+  sessionId: string;
+}): Promise<ResolveReusableResult> {
+  try {
+    await input.stripe.checkout.sessions.expire(input.sessionId);
+  } catch (error) {
+    console.error("[billing.checkout] expire mismatched session failed (retryable)", {
+      message: error instanceof Error ? error.message : "unknown",
+      sessionId: input.sessionId,
+      attemptId: input.attemptId,
+    });
+    return { kind: "retryable", sessionId: input.sessionId, cause: error };
+  }
+  await finalizeCheckoutAttempt({
+    attemptId: input.attemptId,
+    sessionId: input.sessionId,
+    status: "expired",
+  });
+  return { kind: "expired", sessionId: input.sessionId };
+}
+
+/**
  * Resolve a stored open Checkout Session.
  * Transient Stripe retrieve errors must NOT mark the attempt expired.
  */
@@ -219,6 +251,9 @@ export async function resolveReusableCheckoutSession(input: {
   sessionId: string;
   /** Derived server-side from STRIPE_MODE when omitted. */
   livemode?: boolean;
+  /** When given, an open session selling something else is expired. */
+  expected?: ExpectedCheckoutSession;
+  returnUrls?: { successUrl: string; cancelUrl: string };
 }): Promise<ResolveReusableResult> {
   const expectedLivemode =
     input.livemode ?? stripeModeToLivemode(getStripeMode());
@@ -249,7 +284,29 @@ export async function resolveReusableCheckoutSession(input: {
     throw new CheckoutModeMismatchError();
   }
 
+  if (session.status === "open" && input.returnUrls && !checkoutReturnUrlsMatch(session, input.returnUrls)) {
+    try {
+      await stripe.checkout.sessions.expire(session.id);
+    } catch (cause) {
+      // Completion can race expiration: never reserve a replacement or charge
+      // again while the outcome of the existing session is uncertain.
+      return { kind: "retryable", sessionId: session.id, cause };
+    }
+    await finalizeCheckoutAttempt({ attemptId: input.attemptId, sessionId: session.id, status: "expired" });
+    return { kind: "expired", sessionId: session.id };
+  }
+
   if (session.status === "open" && session.url) {
+    if (
+      input.expected &&
+      !checkoutSessionMatches(session.metadata, input.expected)
+    ) {
+      return expireMismatchedSession({
+        stripe,
+        attemptId: input.attemptId,
+        sessionId: session.id,
+      });
+    }
     return {
       kind: "open",
       url: session.url,

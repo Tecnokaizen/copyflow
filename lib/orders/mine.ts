@@ -131,7 +131,7 @@ export function classifyMineOrder(
   return "active";
 }
 
-function compareMineOrders(a: MineOrder, b: MineOrder) {
+export function compareMineOrders(a: MineOrder, b: MineOrder) {
   if (a.due_at && b.due_at) {
     if (a.due_at !== b.due_at) {
       return a.due_at < b.due_at ? -1 : 1;

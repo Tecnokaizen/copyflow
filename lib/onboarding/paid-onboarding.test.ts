@@ -298,7 +298,8 @@ describe("paid onboarding helpers", () => {
 
   it("onboarding checkout URLs stay on app-host and reject browser tenant_id authority", () => {
     const route = readSource("app/api/onboarding/route.ts");
-    assert.match(route, /\/onboarding\/success\?session_id=/);
+    assert.match(route, /onboardingReturnUrls/);
+    assert.match(readSource("lib/billing/return-origins.ts"), /\/onboarding\/success\?session_id=/);
     assert.doesNotMatch(route, /p_provisioning_mode/);
     assert.doesNotMatch(route, /body\.tenant_id/);
   });

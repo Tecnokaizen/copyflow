@@ -20,13 +20,16 @@ describe("lifecycle UX wiring", () => {
   });
 
   it("workspace archives via PATCH archive path and maps lifecycle errors", () => {
-    const source = read("components/orders/detail/order-workspace.tsx");
+    // Order Detail Views V1: logic in useOrderWorkspace, notices in the modules.
+    const source = read("components/orders/detail/use-order-workspace.ts");
+    const modules = read("components/orders/detail/order-detail-modules.tsx");
     assert.match(source, /archiveOrderPath/);
     assert.match(source, /parseLifecycleApiError/);
     assert.match(source, /method:\s*"PATCH"/);
     assert.match(source, /draftTerminalConfirm/);
-    assert.match(source, /Pedido archivado · solo consulta/);
+    assert.match(modules, /Pedido archivado · solo consulta/);
     assert.equal(source.includes('.from("orders").update'), false);
+    assert.equal(modules.includes('.from("orders").update'), false);
   });
 
   it("header shows archived badge and blocks mutations when archived", () => {

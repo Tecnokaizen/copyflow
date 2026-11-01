@@ -6,6 +6,7 @@ import { canAccessQuotesModule, QUOTES_FEATURE_CODE } from "@/lib/quotes/access"
 import { applyOperationalOrdersFilter } from "@/lib/orders/operational";
 import { NEEDS_ATTENTION_INCLUDES } from "@/lib/orders/review";
 import { loadOperationalReviewOrders } from "@/lib/orders/review-load";
+import { loadWorkSequenceEnabled } from "@/lib/orders/work-turn";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/tenant/current-context";
 import { mapTeamMember, unwrapRpcPayload } from "@/lib/team/types";
@@ -14,6 +15,7 @@ import { getZonedDayBounds, resolveTimeZone } from "@/lib/time/zoned-day";
 import type {
   DashboardAttentionOrder,
   DashboardUpcomingOrder,
+  DashboardWorkSequenceLoad,
 } from "@/lib/dashboard/types";
 
 const UPCOMING_LIMIT = 8;
@@ -31,6 +33,56 @@ const ORDER_PREVIEW_SELECT = `
   assigned_team_member:team_members!orders_team_member_fk(name),
   status:order_statuses!inner(name, is_ready, is_closed, is_cancelled)
 `;
+
+function readCount(value: unknown) {
+  const count = Number(value ?? 0);
+  return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0;
+}
+
+/**
+ * SUR4 E9: «Le toca ahora» column. Without the work sequence (feature + active
+ * stages) the RPC is not called and the dashboard answers as before. A failure
+ * only hides the new column: KPIs and the responsible column never depend on it.
+ */
+async function loadWorkSequenceLoad(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+): Promise<DashboardWorkSequenceLoad | null> {
+  if (!(await loadWorkSequenceEnabled(supabase, tenantId))) {
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc("team_work_load_v1", {
+    p_tenant_id: tenantId,
+  });
+  const payload =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
+
+  if (error || !payload || payload.ok !== true) {
+    console.error("[GET /api/dashboard] team_work_load_v1", {
+      tenantId,
+      error: error?.message ?? (payload?.error as string | undefined) ?? "unknown error",
+    });
+    return null;
+  }
+
+  const currentByMember: Record<string, number> = {};
+  for (const row of Array.isArray(payload.members) ? payload.members : []) {
+    const member =
+      row && typeof row === "object" ? (row as Record<string, unknown>) : null;
+    if (member && typeof member.team_member_id === "string") {
+      currentByMember[member.team_member_id] = readCount(member.current);
+    }
+  }
+
+  return {
+    current_by_member: currentByMember,
+    current_unassigned: readCount(payload.current_unassigned),
+    current_unavailable: readCount(payload.current_unavailable),
+  };
+}
 
 function activeOrdersQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -115,6 +167,11 @@ export async function GET() {
   const nowIso = now.toISOString();
   const dayStartIso = day.start.toISOString();
   const dayEndIso = day.end.toISOString();
+
+  // Started next to the other reads; awaited only when the answer is built.
+  const workSequenceLoadPromise = loadWorkSequenceLoad(supabase, tenantId).catch(
+    () => null
+  );
 
   const [
     activeResult,
@@ -339,6 +396,8 @@ export async function GET() {
     .map((row) => asPreviewOrder(row))
     .filter((row): row is DashboardUpcomingOrder => row !== null);
 
+  const workSequenceLoad = await workSequenceLoadPromise;
+
   return operationalJson({
     tenant: context.tenant.slug,
     timezone,
@@ -357,6 +416,7 @@ export async function GET() {
     workload: {
       active_orders_count: Number(teamRecord.active_orders_count ?? 0) || 0,
       members,
+      ...(workSequenceLoad ? { work_sequence: workSequenceLoad } : {}),
     },
     quotes,
   });

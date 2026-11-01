@@ -1,10 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { CircleCheck } from "lucide-react";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
+import { WorkStageIcon } from "@/components/orders/work-stage-icon";
 import { formatPriority } from "@/lib/orders/format";
 import type { MineOrder, MineQueueSection } from "@/lib/orders/mine";
+import {
+  myTurnLabel,
+  RESPONSIBLE_LABEL,
+  workTurnCompactLabel,
+  workTurnTitle,
+  type MineTurnBucket,
+  type MineTurnBucketId,
+  type MineTurnOrder,
+} from "@/lib/orders/work-turn";
 import {
   UNLINKED_MINE_ASSIGN_CTA_LABEL,
   UNLINKED_MINE_DESCRIPTION,
@@ -79,19 +91,31 @@ function priorityTone(priority: string): "danger" | "warning" | "neutral" {
   return "neutral";
 }
 
+const BUCKET_EMPTY_TITLE: Record<MineTurnBucketId, string> = {
+  all: "Ahora mismo no tienes pedidos asignados.",
+  turn: "Ahora mismo no te toca ningún pedido.",
+  responsible: "Ahora mismo no eres responsable de ningún pedido activo.",
+  upcoming: "No tienes pasos pendientes más adelante.",
+};
+
 export function MyOrdersQueue({
   linked,
   sections,
+  turnBuckets,
   today,
   timezone,
   unlinkedCopy,
 }: {
   linked: boolean;
   sections: MineQueueSection[];
+  /** SUR4 E9: only with the work sequence; without it the queue is today's. */
+  turnBuckets?: MineTurnBucket[];
   today: string;
   timezone: string;
   unlinkedCopy?: UnlinkedMineOrdersCopy;
 }) {
+  const [bucketId, setBucketId] = useState<MineTurnBucketId>("all");
+
   if (!linked) {
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
@@ -113,6 +137,46 @@ export function MyOrdersQueue({
     );
   }
 
+  if (turnBuckets && turnBuckets.length > 0) {
+    const active =
+      turnBuckets.find((bucket) => bucket.id === bucketId) ?? turnBuckets[0];
+
+    return (
+      <div className="space-y-6">
+        <div
+          role="group"
+          aria-label="Qué pedidos ver"
+          className="flex flex-wrap gap-2"
+        >
+          {turnBuckets.map((bucket) => {
+            const selected = bucket.id === active.id;
+            return (
+              <button
+                key={bucket.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setBucketId(bucket.id)}
+                className={cn("gc-chip min-h-11 gap-2", selected && "gc-chip-active")}
+              >
+                <span>{bucket.label}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {bucket.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {active.sections.length === 0 ? (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <EmptyState title={BUCKET_EMPTY_TITLE[active.id]} />
+          </div>
+        ) : (
+          <MineSections sections={active.sections} today={today} timezone={timezone} />
+        )}
+      </div>
+    );
+  }
+
   if (sections.length === 0) {
     return (
       <div className="overflow-hidden rounded-lg border bg-card">
@@ -121,6 +185,18 @@ export function MyOrdersQueue({
     );
   }
 
+  return <MineSections sections={sections} today={today} timezone={timezone} />;
+}
+
+function MineSections({
+  sections,
+  today,
+  timezone,
+}: {
+  sections: MineQueueSection[];
+  today: string;
+  timezone: string;
+}) {
   return (
     <div className="space-y-8">
       {sections.map((section) => (
@@ -193,6 +269,7 @@ function MineOrderCard({
       <p className="mt-1 text-sm text-muted-foreground">
         {order.store_name || "Sin tienda"}
       </p>
+      <MineTurnLine order={order} />
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <StatusBadge status={order.status}>{order.status?.name}</StatusBadge>
         <span className="text-muted-foreground">
@@ -200,5 +277,49 @@ function MineOrderCard({
         </span>
       </div>
     </Link>
+  );
+}
+
+// SUR4 E9: «Te toca: Preparación 2/3», «Responsable» or whose turn it is.
+// Only orders of the work-sequence answer carry `my_turn`.
+function MineTurnLine({ order }: { order: MineOrder }) {
+  const turnOrder = order as Partial<MineTurnOrder>;
+  const flags = turnOrder.my_turn;
+  if (!flags) {
+    return null;
+  }
+
+  const turn = turnOrder.work_turn ?? null;
+  const current = turn?.current ?? null;
+  const title = workTurnTitle(turn);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+      {flags.step_turn && current ? (
+        <span className="inline-flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+          <WorkStageIcon icon={current.stage_icon} className="size-4 shrink-0" />
+          <span className="min-w-0 break-words">{myTurnLabel(current)}</span>
+        </span>
+      ) : current ? (
+        <span
+          className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground"
+          title={title ?? undefined}
+        >
+          <WorkStageIcon icon={current.stage_icon} className="size-4 shrink-0" />
+          <span className="sr-only">{title}</span>
+          <span aria-hidden className="min-w-0 break-words">
+            Le toca: {workTurnCompactLabel(turn)}
+          </span>
+        </span>
+      ) : turn ? (
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+          <CircleCheck className="size-4 shrink-0" aria-hidden />
+          <span>Secuencia hecha</span>
+        </span>
+      ) : null}
+      {flags.responsible ? (
+        <StatusBadge tone="neutral">{RESPONSIBLE_LABEL}</StatusBadge>
+      ) : null}
+    </div>
   );
 }

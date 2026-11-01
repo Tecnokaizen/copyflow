@@ -38,6 +38,7 @@ export function OrderQuickActions({
   onSaveNote,
   onNoteRequest,
   onArchive,
+  compact = false,
 }: {
   busy: boolean;
   statuses: OrderStatus[];
@@ -56,6 +57,8 @@ export function OrderQuickActions({
   /** SUR4 E6: with Post-its the button opens the Post-it composer instead. */
   onNoteRequest?: () => void;
   onArchive: () => Promise<void>;
+  /** Order Detail Views V1: two columns on phones, same buttons. */
+  compact?: boolean;
 }) {
   const [panel, setPanel] = useState<QuickPanel>(null);
   const [statusId, setStatusId] = useState(currentStatusId);
@@ -158,7 +161,11 @@ export function OrderQuickActions({
 
   return (
     <>
-      <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end">
+      <div
+        className={`grid w-full gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end ${
+          compact ? "grid-cols-2 [&>button]:px-2" : "grid-cols-1"
+        }`}
+      >
         <button
           type="button"
           disabled={busy}

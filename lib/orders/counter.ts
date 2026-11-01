@@ -1,4 +1,9 @@
 import { isOrderOperational } from "@/lib/orders/operational";
+import {
+  isMineOrder,
+  summarizeWorkSteps,
+  type WorkTurn,
+} from "@/lib/orders/work-turn";
 import { isUuid } from "@/lib/team/payload";
 import { formatZonedCivilDate } from "@/lib/time/zoned-day";
 
@@ -44,6 +49,8 @@ export type CounterOrder = {
     is_closed: boolean;
     is_cancelled: boolean;
   } | null;
+  /** SUR4 E9: only when the tenant has the work sequence (rows with steps). */
+  work_turn?: WorkTurn | null;
 };
 
 export type CounterFilterInput = {
@@ -362,6 +369,11 @@ export function mapCounterOrderRow(row: unknown): CounterOrder | null {
             is_cancelled: status.is_cancelled === true,
           }
         : null,
+    // Rows only carry `work_steps` with the work sequence on; otherwise the
+    // order keeps exactly today's shape.
+    ...(Object.prototype.hasOwnProperty.call(record, "work_steps")
+      ? { work_turn: summarizeWorkSteps(record.work_steps).turn }
+      : {}),
   };
 }
 
@@ -392,7 +404,15 @@ export function filterOrdersForCounter(
     if (input.priority && order.priority !== input.priority) {
       return false;
     }
-    if (input.mine && order.assignee_id !== input.currentTeamMemberId) {
+    // Mis pedidos: Soy responsable ∪ Me toca (shared with /orders/mine).
+    // Without a sequence it is the responsible person only, as before.
+    if (
+      input.mine &&
+      !isMineOrder(
+        { assignedTeamMemberId: order.assignee_id, turn: order.work_turn },
+        input.currentTeamMemberId
+      )
+    ) {
       return false;
     }
     return true;

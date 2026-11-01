@@ -73,7 +73,7 @@ export type WorkSheetInput = {
   files?: Array<string | null | undefined>;
   steps?: WorkSheetStepRow[] | null;
   notes?: WorkSheetNoteRow[] | null;
-  /** Ficha profile only. */
+  /** Both profiles: the same collection snapshot as the customer receipt. */
   amounts?: CollectionAmounts | null;
   activeStoreCount?: number;
   printedAt?: Date | string;
@@ -169,13 +169,11 @@ function standardBlocks(order: WorkSheetSource, input: WorkSheetInput) {
 // The ficha profile (N19, N20): the layout of sur4-0134. No order status,
 // channel, context, ready/delivered dates or file list.
 function fichaBlocks(order: WorkSheetSource, input: WorkSheetInput): WorkSheetFicha {
-  const labels = orderLabels({ custom: input.features.customLabels });
   const storeName = text(order.store?.name);
   const serviceName = text(order.service?.name);
 
   return {
     store: storeName && printableStore(storeName, input.activeStoreCount ?? 0) ? storeName : null,
-    amounts: amountFacts(input.amounts ?? null, labels),
     dueAt: {
       label: "Fecha de entrega",
       value: formatPrintTimestamp(order.due_at, input.timeZone) ?? "—",
@@ -222,6 +220,7 @@ export function workSheetModel(order: WorkSheetSource, input: WorkSheetInput): W
     reference,
     title,
     branding: input.branding,
+    amounts: amountFacts(input.amounts ?? null, labels),
     client: clientFacts(order),
     order: standard?.order ?? [],
     dates: standard?.dates ?? [],

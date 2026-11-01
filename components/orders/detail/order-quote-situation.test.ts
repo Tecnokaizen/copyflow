@@ -111,7 +111,8 @@ describe("order ficha · Producción · Presupuesto", () => {
 
   it("Producción and the workspace are wired to the tenant-scoped source quote", () => {
     const production = readFileSync(new URL("./order-production.tsx", import.meta.url), "utf8");
-    const workspace = readFileSync(new URL("./order-workspace.tsx", import.meta.url), "utf8");
+    // Order Detail Views V1: modules are built in order-detail-modules.tsx.
+    const workspace = readFileSync(new URL("./order-detail-modules.tsx", import.meta.url), "utf8");
     assert.match(production, /resolveOrderQuoteSituation\(\{\s*sourceQuote,/);
     assert.match(production, /<OrderQuoteSituationValue situation=\{quoteSituation\} \/>/);
     assert.match(production, /<OrderQuoteSituationField/);
@@ -180,9 +181,10 @@ describe("order ficha · Producción · Presupuesto", () => {
 
   it("workspace and Producción pass the restricted flag and the service rule", () => {
     const production = readFileSync(new URL("./order-production.tsx", import.meta.url), "utf8");
-    const workspace = readFileSync(new URL("./order-workspace.tsx", import.meta.url), "utf8");
+    const workspace = readFileSync(new URL("./use-order-workspace.ts", import.meta.url), "utf8");
+    const modules = readFileSync(new URL("./order-detail-modules.tsx", import.meta.url), "utf8");
     assert.match(workspace, /setSourceQuoteRestricted\(result\.source_quote_restricted === true\)/);
-    assert.match(workspace, /sourceQuoteRestricted=\{sourceQuoteRestricted\}/);
+    assert.match(modules, /sourceQuoteRestricted=\{sourceQuoteRestricted\}/);
     assert.match(production, /serviceRequiresQuote: order\.service\?\.requires_quote === true/);
     assert.match(production, /serviceRequiresQuote=\{order\.service\?\.requires_quote === true\}/);
   });

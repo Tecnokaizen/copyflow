@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { canManageBilling } from "@/lib/billing/access";
 import { READY_FOR_CHECKOUT } from "@/lib/billing/internal-subscription";
+import { computeOfferTerms } from "@/lib/billing/offer-terms";
+import { listUsableTenantOffers } from "@/lib/billing/offers";
 import {
   getStripeMode,
   stripeModeToLivemode,
@@ -175,12 +177,47 @@ export async function GET() {
     Boolean(display && (CURRENT as readonly string[]).includes(display.status)) &&
     display?.metadata?.billing_activation === READY_FOR_CHECKOUT;
 
+  // Offers granted to this tenant in the current Stripe mode, with the exact
+  // terms (and their hash) the owner accepts before paying.
+  let offers: Array<Record<string, unknown>> = [];
+  if (expectedLivemode !== null) {
+    try {
+      const now = new Date();
+      offers = (
+        await listUsableTenantOffers({
+          tenantId: context.tenant.id,
+          livemode: expectedLivemode,
+          now,
+        })
+      ).map((offer) => {
+        const terms = computeOfferTerms(offer);
+        return {
+          offer_id: offer.offerId,
+          plan_code: offer.planCode,
+          plan_name: offer.planName,
+          anchored: terms.anchored,
+          redeem_by: offer.redeemBy,
+          contract_deadline: terms.contractDeadline,
+          terms: terms.lines,
+          terms_hash: terms.hash,
+        };
+      });
+    } catch (offersError) {
+      // Offers are optional for this page: log and show none.
+      console.error("[GET /api/billing/subscription] offers failed", {
+        message: offersError instanceof Error ? offersError.message : "unknown",
+      });
+      offers = [];
+    }
+  }
+
   return json({
     tenant: {
       id: context.tenant.id,
       slug: context.tenant.slug,
       name: context.tenant.name,
     },
+    offers,
     subscription: display
       ? {
           status: display.status,

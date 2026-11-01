@@ -4,8 +4,10 @@ import {
   STAGING_R2_BUCKET,
   StagingGuardError,
   classifyRequest,
+  SUR4_TENANT_SLUGS,
   classifySupabaseHost,
   resolveStagingTarget,
+  resolveSur4Targets,
 } from "./guard";
 import { Redactor } from "./redact";
 
@@ -63,6 +65,96 @@ describe("e2e staging guard", () => {
     assert.equal(classifyRequest(target, `https://${PRODUCTION_REF}.supabase.co/rest/v1/orders`), "production");
     assert.equal(classifyRequest(target, "https://app.gestcopy.com/"), "production");
     assert.equal(classifyRequest(target, "https://demo.preview.app.gestcopy.com/"), "foreign");
+  });
+});
+
+describe("e2e SUR4 tenant targets (E10)", () => {
+  const STAGING = { E2E_SUPABASE_URL: VALID.E2E_SUPABASE_URL, E2E_R2_BUCKET: STAGING_R2_BUCKET };
+  const LOCAL = { E2E_SUR4_MODE: "local", E2E_SUPABASE_URL: "http://127.0.0.1:59521", E2E_SUR4_LOCAL_PORT: "3105" };
+  const rejectsSur4 = (env: Record<string, string | undefined>, pattern: RegExp) =>
+    assert.throws(() => resolveSur4Targets(env), (error: unknown) =>
+      error instanceof StagingGuardError && pattern.test(error.message));
+
+  it("derives the four preview hosts on Staging", () => {
+    const targets = resolveSur4Targets(STAGING);
+    assert.equal(targets.mode, "staging");
+    assert.deepEqual(Object.keys(targets.tenants), [...SUR4_TENANT_SLUGS]);
+    assert.equal(targets.tenants["e2e-sur4-completo"].baseUrl, "https://e2e-sur4-completo.preview.app.gestcopy.com");
+    assert.equal(targets.tenants["e2e-sur4-base"].r2Bucket, STAGING_R2_BUCKET);
+  });
+
+  it("ignores E2E_BASE_URL, so no other tenant can be reached", () => {
+    const targets = resolveSur4Targets({ ...STAGING, E2E_BASE_URL: "https://demo.preview.app.gestcopy.com" });
+    assert.ok(Object.values(targets.tenants).every((t) => /^e2e-sur4-[a-z]+\.preview\.app\.gestcopy\.com$/.test(t.host)));
+  });
+
+  it("keeps every Staging check", () => {
+    rejectsSur4({ ...STAGING, E2E_SUPABASE_URL: `https://${PRODUCTION_REF}.supabase.co` }, /Production/);
+    rejectsSur4({ ...STAGING, E2E_SUPABASE_URL: "http://127.0.0.1:59521" }, /https/);
+    rejectsSur4({ ...STAGING, E2E_R2_BUCKET: "gestcopy-files" }, /Production bucket/);
+    rejectsSur4({ ...STAGING, NEXT_PUBLIC_SUPABASE_URL: `https://${PRODUCTION_REF}.supabase.co` }, /disagrees/);
+    rejectsSur4({ ...STAGING, VERCEL_ENV: "production" }, /VERCEL_ENV/);
+    rejectsSur4({ ...STAGING, E2E_SUR4_MODE: "production" }, /E2E_SUR4_MODE/);
+  });
+
+  it("local mode is loopback only", () => {
+    const targets = resolveSur4Targets(LOCAL);
+    assert.equal(targets.tenants["e2e-sur4-postits"].baseUrl, "http://e2e-sur4-postits.localhost:3105");
+    assert.equal(targets.supabaseHost, "127.0.0.1");
+    rejectsSur4({ ...LOCAL, E2E_SUPABASE_URL: VALID.E2E_SUPABASE_URL }, /127\.0\.0\.1/);
+    rejectsSur4({ ...LOCAL, E2E_SUPABASE_URL: "http://localhost:59521" }, /127\.0\.0\.1/);
+    rejectsSur4({ ...LOCAL, E2E_SUPABASE_URL: "http://127.0.0.1:59521/rest" }, /127\.0\.0\.1/);
+    rejectsSur4({ ...LOCAL, E2E_SUR4_LOCAL_PORT: "x" }, /port/);
+    rejectsSur4({ ...LOCAL, VERCEL_ENV: "preview" }, /VERCEL_ENV/);
+    rejectsSur4({ ...LOCAL, NEXT_PUBLIC_SUPABASE_URL: VALID.E2E_SUPABASE_URL }, /disagrees/);
+  });
+
+  it("local egress: own host and loopback Supabase only, never R2", () => {
+    const targets = resolveSur4Targets(LOCAL);
+    const own = targets.tenants["e2e-sur4-base"];
+    assert.equal(classifyRequest(own, "http://e2e-sur4-base.localhost:3105/api/orders"), "allow");
+    assert.equal(classifyRequest(own, "http://127.0.0.1:59521/rest/v1/orders"), "allow");
+    assert.equal(classifyRequest(own, "http://e2e-sur4-completo.localhost:3105/api/orders"), "foreign");
+    assert.equal(classifyRequest(own, `https://acc.r2.cloudflarestorage.com/${STAGING_R2_BUCKET}/k`), "foreign");
+    assert.equal(classifyRequest(own, "https://app.gestcopy.com/"), "production");
+  });
+
+  it("staging-branch: every tenant on the gestcopy-staging branch URL, chosen with ?tenant=", () => {
+    const BRANCH = { ...STAGING, E2E_SUR4_MODE: "staging-branch", E2E_SUR4_BRANCH_URL: "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app" };
+    const targets = resolveSur4Targets(BRANCH);
+    assert.equal(targets.mode, "staging-branch");
+    for (const slug of SUR4_TENANT_SLUGS) {
+      assert.equal(targets.tenants[slug].baseUrl, "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app");
+      assert.equal(targets.tenants[slug].previewTenant, slug);
+      assert.equal(targets.tenants[slug].r2Bucket, STAGING_R2_BUCKET);
+    }
+    assert.equal(resolveSur4Targets(STAGING).tenants["e2e-sur4-base"].previewTenant, undefined);
+    rejectsSur4({ ...STAGING, E2E_SUR4_MODE: "staging-branch" }, /E2E_SUR4_BRANCH_URL is required/);
+    for (const url of [
+      "https://copyflow-git-main-tecnokaizen.vercel.app",
+      "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app.evil.com",
+      "https://copyflow.vercel.app",
+      "https://e2e.preview.app.gestcopy.com",
+      "https://app.gestcopy.com",
+      "http://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app",
+      "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app/orders",
+    ]) {
+      assert.throws(() => resolveSur4Targets({ ...BRANCH, E2E_SUR4_BRANCH_URL: url }), StagingGuardError, url);
+    }
+    rejectsSur4({ ...BRANCH, E2E_SUPABASE_URL: `https://${PRODUCTION_REF}.supabase.co` }, /Production/);
+    rejectsSur4({ ...BRANCH, E2E_R2_BUCKET: "gestcopy-files" }, /Production bucket/);
+    const own = targets.tenants["e2e-sur4-base"];
+    assert.equal(classifyRequest(own, "https://copyflow-git-gestcopy-staging-tecnokaizen.vercel.app/api/orders"), "allow");
+    assert.equal(classifyRequest(own, "https://e2e-sur4-base.preview.app.gestcopy.com/"), "foreign");
+    assert.equal(classifyRequest(own, "https://app.gestcopy.com/"), "production");
+  });
+
+  it("staging egress: one tenant never reaches another", () => {
+    const targets = resolveSur4Targets(STAGING);
+    const own = targets.tenants["e2e-sur4-postits"];
+    assert.equal(classifyRequest(own, "https://e2e-sur4-postits.preview.app.gestcopy.com/orders"), "allow");
+    assert.equal(classifyRequest(own, "https://e2e-sur4-completo.preview.app.gestcopy.com/orders"), "foreign");
+    assert.equal(classifyRequest(own, "https://e2e.preview.app.gestcopy.com/"), "foreign");
   });
 });
 

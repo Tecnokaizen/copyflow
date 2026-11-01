@@ -223,7 +223,10 @@ async function flowOrders(page: Page) {
     await page.goto(`${target.baseUrl}/orders/${state.orderId}`);
     await page.getByRole("heading", { level: 1, name: state.orderTitle }).waitFor();
     await page.getByText(state.reference!, { exact: true }).waitFor();
-    await page.getByText(/Entrega \d{2}\/\d{2}\/\d{4}, 18:00/).waitFor();
+    // #160 (SUR4 E3): the header shows the due date as a <dt>Entrega</dt><dd>…</dd> pair.
+    const due = page.locator("dt", { hasText: /^Entrega$/ }).first().locator("xpath=following-sibling::dd[1]");
+    await due.waitFor();
+    assert.match((await due.innerText()).replace(/\s+/g, " ").trim(), /^\d{2}\/\d{2}\/\d{4}, 18:00$/);
     const body = await appGet(page, `/api/orders/${state.orderId}`);
     const order = body.order as { reference: string; title: string; status: { code: string } };
     assert.equal(order.reference, state.reference);

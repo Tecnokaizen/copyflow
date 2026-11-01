@@ -111,7 +111,7 @@ export const loadWorkSheet = cache(async function loadWorkSheet(
     profile === "standard" ? loadOrderFileNames(supabase, tenantId, id) : Promise.resolve([]),
     features.workSequence ? loadWorkSheetSteps(supabase, tenantId, id) : Promise.resolve([]),
     features.stickyNotes ? loadPrintableNoteRows(supabase, tenantId, id) : Promise.resolve([]),
-    profile === "ficha" ? loadCollectionAmounts(supabase, id) : Promise.resolve(null),
+    loadCollectionAmounts(supabase, id),
     profile === "ficha" && hasStore ? countActiveStores(supabase, tenantId) : Promise.resolve(0),
     hasLegacyNotes(supabase, tenantId, id),
   ]);

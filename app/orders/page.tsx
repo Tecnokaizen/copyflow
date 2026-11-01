@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown, List, LayoutGrid } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CircleCheck, List, LayoutGrid } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { AppShell } from "@/components/gestcopy/app-shell";
 import { EmptyState } from "@/components/gestcopy/empty-state";
@@ -12,6 +12,7 @@ import { LoadingState } from "@/components/gestcopy/loading-state";
 import { PageHeader } from "@/components/gestcopy/page-header";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
 import { CreateOrderForm } from "@/components/orders/create-order-form";
+import { WorkStageIcon } from "@/components/orders/work-stage-icon";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
 import { OperationalCreateActions } from "@/components/quotes/operational-create-actions";
 import { isAbortError, nextLoadSignal } from "@/lib/refresh/abort";
@@ -33,6 +34,12 @@ import { resolveOrdersListLayout } from "@/lib/orders/list-layout";
 import { nextListFilterForStatusSelection } from "@/lib/orders/list-filter-status";
 import { isOrderOperational } from "@/lib/orders/operational";
 import { formatTenantDueLabel } from "@/lib/orders/review";
+import {
+  workTurnArrowLabel,
+  workTurnCompactLabel,
+  workTurnTitle,
+  type WorkTurn,
+} from "@/lib/orders/work-turn";
 
 type Order = {
   id: string;
@@ -71,6 +78,9 @@ type Order = {
     is_closed: boolean;
     is_cancelled: boolean;
   } | null;
+
+  /** SUR4 E9: only when the tenant has the work sequence. */
+  work_turn?: WorkTurn | null;
 };
 
 type OrdersResponse = {
@@ -88,6 +98,8 @@ type OrdersResponse = {
   week_days?: string[];
   from?: string | null;
   to?: string | null;
+  /** SUR4 E9: present (true) only with order_work_sequence and active stages. */
+  work_sequence?: boolean;
 };
 
 type CalendarScope = "active" | "all";
@@ -505,6 +517,39 @@ function ordersForSelectedService(
   return orders.filter((order) => order.service?.id === serviceId);
 }
 
+// SUR4 E9: stage icon + first name + n/m («Raquel 2/3»); the full sentence goes
+// to `title` and to screen readers. Text, never colour alone.
+function WorkTurnIndicator({
+  turn,
+  className,
+}: {
+  turn: WorkTurn | null | undefined;
+  className?: string;
+}) {
+  const label = workTurnCompactLabel(turn);
+  const title = workTurnTitle(turn);
+  if (!turn || !label || !title) {
+    return null;
+  }
+
+  return (
+    <span
+      className={cn("inline-flex min-w-0 max-w-full items-center gap-1", className)}
+      title={title}
+    >
+      {turn.current ? (
+        <WorkStageIcon icon={turn.current.stage_icon} className="size-3.5 shrink-0" />
+      ) : (
+        <CircleCheck className="size-3.5 shrink-0" aria-hidden />
+      )}
+      <span className="sr-only">{title}</span>
+      <span aria-hidden className="truncate">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 export default function OrdersPage() {
   return (
     <Suspense
@@ -553,6 +598,12 @@ function OrdersPageContent() {
   const assignedMemberId = parseAssignedTeamMemberId(
     searchParams.get("assigned_team_member_id")
   );
+  const turnMemberId = parseAssignedTeamMemberId(
+    searchParams.get("turn_team_member_id")
+  );
+  const participantMemberId = parseAssignedTeamMemberId(
+    searchParams.get("participant_team_member_id")
+  );
   const statusId = parseStatusId(searchParams.get("status_id"));
   const storeFilter = parseStoreListFilter(searchParams.get("store_id"));
   const selectedStoreParam =
@@ -596,7 +647,7 @@ function OrdersPageContent() {
     `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}`
   );
   const pageSize = 50;
-  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}|${debouncedQuery}`;
+  const listQueryKey = `${listFilter}|${assignedMemberId ?? ""}|${statusId ?? ""}|${selectedStoreParam ?? ""}|${sortField ?? ""}|${sortDir ?? ""}|${debouncedQuery}|${turnMemberId ?? ""}|${participantMemberId ?? ""}`;
   const selectedStatus =
     orderStatuses.find((status) => status.id === statusId) ?? null;
   const createRequested = searchParams.get("create") === "1";
@@ -798,6 +849,8 @@ function OrdersPageContent() {
   function replaceListParams(next: {
     filter?: PrimaryListFilter | ListFilter;
     assignedTeamMemberId?: string | null;
+    turnTeamMemberId?: string | null;
+    participantTeamMemberId?: string | null;
     statusId?: string | null;
     storeId?: string | null;
     sort?: SortField | null;
@@ -814,6 +867,18 @@ function OrdersPageContent() {
       params.delete("assigned_team_member_id");
     } else if (typeof next.assignedTeamMemberId === "string") {
       params.set("assigned_team_member_id", next.assignedTeamMemberId);
+    }
+
+    if (next.turnTeamMemberId === null) {
+      params.delete("turn_team_member_id");
+    } else if (typeof next.turnTeamMemberId === "string") {
+      params.set("turn_team_member_id", next.turnTeamMemberId);
+    }
+
+    if (next.participantTeamMemberId === null) {
+      params.delete("participant_team_member_id");
+    } else if (typeof next.participantTeamMemberId === "string") {
+      params.set("participant_team_member_id", next.participantTeamMemberId);
     }
 
     if (next.statusId === null) {
@@ -924,6 +989,15 @@ function OrdersPageContent() {
           params.set("assigned_team_member_id", assignedMemberId);
         }
 
+        // Ignored by the API without the work sequence, like any unknown param.
+        if (turnMemberId) {
+          params.set("turn_team_member_id", turnMemberId);
+        }
+
+        if (participantMemberId) {
+          params.set("participant_team_member_id", participantMemberId);
+        }
+
         if (statusId) {
           params.set("status_id", statusId);
         }
@@ -983,6 +1057,8 @@ function OrdersPageContent() {
       page,
       listFilter,
       assignedMemberId,
+      turnMemberId,
+      participantMemberId,
       statusId,
       selectedStoreParam,
       sortField,
@@ -1050,6 +1126,7 @@ function OrdersPageContent() {
   function replaceCalendarParams(next: {
     scope?: CalendarScope;
     assignedTeamMemberId?: string | null;
+    turnTeamMemberId?: string | null;
   }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("view", "calendar");
@@ -1059,6 +1136,12 @@ function OrdersPageContent() {
       params.delete("assigned_team_member_id");
     } else if (typeof next.assignedTeamMemberId === "string") {
       params.set("assigned_team_member_id", next.assignedTeamMemberId);
+    }
+
+    if (next.turnTeamMemberId === null) {
+      params.delete("turn_team_member_id");
+    } else if (typeof next.turnTeamMemberId === "string") {
+      params.set("turn_team_member_id", next.turnTeamMemberId);
     }
 
     // Keep list params (filter/status_id/sort/dir) so Lista can restore them.
@@ -1086,6 +1169,10 @@ function OrdersPageContent() {
 
         if (assignedMemberId) {
           params.set("assigned_team_member_id", assignedMemberId);
+        }
+
+        if (turnMemberId) {
+          params.set("turn_team_member_id", turnMemberId);
         }
 
         const response = await fetchLive(`/api/orders?${params.toString()}`, {
@@ -1126,7 +1213,7 @@ function OrdersPageContent() {
         setCalendarLoading(false);
       }
     },
-    [weekStartCivil, calendarScope, assignedMemberId]
+    [weekStartCivil, calendarScope, assignedMemberId, turnMemberId]
   );
 
   useEffect(() => {
@@ -1203,6 +1290,15 @@ function OrdersPageContent() {
   });
 
   const listOrders = data?.orders ?? [];
+  // SUR4 E9: the API says whether the tenant has the work sequence (feature +
+  // active stages); without it nothing new is shown and the params are ignored.
+  const sequenceEnabled =
+    data?.work_sequence === true ||
+    calendarData?.work_sequence === true ||
+    byServiceData?.work_sequence === true;
+  const hasPersonFilter =
+    Boolean(assignedMemberId) ||
+    (sequenceEnabled && Boolean(turnMemberId || participantMemberId));
   const filteredTotal = data?.total ?? 0;
   const allTotal = data?.all_total ?? filteredTotal;
   const totalPages = data
@@ -1276,7 +1372,7 @@ function OrdersPageContent() {
                 listFilter,
                 filteredTotal,
                 allTotal,
-                Boolean(assignedMemberId),
+                hasPersonFilter,
                 Boolean(statusId),
                 Boolean(selectedStoreParam)
               )
@@ -1367,7 +1463,12 @@ function OrdersPageContent() {
               </label>
             ) : null}
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div
+              className={cn(
+                "flex flex-col gap-3 sm:flex-row sm:items-end",
+                sequenceEnabled && "sm:flex-wrap"
+              )}
+            >
               <label className="gc-field sm:min-w-[200px]">
                 <span className="gc-field-label">Estado</span>
                 <select
@@ -1408,6 +1509,54 @@ function OrdersPageContent() {
                   ))}
                 </select>
               </label>
+
+              {sequenceEnabled ? (
+                <>
+                  <label className="gc-field sm:min-w-[200px]">
+                    <span className="gc-field-label">Le toca a</span>
+                    <select
+                      className="gc-field-control"
+                      value={turnMemberId ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        replaceListParams({
+                          filter: listFilter,
+                          turnTeamMemberId: value ? value : null,
+                        });
+                      }}
+                    >
+                      <option value="">Cualquier persona</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="gc-field sm:min-w-[200px]">
+                    <span className="gc-field-label">Participa</span>
+                    <select
+                      className="gc-field-control"
+                      value={participantMemberId ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        replaceListParams({
+                          filter: listFilter,
+                          participantTeamMemberId: value ? value : null,
+                        });
+                      }}
+                    >
+                      <option value="">Cualquier persona</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : null}
 
               <label className="gc-field sm:min-w-[220px]">
                 <span className="gc-field-label">Tienda</span>
@@ -1462,7 +1611,7 @@ function OrdersPageContent() {
                     <EmptyState
                       title={emptyTitleForFilter(
                         listFilter,
-                        Boolean(assignedMemberId),
+                        hasPersonFilter,
                         Boolean(statusId),
                         Boolean(selectedStoreParam),
                         allTotal,
@@ -1470,7 +1619,7 @@ function OrdersPageContent() {
                       )}
                       description={
                         debouncedQuery ||
-                        assignedMemberId ||
+                        hasPersonFilter ||
                         statusId ||
                         selectedStoreParam ||
                         listFilter === "attention" ||
@@ -1492,6 +1641,7 @@ function OrdersPageContent() {
                           <div className="mt-2 flex flex-wrap gap-2"><StatusBadge status={order.status} />{order.priority !== "normal" ? <span className={priorityClassName(order.priority)}>{priorityLabel(order.priority)}</span> : null}</div>
                           <dl className="mt-3 grid gap-1 text-sm">
                             <div><dt className="inline text-muted-foreground">Responsable: </dt><dd className="inline break-words">{order.assigned_team_member?.name ?? "Sin asignar"}</dd></div>
+                            {order.work_turn ? <div className="flex min-w-0 items-center gap-1"><dt className="shrink-0 text-muted-foreground">Le toca: </dt><dd className="min-w-0"><WorkTurnIndicator turn={order.work_turn} /></dd></div> : null}
                             <div><dt className="inline text-muted-foreground">Canal: </dt><dd className="inline break-words">{order.entry_channel?.name ?? "—"}</dd></div>
                             <div><dt className="inline text-muted-foreground">Tienda: </dt><dd className="inline break-words">{order.store?.name ?? "Sin tienda"}</dd></div>
                           </dl>
@@ -1599,6 +1749,11 @@ function OrdersPageContent() {
                                 <td>
                                   {order.assigned_team_member?.name ??
                                     "Sin asignar"}
+                                  {order.work_turn ? (
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                      <WorkTurnIndicator turn={order.work_turn} />
+                                    </div>
+                                  ) : null}
                                 </td>
 
                                 <td>
@@ -1715,7 +1870,12 @@ function OrdersPageContent() {
                 </button>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div
+                className={cn(
+                  "flex flex-col gap-3 sm:flex-row sm:items-end",
+                  sequenceEnabled && "sm:flex-wrap"
+                )}
+              >
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -1760,6 +1920,30 @@ function OrdersPageContent() {
                     ))}
                   </select>
                 </label>
+
+                {sequenceEnabled ? (
+                  <label className="gc-field sm:min-w-[200px]">
+                    <span className="gc-field-label">Le toca a</span>
+                    <select
+                      className="gc-field-control"
+                      value={turnMemberId ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        replaceCalendarParams({
+                          scope: calendarScope,
+                          turnTeamMemberId: value ? value : null,
+                        });
+                      }}
+                    >
+                      <option value="">Cualquier persona</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
             </div>
 
@@ -1830,6 +2014,11 @@ function OrdersPageContent() {
                                   {order.assigned_team_member?.name ??
                                     "Sin asignar"}
                                 </div>
+                                {order.work_turn ? (
+                                  <div className="mt-1 text-muted-foreground">
+                                    <WorkTurnIndicator turn={order.work_turn} />
+                                  </div>
+                                ) : null}
                                 <div className="mt-2 flex flex-wrap gap-1">
                                   {order.priority === "urgent" ||
                                   order.priority === "high" ? (
@@ -1857,7 +2046,7 @@ function OrdersPageContent() {
                   <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {sundayOrders.map(order => <li key={order.id}><Link href={`/orders/${order.id}`} className="block rounded-md border p-3 text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <p className="font-semibold">{formatZonedTime(new Date(order.due_at!), calendarTimezone)} · {order.title}</p>
-                      <p className="mt-1 break-words text-muted-foreground">{order.reference} · {order.client?.name ?? "Sin cliente"} · {order.assigned_team_member?.name ?? "Sin asignar"}</p>
+                      <p className="mt-1 break-words text-muted-foreground">{order.reference} · {order.client?.name ?? "Sin cliente"} · {order.assigned_team_member?.name ?? "Sin asignar"}{workTurnArrowLabel(order.work_turn) ? <span title={workTurnTitle(order.work_turn) ?? undefined}> {workTurnArrowLabel(order.work_turn)}</span> : null}</p>
                       <div className="mt-2"><StatusBadge status={order.status} /></div>
                     </Link></li>)}
                   </ul>
@@ -2026,6 +2215,11 @@ function OrdersPageContent() {
                                 <div>
                                   {order.assigned_team_member?.name ??
                                     "Sin asignar"}
+                                  {order.work_turn ? (
+                                    <div className="mt-0.5 text-xs">
+                                      <WorkTurnIndicator turn={order.work_turn} />
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div
                                   className={

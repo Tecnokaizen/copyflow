@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { CircleCheck } from "lucide-react";
 import { EmptyState } from "@/components/gestcopy/empty-state";
 import { StatusBadge } from "@/components/gestcopy/status-badge";
+import { WorkStageIcon } from "@/components/orders/work-stage-icon";
 import { plainTextSnippet } from "@/lib/rich-text/html";
 import { formatPriority } from "@/lib/orders/format";
 import {
@@ -13,6 +15,11 @@ import {
   type CounterOrder,
   type CounterViewMode,
 } from "@/lib/orders/counter";
+import {
+  workTurnCompactLabel,
+  workTurnTitle,
+  type WorkTurn,
+} from "@/lib/orders/work-turn";
 import {
   formatZonedCivilDate,
   formatZonedTime,
@@ -213,6 +220,7 @@ function CounterOrderCard({
       <p className="mt-1 text-sm text-foreground/90">
         {order.assignee_name || "Sin responsable"}
       </p>
+      {order.work_turn ? <CounterTurnLine turn={order.work_turn} /> : null}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <StatusBadge status={order.status}>{order.status?.name}</StatusBadge>
         <span
@@ -226,5 +234,27 @@ function CounterOrderCard({
         </span>
       </div>
     </Link>
+  );
+}
+
+// SUR4 E9: whose turn it is, as in the order lists (icon + first name + n/m).
+function CounterTurnLine({ turn }: { turn: WorkTurn }) {
+  const title = workTurnTitle(turn) ?? undefined;
+
+  return (
+    <p
+      className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
+      title={title}
+    >
+      {turn.current ? (
+        <WorkStageIcon icon={turn.current.stage_icon} className="size-4 shrink-0" />
+      ) : (
+        <CircleCheck className="size-4 shrink-0" aria-hidden />
+      )}
+      <span className="sr-only">{title}</span>
+      <span aria-hidden className="truncate">
+        {turn.current ? `Le toca: ${workTurnCompactLabel(turn)}` : "Secuencia hecha"}
+      </span>
+    </p>
   );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { toPublicOrderDto } from "@/lib/orders/concurrency";
 import { executeChangeOrderStatus } from "@/lib/orders/change-status-api";
 import { loadOrderFeatures } from "@/lib/orders/order-features";
+import { loadOrderDetailView } from "@/lib/orders/detail-views-server";
 import { orderComesFromQuote } from "@/lib/orders/source-quote-link";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { createClient } from "@/lib/supabase/server";
@@ -99,12 +100,17 @@ export async function GET(
   const sourceQuoteRestricted =
     !sourceQuote && (await orderComesFromQuote(supabase, context.tenant.id, id));
   // SUR4 (contract §4): the server decides which A1 features the page shows.
-  const features = await loadOrderFeatures(supabase, context.tenant.id);
+  const [features, detailView] = await Promise.all([
+    loadOrderFeatures(supabase, context.tenant.id),
+    // Order Detail Views V1: presentation only, fallback «classic».
+    loadOrderDetailView(supabase, context.tenant.id),
+  ]);
   return operationalJson({
     tenant: context.tenant.slug,
     source_quote: sourceQuote ?? null,
     source_quote_restricted: sourceQuoteRestricted,
     features,
+    detail_view: detailView,
     order: toPublicOrderDto(order as Record<string, unknown>),
   });
 }

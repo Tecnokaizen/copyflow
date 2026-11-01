@@ -1,45 +1,40 @@
 ---
-title: Imprimir: Hoja de trabajo y Resguardo
+title: Hoja de trabajo y resguardo
 ---
 
 ## Qué puedes hacer aquí
 
-Desde la ficha del pedido sacas dos documentos distintos:
+Desde la ficha del pedido puedes sacar dos documentos en A4:
 
-- **Hoja de trabajo**: para el taller, en A4. Lleva lo necesario para hacer el trabajo: cliente, servicio, instrucciones con su formato, fechas e importes.
-- **Resguardo**: un PDF para entregar al cliente cuando deja el encargo. Incluye sus datos, la descripción del trabajo, las fechas y los importes.
-
-Ninguno de los dos imprime las notas internas del pedido.
+- **Hoja de trabajo** (**Imprimir pedido**): el documento interno para el taller, con el cliente, el trabajo, las fechas, el responsable y el cobro. Arriba a la derecha lleva un resumen con el total del pedido, lo entregado a cuenta y lo pendiente de cobro.
+- **Resguardo** (**Resguardo PDF**): el justificante para el cliente, con sus datos, la descripción del trabajo, los importes, las fechas y el lugar de recogida.
 
 ## Cómo hacerlo
 
-**Hoja de trabajo**
+1. Abre el pedido.
+2. Pulsa **Imprimir pedido** para la Hoja de trabajo, o **Resguardo PDF** para el resguardo.
+3. En la vista de impresión, **Hoja de trabajo** abre el diálogo de impresión del navegador y **Resguardo** abre el PDF en otra pestaña.
+4. Imprime o guarda el documento desde el navegador.
 
-1. Abre el pedido y pulsa **Imprimir pedido**. Se abre una pestaña nueva con la hoja.
-2. Pulsa **Hoja de trabajo** para abrir el diálogo de impresión del navegador.
-3. Cuando termines, pulsa **Cerrar**.
+Los documentos salen con los datos del pedido en ese momento. Si lo cambias, vuelve a abrirlos para tener la versión al día.
 
-**Resguardo**
+## Qué no se imprime
 
-1. Abre el pedido y pulsa **Resguardo PDF** (o **Resguardo** desde la pestaña de impresión).
-2. Se abre el PDF en una pestaña nueva. Imprímelo o descárgalo para enviarlo al cliente.
-
-## Qué ocurre después
-
-Los documentos se generan con los datos del pedido en ese momento. Si cambias el pedido, vuelve a abrirlos para tener la versión al día.
-
-Si el pedido tiene notas internas, al abrir la Hoja de trabajo verás en pantalla el aviso «Este pedido tiene notas internas, que no se imprimen». Lo que tenga que ver el taller, escríbelo en **Instrucciones**.
-
-El Resguardo nunca muestra las notas internas, quién lleva el pedido, su estado, la prioridad, los archivos ni el detalle de los cobros.
+- Las notas internas del pedido no salen en ningún documento. Si el pedido las tiene, la vista de impresión te lo recuerda en pantalla, sin imprimirlo.
+- Si tu organización usa post-its, la Hoja de trabajo solo incluye los marcados expresamente como imprimibles. El resguardo no lleva notas ni post-its.
+- El resguardo tampoco lleva el estado, la prioridad, el personal, la lista de archivos ni el detalle de los cobros.
 
 ## Quién puede hacerlo
 
-Todos los roles que pueden ver el pedido.
+Cualquier persona con acceso al pedido.
 
 ## Problemas frecuentes
 
-### La Hoja de trabajo no muestra mis notas
-Es lo previsto: las notas internas no se imprimen. Pasa a **Instrucciones** lo que deba ir en papel.
+### Mis notas ya no salen en la hoja
+Es lo previsto: las notas internas se quedan en pantalla. Lo que deba ir en papel, escríbelo en **Instrucciones**. Si usas post-its, pasa la nota a post-it y márcalo como imprimible.
+
+### En la hoja los importes salen como «Sin definir»
+El pedido todavía no tiene total. Defínelo en el bloque **Cobro y entrega** de la ficha y vuelve a abrir la hoja.
 
 ### No se abre la pestaña nueva
 Revisa si el navegador está bloqueando las ventanas emergentes de Gestcopy.

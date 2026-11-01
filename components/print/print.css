@@ -1,4 +1,5 @@
 .print-document {
+  color-scheme: light;
   min-height: 100vh;
   max-width: 100%;
   overflow-x: clip;
@@ -386,10 +387,50 @@
   padding-bottom: 0.5mm;
 }
 
-.ws-amounts dd,
+.ws-amounts .print-fact dd,
 .ws-due dd {
   font-weight: 700;
   text-align: right;
+}
+
+/* Shared heading: title left, collection summary right, in both profiles. */
+.ws-title-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78mm;
+  gap: 6mm;
+  align-items: start;
+  line-height: 1.2;
+}
+
+.ws-title-summary .print-title {
+  margin: 0;
+}
+
+/* Pin compact ficha facts against the app's inherited body line height. */
+.ws-ficha .ws-facts,
+.ws-ficha .print-section-title {
+  line-height: 1.2;
+}
+
+.ws-summary .print-fact dt {
+  font-size: 12px;
+  color: #333333;
+}
+
+.ws-amounts .print-fact dd {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-summary .print-fact:first-child dt,
+.ws-summary .print-fact:last-child dt {
+  font-weight: 700;
+}
+
+@media screen and (max-width: 720px) {
+  .ws-title-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ws-blank dd {

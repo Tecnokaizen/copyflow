@@ -205,7 +205,7 @@ describe("E1 · client stops mutating when it loses the race", () => {
   });
 
   it("workspace revalidates before mutating and resyncs without a page reload", () => {
-    const source = read("components/orders/detail/order-workspace.tsx");
+    const source = read("components/orders/detail/use-order-workspace.ts");
 
     // Every entry point into a mutation revalidates first:
     // startEditing (opening the draft), saveEditing, runQuickSave.
@@ -233,7 +233,7 @@ describe("E1 · client stops mutating when it loses the race", () => {
   });
 
   it("client and archive mutations recover from the race too", () => {
-    const source = read("components/orders/detail/order-workspace.tsx");
+    const source = read("components/orders/detail/use-order-workspace.ts");
 
     // archiveOrder + assignExistingClient + saveClientForm(create).
     assert.ok(
