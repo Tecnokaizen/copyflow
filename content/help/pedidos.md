@@ -8,6 +8,8 @@ La lista de pedidos es el trabajo confirmado de la organización. Puedes filtrar
 
 **Cómo está organizada la ficha.** Arriba tienes lo esencial sin desplazarte: el cliente y su contacto, el estado, la prioridad, los avisos, los importes y la fecha de entrega, junto a **Imprimir pedido** y **Resguardo PDF**. Debajo, en dos columnas: el trabajo, los archivos, las notas y la actividad a un lado; el resumen, el cobro y la entrega al otro. En el móvil todo va en una sola columna.
 
+Esta es la **Ficha actual**, la predeterminada. El propietario o un administrador puede elegir otra distribución para todo el equipo (operativa, por pestañas, de producción o híbrida) en Configuración → Personalización → **Vista de pedidos**. Los datos y las acciones son los mismos en todas.
+
 Un pedido archivado se consulta y se pueden descargar sus archivos, pero ya no se modifica. No hay acción de «reabrir» en Gestcopy: archivar lo saca de las vistas operativas.
 
 ## Cómo hacerlo

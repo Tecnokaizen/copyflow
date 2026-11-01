@@ -65,6 +65,30 @@ const seguridad = (area: string, text: string): ChangelogEntry => ({
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    date: "2026-10-31",
+    title: "Elige cómo se ve la ficha del pedido",
+    entries: [
+      nuevo(
+        "Ajustes",
+        "En Configuración, apartado Personalización, «Vista de pedidos» permite elegir cómo se organiza la ficha del pedido para todo el equipo: la ficha actual, A · Operativa, B · Pestañas, C · Producción o D · Híbrida. Cada opción muestra capturas de escritorio y móvil y una vista previa sobre un pedido real antes de aplicarla, y siempre puedes volver a la anterior. Lo elige el propietario o un administrador; los datos y los permisos no cambian."
+      ),
+      mejora(
+        "Pedidos",
+        "La ficha actual sigue siendo la predeterminada: si nadie elige otra vista, el pedido se ve exactamente igual que antes."
+      ),
+    ],
+  },
+  {
+    date: "2026-10-30",
+    title: "Importes en la Hoja de trabajo",
+    entries: [
+      mejora(
+        "Impresión",
+        "La Hoja de trabajo muestra arriba a la derecha un resumen con el total del pedido, lo entregado a cuenta y lo pendiente de cobro, con los mismos importes que la ficha y el Resguardo. Si el pedido aún no tiene total, aparece «Sin definir»."
+      ),
+    ],
+  },
+  {
     date: "2026-10-29",
     title: "Ficha del pedido, Hoja de trabajo, Resguardo y formato de texto",
     entries: [

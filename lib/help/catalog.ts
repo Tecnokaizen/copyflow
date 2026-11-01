@@ -400,6 +400,23 @@ export const HELP_SECTIONS: HelpSection[] = [
         ["campos pedido rápido", "layout mostrador", "configurar pedido rápido"],
         ["guias/configurar-pedido-rapido", "pedidos/pedido-rapido"]
       ),
+      article(
+        "configuracion/vista-de-pedidos",
+        "Vista de pedidos",
+        "Elegir cómo se organiza la ficha del pedido para todo el equipo.",
+        "configuracion/vista-de-pedidos.md",
+        [
+          "vista de pedidos",
+          "ficha del pedido",
+          "personalización",
+          "operativa",
+          "pestañas",
+          "producción",
+          "híbrida",
+          "diseño de la ficha",
+        ],
+        ["pedidos", "configuracion"]
+      ),
     ],
   },
   {
