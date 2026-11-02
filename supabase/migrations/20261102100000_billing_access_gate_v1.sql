@@ -50,7 +50,16 @@ create table if not exists billing_private.tenant_access_exemptions (
   expires_at timestamptz,
   created_at timestamptz not null default pg_catalog.now(),
   updated_at timestamptz not null default pg_catalog.now(),
-  history jsonb not null default '[]'::jsonb
+  history jsonb not null default '[]'::jsonb,
+  -- Withdrawal is logical: the row (and its history) stays, and the
+  -- evaluator only honours rows with revoked_at null.
+  revoked_at timestamptz,
+  revoked_by text check (revoked_by is null or pg_catalog.length(pg_catalog.btrim(revoked_by)) between 3 and 200),
+  revoke_reason text check (revoke_reason is null or pg_catalog.length(pg_catalog.btrim(revoke_reason)) between 3 and 500),
+  constraint tenant_access_exemptions_revocation_complete check (
+    (revoked_at is null and revoked_by is null and revoke_reason is null)
+    or (revoked_at is not null and revoked_by is not null and revoke_reason is not null)
+  )
 );
 
 alter table billing_private.tenant_access_exemptions enable row level security;
@@ -58,7 +67,54 @@ revoke all on table billing_private.tenant_access_exemptions
   from public, anon, authenticated, service_role;
 
 comment on table billing_private.tenant_access_exemptions is
-  'Operator-granted commercial exemptions (internal, demo or support tenants). An exemption never changes subscriptions or tenants.active.';
+  'Operator-granted commercial exemptions (internal, demo or support tenants), current state per tenant. Withdrawal sets revoked_at/revoked_by/revoke_reason and never deletes; only rows with revoked_at null and not expired grant access. Permanent evidence lives in tenant_access_exemption_events. An exemption never changes subscriptions or tenants.active.';
+
+-- Append-only evidence of every grant, modification and withdrawal. No
+-- foreign key: the evidence outlives the exemption row and the tenant.
+create table if not exists billing_private.tenant_access_exemption_events (
+  id bigint generated always as identity primary key,
+  tenant_id uuid not null,
+  action text not null check (action = any (array['granted', 'modified', 'revoked']::text[])),
+  authorized_by text not null check (pg_catalog.length(pg_catalog.btrim(authorized_by)) between 3 and 200),
+  reason text not null check (pg_catalog.length(pg_catalog.btrim(reason)) between 3 and 500),
+  expires_at timestamptz,
+  previous_expires_at timestamptz,
+  created_at timestamptz not null default pg_catalog.now()
+);
+
+create index if not exists tenant_access_exemption_events_tenant_idx
+  on billing_private.tenant_access_exemption_events (tenant_id, created_at, id);
+
+alter table billing_private.tenant_access_exemption_events enable row level security;
+revoke all on table billing_private.tenant_access_exemption_events
+  from public, anon, authenticated, service_role;
+
+comment on table billing_private.tenant_access_exemption_events is
+  'Billing Access Gate V1: append-only audit of exemption grants, modifications and withdrawals (tenant, action, authorizer, reason, expiry, time). UPDATE, DELETE and TRUNCATE are rejected by trigger.';
+
+create or replace function billing_private.tg_exemption_events_append_only()
+  returns trigger
+  language plpgsql
+  set search_path to ''
+  as $function$
+begin
+  raise exception 'tenant_access_exemption_events is append-only'
+    using errcode = '42501';
+end;
+$function$;
+
+revoke all on function billing_private.tg_exemption_events_append_only()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_exemption_events_append_only on billing_private.tenant_access_exemption_events;
+create trigger trg_exemption_events_append_only
+  before update or delete on billing_private.tenant_access_exemption_events
+  for each row execute function billing_private.tg_exemption_events_append_only();
+
+drop trigger if exists trg_exemption_events_no_truncate on billing_private.tenant_access_exemption_events;
+create trigger trg_exemption_events_no_truncate
+  before truncate on billing_private.tenant_access_exemption_events
+  for each statement execute function billing_private.tg_exemption_events_append_only();
 
 -- ---------------------------------------------------------------------------
 -- Subscription status transitions (audit + start of the unpaid period)
@@ -176,6 +232,7 @@ begin
   select * into v_exempt
   from billing_private.tenant_access_exemptions e
   where e.tenant_id = p_tenant_id
+    and e.revoked_at is null
     and (e.expires_at is null or e.expires_at > v_at);
   if found then
     return pg_catalog.jsonb_build_object(
@@ -459,12 +516,18 @@ create or replace function public.set_tenant_billing_access_exemption_v1 (
   security definer
   set search_path to ''
   as $function$
+declare
+  v_by text := pg_catalog.btrim(coalesce(p_authorized_by, ''));
+  v_reason text := pg_catalog.btrim(coalesce(p_reason, ''));
+  v_row billing_private.tenant_access_exemptions%rowtype;
+  v_action text;
+  v_entry jsonb;
+  v_had boolean;
 begin
   if p_tenant_id is null or p_exempt is null then
     raise exception 'tenant and exempt are required' using errcode = '22023';
   end if;
-  if pg_catalog.length(pg_catalog.btrim(coalesce(p_authorized_by, ''))) < 3
-     or pg_catalog.length(pg_catalog.btrim(coalesce(p_reason, ''))) < 3 then
+  if pg_catalog.length(v_by) < 3 or pg_catalog.length(v_reason) < 3 then
     raise exception 'authorized_by and reason are required' using errcode = '22023';
   end if;
   if p_exempt and p_expires_at is not null and p_expires_at <= pg_catalog.now() then
@@ -474,27 +537,81 @@ begin
     raise exception 'tenant not found' using errcode = 'P0002';
   end if;
 
+  -- Shared tenant billing lock (key 31), as checkout and webhook sync.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_tenant_id::text, 31));
+
+  select * into v_row
+  from billing_private.tenant_access_exemptions e
+  where e.tenant_id = p_tenant_id
+  for update;
+  v_had := found;
+
   if p_exempt then
+    -- modified: the previous exemption still grants access; otherwise granted.
+    v_action := case
+      when v_had and v_row.revoked_at is null
+           and (v_row.expires_at is null or v_row.expires_at > pg_catalog.now())
+        then 'modified'
+      else 'granted'
+    end;
+    v_entry := pg_catalog.jsonb_build_object(
+      'at', pg_catalog.now(), 'action', v_action, 'by', v_by, 'reason', v_reason,
+      'expires_at', p_expires_at,
+      'previous_expires_at', case when v_had then v_row.expires_at end);
+
     insert into billing_private.tenant_access_exemptions as e
       (tenant_id, reason, authorized_by, expires_at, history)
-    values (p_tenant_id, pg_catalog.btrim(p_reason), pg_catalog.btrim(p_authorized_by), p_expires_at,
-            pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
-              'at', pg_catalog.now(), 'action', 'granted', 'by', pg_catalog.btrim(p_authorized_by),
-              'reason', pg_catalog.btrim(p_reason), 'expires_at', p_expires_at)))
+    values (p_tenant_id, v_reason, v_by, p_expires_at, pg_catalog.jsonb_build_array(v_entry))
     on conflict (tenant_id) do update
       set reason = excluded.reason,
           authorized_by = excluded.authorized_by,
           expires_at = excluded.expires_at,
           updated_at = pg_catalog.now(),
+          revoked_at = null,
+          revoked_by = null,
+          revoke_reason = null,
           history = e.history || excluded.history;
-    return pg_catalog.jsonb_build_object('outcome', 'exempt', 'tenant_id', p_tenant_id, 'expires_at', p_expires_at);
+
+    insert into billing_private.tenant_access_exemption_events
+      (tenant_id, action, authorized_by, reason, expires_at, previous_expires_at)
+    values (p_tenant_id, v_action, v_by, v_reason, p_expires_at,
+            case when v_had then v_row.expires_at end);
+  else
+    if not v_had or v_row.revoked_at is not null then
+      return pg_catalog.jsonb_build_object('outcome', 'unchanged', 'tenant_id', p_tenant_id);
+    end if;
+
+    v_action := 'revoked';
+    update billing_private.tenant_access_exemptions e
+    set revoked_at = pg_catalog.now(),
+        revoked_by = v_by,
+        revoke_reason = v_reason,
+        updated_at = pg_catalog.now(),
+        history = e.history || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+          'at', pg_catalog.now(), 'action', 'revoked', 'by', v_by, 'reason', v_reason,
+          'previous_expires_at', v_row.expires_at))
+    where e.tenant_id = p_tenant_id;
+
+    insert into billing_private.tenant_access_exemption_events
+      (tenant_id, action, authorized_by, reason, expires_at, previous_expires_at)
+    values (p_tenant_id, 'revoked', v_by, v_reason, null, v_row.expires_at);
   end if;
 
-  delete from billing_private.tenant_access_exemptions e where e.tenant_id = p_tenant_id;
-  return pg_catalog.jsonb_build_object('outcome', case when found then 'removed' else 'unchanged' end,
-                                       'tenant_id', p_tenant_id);
+  -- Drop the cached gate decision so the change applies within this
+  -- transaction too (next transactions always re-evaluate).
+  perform pg_catalog.set_config(
+    'app.billing_gate_' || pg_catalog.replace(p_tenant_id::text, '-', ''), '', true);
+
+  if v_action = 'revoked' then
+    return pg_catalog.jsonb_build_object('outcome', 'removed', 'action', 'revoked', 'tenant_id', p_tenant_id);
+  end if;
+  return pg_catalog.jsonb_build_object('outcome', 'exempt', 'action', v_action,
+                                       'tenant_id', p_tenant_id, 'expires_at', p_expires_at);
 end;
 $function$;
+
+comment on function public.set_tenant_billing_access_exemption_v1(uuid, boolean, timestamptz, text, text) is
+  'Service-only: grant, modify (p_exempt true) or withdraw (false) a tenant commercial exemption under the tenant billing lock. Authorizer and reason required. Withdrawal is logical (revoked_at) and stops access at once; every change is appended to tenant_access_exemption_events and to the row history. Repeated withdrawal returns unchanged without a new event.';
 
 revoke all on function public.set_tenant_billing_access_exemption_v1(uuid, boolean, timestamptz, text, text)
   from public, anon, authenticated;

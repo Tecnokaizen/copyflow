@@ -1,7 +1,9 @@
 -- Billing Access Gate V1 · phase64 (local/CI only, rollback-only).
 -- States of every commercial lifecycle step, the SUR4 shape (Checkout before
--- the trial end, first invoice later, late webhook), enforcement modes,
--- tenant isolation, grants and reactivation.
+-- the trial end, first invoice later, late webhook), the SUR4 L6e shape
+-- (trial ended, ready_for_checkout, unanchored offer), enforcement modes,
+-- tenant isolation, grants, reactivation and the exemption audit trail
+-- (logical withdrawal, append-only evidence).
 
 begin;
 
@@ -44,6 +46,7 @@ declare
   t_sur4 uuid := 'e6400000-0000-4000-8000-00000000001a';
   t_a uuid := 'e6400000-0000-4000-8000-00000000001b';
   t_b uuid := 'e6400000-0000-4000-8000-00000000001c';
+  t_l6e uuid := 'e6400000-0000-4000-8000-00000000001d';
   v_basic uuid;
   v_pro uuid;
   v_internal_sur4 uuid := 'e6400000-0000-4000-8000-000000000061';
@@ -52,6 +55,8 @@ declare
   v_n int;
   v_raised boolean;
   v_detail text;
+  v_res jsonb;
+  v_ex record;
 begin
   select id into v_basic from public.plans where code = 'basic';
   select id into v_pro from public.plans where code = 'pro';
@@ -79,7 +84,8 @@ begin
     (t_hold, 'P64 hold', 'p64-hold', true),
     (t_sur4, 'P64 SUR4 shape', 'p64-sur4', true),
     (t_a, 'P64 suspended A', 'p64-a', true),
-    (t_b, 'P64 active B', 'p64-b', true);
+    (t_b, 'P64 active B', 'p64-b', true),
+    (t_l6e, 'P64 L6e shape', 'p64-l6e', true);
 
   insert into public.tenant_domains (tenant_id, hostname) values (t_a, 'p64-a.phase64.test');
   insert into public.memberships (tenant_id, user_id, role, active) values
@@ -183,19 +189,133 @@ begin
   update billing_private.subscription_holds set status = 'dismissed' where provider_subscription_id = 'sub_phase64_hold';
   perform pg_temp.ok(pg_temp.st(t_hold) = 'trial_expired', 'dismissed hold no longer protects');
 
-  -- Exemptions (operator, audited, optional expiry).
-  perform public.set_tenant_billing_access_exemption_v1(t_none, true, null, 'phase64 operator', 'internal demo tenant');
+  -- Exemptions: grant, modify, logical withdrawal, repeated withdrawal, new
+  -- grant and expiry. Every change leaves permanent evidence; a withdrawn
+  -- exemption stops granting access at once.
+  perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'exemption base state');
+  perform pg_temp.ok(pg_temp.st(t_hold) = 'trial_expired', 'exemption isolation base state');
+  v_res := public.set_tenant_billing_access_exemption_v1(t_hold, true, null, 'phase64 operator', 'isolation witness');
+  perform pg_temp.ok(v_res ->> 'action' = 'granted' and pg_temp.st(t_hold) = 'exempt', 'witness tenant exempt');
+
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, true, null, ' phase64 operator ', ' internal demo tenant ');
+  perform pg_temp.ok(v_res ->> 'outcome' = 'exempt' and v_res ->> 'action' = 'granted', 'grant: ' || v_res::text);
   perform pg_temp.ok(pg_temp.st(t_none) = 'exempt', 'exemption allows');
   perform pg_temp.ok((select jsonb_array_length(history) from billing_private.tenant_access_exemptions where tenant_id = t_none) = 1, 'exemption audited');
+  select * into v_ex from billing_private.tenant_access_exemption_events where tenant_id = t_none order by id desc limit 1;
+  perform pg_temp.ok(v_ex.action = 'granted' and v_ex.authorized_by = 'phase64 operator' and v_ex.reason = 'internal demo tenant'
+                     and v_ex.expires_at is null and v_ex.created_at is not null, 'grant event recorded');
+
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, true, now() + interval '2 days', 'phase64 operator', 'extend with an end date');
+  perform pg_temp.ok(v_res ->> 'action' = 'modified', 'modify: ' || v_res::text);
+  select * into v_ex from billing_private.tenant_access_exemption_events where tenant_id = t_none order by id desc limit 1;
+  perform pg_temp.ok(v_ex.action = 'modified' and v_ex.previous_expires_at is null and v_ex.expires_at > now(), 'modify event recorded');
+  perform pg_temp.ok(pg_temp.st(t_none) = 'exempt', 'modified exemption allows');
+
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, false, null, 'phase64 auditor', 'withdraw: commercial decision');
+  perform pg_temp.ok(v_res ->> 'outcome' = 'removed' and v_res ->> 'action' = 'revoked', 'withdraw: ' || v_res::text);
+  perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'withdrawn exemption stops access at once');
+  select * into v_ex from billing_private.tenant_access_exemptions where tenant_id = t_none;
+  perform pg_temp.ok(v_ex.revoked_at is not null and v_ex.revoked_by = 'phase64 auditor'
+                     and v_ex.revoke_reason = 'withdraw: commercial decision'
+                     and jsonb_array_length(v_ex.history) = 3 and v_ex.history -> 2 ->> 'action' = 'revoked',
+                     'withdrawal keeps the row and its history');
+  select * into v_ex from billing_private.tenant_access_exemption_events where tenant_id = t_none order by id desc limit 1;
+  perform pg_temp.ok(v_ex.action = 'revoked' and v_ex.authorized_by = 'phase64 auditor'
+                     and v_ex.reason = 'withdraw: commercial decision' and v_ex.previous_expires_at > now(), 'withdraw event recorded');
+  perform pg_temp.ok(pg_temp.st(t_hold) = 'exempt', 'withdrawal does not touch another tenant');
+
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, false, null, 'phase64 auditor', 'withdraw again');
+  perform pg_temp.ok(v_res ->> 'outcome' = 'unchanged', 'repeated withdrawal: ' || v_res::text);
+  perform pg_temp.ok((select count(*) from billing_private.tenant_access_exemption_events where tenant_id = t_none) = 3
+                     and (select jsonb_array_length(history) from billing_private.tenant_access_exemptions where tenant_id = t_none) = 3,
+                     'repeated withdrawal adds no evidence');
+  v_raised := false;
+  begin
+    perform public.set_tenant_billing_access_exemption_v1(
+      'e6400000-0000-4000-8000-0000000000ff'::uuid, false, null, 'phase64 auditor', 'no such tenant');
+  exception when sqlstate 'P0002' then v_raised := true;
+  end;
+  perform pg_temp.ok(v_raised, 'unknown tenant rejected');
+
+  -- New grant after withdrawal: a fresh grant, revocation fields cleared,
+  -- the whole trail kept.
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, true, now() + interval '1 day', 'phase64 operator', 'grant again after withdrawal');
+  perform pg_temp.ok(v_res ->> 'action' = 'granted', 'new grant after withdrawal: ' || v_res::text);
+  select * into v_ex from billing_private.tenant_access_exemptions where tenant_id = t_none;
+  perform pg_temp.ok(v_ex.revoked_at is null and v_ex.revoked_by is null and v_ex.revoke_reason is null
+                     and jsonb_array_length(v_ex.history) = 4, 'new grant clears revocation and keeps history');
+  perform pg_temp.ok(pg_temp.st(t_none) = 'exempt', 'new grant allows');
+
+  -- Expiry: an expired exemption grants nothing; re-granting it is a new
+  -- grant; withdrawing an expired one is still recorded.
   update billing_private.tenant_access_exemptions set expires_at = now() - interval '1 second' where tenant_id = t_none;
   perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'expired exemption ignored');
-  perform pg_temp.ok(public.set_tenant_billing_access_exemption_v1(t_none, false, null, 'phase64 operator', 'remove') ->> 'outcome' = 'removed', 'exemption removed');
+  perform pg_temp.ok(pg_temp.st(t_none, now() - interval '1 minute') = 'exempt', 'exemption applied before its expiry');
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, true, now() + interval '1 hour', 'phase64 operator', 'grant after expiry');
+  perform pg_temp.ok(v_res ->> 'action' = 'granted', 'grant after expiry is a new grant: ' || v_res::text);
+  update billing_private.tenant_access_exemptions set expires_at = now() - interval '1 second' where tenant_id = t_none;
+  v_res := public.set_tenant_billing_access_exemption_v1(t_none, false, null, 'phase64 operator', 'remove expired exemption');
+  perform pg_temp.ok(v_res ->> 'outcome' = 'removed', 'exemption removed');
+  perform pg_temp.ok(pg_temp.st(t_none) = 'no_subscription', 'state after the exemption lifecycle');
+  perform pg_temp.ok(
+    (select array_agg(action order by id) from billing_private.tenant_access_exemption_events where tenant_id = t_none)
+      = array['granted', 'modified', 'revoked', 'granted', 'granted', 'revoked'],
+    'full exemption trail kept in order');
+  perform pg_temp.ok(not exists (select 1 from billing_private.tenant_access_exemption_events
+                                 where tenant_id = t_none and (btrim(authorized_by) = '' or btrim(reason) = '')),
+                     'every event names authorizer and reason');
+
+  -- Validation.
   begin
     perform public.set_tenant_billing_access_exemption_v1(t_none, true, null, '', 'x');
     raise exception 'phase64: exemption without authorizer accepted';
   exception when sqlstate '22023' then null;
   end;
+  begin
+    perform public.set_tenant_billing_access_exemption_v1(t_hold, false, null, 'phase64 operator', ' ');
+    raise exception 'phase64: withdrawal without reason accepted';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.set_tenant_billing_access_exemption_v1(t_hold, true, now() - interval '1 minute', 'phase64 operator', 'past expiry');
+    raise exception 'phase64: exemption with past expiry accepted';
+  exception when sqlstate '22023' then null;
+  end;
+  perform pg_temp.ok(pg_temp.st(t_hold) = 'exempt', 'rejected calls leave the witness exemption');
 
+  -- The evidence is append-only, private and outlives the tenant (no FK).
+  begin
+    update billing_private.tenant_access_exemption_events set reason = 'rewritten' where tenant_id = t_none;
+    raise exception 'phase64: exemption event updated';
+  exception when sqlstate '42501' then null;
+  end;
+  begin
+    delete from billing_private.tenant_access_exemption_events where tenant_id = t_none;
+    raise exception 'phase64: exemption event deleted';
+  exception when sqlstate '42501' then null;
+  end;
+  begin
+    truncate billing_private.tenant_access_exemption_events;
+    raise exception 'phase64: exemption events truncated';
+  exception when sqlstate '42501' then null;
+  end;
+  perform pg_temp.ok((select count(*) from billing_private.tenant_access_exemption_events where tenant_id = t_none) = 6, 'evidence intact');
+  perform pg_temp.ok(not exists (select 1 from pg_constraint
+                                 where conrelid = 'billing_private.tenant_access_exemption_events'::regclass and contype = 'f'),
+                     'evidence has no foreign key');
+  perform pg_temp.ok((select relrowsecurity from pg_class where oid = 'billing_private.tenant_access_exemption_events'::regclass),
+                     'evidence table has RLS');
+  perform pg_temp.ok(not has_table_privilege('anon', 'billing_private.tenant_access_exemption_events', 'select,insert,update,delete')
+                     and not has_table_privilege('authenticated', 'billing_private.tenant_access_exemption_events', 'select,insert,update,delete')
+                     and not has_table_privilege('service_role', 'billing_private.tenant_access_exemption_events', 'select,insert,update,delete')
+                     and not has_table_privilege('authenticated', 'billing_private.tenant_access_exemptions', 'select,insert,update,delete')
+                     and not has_table_privilege('service_role', 'billing_private.tenant_access_exemptions', 'select,insert,update,delete'),
+                     'exemption tables private');
+  perform pg_temp.ok(not has_function_privilege('anon', 'public.set_tenant_billing_access_exemption_v1(uuid, boolean, timestamptz, text, text)', 'execute')
+                     and has_function_privilege('service_role', 'public.set_tenant_billing_access_exemption_v1(uuid, boolean, timestamptz, text, text)', 'execute'),
+                     'exemption RPC service-only');
+  v_res := public.set_tenant_billing_access_exemption_v1(t_hold, false, null, 'phase64 operator', 'end isolation witness');
+  perform pg_temp.ok(pg_temp.st(t_hold) = 'trial_expired', 'witness back to its state');
   -- -------------------------------------------------------------------------
   -- B. SUR4 shape: Checkout before the trial end, anchored first invoice.
   --    The conversion keeps access before and after the old trial end.
@@ -210,6 +330,28 @@ begin
     now() - interval '1 minute', null, true);
   perform pg_temp.ok((select status from public.subscriptions where id = v_internal_sur4) = 'canceled', 'internal converted: ' || v_sync::text);
   perform pg_temp.ok(pg_temp.st(t_sur4, now() + interval '1 day') = 'subscription_active', 'anchored Stripe sub allowed after old trial end');
+
+  -- B2. SUR4 L6e shape (phase65): internal trial still trialing and
+  --     ready_for_checkout, period already ended, Pro offer without anchor.
+  --     The gate says trial_expired; with mode off nothing is enforced; an
+  --     exemption covers it and its withdrawal ends the cover; the Stripe
+  --     conversion makes it subscription_active.
+  insert into public.subscriptions (tenant_id, plan_id, provider, status, current_period_start, current_period_end, metadata)
+  values (t_l6e, v_basic, 'internal', 'trialing', now() - interval '31 days', now() - interval '1 hour',
+          '{"billing_activation":"ready_for_checkout"}');
+  v_eval := public.resolve_tenant_billing_access_v1(t_l6e);
+  perform pg_temp.ok(v_eval ->> 'state' = 'trial_expired' and v_eval ->> 'mode' = 'off'
+                     and not (v_eval ->> 'enforced')::boolean, 'L6e: trial_expired, not enforced while off: ' || v_eval::text);
+  perform public.set_tenant_billing_access_exemption_v1(t_l6e, true, now() + interval '14 days', 'phase64 operator', 'offer window cover');
+  perform pg_temp.ok(pg_temp.st(t_l6e) = 'exempt', 'L6e: exemption covers the offer window');
+  perform public.set_tenant_billing_access_exemption_v1(t_l6e, false, null, 'phase64 operator', 'offer window cover ended');
+  perform pg_temp.ok(pg_temp.st(t_l6e) = 'trial_expired', 'L6e: withdrawal ends the cover');
+  v_sync := public.sync_billing_subscription_v1(
+    t_l6e, v_pro, 'stripe', 'cus_phase64_l6e', 'sub_phase64_l6e', 'active',
+    now(), now() + interval '1 month', false,
+    jsonb_build_object('plan_code', 'pro', 'stripe_event_id', 'evt_phase64_l6e'),
+    now() - interval '1 minute', null, true);
+  perform pg_temp.ok(pg_temp.st(t_l6e) = 'subscription_active', 'L6e: conversion allows: ' || v_sync::text);
 
   -- -------------------------------------------------------------------------
   -- C. Enforcement (trigger) by mode, isolation, bypasses
@@ -306,6 +448,30 @@ begin
   update public.tenants set active = false where id = t_unpaid;
   perform pg_temp.ok(pg_temp.st(t_unpaid) = 'administrative_gate', 'inactive tenant: administrative gate');
   update public.tenants set active = true where id = t_unpaid;
+
+  -- Exemption under enforce: grant and withdrawal apply to the very next
+  -- write, with no manual cache reset (the RPC drops the cached decision).
+  perform public.set_tenant_billing_access_exemption_v1(t_a, true, null, 'phase64 operator', 'support cover under enforce');
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', owner_a::text, true);
+  execute 'set local role authenticated';
+  update public.clients set name = name where tenant_id = t_a;
+  execute 'reset role';
+  perform set_config('request.jwt.claim.role', '', true);
+  perform public.set_tenant_billing_access_exemption_v1(t_a, false, null, 'phase64 operator', 'support cover ended');
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  execute 'set local role authenticated';
+  v_raised := false;
+  begin
+    update public.clients set name = name where tenant_id = t_a;
+  exception when sqlstate 'PT402' then
+    get stacked diagnostics v_detail = pg_exception_detail;
+    v_raised := true;
+  end;
+  execute 'reset role';
+  perform set_config('request.jwt.claim.role', '', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform pg_temp.ok(v_raised and v_detail = 'trial_expired', 'withdrawn exemption blocks the next write under enforce');
 
   -- Reactivation: payment confirmed → next transaction writes again.
   update public.subscriptions set provider = 'stripe', status = 'active', provider_subscription_id = 'sub_phase64_a',
