@@ -45,7 +45,14 @@ Los calcula `billing_private.evaluate_tenant_billing_access(tenant, at)`.
 - **`past_due`:** periodo de gracia.
 - **Webhook pendiente:** `checkout_pending` o `reconciliation_pending`.
 
-**Caso SUR4:** Checkout antes de las 14:08 → conversión → Stripe `active`, con la primera factura a las 14:53. No hay suspensión. Si el webhook llegara después de las 14:53, `checkout_pending` cubre hasta 2 h tras el fin de la prueba. Esto está probado en phase64 (bloque B).
+**Caso SUR4 (estado comercial L6e, desde el 02/11/2026 21:57Z):**
+- La prueba interna terminó el 02/11/2026 a las 13:53Z, pero la fila sigue `trialing`, con `metadata.billing_activation = ready_for_checkout`.
+- Tiene una oferta Pro activa **sin ancla** (`billing_cycle_anchor` null): 40 € de descuento en cada una de las 2 primeras cuotas.
+- **Fecha límite para contratar: 16/11/2026 a las 20:00 Madrid** (19:00Z, que es `redeem_by` − 45 min).
+- En Checkout hay un **cobro inmediato de 39 €**. La segunda cuota, un mes después, es también de 39 €. Las renovaciones posteriores son de 79 € al mes.
+- Al pagar, el webhook convierte la fila interna (`converted_to_stripe`) y la suscripción Stripe queda `active` (L7).
+
+**Riesgo `trial_expired` pese a `ready_for_checkout`.** Con `observe`/`enforce`, la puerta evalúa hoy a SUR4 como **`trial_expired`**, porque `current_period_end` ya pasó. Ni `ready_for_checkout` ni la oferta usable cuentan. `checkout_pending` no lo cubre, porque solo protege Checkouts iniciados **antes** del fin de la prueba, y SUR4 contratará después. En `enforce`, SUR4 quedaría suspendido durante su propia ventana de contratación. El Owner seguiría pudiendo ir a Facturación y pagar, pero el resto del equipo no podría escribir. phase64 (bloque B) solo prueba el escenario anterior (Checkout antes del fin de la prueba, con ancla). El estado L6e está en phase65 (§6).
 
 ## 4. Política de gracia — APROBADA por el propietario (01/11/2026)
 
@@ -94,35 +101,56 @@ Solo en hosts de tenant y solo si `BILLING_ACCESS_GATE_PROXY=on`:
 
 ## 6. Despliegue propuesto (cada paso requiere GO)
 
-**No desplegar nada de esto antes de que SUR4 quede convertido (L7) el 02/11.**
+**Condición obligatoria antes de activar `enforce` (D5).** Para SUR4 debe cumplirse una de estas dos:
+1. **L7 verificada:** la suscripción Stripe Pro está `active`, la fila interna está cerrada como `converted_to_stripe` y la oferta está canjeada (`redeemed`). Las tres cosas comprobadas por lectura en Production.
+2. **Exención temporal auditada y comprobada:** registrada con `set_tenant_billing_access_exemption_v1`, con autorizante, motivo y caducidad, y confirmada después con `resolve_tenant_billing_access_v1` (estado `exempt`). Ver la propuesta en §8.
+
+Sin una de las dos, D5 no se ejecuta. `observe` (D4) puede activarse, pero cualquier entrada `trial_expired` de SUR4 en los logs es esperada y no es un fallo de la puerta.
+
+**Dependencia de pruebas.** Antes de cada paso deben estar en verde, en el Release Gate y sobre la misma base:
+- **phase64** (`phase64_billing_access_gate.sql`): la propia puerta.
+- **phase65** (`phase65_offer_contracting_path.sql`, PR #180): el camino de contratación de SUR4 en el estado L6e, es decir, Checkout permitido, conversión `converted_to_stripe`, canje de la oferta y ningún segundo Checkout. Lo exige la regla del propietario (02/11) para todo cambio en Checkout, onboarding, planes, derechos o esta puerta.
+- Pendiente en código, en un commit aparte: un bloque de phase64 con el fixture L6e de phase65 que compruebe `trial_expired` sin exención, `exempt` con exención y `subscription_active` tras la conversión.
+
+**Bloqueador de auditoría: retirar una exención borra su historial.** Hoy `set_tenant_billing_access_exemption_v1(…, false, …)` hace `delete` de la fila de `billing_private.tenant_access_exemptions`. Con eso se pierden el `history` (concesiones y renovaciones) y el motivo y el autorizante de la retirada. Tampoco queda registro de la retirada en ningún otro sitio. Esto incumple la condición 7 de §4 (exenciones auditadas). La corrección debe ir en un **commit de código separado**: retirada lógica (p. ej. `revoked_at`/`revoked_by` y una entrada `revoked` en `history`) en lugar de `delete`, con pruebas en phase64 que comprueben que el historial se conserva tras retirar y volver a conceder. Hasta entonces, **no se registra ninguna exención en Production**, tampoco la de SUR4.
 
 | Fase | Acción | Efecto |
 |---|---|---|
 | D0 | Merge + deploy con `BILLING_ACCESS_GATE_PROXY` sin definir | Ninguno |
-| D1 | Migración en Staging → phase64 + E2E en Staging | Ninguno en Production |
+| D1 | Migración en Staging → phase64 + phase65 + E2E en Staging | Ninguno en Production |
 | D2 | Migración en Production (modo `off`) | Ninguno: el trigger evalúa y permite |
-| D3 | **Propuesta al propietario para los 4 tenants sin suscripción vigente** (ver §7) y exenciones solo con GO | — |
+| D3 | **Propuesta al propietario para SUR4 (§8) y los 4 tenants sin suscripción vigente** (ver §7). Exenciones solo con GO y tras corregir el bloqueador de auditoría | — |
 | D4 | `BILLING_ACCESS_GATE_PROXY=on` + modo `observe` ≥ 48 h | Solo logs `[billing.access-gate] observe` |
-| D5 | Modo `enforce` | Suspensión real |
+| D5 | Modo `enforce`, **solo con la condición obligatoria cumplida** | Suspensión real |
 
 **Rollback inmediato:** modo `off` con `set_billing_access_gate_settings_v1`, efectivo en la siguiente transacción. Si hace falta, además `BILLING_ACCESS_GATE_PROXY` sin definir.
 
-## 7. Situación actual en Production (lectura, 01/11 21:10Z)
+## 7. Situación actual en Production (lectura, 01/11 21:10Z; fila sur4 actualizada con L6e del 02/11, sin lectura nueva)
 
 | Tenant | Estado calculado | Decisión necesaria antes de D5 |
 |---|---|---|
-| sur4 | `trial_active` hasta 02/11 13:53Z → `subscription_active` tras L7 | Ninguna si L7 se completa |
+| sur4 | `trial_expired` desde 02/11 13:53Z (interna `trialing` + `ready_for_checkout`, oferta Pro sin ancla vigente hasta 16/11 20:00 Madrid) → `subscription_active` tras L7 | L7 verificada o exención temporal auditada y comprobada (§6, §8) |
 | demo | `internal_active` (mvp hasta 2027-09-05) | Ninguna |
 | billing-sandbox | `subscription_ended` (Stripe live cancelada) | ¿Exención o suspendido? |
 | copisteria-caprichos | `no_subscription` | ¿Exención, prueba interna o suspendido? |
 | prueba-final | `no_subscription` | Ídem |
 | tenant-prueba | `no_subscription` | Ídem |
 
+Antes de D3 hay que repetir la lectura completa en Production. Esta tabla no la sustituye.
+
 ## 8. Medida transitoria hasta el modo `enforce`
 
-Esta puerta no estará validada en Production antes del 02/11. Hasta entonces:
-- Si SUR4 contrata, no hace falta nada.
-- Si SUR4 **no** contrata, seguirá operando tras las 14:53, igual que hoy. **No se recomienda usar `tenants.active = false`** como interruptor comercial: rompe la separación y bloquea también al Owner fuera de Facturación. Lo seguro es que el propietario decida comercialmente (nueva oferta según D1) y, si exige cortar, adelantar D2–D5 solo con GO explícito.
+La puerta sigue en `off` y no estará validada en Production antes del 16/11. Hasta entonces SUR4 opera igual que hoy y no hace falta nada:
+- **Si SUR4 contrata antes del 16/11 a las 20:00 Madrid:** se verifica L7 (§6) y SUR4 queda `subscription_active`. No hace falta exención.
+- **Si la puerta tuviera que pasar de `off` antes de L7:** se aplica la exención propuesta abajo, solo con aprobación expresa.
+
+**Propuesta de exención para SUR4 (pendiente de aprobación expresa y de conciliación):**
+- Hasta el **17/11/2026 a las 00:00 Madrid** (`2026-11-16T23:00:00Z`): cubre la fecha límite de la oferta más un margen para que llegue el webhook.
+- Antes de registrarla hacen falta tres cosas: la aprobación expresa del propietario, la conciliación del estado de facturación de SUR4 (suscripciones, intentos de Checkout, holds y oferta) y la corrección del bloqueador de auditoría (§6).
+- Llamada prevista, solo tras esas tres condiciones: `set_tenant_billing_access_exemption_v1('<tenant_id de sur4>', true, '2026-11-16T23:00:00Z', '<propietario>', 'Ventana de contratación oferta Pro L6e')`, seguida de `resolve_tenant_billing_access_v1` para confirmar `exempt`.
+- **Su vencimiento no constituye autorización automática de suspensión.** Si al vencer no hay L7, la decisión de suspender, prorrogar o hacer una nueva oferta es del propietario, con GO expreso. Mientras tanto, el modo de la puerta no cambia por el vencimiento.
+
+**No se recomienda usar `tenants.active = false`** como interruptor comercial: rompe la separación y bloquea también al Owner fuera de Facturación.
 
 ## 9. Procedimiento de soporte
 
