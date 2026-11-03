@@ -6,21 +6,20 @@ import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/co
 import { Block } from "@/components/orders/detail/views/parts";
 import { cn } from "@/lib/utils";
 
-// View B · Pestañas. The full header and the pinned post-its stay on top, so
-// status, priority, amounts and delivery are always visible; below, one
-// section at a time: Resumen, Trabajo, Archivos, Cobros, Actividad.
+// View B · Pestañas: four coherent sections instead of splitting the same
+// order across Resumen, Trabajo and Archivos. Pinned notes live with post-its,
+// and the visual status tracker lives with the work sequence and activity.
 //
-// Hidden tabs stay mounted (`hidden`): «Cobros» loads the amounts the header
-// shows, uploads keep running and drafts keep their values.
+// Hidden panels remain mounted (`hidden`), preserving upload progress, edit
+// drafts and financial state when switching sections.
 
-type TabKey = "summary" | "work" | "files" | "payments" | "activity";
+type TabKey = "work" | "payments" | "notes" | "sequence";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "summary", label: "Resumen" },
   { key: "work", label: "Trabajo" },
-  { key: "files", label: "Archivos" },
-  { key: "payments", label: "Cobros" },
-  { key: "activity", label: "Actividad" },
+  { key: "payments", label: "Cobro y entrega" },
+  { key: "notes", label: "Post-its" },
+  { key: "sequence", label: "Secuencia de trabajo" },
 ];
 
 function TabPanel({
@@ -53,13 +52,12 @@ function TabPanel({
 }
 
 export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
-  const [active, setActive] = useState<TabKey>("summary");
-  // Header «Añadir nota»: show «Trabajo», where the post-its live, in the same
-  // render (the panel scrolls to its composer right after).
+  const [active, setActive] = useState<TabKey>("work");
+  // Header «Añadir nota»: reveal «Post-its» before its composer scrolls into view.
   const [handledNoteRequest, setHandledNoteRequest] = useState(facts.noteComposeRequest);
   if (facts.noteComposeRequest !== handledNoteRequest) {
     setHandledNoteRequest(facts.noteComposeRequest);
-    if (facts.noteComposeRequest > 0) setActive("work");
+    if (facts.noteComposeRequest > 0) setActive("notes");
   }
   const baseId = useId();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -83,8 +81,6 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
     <>
       {modules.notices}
       {modules.header}
-      <Block className="mb-4">{modules.pinnedNotes}</Block>
-
       <div
         role="tablist"
         aria-label="Secciones del pedido"
@@ -124,20 +120,10 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
         })}
       </div>
 
-      <TabPanel id={panelId("summary")} labelledBy={tabId("summary")} active={active === "summary"}>
+      <TabPanel id={panelId("work")} labelledBy={tabId("work")} active={active === "work"}>
         <Block>{modules.sourceQuote}</Block>
         <Block>{modules.summary}</Block>
-        <Block>{modules.tracking}</Block>
-      </TabPanel>
-
-      <TabPanel id={panelId("work")} labelledBy={tabId("work")} active={active === "work"}>
         <Block>{modules.production}</Block>
-        <Block>{modules.sequence}</Block>
-        <Block>{modules.stickyNotes}</Block>
-        <Block>{modules.legacyNotes}</Block>
-      </TabPanel>
-
-      <TabPanel id={panelId("files")} labelledBy={tabId("files")} active={active === "files"}>
         <Block>{modules.files}</Block>
       </TabPanel>
 
@@ -145,7 +131,15 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
         <Block>{modules.fulfillment}</Block>
       </TabPanel>
 
-      <TabPanel id={panelId("activity")} labelledBy={tabId("activity")} active={active === "activity"}>
+      <TabPanel id={panelId("notes")} labelledBy={tabId("notes")} active={active === "notes"}>
+        <Block>{modules.pinnedNotes}</Block>
+        <Block>{modules.stickyNotes}</Block>
+        <Block>{modules.legacyNotes}</Block>
+      </TabPanel>
+
+      <TabPanel id={panelId("sequence")} labelledBy={tabId("sequence")} active={active === "sequence"}>
+        <Block>{modules.sequence}</Block>
+        <Block>{modules.tracking}</Block>
         <Block>{modules.activity}</Block>
       </TabPanel>
     </>
