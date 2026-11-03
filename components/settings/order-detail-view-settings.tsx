@@ -183,7 +183,7 @@ export function OrderDetailViewSettings({ sampleOrderId }: { sampleOrderId: stri
                   <Capture code={code} kind="desktop" />
                   <Capture code={code} kind="mobile" />
                 </div>
-              )>
+              )}
               <div className="mt-auto flex flex-wrap gap-2">
                 {sampleOrderId ? (
                   <Link
