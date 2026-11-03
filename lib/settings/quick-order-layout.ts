@@ -12,6 +12,8 @@ export const QUICK_ORDER_FIELDS = [
   "notes",
   "file_status",
   "files",
+  "total_amount",
+  "advance_amount",
 ] as const;
 
 export type QuickOrderField = (typeof QUICK_ORDER_FIELDS)[number];
@@ -35,6 +37,8 @@ export const QUICK_ORDER_FIELD_LABELS: Record<QuickOrderField, string> = {
   notes: "Notas internas",
   file_status: "Estado de archivos",
   files: "Archivos adjuntos",
+  total_amount: "Importe total (€)",
+  advance_amount: "Entregado a cuenta (€)",
 };
 
 export const DEFAULT_QUICK_ORDER_LAYOUT: QuickOrderLayout = {
@@ -51,6 +55,8 @@ export const DEFAULT_QUICK_ORDER_LAYOUT: QuickOrderLayout = {
   notes: "more",
   file_status: "more",
   files: "more",
+  total_amount: "more",
+  advance_amount: "more",
 };
 
 const FIELD_SET = new Set<string>(QUICK_ORDER_FIELDS);
@@ -75,9 +81,9 @@ function parseLayout(value: unknown): QuickOrderLayout | null {
     return null;
   }
 
-  // Additive V1 extension: old tenants/clients omit the two new fields.
+  // Additive V1 extensions: preserve every placement stored by older clients.
   const normalized = { ...value };
-  for (const field of ["file_status", "files"] as const) {
+  for (const field of ["file_status", "files", "total_amount", "advance_amount"] as const) {
     if (!(field in normalized)) {
       normalized[field] = DEFAULT_QUICK_ORDER_LAYOUT[field];
     }

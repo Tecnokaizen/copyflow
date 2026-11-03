@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "feat/order-finance-tracking-20261103": false
+    }
+  },
   "regions": [
     "fra1"
   ],

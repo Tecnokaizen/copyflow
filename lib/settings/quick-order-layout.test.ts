@@ -24,6 +24,8 @@ import {
 const CUSTOM_LAYOUT = {
   file_status: "more",
   files: "more",
+  total_amount: "more",
+  advance_amount: "more",
   client: "more",
   service: "primary",
   description: "more",
@@ -62,6 +64,8 @@ describe("quick order layout preferences", () => {
       notes: "more",
       file_status: "more",
       files: "more",
+      total_amount: "more",
+      advance_amount: "more",
     };
 
     assert.deepEqual(DEFAULT_QUICK_ORDER_LAYOUT, expected);
@@ -116,6 +120,8 @@ describe("quick order layout preferences", () => {
         "Notas internas",
         "Estado de archivos",
         "Archivos adjuntos",
+        "Importe total (€)",
+        "Entregado a cuenta (€)",
       ]
     );
   });
@@ -137,6 +143,8 @@ describe("quick order layout preferences", () => {
       "order_context",
       "file_status",
       "files",
+      "total_amount",
+      "advance_amount",
     ]);
   });
 
@@ -273,6 +281,8 @@ describe("quick order layout preferences", () => {
         notes: "primary",
         file_status: "more",
         files: "more",
+      total_amount: "more",
+      advance_amount: "more",
       }
     );
     assert.ok(

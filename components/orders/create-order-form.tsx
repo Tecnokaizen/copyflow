@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { canWriteOrders } from "@/lib/auth/membership-roles";
+import { PAYMENT_METHODS, isPaymentMethod, type PaymentMethod } from "@/lib/orders/payment-methods";
 import { OrderCollection } from "@/components/orders/detail/order-collection";
 import { CreateOrderFiles } from "@/components/files/create-order-files";
 import { OrderFilesSection } from "@/components/files/order-files-section";
@@ -42,6 +43,12 @@ import {
   buildCreateOrderPayload,
 } from "@/lib/orders/create-form";
 import {
+  parseInitialFinance,
+  pendingInitialFinanceLabel,
+  persistInitialFinance,
+  type ParsedInitialFinance,
+} from "@/lib/orders/initial-finance";
+import {
   defaultSingleCatalogId,
   groupQuickOrderPrimaryFields,
   isQuickCreateMode,
@@ -76,6 +83,15 @@ type CreatedOrder = {
   reference: string;
 };
 
+type InitialFinanceIntent = {
+  finance: Extract<ParsedInitialFinance, { ok: true }>;
+  idempotencyKey: string;
+  paidAt: string;
+  paymentMethod: PaymentMethod | "";
+  expectedTenantSlug: string;
+  expectedUserId: string;
+};
+
 type QuickOrderOptionsResponse = OrderOptionsResponse & {
   quick_order_layout: QuickOrderLayout;
   file_statuses: { id: string; code: string; name: string }[];
@@ -108,6 +124,12 @@ export function CreateOrderForm({
   const [created, setCreated] = useState<CreatedOrder | null>(null);
   const [collectionActive, setCollectionActive] = useState(false);
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null);
+  const [totalDraft, setTotalDraft] = useState("");
+  const [advanceDraft, setAdvanceDraft] = useState("");
+  const [advanceMethod, setAdvanceMethod] = useState<PaymentMethod | "">("");
+  const [financeIntent, setFinanceIntent] = useState<InitialFinanceIntent | null>(null);
+  const [financePending, setFinancePending] = useState(false);
+  const [financeError, setFinanceError] = useState<string | null>(null);
 
   const submitLock = useRef(false);
   const [uploads, setUploads] = useState<ClientUploadItem[]>([]);
@@ -117,14 +139,14 @@ export function CreateOrderForm({
   const [fileStatusId, setFileStatusId] = useState("");
 
   useEffect(() => {
-    if (!pendingUploads) return;
+    if (!pendingUploads && !financePending) return;
     function warnOnLeave(event: BeforeUnloadEvent) {
       event.preventDefault();
       event.returnValue = "";
     }
     window.addEventListener("beforeunload", warnOnLeave);
     return () => window.removeEventListener("beforeunload", warnOnLeave);
-  }, [pendingUploads]);
+  }, [pendingUploads, financePending]);
 
   const [title, setTitle] = useState("");
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(
@@ -183,6 +205,12 @@ export function CreateOrderForm({
 
   function resetQuickForm(nextOptions: OrderOptionsResponse | null) {
     uploadQueue.clear();
+    setTotalDraft("");
+    setAdvanceDraft("");
+    setAdvanceMethod("");
+    setFinanceIntent(null);
+    setFinancePending(false);
+    setFinanceError(null);
     setFileStatusId("");
     setTitle("");
     setSelectedClient(null);
@@ -235,6 +263,9 @@ export function CreateOrderForm({
       storeId,
       notes,
       fileStatusId,
+      totalAmount: totalDraft,
+      advanceAmount: advanceDraft,
+      advanceMethod,
     });
   }
 
@@ -263,6 +294,9 @@ export function CreateOrderForm({
     setStoreId(draft.storeId);
     setNotes(draft.notes);
     setFileStatusId(draft.fileStatusId);
+    setTotalDraft(draft.totalAmount ?? "");
+    setAdvanceDraft(draft.advanceAmount ?? "");
+    setAdvanceMethod(isPaymentMethod(draft.advanceMethod) ? draft.advanceMethod : "");
     if (draft.clientId && draft.clientName) {
       setSelectedClient({
         id: draft.clientId,
@@ -378,6 +412,10 @@ export function CreateOrderForm({
       field !== "title" && quickFieldIsAvailable(field, quickCatalogCounts)
   );
   const quickGroups = groupQuickOrderPrimaryFields(quickPrimaryFields);
+  const financePreview = parseInitialFinance({
+    totalAmount: isQuick && quickLayout.total_amount === "hidden" ? "" : totalDraft,
+    advanceAmount: isQuick && quickLayout.advance_amount === "hidden" ? "" : advanceDraft,
+  });
 
   function openCreateClient(query: string) {
     setClientFormInitial({
@@ -484,6 +522,14 @@ export function CreateOrderForm({
       setError("Quita los archivos no válidos de la cola antes de crear el pedido.");
       return;
     }
+    if (!financePreview.ok) {
+      setError(financePreview.error);
+      return;
+    }
+    if (financePreview.advanceAmount !== null && !isPaymentMethod(advanceMethod)) {
+      setError("Selecciona el método de pago de la entrega a cuenta.");
+      return;
+    }
     submitLock.current = true;
     setSubmitting(true);
     setError(null);
@@ -537,10 +583,36 @@ export function CreateOrderForm({
         reference: typeof result.order.reference === "string" ? result.order.reference : "Pedido",
       };
       setCreated(savedOrder);
+      const intent: InitialFinanceIntent | null =
+        financePreview.totalAmount !== null
+          ? {
+              finance: financePreview,
+              idempotencyKey: crypto.randomUUID(),
+              paidAt: new Date().toISOString(),
+              paymentMethod: advanceMethod,
+              expectedTenantSlug: options?.tenant ?? "",
+              expectedUserId: options?.actor_id ?? "",
+            }
+          : null;
+      setFinanceIntent(intent);
+      setFinancePending(Boolean(intent));
+      let financeComplete = true;
+      if (intent) {
+        try {
+          await persistInitialFinance({ orderId: savedOrder.id, ...intent, storage: window.sessionStorage });
+          setFinancePending(false);
+          setFinanceError(null);
+        } catch (err) {
+          financeComplete = false;
+          setFinanceError(
+            err instanceof Error ? err.message : "No se pudo registrar el importe."
+          );
+        }
+      }
       const allUploaded = await uploadQueue.upload(savedOrder.id, maxFileBytes);
       if (!allUploaded) {
         setError("El pedido está creado. Algunos archivos no se han podido subir; reinténtalos aquí.");
-      } else if (!shouldStayOnCreateForm(mode)) {
+      } else if (financeComplete && !shouldStayOnCreateForm(mode)) {
         router.push(`/orders/${savedOrder.id}?created=1`);
       }
     } catch (err) {
@@ -557,6 +629,27 @@ export function CreateOrderForm({
     }
   }
 
+  async function retryInitialFinance() {
+    if (!created || !financeIntent || submitLock.current) return;
+    submitLock.current = true;
+    setSubmitting(true);
+    setFinanceError(null);
+    try {
+      await persistInitialFinance({ orderId: created.id, ...financeIntent, storage: window.sessionStorage });
+      setFinancePending(false);
+      if (!pendingUploads && !shouldStayOnCreateForm(mode)) {
+        router.push(`/orders/${created.id}?created=1`);
+      }
+    } catch (err) {
+      setFinanceError(
+        err instanceof Error ? err.message : "No se pudo registrar el importe."
+      );
+    } finally {
+      setSubmitting(false);
+      submitLock.current = false;
+    }
+  }
+
   async function retryUploads() {
     if (!created || submitLock.current) return;
     submitLock.current = true;
@@ -565,13 +658,65 @@ export function CreateOrderForm({
     try {
       const complete = await uploadQueue.upload(created.id, maxFileBytes);
       if (!complete) setError("Quedan archivos pendientes. Puedes volver a reintentar.");
-      else if (!shouldStayOnCreateForm(mode)) router.push(`/orders/${created.id}?created=1`);
+      else if (!financePending && !shouldStayOnCreateForm(mode)) router.push(`/orders/${created.id}?created=1`);
     } catch {
       setError("No se han podido completar los archivos. El pedido ya está creado.");
     } finally {
       setSubmitting(false);
       submitLock.current = false;
     }
+  }
+
+  function renderTotalAmountField() {
+    return <label className="grid min-w-0 gap-2 text-sm font-medium text-foreground">
+      Importe total (€)
+      <input className="gc-field-control min-w-0" inputMode="decimal" value={totalDraft}
+        disabled={submitting} placeholder="Sin definir" onChange={(event) => setTotalDraft(event.target.value)} />
+    </label>;
+  }
+
+  function renderAdvanceAmountField() {
+    return <div className="grid min-w-0 gap-3">
+      <label className="grid min-w-0 gap-2 text-sm font-medium text-foreground">
+        Entregado a cuenta (€)
+        <input className="gc-field-control min-w-0" inputMode="decimal" value={advanceDraft}
+          disabled={submitting} placeholder="Opcional" onChange={(event) => setAdvanceDraft(event.target.value)} />
+      </label>
+      {advanceDraft.trim() && advanceDraft.trim() !== "0" && advanceDraft.trim() !== "0,00" && advanceDraft.trim() !== "0.00" ? (
+        <label className="grid gap-2 text-sm font-medium text-foreground">
+          Método de pago
+          <select aria-label="Método de pago" className="gc-field-control" value={advanceMethod} disabled={submitting}
+            onChange={(event) => setAdvanceMethod(event.target.value as PaymentMethod | "")}>
+            <option value="">Selecciona un método</option>
+            {PAYMENT_METHODS.map((method) => <option key={method.value} value={method.value}>{method.label}</option>)}
+          </select>
+        </label>
+      ) : null}
+    </div>;
+  }
+
+  function renderFinancePreview() {
+    return <div className="grid gap-2 text-sm">
+      <span>Pendiente de pago</span>
+      <output className="font-semibold" aria-live="polite" data-testid="initial-finance-pending">
+        {pendingInitialFinanceLabel(financePreview)}
+      </output>
+      {!financePreview.ok ? <p className="text-destructive" role="alert">{financePreview.error}</p> : null}
+      <p className="text-xs text-muted-foreground">
+        Importes opcionales en euros. Para registrar una entrega, define el total y su método de pago.
+        Solo se anotará el dinero indicado; podrás modificar el cobro desde la ficha.
+      </p>
+    </div>;
+  }
+
+  function renderInitialFinanceFields() {
+    return <div className="grid gap-3 rounded-lg border border-border/70 p-4">
+      <h3 className="text-sm font-semibold">Importe y cobro</h3>
+      <div className="grid min-w-0 gap-4 md:grid-cols-2">
+        {renderTotalAmountField()}{renderAdvanceAmountField()}
+      </div>
+      {renderFinancePreview()}
+    </div>;
   }
 
   function renderFilesField() {
@@ -857,6 +1002,10 @@ export function CreateOrderForm({
         return renderFileStatusField();
       case "files":
         return renderFilesField();
+      case "total_amount":
+        return renderTotalAmountField();
+      case "advance_amount":
+        return renderAdvanceAmountField();
     }
   }
 
@@ -917,7 +1066,24 @@ export function CreateOrderForm({
           ) : null}
           {pendingUploads && !submitting ? <p className="text-sm text-muted-foreground">Los archivos pendientes siguen en esta pantalla. Si sales, tendrás que seleccionarlos de nuevo en la ficha.</p> : null}
         </div>
-        {isQuick && !submitting ? <div className="mb-5">
+        {financePending ? (
+          <div className="mb-5 grid gap-3 rounded-md border border-border p-4" role="status">
+            <p className="text-sm font-medium text-foreground">
+              Pedido creado. Falta confirmar los importes y la entrega a cuenta.
+            </p>
+            {financeError ? <p className="text-sm text-destructive">{financeError}</p> : null}
+            {!submitting ? (
+              <button
+                type="button"
+                className="gc-cta min-h-11 w-full sm:w-fit"
+                onClick={() => void retryInitialFinance()}
+              >
+                Reintentar guardar importes
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {!financePending && isQuick && !submitting ? <div className="mb-5">
           <h2 className="font-semibold">Importe y entrega a cuenta</h2>
           <p className="mt-1 mb-3 text-sm text-muted-foreground">Define el importe total y registra lo entregado a cuenta en este pedido. El pendiente se calcula automáticamente.</p>
           <OrderCollection
@@ -939,7 +1105,7 @@ export function CreateOrderForm({
           </Link>
           <button
             type="button"
-            disabled={pendingUploads || collectionActive}
+            disabled={pendingUploads || collectionActive || financePending || submitting}
             onClick={() => resetQuickForm(options)}
             className="gc-action min-h-11 w-full sm:w-auto"
           >
@@ -1040,6 +1206,7 @@ export function CreateOrderForm({
                   ))}
                 </div>
               ) : null}
+              {(quickLayout.total_amount !== "hidden" || quickLayout.advance_amount !== "hidden") ? renderFinancePreview() : null}
               {quickMoreFields.length > 0 ? (
                 <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                   <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
@@ -1067,6 +1234,7 @@ export function CreateOrderForm({
               {renderPriorityField()}
               {renderFileStatusField()}
               {renderFilesField()}
+              {renderInitialFinanceFields()}
               {showChannelInMain ? renderChannelField() : null}
               <details className="rounded-md border border-border/70 bg-secondary/20 px-4 py-3">
                 <summary className="min-h-11 cursor-pointer list-none text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">

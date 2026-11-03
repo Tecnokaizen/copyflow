@@ -19,6 +19,7 @@ on:
       - "supabase/tests/pedido_v2.sql"
       - "scripts/pedido-v2-ui-smoke.mjs"
       - "scripts/order-collection-ui-smoke.mjs"
+      - "scripts/order-tracking-ui-smoke.mjs"
       - "scripts/inline-client-ui-smoke.mjs"
       - "components/rich-text/**"
       - "components/print/**"
@@ -71,6 +72,7 @@ jobs:
           node /tmp/pedido-v2-browser/node_modules/playwright/cli.js install --with-deps chromium
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/pedido-v2-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/order-collection-ui-smoke.mjs
+          PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/order-tracking-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/inline-client-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/quotes-draft-ui-smoke.mjs
           PLAYWRIGHT_MODULE=/tmp/pedido-v2-browser/node_modules/playwright/index.mjs node scripts/payment-receipts-ui-smoke.mjs
@@ -81,6 +83,6 @@ jobs:
           npx supabase@2.117.0 db reset --local --no-seed
       - name: Tenant isolation, roles, file statuses and Files V1
         run: |
-          for suite in pedido_v2 phase17_order_files phase22_tenant_file_limits; do
+          for suite in pedido_v2 phase17_order_files phase22_tenant_file_limits phase45_commercial_operations phase46_order_total_validation phase46_payment_receipts; do
             psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f "supabase/tests/${suite}.sql"
           done

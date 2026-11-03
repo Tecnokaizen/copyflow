@@ -22,6 +22,8 @@ export type OrderClient = {
 };
 
 export type OrderStatus = {
+  active?: boolean;
+  sort_order?: number;
   id: string;
   code: string;
   name: string;
