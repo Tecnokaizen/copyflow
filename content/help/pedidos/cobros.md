@@ -15,7 +15,7 @@ En algunas copisterías estos importes se llaman «Total pedido», «A cuenta» 
 1. Abre el pedido. Los importes se ven arriba, en la cabecera, y en el bloque **Cobro y entrega**.
 2. Pulsa **Definir total** (o **Modificar total** si ya tiene uno), escribe el importe y pulsa **Guardar total**.
 
-También puedes indicar el total y una primera entrega a cuenta al crear el pedido, en **Importe y entrega a cuenta**.
+También puedes indicar **Importe total (€)** y una primera entrega en **Entregado a cuenta (€)** al crear el pedido, con su método de pago. Los dos campos son opcionales; una entrega positiva requiere total definido. Para corregir un anticipo, anula la entrega con motivo y registra la correcta: el historial se conserva.
 
 **Registrar una entrega a cuenta**
 

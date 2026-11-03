@@ -16,6 +16,16 @@ describe("Pedido V2 additive preferences", () => {
     assert.deepEqual(parseQuickOrderLayoutPatch({ layout: legacy, revision: "rev" }), { ok: true, layout: resolved, revision: "rev" });
   });
 
+  it("extends a pre-finance layout without resetting any tenant placement", () => {
+    const legacy = Object.fromEntries(Object.entries(DEFAULT_QUICK_ORDER_LAYOUT).filter(([key]) => key !== "total_amount" && key !== "advance_amount"));
+    const stored = { ...legacy, client: "hidden", notes: "primary" } as const;
+    const resolved = resolveQuickOrderLayout({quick_order_layout_v1:{version:1,placements:stored}});
+    assert.deepEqual(resolved, {...stored, total_amount:"more", advance_amount:"more"});
+    const custom = {...resolved, total_amount:"primary", advance_amount:"hidden"} as const;
+    assert.deepEqual(resolveQuickOrderLayout(mergeQuickOrderLayoutPreference({}, custom)), custom);
+    assert.equal(parseQuickOrderLayoutPatch({layout:{...custom, advance_amount:"invalid"},revision:"r"}).ok, false);
+  });
+
   it("round-trips Hidden without resetting V1 or neighboring tenant preferences", () => {
     const layout = { ...DEFAULT_QUICK_ORDER_LAYOUT, client: "hidden", files: "primary", file_status: "hidden" } as const;
     const demo = mergeQuickOrderLayoutPreference({ other: true }, layout);

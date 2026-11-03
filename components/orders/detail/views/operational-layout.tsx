@@ -1,53 +1,52 @@
 import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/contract";
-import { Block, Fold } from "@/components/orders/detail/views/parts";
+import { Block, Fold, WorkGroup } from "@/components/orders/detail/views/parts";
 
-// View A · Operativa. Compact header; the work (Trabajo, Archivos) in a wide
-// main column; payments and summary always beside it; sequence, post-its,
-// notes and activity in folds below the work so the page stays short.
-//
-// Mobile order: header, Trabajo, Cobro y entrega, Resumen, Archivos, seguimiento,
-// secuencia, post-its y notas, actividad.
+// View A · Operativa. Compact header and a wide, continuous work area:
+// Resumen + Trabajo + Archivos. Cobro y entrega stays beside it on desktop.
+// Sequence, visual tracking, activity and notes remain distinct below.
+// On mobile: grouped work, payments, sequence/tracking, notes and activity.
 export function OperationalOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
-  const hasNotes = Boolean(modules.stickyNotes) || Boolean(modules.legacyNotes);
+  const hasNotes = Boolean(modules.pinnedNotes) || Boolean(modules.stickyNotes) || Boolean(modules.legacyNotes);
 
   return (
     <>
       {modules.notices}
       {modules.headerCompact}
-      <Block className="mb-4">{modules.pinnedNotes}</Block>
 
-      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] lg:items-start lg:gap-6">
-        <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
-          <Block className="order-1">{modules.production}</Block>
-          <Block className="order-4">{modules.files}</Block>
-          {/* Seguimiento (#153) after the work, so Trabajo stays first. */}
-          <Block className="order-5">{modules.tracking}</Block>
-          {/* The sequence brings its own title and counter. */}
-          <Block className="order-5">{modules.sequence}</Block>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] lg:items-start lg:gap-6">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <WorkGroup
+            sourceQuote={modules.sourceQuote}
+            summary={modules.summary}
+            production={modules.production}
+            files={modules.files}
+          />
+        </div>
+
+        <aside aria-label="Cobro y entrega" className="min-w-0 lg:col-start-2 lg:row-start-1">
+          <Block>{modules.fulfillment}</Block>
+        </aside>
+
+        <div className="flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-2">
+          <section aria-label="Secuencia y seguimiento" className="flex min-w-0 flex-col gap-4">
+            <Block>{modules.sequence}</Block>
+            <Block>{modules.tracking}</Block>
+            <Block>{modules.activity}</Block>
+          </section>
+
           {hasNotes ? (
             <Fold
-              className="order-6"
-              title={modules.stickyNotes ? "Post-its y notas" : "Notas internas"}
+              title={modules.stickyNotes || modules.pinnedNotes ? "Post-its y notas" : "Notas internas"}
               defaultOpen={Boolean(modules.stickyNotes)}
               forceOpen={facts.editing}
               openSignal={facts.noteComposeRequest}
             >
+              <Block>{modules.pinnedNotes}</Block>
               <Block>{modules.stickyNotes}</Block>
               <Block>{modules.legacyNotes}</Block>
             </Fold>
           ) : null}
-          {/* Activity folds itself («Actividad · N»). */}
-          <Block className="order-7">{modules.activity}</Block>
         </div>
-
-        <aside
-          aria-label="Cobro y resumen"
-          className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5"
-        >
-          <Block className="order-2">{modules.sourceQuote}</Block>
-          <Block className="order-2">{modules.fulfillment}</Block>
-          <Block className="order-3">{modules.summary}</Block>
-        </aside>
       </div>
     </>
   );

@@ -128,7 +128,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         "Estados y prioridades",
         "Cómo avanza un pedido y cuándo marcarlo como urgente.",
         "pedidos/estados-y-prioridades.md",
-        ["cambiar estado", "prioridad", "urgente", "entregado", "cancelar"],
+        ["cambiar estado", "prioridad", "urgente", "entregado", "cancelar", "seguimiento"],
         ["guias/cambiar-estado", "guias/cambiar-prioridad", "configuracion/estados-de-pedido"]
       ),
       article(

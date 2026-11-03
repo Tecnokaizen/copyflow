@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  IMPLEMENTED_ORDER_DETAIL_VIEWS,
+  RETIRED_ORDER_DETAIL_VIEWS,
   canManageOrderDetailView,
+  isRetiredOrderDetailView,
   readStoredOrderDetailView,
   resolveOrderDetailView,
   resolvePreviewOrderDetailView,
@@ -69,5 +72,37 @@ describe("who can change or preview the view", () => {
     assert.equal(preview({ requested: "tabs", role: "owner", implemented: ["classic"] }), null);
     assert.equal(preview({ requested: "../x", role: "owner", implemented: ALL }), null);
     assert.equal(preview({ requested: null, role: "owner", implemented: ALL }), null);
+  });
+});
+
+describe("available views (03/11/2026: only B and C)", () => {
+  it("offers exactly B · Pestañas and C · Producción", () => {
+    assert.deepEqual([...IMPLEMENTED_ORDER_DETAIL_VIEWS], ["tabs", "production"]);
+    assert.deepEqual([...RETIRED_ORDER_DETAIL_VIEWS], ["operational", "hybrid"]);
+  });
+
+  it("resolves stored B and C, and anything else to the classic fallback", () => {
+    assert.equal(resolveOrderDetailView(stored("tabs")), "tabs");
+    assert.equal(resolveOrderDetailView(stored("production")), "production");
+    for (const view of ["operational", "hybrid", "classic"]) {
+      assert.equal(resolveOrderDetailView(stored(view)), "classic", view);
+    }
+  });
+
+  it("previews only B and C", () => {
+    for (const view of ["tabs", "production"]) {
+      assert.equal(resolvePreviewOrderDetailView({ requested: view, role: "owner" }), view);
+    }
+    for (const view of ["operational", "hybrid", "classic"]) {
+      assert.equal(resolvePreviewOrderDetailView({ requested: view, role: "owner" }), null, view);
+    }
+  });
+
+  it("recognises the retired views", () => {
+    assert.equal(isRetiredOrderDetailView("operational"), true);
+    assert.equal(isRetiredOrderDetailView("hybrid"), true);
+    for (const view of ["tabs", "production", "classic", "x", null]) {
+      assert.equal(isRetiredOrderDetailView(view), false);
+    }
   });
 });

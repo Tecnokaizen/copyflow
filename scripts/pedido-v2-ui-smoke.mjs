@@ -60,7 +60,7 @@ try {
       client: "primary", service: "primary", description: "primary", store: "hidden",
       due_at: "hidden", priority: "hidden", assigned_team_member: "hidden",
       entry_channel: "hidden", title: "more", order_context: "hidden", notes: "hidden",
-      file_status: "primary", files: "primary",
+      file_status: "primary", files: "primary", total_amount: "primary", advance_amount: "primary",
     };
     const events = [];
     let body;
@@ -85,7 +85,7 @@ try {
         tenant: "demo", services: [{ id: "service-a", name: "Impresión" }],
         stores: [{ id: "store-a", name: "Tienda centro" }],
         entry_channels: [], order_contexts: [],
-        team_members: [{ id: "member-a", name: "Natalia" }], actor_role: "staff",
+        team_members: [{ id: "member-a", name: "Natalia" }], actor_role: "staff", actor_id: "user-a",
         file_statuses: [{ id: "state-a", name: "Pendiente", code: "pending" }],
         quick_order_layout: layout, max_file_bytes: 1048576,
       });
@@ -102,7 +102,7 @@ try {
         return json(collection);
       }
       if (pathname === "/api/orders/saved-order/total") {
-        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.equal(payload.total_amount, "85");
+        const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.ok(["85", "85.00"].includes(payload.total_amount));
         collection = { ...collection, total_amount: "85.00", pending_amount: "85.00", collection_state: "unpaid", row_version: "2" };
         return json(collection);
       }
@@ -198,14 +198,20 @@ try {
     await page.goto(`${url}/?mode=settings`);
     await page.getByLabel("Notas internas", { exact: true }).selectOption("primary");
     await page.getByLabel("Cliente", { exact: true }).selectOption("hidden");
+    await page.getByLabel("Importe total (€)", { exact: true }).selectOption("more");
+    await page.getByLabel("Entregado a cuenta (€)", { exact: true }).selectOption("hidden");
     await page.getByRole("button", { name: "Guardar", exact: true }).click();
     await page.getByText("Configuración guardada", { exact: true }).waitFor();
     assert.equal(layout.notes, "primary"); assert.equal(layout.client, "hidden");
+    assert.equal(layout.total_amount, "more"); assert.equal(layout.advance_amount, "hidden");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(out, `settings-${width}.png`), fullPage: true });
     await page.goto(url);
     await page.getByLabel("Notas internas", { exact: true }).waitFor();
     assert.equal(await page.getByPlaceholder(/Buscar cliente/).count(), 0);
+    assert.equal(await page.getByRole("textbox", {name:"Entregado a cuenta (€)"}).count(), 0);
+    await page.getByText("Más opciones", {exact:true}).click();
+    assert.equal(await page.getByRole("textbox", {name:"Importe total (€)"}).isVisible(), true);
     await page.getByRole("textbox", { name: "Título del pedido" }).waitFor();
     await page.goto(`${url}/?mode=full`);
     const fullTitle = page.getByRole("textbox", { name: "Título del pedido" });
@@ -228,7 +234,7 @@ try {
     layout = {
       ...layout, client: "primary", store: "primary", due_at: "primary",
       assigned_team_member: "primary", priority: "primary",
-      description: "primary", service: "primary",
+      description: "primary", service: "primary", total_amount:"primary", advance_amount:"primary",
     };
     await page.goto(url);
     const identification = page.getByTestId("quick-primary-identification");
@@ -248,6 +254,55 @@ try {
     assert.ok(firstRow && secondRow && descriptionRow && firstRow.y < secondRow.y && secondRow.y < descriptionRow.y);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(out, `croquis-${width}.png`), fullPage: true });
+
+    // Both forms expose total, advance and an instantly calculated pending amount.
+    const totalInput = page.getByRole("textbox", { name: "Importe total (€)" });
+    const advanceInput = page.getByRole("textbox", { name: "Entregado a cuenta (€)" });
+    await totalInput.fill("85,00");
+    await advanceInput.fill("100");
+    assert.equal(await page.getByText("La entrega a cuenta no puede superar el total del pedido.").count(), 1);
+    const createCountBeforeInvalid = events.filter(event => event === "create").length;
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    assert.equal(events.filter(event => event === "create").length, createCountBeforeInvalid);
+    await advanceInput.fill("30");
+    await page.getByLabel("Método de pago", { exact: true }).selectOption("cash");
+    assert.equal(await page.getByTestId("initial-finance-pending").textContent(), "55,00 €");
+
+    // Simulate uncertain payment acknowledgement. Retrying must use the same key
+    // and MUST NOT create another order or lower the total.
+    collection = { total_amount: null, paid_amount: "0.00", pending_amount: null,
+      collection_state: "undefined", row_version: "1", payments: [] };
+    rejectPayment = true;
+    const paymentCallsBefore = moneyRequests.length;
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.getByRole("button", { name: "Reintentar guardar importes" }).waitFor();
+    assert.equal(events.filter(event => event === "create").length, createCountBeforeInvalid + 1);
+    assert.equal(await page.getByRole("button", { name: "Crear otro" }).isEnabled(), false);
+    await page.getByRole("button", { name: "Reintentar guardar importes" }).click();
+    await page.getByRole("button", { name: "Modificar total" }).waitFor();
+    const initialPayments = moneyRequests.slice(paymentCallsBefore);
+    assert.equal(initialPayments.length, 2);
+    assert.equal(initialPayments[0].idempotency_key, initialPayments[1].idempotency_key);
+    assert.equal(initialPayments[0].amount, "30.00");
+    assert.equal(initialPayments[0].payment_method, "cash");
+    await page.getByText("55,00 €", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => Object.keys(sessionStorage).some(key => key.startsWith("gestcopy.payment-pending.v2:"))), false);
+
+    // Full mode uses the SAME finance inputs and persists before navigating.
+    collection = { total_amount: null, paid_amount: "0.00", pending_amount: null,
+      collection_state: "undefined", row_version: "1", payments: [] };
+    rejectPayment = false;
+    await page.goto(`${url}/?mode=full`);
+    const fullTotal = page.getByRole("textbox", { name: "Importe total (€)" });
+    await fullTotal.waitFor();
+    await fullTotal.fill("85");
+    await page.getByRole("textbox", { name: "Entregado a cuenta (€)" }).fill("30");
+    await page.getByLabel("Método de pago", { exact: true }).selectOption("card");
+    assert.equal(await page.getByTestId("initial-finance-pending").textContent(), "55,00 €");
+    await page.getByRole("button", { name: "Crear pedido", exact: true }).click();
+    await page.waitForFunction(() => window.lastNavigation === "/orders/saved-order?created=1");
+    assert.equal(collection.total_amount, "85.00");
+    assert.equal(collection.paid_amount, "30.00");
     assert.deepEqual(errors, []);
     results.push({ width, passed: true, checks: "croquis columns desktop/mobile, primary tenant settings, title before client, custom title, empty fallback, inline client, save-before-upload, double submit, COMPLETE retry, canonical 85/30/55 collection, idempotent retry, no second order, collection dialog blocks reset, ficha link, reset, Settings, full form notes, overflow" });
     await page.close();

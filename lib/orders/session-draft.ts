@@ -25,6 +25,9 @@ export type OrderSessionDraft = {
   storeId: string;
   notes: string;
   fileStatusId: string;
+  totalAmount?: string;
+  advanceAmount?: string;
+  advanceMethod?: string;
 };
 
 const PRIORITIES = new Set(["normal", "high", "urgent"]);
@@ -65,6 +68,9 @@ export function writeOrderDraft(storage: DraftStorage, draft: OrderSessionDraft)
     storeId: clip(draft.storeId),
     notes: clip(draft.notes),
     fileStatusId: clip(draft.fileStatusId),
+    totalAmount: clip(draft.totalAmount),
+    advanceAmount: clip(draft.advanceAmount),
+    advanceMethod: clip(draft.advanceMethod),
   };
 
   try {
@@ -142,6 +148,9 @@ export function readOrderDraft(
     storeId: clip(record.storeId),
     notes: clip(record.notes),
     fileStatusId: clip(record.fileStatusId),
+    totalAmount: clip(record.totalAmount),
+    advanceAmount: clip(record.advanceAmount),
+    advanceMethod: clip(record.advanceMethod),
   };
 }
 

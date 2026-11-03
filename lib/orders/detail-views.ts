@@ -37,41 +37,49 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
     letter: "A",
     name: "Operativa",
     summary:
-      "Compacta y con todo a mano: cabecera reducida, trabajo y archivos en el centro, cobro y resumen siempre visibles al lado.",
+      "Cabecera compacta: resumen, trabajo y archivos agrupados; cobro y entrega al lado, secuencia y notas debajo.",
   },
   tabs: {
     code: "tabs",
     letter: "B",
     name: "Pestañas",
     summary:
-      "Cabecera fija con lo importante y una sección cada vez: Resumen, Trabajo, Archivos, Cobros y Actividad.",
+      "Cuatro secciones sin fragmentar la ficha: Trabajo (resumen y archivos), Cobro y entrega, Post-its y Secuencia de trabajo.",
   },
   production: {
     code: "production",
     letter: "C",
     name: "Producción",
     summary:
-      "Pensada para el taller: estado, responsable, entrega, secuencia y post-its primero; la parte administrativa, plegada.",
+      "Prioriza secuencia y producción; agrupa resumen, trabajo y archivos y deja cobro y entrega plegado.",
   },
   hybrid: {
     code: "hybrid",
     letter: "D",
     name: "Híbrida",
     summary:
-      "La operativa con la secuencia y los post-its destacados arriba: gestión y producción en equilibrio.",
+      "Tablero, secuencia y post-its destacados; resumen, trabajo y archivos juntos, con cobro y entrega separado.",
   },
 };
 
-// Views that are fully built. Only these can be previewed or applied; any
-// other stored value resolves to the classic page. The settings selector only
-// offers a view listed here.
+// Views a tenant can preview, apply and use (03/11/2026: only B and C).
+// The classic page is not offered but stays as the technical fallback: any
+// other stored value, including a retired view, resolves to it. Retired
+// layouts keep their code and are never deleted from stored preferences.
 export const IMPLEMENTED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
-  "classic",
-  "operational",
   "tabs",
   "production",
+];
+
+/** Views withdrawn from the selector; a tenant that still has one stored is told so in Settings. */
+export const RETIRED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
+  "operational",
   "hybrid",
 ];
+
+export function isRetiredOrderDetailView(value: unknown): value is OrderDetailViewCode {
+  return isOrderDetailViewCode(value) && RETIRED_ORDER_DETAIL_VIEWS.includes(value);
+}
 
 export function isOrderDetailViewCode(value: unknown): value is OrderDetailViewCode {
   return (

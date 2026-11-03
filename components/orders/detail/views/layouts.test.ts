@@ -141,22 +141,78 @@ describe("Order Detail Views — layouts never load data", () => {
 });
 
 describe("Order Detail Views — per-view behaviour", () => {
-  it("B keeps every tab panel mounted and shows only «Resumen» first", async () => {
+  it("B groups every module into four mounted sections and opens Trabajo first", async () => {
     const { TabsOrderLayout } = await import("@/components/orders/detail/views/tabs-layout");
     const html = renderToStaticMarkup(
       createElement(TabsOrderLayout, { modules: markers(), facts: FACTS })
     );
     const panels = html.match(/<div[^>]*role="tabpanel"[^>]*>/g) ?? [];
-    assert.equal(panels.length, 5);
+    assert.equal(panels.length, 4);
     assert.equal(panels.filter((tag) => !/\bhidden=""/.test(tag)).length, 1);
     // The display class must agree: Tailwind's `flex` would beat [hidden].
     const hasClass = (tag: string, name: string) =>
       (tag.match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/).includes(name);
     assert.equal(panels.filter((tag) => hasClass(tag, "flex")).length, 1);
-    assert.equal(panels.filter((tag) => hasClass(tag, "hidden")).length, 4);
-    assert.match(html, /aria-selected="true"[^>]*>Resumen/);
-    // The amounts module (Cobros) is mounted even while hidden.
-    assert.equal(count(html, "fulfillment"), 1);
+    assert.equal(panels.filter((tag) => hasClass(tag, "hidden")).length, 3);
+    assert.match(html, /aria-selected="true"[^>]*>Trabajo/);
+    for (const label of ["Trabajo", "Cobro y entrega", "Post-its", "Secuencia de trabajo"]) {
+      assert.ok(html.includes(`>${label}</button>`), `tab ${label} exists`);
+    }
+    // Every section keeps its data mounted, even while hidden: uploads,
+    // financial drafts, notes and the timeline survive switching tabs.
+    for (const key of [
+      "summary", "production", "files", "fulfillment", "pinnedNotes",
+      "stickyNotes", "legacyNotes", "sequence", "tracking", "activity",
+    ]) assert.equal(count(html, key), 1, `${key} is rendered once`);
+    const moduleOrder = [
+      "sourceQuote", "summary", "production", "files", "fulfillment",
+      "pinnedNotes", "stickyNotes", "legacyNotes", "sequence", "tracking", "activity",
+    ];
+    for (let i = 1; i < moduleOrder.length; i++) {
+      assert.ok(
+        html.indexOf(`data-module="${moduleOrder[i - 1]}"`) <
+        html.indexOf(`data-module="${moduleOrder[i]}"`),
+        `${moduleOrder[i]} follows ${moduleOrder[i - 1]}`
+      );
+    }
+    // The post-it composer navigation happens on a live prop change, not
+    // during server rendering; only panel grouping is asserted here.
+  });
+
+  it("B shows its four tabs as a 2×2 grid on narrow screens and one row from md, never by scrolling", () => {
+    const { Layout } = orderDetailLayout("tabs");
+    const html = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+    const tablist = html.match(/<div[^>]*role="tablist"[^>]*>/)?.[0] ?? "";
+    assert.match(tablist, /\bgrid\b/);
+    assert.match(tablist, /\bgrid-cols-2\b/);
+    assert.match(tablist, /\bmd:flex\b/);
+    assert.doesNotMatch(tablist, /overflow-x-auto/);
+    assert.equal(html.split('role="tab"').length - 1, 4);
+  });
+
+  it("A, C and D keep resumen, trabajo y archivos in one work group", () => {
+    for (const code of ["operational", "production", "hybrid"] as const) {
+      const { Layout } = orderDetailLayout(code);
+      const html = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+      assert.equal(
+        html.split('data-order-work-group=""').length - 1, 1,
+        `${code}: single work group`
+      );
+      const groupIndex = html.indexOf('data-order-work-group=""');
+      const markersInOrder = ["sourceQuote", "summary", "production", "files"];
+      let previous = groupIndex;
+      for (const key of markersInOrder) {
+        const index = html.indexOf(`data-module="${key}"`);
+        assert.ok(index > previous, `${code}: ${key} belongs to the grouped work area`);
+        previous = index;
+      }
+      assert.equal(count(html, "fulfillment"), 1, `${code}: finances stay available`);
+      assert.equal(count(html, "tracking"), 1, `${code}: visual tracking preserved`);
+      assert.equal(count(html, "stickyNotes"), 1, `${code}: sticky notes preserved`);
+    }
+    const { Layout } = orderDetailLayout("classic");
+    const classic = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+    assert.doesNotMatch(classic, /data-order-work-group/, "classic stays unchanged");
   });
 
   it("C folds administration but keeps it mounted, and opens it while editing", async () => {
@@ -174,6 +230,18 @@ describe("Order Detail Views — per-view behaviour", () => {
       })
     );
     assert.match(editing, /<details[^>]*open=""[^>]*data-fold="Administración"/);
+  });
+
+  it("C folds «Gestión del pedido» like Administración: closed, mounted, open while editing", async () => {
+    const { ProductionOrderLayout } = await import("@/components/orders/detail/views/production-layout");
+    const closed = renderToStaticMarkup(createElement(ProductionOrderLayout, { modules: markers(), facts: FACTS }));
+    assert.match(closed, /<details[^>]*data-fold="Gestión del pedido"/);
+    assert.doesNotMatch(closed, /<details[^>]*open=""[^>]*data-fold="Gestión del pedido"/);
+    const fold = closed.slice(closed.indexOf('data-fold="Gestión del pedido"'), closed.indexOf('data-fold="Administración"'));
+    for (const key of ["summary", "production", "files"]) assert.equal(count(fold, key), 1, `${key} mounted inside the fold`);
+    assert.doesNotMatch(closed, /<h2[^>]*>Gestión del pedido<\/h2>/, "no duplicate heading");
+    const editing = renderToStaticMarkup(createElement(ProductionOrderLayout, { modules: markers(), facts: { ...FACTS, editing: true } }));
+    assert.match(editing, /<details[^>]*open=""[^>]*data-fold="Gestión del pedido"/);
   });
 
   it("C and D lead with the production board even without sequence and post-its", () => {

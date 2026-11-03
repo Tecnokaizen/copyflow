@@ -16,8 +16,10 @@ Puedes crear el cliente en el mismo flujo si aún no existe. El estado inicial l
 4. Indica entrega prevista y prioridad (Normal, Alta o Urgente).
 5. Si hay varias tiendas, elige la sede.
 6. Opcional: responsable, notas, archivos u otros campos visibles.
-7. Opcional: en **Importe y entrega a cuenta**, indica el total y lo que deja el cliente a cuenta. El pendiente se calcula solo.
+7. Opcional: indica **Importe total (€)** y **Entregado a cuenta (€)**. Si hay anticipo, elige su **Método de pago** y define el total. Se admite coma o punto y hasta dos decimales. El pendiente se calcula solo; en Pedido rápido estos campos pueden estar en Principal, Más opciones u ocultos según la configuración.
 8. Guarda el pedido.
+
+Puedes dejar los dos importes vacíos y completarlos después desde la ficha. Dejar la entrega vacía o a cero no registra ningún pago. Si el pedido se crea pero falla la confirmación de los importes, pulsa **Reintentar guardar importes** sobre ese mismo pedido.
 
 ## Destacar información importante
 

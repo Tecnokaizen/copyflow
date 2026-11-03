@@ -25,7 +25,13 @@ describe("parseOrderDetailViewPatch", () => {
       view: "tabs",
       revision: "r1",
     });
-    assert.equal(parseOrderDetailViewPatch({ view: "classic", revision: "r1" }).ok, true);
+    assert.equal(parseOrderDetailViewPatch({ view: "production", revision: "r1" }).ok, true);
+  });
+
+  it("refuses to apply retired views and the classic fallback", () => {
+    for (const view of ["operational", "hybrid", "classic"]) {
+      assert.equal(parseOrderDetailViewPatch({ view, revision: "r1" }).ok, false, view);
+    }
   });
 
   it("rejects unknown views, missing revision and extra keys", () => {
@@ -112,7 +118,28 @@ describe("orderDetailViewState", () => {
     const state = orderDetailViewState({}, "2026-10-30T11:00:00.000Z");
     assert.equal(state.view, "classic");
     assert.equal(state.previousView, null);
+    assert.equal(state.retiredView, null);
     assert.equal(state.revision, "2026-10-30T11:00:00.000Z");
+  });
+
+  it("reports a retired stored view without rewriting it", () => {
+    for (const view of ["operational", "hybrid"]) {
+      const preferences = { ...OTHER, order_detail_view_v1: { version: 1, view, previous_view: "classic" } };
+      const before = JSON.stringify(preferences);
+      const state = orderDetailViewState(preferences, null);
+      assert.equal(state.view, "classic", view);
+      assert.equal(state.retiredView, view);
+      assert.equal(state.previousView, null, "classic is not offered as a way back");
+      assert.equal(JSON.stringify(preferences), before, "preferences untouched");
+    }
+  });
+
+  it("no retired notice for B or C", () => {
+    for (const view of ["tabs", "production"]) {
+      const state = orderDetailViewState({ order_detail_view_v1: { version: 1, view } }, null);
+      assert.equal(state.view, view);
+      assert.equal(state.retiredView, null);
+    }
   });
 });
 

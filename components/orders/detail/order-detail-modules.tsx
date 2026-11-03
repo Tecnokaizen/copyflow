@@ -14,6 +14,7 @@ import { OrderNotes } from "@/components/orders/detail/order-notes";
 import { OrderProduction } from "@/components/orders/detail/order-production";
 import { OrderSourceQuote } from "@/components/orders/detail/order-source-quote";
 import { OrderSummary } from "@/components/orders/detail/order-summary";
+import { OrderTracking } from "@/components/orders/detail/order-tracking";
 import type { OrderWorkspaceController } from "@/components/orders/detail/use-order-workspace";
 import type {
   OrderDetailFacts,
@@ -218,7 +219,15 @@ export function buildOrderDetailModules(
     ) : null,
 
     // Visual tracking (PR #153) plugs in here once it is integrated.
-    tracking: null,
+    tracking: (
+      <OrderTracking
+        order={order}
+        statuses={statuses}
+        activity={ctl.activityOrderId === order.id ? activity : []}
+        loading={ctl.statusesLoading || (activityLoading && !ctl.activityError)}
+        unavailable={ctl.statusesError || ctl.activityError || (!activityLoading && ctl.activityOrderId !== order.id)}
+      />
+    ),
 
     sourceQuote: sourceQuote ? <OrderSourceQuote quote={sourceQuote} /> : null,
 

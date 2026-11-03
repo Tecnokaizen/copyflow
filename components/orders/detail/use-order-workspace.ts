@@ -125,6 +125,10 @@ export function useOrderWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [statusesLoading, setStatusesLoading] = useState(true);
+  const [statusesError, setStatusesError] = useState(false);
+  const [activityError, setActivityError] = useState(false);
+  const [activityOrderId, setActivityOrderId] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
@@ -198,6 +202,8 @@ export function useOrderWorkspace() {
         });
 
         if (!response.ok) {
+          if (signal.aborted) return;
+          setActivityError(true);
           if (!silent) {
             setActivity([]);
             setActivityLoading(false);
@@ -206,12 +212,16 @@ export function useOrderWorkspace() {
         }
 
         const result: ActivityResponse = await response.json();
+        if (signal.aborted) return;
         setActivity(result.activity ?? []);
+        setActivityOrderId(params.id);
+        setActivityError(false);
         setActivityLoading(false);
       } catch (err) {
-        if (isAbortError(err)) {
+        if (isAbortError(err) || signal.aborted) {
           return;
         }
+        setActivityError(true);
         if (!silent) {
           setActivity([]);
           setActivityLoading(false);
@@ -329,10 +339,14 @@ export function useOrderWorkspace() {
         }
 
         setStatuses(result.statuses ?? []);
+        setStatusesError(false);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Error al cargar los estados"
         );
+        setStatusesError(true);
+      } finally {
+        setStatusesLoading(false);
       }
     }
 
@@ -402,36 +416,13 @@ export function useOrderWorkspace() {
 
   useEffect(() => {
     async function loadOrderActivity() {
-      const { controller, signal } = nextLoadSignal(activityAbortRef.current);
-      activityAbortRef.current = controller;
-
-      try {
-        const response = await fetchLive(`/api/orders/${params.id}/activity`, {
-          signal,
-        });
-
-        if (!response.ok) {
-          setActivity([]);
-          return;
-        }
-
-        const result: ActivityResponse = await response.json();
-        setActivity(result.activity ?? []);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        setActivity([]);
-      } finally {
-        setActivityLoading(false);
-      }
+      await loadActivity();
     }
-
     void loadOrderActivity();
     return () => {
       activityAbortRef.current?.abort();
     };
-  }, [params.id, activityTick]);
+  }, [loadActivity, activityTick]);
 
   function patchDraft(patch: Partial<OrderDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -1224,6 +1215,10 @@ export function useOrderWorkspace() {
     statuses,
     activity,
     activityLoading,
+    activityOrderId,
+    activityError,
+    statusesLoading,
+    statusesError,
     setActivityTick,
     managementOptions,
     managementOptionsLoading,

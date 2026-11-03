@@ -1,56 +1,39 @@
 import type { OrderDetailLayoutProps } from "@/components/orders/detail/views/contract";
-import { Block, ProductionBoard } from "@/components/orders/detail/views/parts";
+import { Block, ProductionBoard, WorkGroup } from "@/components/orders/detail/views/parts";
 
-// View D · Híbrida (A + C). The compact operational page with production up
-// front: the production board, then the work sequence and the post-its side
-// by side, then Trabajo and Archivos with payments and summary beside them.
-//
-// Without sequence and post-its (features off) the board alone leads.
-// Mobile order: header (acciones, importes), tablero, fijados, secuencia, post-its, Trabajo, Cobro y entrega,
-// Resumen, Archivos, seguimiento, notas, actividad.
+// View D · Híbrida: compact header and production board first, with the
+// sequence/tracking and notes side by side on desktop. Resumen + Trabajo +
+// Archivos now form one continuous work area; payments remain in the sidebar.
+// Mobile order: board, sequence/notes, grouped work and payment.
 export function HybridOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
-  const highlights = [modules.sequence, modules.stickyNotes].filter(Boolean).length;
-
   return (
     <>
       {modules.notices}
       {modules.headerCompact}
-      {/* Balance on the first screen: amounts and actions (header), then the
-          board; pinned post-its right after it. */}
-      <ProductionBoard facts={facts} className="mb-4" />
-      <Block className="mb-5">{modules.pinnedNotes}</Block>
+      <ProductionBoard facts={facts} className="mb-5" />
 
-      {highlights > 0 ? (
-        <div
-          className={
-            highlights === 2
-              ? "mb-6 grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:items-start"
-              : "mb-6 grid gap-5"
-          }
-        >
+      <div className="mb-6 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:items-start">
+        <section aria-label="Secuencia y seguimiento" className="flex min-w-0 flex-col gap-4">
           <Block>{modules.sequence}</Block>
+          <Block>{modules.tracking}</Block>
+          <Block>{modules.activity}</Block>
+        </section>
+        <section aria-label="Post-its y notas" className="flex min-w-0 flex-col gap-4">
+          <Block>{modules.pinnedNotes}</Block>
           <Block>{modules.stickyNotes}</Block>
-        </div>
-      ) : null}
+          <Block>{modules.legacyNotes}</Block>
+        </section>
+      </div>
 
-      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] lg:items-start lg:gap-6">
-        <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
-          <Block className="order-1">{modules.production}</Block>
-          <Block className="order-4">{modules.files}</Block>
-          {/* Seguimiento (#153) below the work; the board leads the page. */}
-          <Block className="order-5">{modules.tracking}</Block>
-          <Block className="order-5">{modules.legacyNotes}</Block>
-          {/* Activity folds itself («Actividad · N»). */}
-          <Block className="order-6">{modules.activity}</Block>
-        </div>
-
-        <aside
-          aria-label="Cobro y resumen"
-          className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5"
-        >
-          <Block className="order-2">{modules.sourceQuote}</Block>
-          <Block className="order-2">{modules.fulfillment}</Block>
-          <Block className="order-3">{modules.summary}</Block>
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,21rem)] lg:items-start lg:gap-6">
+        <WorkGroup
+          sourceQuote={modules.sourceQuote}
+          summary={modules.summary}
+          production={modules.production}
+          files={modules.files}
+        />
+        <aside aria-label="Cobro y entrega" className="min-w-0">
+          <Block>{modules.fulfillment}</Block>
         </aside>
       </div>
     </>

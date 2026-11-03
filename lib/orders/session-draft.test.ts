@@ -48,6 +48,9 @@ function draft(overrides: Partial<OrderSessionDraft> = {}): OrderSessionDraft {
     storeId: "store-1",
     notes: "Recoger en tienda",
     fileStatusId: "",
+    totalAmount: "85,00",
+    advanceAmount: "30",
+    advanceMethod: "cash",
     ...overrides,
   };
 }
@@ -65,6 +68,9 @@ describe("order session draft", () => {
     assert.equal(restored?.clientName, "AMPA Rosa Montero");
     assert.equal(restored?.priority, "high");
     assert.equal(restored?.notes, "Recoger en tienda");
+    assert.equal(restored?.totalAmount, "85,00");
+    assert.equal(restored?.advanceAmount, "30");
+    assert.equal(restored?.advanceMethod, "cash");
   });
 
   it("drops the draft for another user of the same team", () => {

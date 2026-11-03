@@ -20,10 +20,10 @@ import {
 import { cn } from "@/lib/utils";
 
 // Order Detail Views V1 — «Configuración › Personalización › Vista de pedidos».
-// Owner/admin only (page and API). Only implemented views are offered.
+// Owner/admin only (page and API). Only B and C are offered; the classic page
+// is the fallback while neither is applied.
 
-const ORDER: OrderDetailViewCode[] = ["classic", "operational", "tabs", "production", "hybrid"];
-const SELECTABLE = ORDER.filter((code) => IMPLEMENTED_ORDER_DETAIL_VIEWS.includes(code));
+const SELECTABLE = IMPLEMENTED_ORDER_DETAIL_VIEWS;
 
 function viewTitle(code: OrderDetailViewCode) {
   const info = ORDER_DETAIL_VIEWS[code];
@@ -134,6 +134,18 @@ export function OrderDetailViewSettings({ sampleOrderId }: { sampleOrderId: stri
         ) : null}
       </div>
 
+      {state.retiredView ? (
+        <div
+          role="status"
+          data-retired-view={state.retiredView}
+          className="rounded-[var(--radius)] border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground"
+        >
+          Tu equipo tenía elegida «{viewTitle(state.retiredView)}», que ya no está disponible.
+          Mientras no elijas otra, los pedidos se muestran con la «{viewTitle(state.view)}».
+          Elige «B · Pestañas» o «C · Producción» cuando quieras.
+        </div>
+      ) : null}
+
       {error ? (
         <div role="alert" className="rounded-[var(--radius)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
@@ -171,10 +183,19 @@ export function OrderDetailViewSettings({ sampleOrderId }: { sampleOrderId: stri
                 </div>
                 {applied ? <StatusBadge tone="brand">Aplicada</StatusBadge> : null}
               </div>
-              <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)] items-start gap-3">
-                <Capture code={code} kind="desktop" />
-                <Capture code={code} kind="mobile" />
-              </div>
+              {code === "tabs" ? (
+                <div className="rounded-[var(--radius)] border border-border/70 bg-secondary/30 px-4 py-4 text-sm text-muted-foreground">
+                  La vista Pestañas ahora agrupa la ficha en cuatro secciones:
+                  Trabajo, Cobro y entrega, Post-its y Secuencia de trabajo.
+                  Abre «Vista previa» para comprobar el diseño actualizado
+                  antes de aplicarlo. Las capturas anteriores ya no son válidas.
+                </div>
+              ) : (
+                <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)] items-start gap-3">
+                  <Capture code={code} kind="desktop" />
+                  <Capture code={code} kind="mobile" />
+                </div>
+              )}
               <div className="mt-auto flex flex-wrap gap-2">
                 {sampleOrderId ? (
                   <Link
