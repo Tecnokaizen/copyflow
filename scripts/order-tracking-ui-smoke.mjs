@@ -107,7 +107,8 @@ async function setup(width, theme, mode, view = "classic") {
   // View B mounts the tracker in the sequence panel but keeps it hidden until
   // the user opens that section. Do not mistake a hidden mounted panel for a missing module.
   if (view === "tabs") await page.getByRole("tab", { name: "Secuencia de trabajo", exact: true }).click();
-  const timeline = page.locator("section").filter({ has: page.getByRole("heading", { name: "Seguimiento del pedido", exact: true }) });
+  // Match the tracking card, not its enclosing "Secuencia y seguimiento" section (A/C/D).
+  const timeline = page.locator("section.gc-card").filter({ has: page.getByRole("heading", { name: "Seguimiento del pedido", exact: true }) });
   await timeline.locator(`ol[data-tracking-status="${["error", "catalogue-error"].includes(mode) ? "unavailable" : "ready"}"]`).waitFor();
   return { page, timeline, errors, writes, recover: () => { failed = false; history = [audit("received", "production")]; } };
 }
