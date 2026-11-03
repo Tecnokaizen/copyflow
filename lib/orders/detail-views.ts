@@ -37,7 +37,7 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
     letter: "A",
     name: "Operativa",
     summary:
-      "Compacta y con todo a mano: cabecera reducida, trabajo y archivos en el centro, cobro y resumen siempre visibles al lado.",
+      "Cabecera compacta: resumen, trabajo y archivos agrupados; cobro y entrega al lado, secuencia y notas debajo.",
   },
   tabs: {
     code: "tabs",
@@ -51,14 +51,14 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
     letter: "C",
     name: "Producción",
     summary:
-      "Pensada para el taller: estado, responsable, entrega, secuencia y post-its primero; la parte administrativa, plegada.",
+      "Prioriza secuencia y producción; agrupa resumen, trabajo y archivos y deja cobro y entrega plegado.",
   },
   hybrid: {
     code: "hybrid",
     letter: "D",
     name: "Híbrida",
     summary:
-      "La operativa con la secuencia y los post-its destacados arriba: gestión y producción en equilibrio.",
+      "Tablero, secuencia y post-its destacados; resumen, trabajo y archivos juntos, con cobro y entrega separado.",
   },
 };
 
