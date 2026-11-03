@@ -119,3 +119,13 @@ con todas las migraciones del repositorio, nunca sobre Supabase remoto.
   `phase45_commercial_operations`, `phase46_order_total_validation` y
   `phase46_payment_receipts`, junto al aislamiento y roles de `pedido_v2`.
   Release gate mantiene todas sus pruebas de BD/RLS y concurrencia.
+
+### Primer pase remoto y ajuste del entorno de CI
+
+Head `0de3cc1`: Release Gate completo PASS (App con build Turbopack, Database/RLS,
+Backup recovery): https://github.com/Tecnokaizen/copyflow/actions/runs/41636735179
+Pedido V2 compiló y pasó los tests, pero falló antes de ejecutar navegador:
+`ubuntu-latest` resolvió a Ubuntu 26.04 y Playwright 1.58.2 no lo soporta.
+Se fija solo ese job a `ubuntu-24.04`, soportado por la versión bloqueada, sin
+cambiar Playwright ni dependencias del producto. Se exige de nuevo la CI completa.
+Build local Webpack: PASS, incluidas TypeScript y generación de las 165 páginas.
