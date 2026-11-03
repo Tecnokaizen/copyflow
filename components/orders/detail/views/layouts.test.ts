@@ -179,6 +179,31 @@ describe("Order Detail Views — per-view behaviour", () => {
     // during server rendering; only panel grouping is asserted here.
   });
 
+  it("A, C and D keep resumen, trabajo y archivos in one work group", () => {
+    for (const code of ["operational", "production", "hybrid"] as const) {
+      const { Layout } = orderDetailLayout(code);
+      const html = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+      assert.equal(
+        html.split('data-order-work-group=""').length - 1, 1,
+        `${code}: single work group`
+      );
+      const groupIndex = html.indexOf('data-order-work-group=""');
+      const markersInOrder = ["sourceQuote", "summary", "production", "files"];
+      let previous = groupIndex;
+      for (const key of markersInOrder) {
+        const index = html.indexOf(`data-module="${key}"`);
+        assert.ok(index > previous, `${code}: ${key} belongs to the grouped work area`);
+        previous = index;
+      }
+      assert.equal(count(html, "fulfillment"), 1, `${code}: finances stay available`);
+      assert.equal(count(html, "tracking"), 1, `${code}: visual tracking preserved`);
+      assert.equal(count(html, "stickyNotes"), 1, `${code}: sticky notes preserved`);
+    }
+    const { Layout } = orderDetailLayout("classic");
+    const classic = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+    assert.doesNotMatch(classic, /data-order-work-group/, "classic stays unchanged");
+  });
+
   it("C folds administration but keeps it mounted, and opens it while editing", async () => {
     const { ProductionOrderLayout } = await import("@/components/orders/detail/views/production-layout");
     const closed = renderToStaticMarkup(
