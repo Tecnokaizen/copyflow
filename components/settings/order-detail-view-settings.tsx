@@ -20,10 +20,10 @@ import {
 import { cn } from "@/lib/utils";
 
 // Order Detail Views V1 — «Configuración › Personalización › Vista de pedidos».
-// Owner/admin only (page and API). Only implemented views are offered.
+// Owner/admin only (page and API). Only B and C are offered; the classic page
+// is the fallback while neither is applied.
 
-const ORDER: OrderDetailViewCode[] = ["classic", "operational", "tabs", "production", "hybrid"];
-const SELECTABLE = ORDER.filter((code) => IMPLEMENTED_ORDER_DETAIL_VIEWS.includes(code));
+const SELECTABLE = IMPLEMENTED_ORDER_DETAIL_VIEWS;
 
 function viewTitle(code: OrderDetailViewCode) {
   const info = ORDER_DETAIL_VIEWS[code];
@@ -133,6 +133,18 @@ export function OrderDetailViewSettings({ sampleOrderId }: { sampleOrderId: stri
           </button>
         ) : null}
       </div>
+
+      {state.retiredView ? (
+        <div
+          role="status"
+          data-retired-view={state.retiredView}
+          className="rounded-[var(--radius)] border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground"
+        >
+          Tu equipo tenía elegida «{viewTitle(state.retiredView)}», que ya no está disponible.
+          Mientras no elijas otra, los pedidos se muestran con la «{viewTitle(state.view)}».
+          Elige «B · Pestañas» o «C · Producción» cuando quieras.
+        </div>
+      ) : null}
 
       {error ? (
         <div role="alert" className="rounded-[var(--radius)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

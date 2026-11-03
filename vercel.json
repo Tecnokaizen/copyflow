@@ -3,7 +3,8 @@
     "deploymentEnabled": {
       "feat/order-finance-tracking-20261103": false,
       "feat/order-detail-four-sections-20261103": false,
-      "feat/order-detail-work-group-abcd-20261103": false
+      "feat/order-detail-work-group-abcd-20261103": false,
+      "feat/order-detail-keep-bc-20261103": false
     }
   },
   "regions": [

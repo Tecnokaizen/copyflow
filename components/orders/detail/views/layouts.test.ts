@@ -179,6 +179,17 @@ describe("Order Detail Views — per-view behaviour", () => {
     // during server rendering; only panel grouping is asserted here.
   });
 
+  it("B shows its four tabs as a 2×2 grid on narrow screens and one row from md, never by scrolling", () => {
+    const { Layout } = orderDetailLayout("tabs");
+    const html = renderToStaticMarkup(createElement(Layout, { modules: markers(), facts: FACTS }));
+    const tablist = html.match(/<div[^>]*role="tablist"[^>]*>/)?.[0] ?? "";
+    assert.match(tablist, /\bgrid\b/);
+    assert.match(tablist, /\bgrid-cols-2\b/);
+    assert.match(tablist, /\bmd:flex\b/);
+    assert.doesNotMatch(tablist, /overflow-x-auto/);
+    assert.equal(html.split('role="tab"').length - 1, 4);
+  });
+
   it("A, C and D keep resumen, trabajo y archivos in one work group", () => {
     for (const code of ["operational", "production", "hybrid"] as const) {
       const { Layout } = orderDetailLayout(code);

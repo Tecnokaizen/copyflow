@@ -2,6 +2,7 @@ import {
   IMPLEMENTED_ORDER_DETAIL_VIEWS,
   ORDER_DETAIL_VIEW_PREFERENCE_KEY,
   isImplementedOrderDetailView,
+  isRetiredOrderDetailView,
   readStoredOrderDetailView,
   resolveOrderDetailView,
   type OrderDetailViewCode,
@@ -26,6 +27,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type OrderDetailViewState = {
   view: OrderDetailViewCode;
   previousView: OrderDetailViewCode | null;
+  /** Stored view that was withdrawn (A or D): shown as a notice, never rewritten. */
+  retiredView: OrderDetailViewCode | null;
   updatedAt: string | null;
   revision: string;
 };
@@ -43,6 +46,7 @@ export function orderDetailViewState(
   return {
     view: resolveOrderDetailView(preferences),
     previousView: previous,
+    retiredView: stored && isRetiredOrderDetailView(stored.view) ? stored.view : null,
     updatedAt: stored?.updated_at ?? null,
     revision: serializeSettingsRevision(updatedAt),
   };

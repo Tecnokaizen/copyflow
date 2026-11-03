@@ -62,16 +62,24 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
   },
 };
 
-// Views that are fully built. Only these can be previewed or applied; any
-// other stored value resolves to the classic page. The settings selector only
-// offers a view listed here.
+// Views a tenant can preview, apply and use (03/11/2026: only B and C).
+// The classic page is not offered but stays as the technical fallback: any
+// other stored value, including a retired view, resolves to it. Retired
+// layouts keep their code and are never deleted from stored preferences.
 export const IMPLEMENTED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
-  "classic",
-  "operational",
   "tabs",
   "production",
+];
+
+/** Views withdrawn from the selector; a tenant that still has one stored is told so in Settings. */
+export const RETIRED_ORDER_DETAIL_VIEWS: readonly OrderDetailViewCode[] = [
+  "operational",
   "hybrid",
 ];
+
+export function isRetiredOrderDetailView(value: unknown): value is OrderDetailViewCode {
+  return isOrderDetailViewCode(value) && RETIRED_ORDER_DETAIL_VIEWS.includes(value);
+}
 
 export function isOrderDetailViewCode(value: unknown): value is OrderDetailViewCode {
   return (

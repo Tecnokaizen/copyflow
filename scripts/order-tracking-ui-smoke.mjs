@@ -198,13 +198,22 @@ try {
     }
   }
   // The current tenant layout must receive the reused module exactly once.
-  for (const view of ["classic", "operational", "tabs", "production", "hybrid"]) {
+  // Only B and C are offered; classic is the fallback, and a retired stored
+  // view (A, D) renders as classic instead of its old layout.
+  for (const view of ["classic", "tabs", "production", "operational", "hybrid"]) {
     for (const width of [390, 1280]) {
       const h = await setup(width, "light", "viewer", view);
+      const rendered = ["operational", "hybrid"].includes(view) ? "classic" : view;
+      assert.equal(await h.page.locator(`[data-order-detail-view="${rendered}"]`).count(), 1, `${view} renders ${rendered}`);
       assert.equal(await h.page.getByRole("heading", {name:"Seguimiento del pedido", exact:true}).count(), 1);
       if (view === "tabs") {
         const tabs = h.page.getByRole("tab");
         assert.equal(await tabs.count(), 4, "four navigation tabs");
+        const tablist = h.page.getByRole("tablist", { name: "Secciones del pedido" });
+        assert.equal(await tablist.evaluate(el => el.scrollWidth <= el.clientWidth), true, `${width}: tabs need no horizontal scroll`);
+        const boxes = await tabs.evaluateAll(els => els.map(el => { const r = el.getBoundingClientRect(); return { top: Math.round(r.top), left: r.left, right: r.right }; }));
+        for (const box of boxes) assert.ok(box.left >= 0 && box.right <= width, `${width}: every tab fully visible`);
+        assert.equal(new Set(boxes.map(b => b.top)).size, width < 768 ? 2 : 1, `${width}: ${width < 768 ? "2×2 grid" : "single row"}`);
         assert.equal(await h.page.getByRole("tab", {name:"Secuencia de trabajo", exact:true}).getAttribute("aria-selected"), "true");
         await h.page.getByRole("tab", {name:"Trabajo", exact:true}).click();
         assert.equal(await h.timeline.isVisible(), false, "mounted tracker hidden while editing work");

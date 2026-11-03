@@ -85,7 +85,7 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
         role="tablist"
         aria-label="Secciones del pedido"
         onKeyDown={onKeyDown}
-        className="sticky top-0 z-10 -mx-4 mb-5 flex gap-1 overflow-x-auto border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:px-0"
+        className="sticky top-0 z-10 -mx-4 mb-5 grid grid-cols-2 gap-1.5 border-b border-border bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:px-0 md:flex md:gap-1 md:py-0"
       >
         {TABS.map((tab, index) => {
           const selected = tab.key === active;
@@ -103,10 +103,12 @@ export function TabsOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
               tabIndex={selected ? 0 : -1}
               onClick={() => setActive(tab.key)}
               className={cn(
-                "min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                // Narrow screens: 2×2 grid, all four visible without scrolling.
+                // From md: one row with the underline indicator.
+                "min-h-11 min-w-0 rounded-[calc(var(--radius)-4px)] border px-2 text-center text-sm font-semibold leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:shrink-0 md:whitespace-nowrap md:rounded-none md:border-0 md:border-b-2 md:px-4",
                 selected
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                  ? "border-primary bg-primary/10 text-foreground md:bg-transparent"
+                  : "border-border text-muted-foreground hover:text-foreground md:border-transparent"
               )}
             >
               {tab.label}
