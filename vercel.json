@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "feat/order-finance-tracking-20261103": false
+      "feat/order-finance-tracking-20261103": false,
+      "feat/order-detail-four-sections-20261103": false
     }
   },
   "regions": [
