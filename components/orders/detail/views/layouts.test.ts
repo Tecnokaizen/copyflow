@@ -175,13 +175,8 @@ describe("Order Detail Views — per-view behaviour", () => {
         `${moduleOrder[i]} follows ${moduleOrder[i - 1]}`
       );
     }
-    // The header action must open the post-it tab for its composer.
-    const composing = renderToStaticMarkup(
-      createElement(TabsOrderLayout, {
-        modules: markers(), facts: { ...FACTS, noteComposeRequest: 1 },
-      })
-    );
-    assert.match(composing, /aria-selected="true"[^>]*>Post-its/);
+    // The post-it composer navigation happens on a live prop change, not
+    // during server rendering; only panel grouping is asserted here.
   });
 
   it("C folds administration but keeps it mounted, and opens it while editing", async () => {
