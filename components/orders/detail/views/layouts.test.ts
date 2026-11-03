@@ -141,22 +141,47 @@ describe("Order Detail Views — layouts never load data", () => {
 });
 
 describe("Order Detail Views — per-view behaviour", () => {
-  it("B keeps every tab panel mounted and shows only «Resumen» first", async () => {
+  it("B groups every module into four mounted sections and opens Trabajo first", async () => {
     const { TabsOrderLayout } = await import("@/components/orders/detail/views/tabs-layout");
     const html = renderToStaticMarkup(
       createElement(TabsOrderLayout, { modules: markers(), facts: FACTS })
     );
     const panels = html.match(/<div[^>]*role="tabpanel"[^>]*>/g) ?? [];
-    assert.equal(panels.length, 5);
+    assert.equal(panels.length, 4);
     assert.equal(panels.filter((tag) => !/\bhidden=""/.test(tag)).length, 1);
     // The display class must agree: Tailwind's `flex` would beat [hidden].
     const hasClass = (tag: string, name: string) =>
       (tag.match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/).includes(name);
     assert.equal(panels.filter((tag) => hasClass(tag, "flex")).length, 1);
-    assert.equal(panels.filter((tag) => hasClass(tag, "hidden")).length, 4);
-    assert.match(html, /aria-selected="true"[^>]*>Resumen/);
-    // The amounts module (Cobros) is mounted even while hidden.
-    assert.equal(count(html, "fulfillment"), 1);
+    assert.equal(panels.filter((tag) => hasClass(tag, "hidden")).length, 3);
+    assert.match(html, /aria-selected="true"[^>]*>Trabajo/);
+    for (const label of ["Trabajo", "Cobro y entrega", "Post-its", "Secuencia de trabajo"]) {
+      assert.ok(html.includes(`>${label}</button>`), `tab ${label} exists`);
+    }
+    // Every section keeps its data mounted, even while hidden: uploads,
+    // financial drafts, notes and the timeline survive switching tabs.
+    for (const key of [
+      "summary", "production", "files", "fulfillment", "pinnedNotes",
+      "stickyNotes", "legacyNotes", "sequence", "tracking", "activity",
+    ]) assert.equal(count(html, key), 1, `${key} is rendered once`);
+    const moduleOrder = [
+      "sourceQuote", "summary", "production", "files", "fulfillment",
+      "pinnedNotes", "stickyNotes", "legacyNotes", "sequence", "tracking", "activity",
+    ];
+    for (let i = 1; i < moduleOrder.length; i++) {
+      assert.ok(
+        html.indexOf(`data-module="${moduleOrder[i - 1]}"`) <
+        html.indexOf(`data-module="${moduleOrder[i]}"`),
+        `${moduleOrder[i]} follows ${moduleOrder[i - 1]}`
+      );
+    }
+    // The header action must open the post-it tab for its composer.
+    const composing = renderToStaticMarkup(
+      createElement(TabsOrderLayout, {
+        modules: markers(), facts: { ...FACTS, noteComposeRequest: 1 },
+      })
+    );
+    assert.match(composing, /aria-selected="true"[^>]*>Post-its/);
   });
 
   it("C folds administration but keeps it mounted, and opens it while editing", async () => {
