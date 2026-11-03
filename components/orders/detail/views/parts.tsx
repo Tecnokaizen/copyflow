@@ -41,12 +41,41 @@ export function WorkGroup({
   summary,
   production,
   files,
+  fold,
 }: {
   sourceQuote: ReactNode;
   summary: ReactNode;
   production: ReactNode;
   files: ReactNode;
+  /** C · Producción: the whole group is a fold (closed by default, open while editing). */
+  fold?: { forceOpen: boolean; className?: string };
 }) {
+  const items = (
+    <div className="flex min-w-0 flex-col gap-3">
+      <Block>{sourceQuote}</Block>
+      <Block>{summary}</Block>
+      <Block>{production}</Block>
+      <Block>{files}</Block>
+    </div>
+  );
+  if (fold) {
+    return (
+      <Fold
+        title="Gestión del pedido"
+        hint="Resumen, trabajo y archivos"
+        forceOpen={fold.forceOpen}
+        className={fold.className}
+      >
+        <section
+          aria-label="Resumen, trabajo y archivos del pedido"
+          data-order-work-group=""
+          className="min-w-0"
+        >
+          {items}
+        </section>
+      </Fold>
+    );
+  }
   return (
     <section
       aria-label="Resumen, trabajo y archivos del pedido"
@@ -56,12 +85,7 @@ export function WorkGroup({
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Gestión del pedido
       </h2>
-      <div className="flex min-w-0 flex-col gap-3">
-        <Block>{sourceQuote}</Block>
-        <Block>{summary}</Block>
-        <Block>{production}</Block>
-        <Block>{files}</Block>
-      </div>
+      {items}
     </section>
   );
 }

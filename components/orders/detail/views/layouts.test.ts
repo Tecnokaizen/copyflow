@@ -232,6 +232,18 @@ describe("Order Detail Views — per-view behaviour", () => {
     assert.match(editing, /<details[^>]*open=""[^>]*data-fold="Administración"/);
   });
 
+  it("C folds «Gestión del pedido» like Administración: closed, mounted, open while editing", async () => {
+    const { ProductionOrderLayout } = await import("@/components/orders/detail/views/production-layout");
+    const closed = renderToStaticMarkup(createElement(ProductionOrderLayout, { modules: markers(), facts: FACTS }));
+    assert.match(closed, /<details[^>]*data-fold="Gestión del pedido"/);
+    assert.doesNotMatch(closed, /<details[^>]*open=""[^>]*data-fold="Gestión del pedido"/);
+    const fold = closed.slice(closed.indexOf('data-fold="Gestión del pedido"'), closed.indexOf('data-fold="Administración"'));
+    for (const key of ["summary", "production", "files"]) assert.equal(count(fold, key), 1, `${key} mounted inside the fold`);
+    assert.doesNotMatch(closed, /<h2[^>]*>Gestión del pedido<\/h2>/, "no duplicate heading");
+    const editing = renderToStaticMarkup(createElement(ProductionOrderLayout, { modules: markers(), facts: { ...FACTS, editing: true } }));
+    assert.match(editing, /<details[^>]*open=""[^>]*data-fold="Gestión del pedido"/);
+  });
+
   it("C and D lead with the production board even without sequence and post-its", () => {
     for (const code of ["production", "hybrid"] as const) {
       const { Layout } = orderDetailLayout(code);

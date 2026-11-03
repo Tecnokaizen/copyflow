@@ -6,8 +6,9 @@ import { WorkSequencePresentationProvider } from "@/components/orders/work-seque
 const PENDING_FIRST = { pendingFirstOnMobile: true };
 
 // View C · Producción: workshop-first. Sequence and production board stay
-// prominent. Resumen, Trabajo and Archivos are a single work area; post-its
-// and Cobro y entrega remain separate. All modules stay mounted in folds.
+// prominent. Resumen, Trabajo and Archivos are a single work area folded as
+// «Gestión del pedido»; post-its and Cobro y entrega remain separate folds.
+// All modules stay mounted in folds.
 export function ProductionOrderLayout({ modules, facts }: OrderDetailLayoutProps) {
   const hasNotes = Boolean(modules.pinnedNotes) || Boolean(modules.stickyNotes) || Boolean(modules.legacyNotes);
 
@@ -26,14 +27,13 @@ export function ProductionOrderLayout({ modules, facts }: OrderDetailLayoutProps
 
       <ProductionBoard facts={facts} className="mb-5 sm:py-5" />
 
-      <div className="mb-5 min-w-0">
-        <WorkGroup
-          sourceQuote={modules.sourceQuote}
-          summary={modules.summary}
-          production={modules.production}
-          files={modules.files}
-        />
-      </div>
+      <WorkGroup
+        sourceQuote={modules.sourceQuote}
+        summary={modules.summary}
+        production={modules.production}
+        files={modules.files}
+        fold={{ forceOpen: facts.editing, className: "mb-5" }}
+      />
 
       {hasNotes ? (
         <Fold
