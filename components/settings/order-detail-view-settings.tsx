@@ -171,10 +171,19 @@ export function OrderDetailViewSettings({ sampleOrderId }: { sampleOrderId: stri
                 </div>
                 {applied ? <StatusBadge tone="brand">Aplicada</StatusBadge> : null}
               </div>
-              <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)] items-start gap-3">
-                <Capture code={code} kind="desktop" />
-                <Capture code={code} kind="mobile" />
-              </div>
+              {code === "tabs" ? (
+                <div className="rounded-[var(--radius)] border border-border/70 bg-secondary/30 px-4 py-4 text-sm text-muted-foreground">
+                  La vista Pestañas ahora agrupa la ficha en cuatro secciones:
+                  Trabajo, Cobro y entrega, Post-its y Secuencia de trabajo.
+                  Abre «Vista previa» para comprobar el diseño actualizado
+                  antes de aplicarlo. Las capturas anteriores ya no son válidas.
+                </div>
+              ) : (
+                <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)] items-start gap-3">
+                  <Capture code={code} kind="desktop" />
+                  <Capture code={code} kind="mobile" />
+                </div>
+              )>
               <div className="mt-auto flex flex-wrap gap-2">
                 {sampleOrderId ? (
                   <Link
