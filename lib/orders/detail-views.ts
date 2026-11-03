@@ -44,7 +44,7 @@ export const ORDER_DETAIL_VIEWS: Record<OrderDetailViewCode, OrderDetailViewInfo
     letter: "B",
     name: "Pestañas",
     summary:
-      "Cabecera fija con lo importante y una sección cada vez: Resumen, Trabajo, Archivos, Cobros y Actividad.",
+      "Cuatro secciones sin fragmentar la ficha: Trabajo (resumen y archivos), Cobro y entrega, Post-its y Secuencia de trabajo.",
   },
   production: {
     code: "production",
