@@ -104,6 +104,9 @@ async function setup(width, theme, mode, view = "classic") {
   });
   await page.goto(url);
   await page.evaluate(theme => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
+  // View B mounts the tracker in the sequence panel but keeps it hidden until
+  // the user opens that section. Do not mistake a hidden mounted panel for a missing module.
+  if (view === "tabs") await page.getByRole("tab", { name: "Secuencia de trabajo" }).click();
   const timeline = page.locator("section").filter({ has: page.getByRole("heading", { name: "Seguimiento del pedido", exact: true }) });
   await timeline.locator(`ol[data-tracking-status="${["error", "catalogue-error"].includes(mode) ? "unavailable" : "ready"}"]`).waitFor();
   return { page, timeline, errors, writes, recover: () => { failed = false; history = [audit("received", "production")]; } };
@@ -198,6 +201,16 @@ try {
     for (const width of [390, 1280]) {
       const h = await setup(width, "light", "viewer", view);
       assert.equal(await h.page.getByRole("heading", {name:"Seguimiento del pedido", exact:true}).count(), 1);
+      if (view === "tabs") {
+        const tabs = h.page.getByRole("tab");
+        assert.equal(await tabs.count(), 4, "four navigation tabs");
+        assert.equal(await h.page.getByRole("tab", {name:"Secuencia de trabajo"}).getAttribute("aria-selected"), "true");
+        await h.page.getByRole("tab", {name:"Trabajo"}).click();
+        assert.equal(await h.timeline.isVisible(), false, "mounted tracker hidden while editing work");
+        await h.page.getByRole("tab", {name:"Secuencia de trabajo"}).click();
+        assert.equal(await h.timeline.isVisible(), true, "reselecting sequence restores tracker");
+        await h.page.screenshot({path: path.join(out, `four-section-tabs-${width}.png`), fullPage: true});
+      }
       assert.equal(await h.timeline.isVisible(), true);
       assert.equal(await h.timeline.locator('[aria-current="step"]').count(), 1);
       assert.equal(h.writes.length, 0);
