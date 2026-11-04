@@ -35,6 +35,11 @@ import { nextListFilterForStatusSelection } from "@/lib/orders/list-filter-statu
 import { isOrderOperational } from "@/lib/orders/operational";
 import { formatTenantDueLabel } from "@/lib/orders/review";
 import {
+  parseOrdersViewMode,
+  resolveOrdersView,
+  type OrdersViewMode,
+} from "@/lib/orders/default-view";
+import {
   workTurnArrowLabel,
   workTurnCompactLabel,
   workTurnTitle,
@@ -122,7 +127,7 @@ type OrderStatusOption = {
   sort_order: number;
 };
 
-type ViewMode = "list" | "calendar" | "service";
+type ViewMode = OrdersViewMode;
 type ListFilter =
   | "active"
   | "urgent"
@@ -151,11 +156,7 @@ const SORT_FIELDS: SortField[] = [
 ];
 
 function parseViewMode(raw: string | null): ViewMode | null {
-  if (raw === "list" || raw === "calendar" || raw === "service") {
-    return raw;
-  }
-
-  return null;
+  return parseOrdersViewMode(raw);
 }
 
 function parseListFilter(raw: string | null): ListFilter | null {
@@ -615,7 +616,8 @@ function OrdersPageContent() {
   const listFilter = resolveListFilter(rawListFilter, assignedMemberId);
   const primaryFilter = primaryFilterFrom(listFilter);
   const scopeToday = searchParams.get("scope") === "today";
-  const [view, setView] = useState<ViewMode>(urlView ?? "list");
+  // Calendario unless the URL names a view or carries list filters (default-view).
+  const [view, setView] = useState<ViewMode>(() => resolveOrdersView(searchParams));
   const [prevUrlView, setPrevUrlView] = useState(urlView);
   const [weekStartCivil, setWeekStartCivil] = useState<string | null>(null);
   const [calendarTimezone, setCalendarTimezone] = useState<string | null>(null);
@@ -803,9 +805,7 @@ function OrdersPageContent() {
 
   if (urlView !== prevUrlView) {
     setPrevUrlView(urlView);
-    if (urlView) {
-      setView(urlView);
-    }
+    setView(urlView ?? resolveOrdersView(searchParams));
   }
 
   if (listQueryKey !== prevListQuery) {
