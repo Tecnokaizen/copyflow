@@ -59,6 +59,20 @@ export type WorkSequenceDto = {
   stages: WorkStageDto[];
 };
 
+/**
+ * Addendum 02 · order status after POST …/done. automatic: the last step moved
+ * the order to the tenant's ready status. Not automatic: an undo left the order
+ * in its ready status (warning order_stays_ready).
+ */
+export type WorkStepOrderStatusDto = {
+  id: string;
+  code: string;
+  name: string;
+  automatic: boolean;
+};
+
+export type WorkStepDoneWarning = "order_stays_ready";
+
 /** One step of PUT /api/orders/[id]/work-steps. */
 export type WorkStepInput = {
   id?: string;

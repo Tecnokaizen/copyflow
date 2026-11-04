@@ -566,8 +566,18 @@ function headlineFor(event: ActivityEvent, entity: string) {
         "un pedido";
       return `Convirtió ${entity} en el pedido ${orderReference}`;
     }
-    case "order.status_changed":
+    case "order.status_changed": {
+      // Addendum 02: transition made by the backend when the last step of the
+      // work sequence was marked done (metadata.automatic).
+      const metadata = asRecord(event.metadata);
+      if (metadata.automatic === true) {
+        const stage = asString(metadata.stage_name);
+        return stage
+          ? `Cambio automático de estado de ${entity} al completar la última etapa (${stage})`
+          : `Cambio automático de estado de ${entity} al completar la secuencia de trabajo`;
+      }
       return `Cambió el estado de ${entity}`;
+    }
     case "order.archived":
       return `Archivó el pedido ${entity}`;
     case "order.client_changed": {

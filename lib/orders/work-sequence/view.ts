@@ -2,8 +2,10 @@ import {
   MAX_WORK_STEPS,
   type AssignableMember,
   type WorkStageDto,
+  type WorkStepDoneWarning,
   type WorkStepDto,
   type WorkStepInput,
+  type WorkStepOrderStatusDto,
   type WorkStepPersonDto,
   type WorkStepStageDto,
 } from "@/lib/orders/work-sequence/types";
@@ -258,4 +260,26 @@ export function rowPersonUnavailable(row: EditorRow, members: readonly Assignabl
   if (!row.team_member_id) return false;
   if (members) return !members.some((member) => member.id === row.team_member_id);
   return row.savedPerson?.id === row.team_member_id && personUnavailable(row.savedPerson);
+}
+
+/**
+ * Addendum 02 · the last step moved the order to the tenant's ready status
+ * (named by the tenant: «Listo», «Terminado»…). Null when nothing happened.
+ */
+export function autoFinishNotice(orderStatus: WorkStepOrderStatusDto | null): string | null {
+  if (!orderStatus?.automatic) return null;
+  return `Secuencia completada: el pedido ha pasado automáticamente a «${orderStatus.name}».`;
+}
+
+/**
+ * Addendum 02 · D-B: undoing a step never reverts the status. Tell the user the
+ * order is still in its ready status so they can change it by hand.
+ */
+export function stillReadyNotice(
+  warning: WorkStepDoneWarning | null,
+  orderStatus: WorkStepOrderStatusDto | null
+): string | null {
+  if (warning !== "order_stays_ready") return null;
+  const name = orderStatus?.name?.trim() || "Listo";
+  return `El pedido sigue en «${name}». Si vuelve a producción, cambia el estado a mano.`;
 }
