@@ -85,7 +85,8 @@ export function InvoiceLine({ invoice }: { invoice: PrintInvoice }) {
   return (
     <View style={s.invoiceLine} wrap={false}>
       <YesNo label="Requiere factura:" value={invoice.required} />
-      {invoice.required === true ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
+      {/* Sin indicar keeps both groups empty so they can be ticked by hand; only «No» drops them. */}
+      {invoice.required !== false ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
     </View>
   );
 }

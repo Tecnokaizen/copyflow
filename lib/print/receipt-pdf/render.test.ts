@@ -73,5 +73,16 @@ describe("customer receipt PDF (E4)", () => {
     assert.ok(text.includes("Requiere factura:"));
     assert.equal(text.includes("Entregada:"), false, "no delivery boxes when not required");
     assert.ok(text.includes("Sin archivos registrados"));
+
+    const unset = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: null, invoice_delivered: null } as CustomerReceiptSource,
+      baseInput
+    );
+    const blank = await PDFDocument.load(await renderCustomerReceiptPdf(unset));
+    const blankLines = drawnLines(blank, blank.getPage(0));
+    const blankRequired = blankLines.find((line) => line.text.includes("Requiere factura:"));
+    const blankDelivered = blankLines.find((line) => line.text.includes("Entregada:"));
+    assert.ok(blankRequired && blankDelivered, "Sin indicar prints both groups, empty, to tick by hand");
+    assert.ok(Math.abs(blankRequired.y - blankDelivered.y) < 1, "one line");
   });
 });

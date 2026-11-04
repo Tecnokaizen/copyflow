@@ -199,7 +199,8 @@ function InvoiceLine({ invoice }: { invoice: PrintInvoice }) {
   return (
     <div className="ws-invoice">
       <YesNo label="Requiere factura:" value={invoice.required} />
-      {invoice.required === true ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
+      {/* Sin indicar keeps both groups empty so they can be ticked by hand; only «No» drops them. */}
+      {invoice.required !== false ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
     </div>
   );
 }
