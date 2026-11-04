@@ -67,7 +67,7 @@ function formatContentField(value: string | undefined) {
     case "notes":
       return "Notas";
     case "external_folder_url":
-      return "Enlace a Drive";
+      return "Ubicación externa de archivos";
     default:
       return "Contenido";
   }
