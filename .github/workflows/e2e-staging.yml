@@ -18,7 +18,8 @@ concurrency:
 jobs:
   e2e:
     name: Staging E2E (orders, R2, payments, quotes and PDF privacy)
-    runs-on: ubuntu-latest
+    # Playwright 1.58.2 supports Ubuntu 24.04, not ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
     env:

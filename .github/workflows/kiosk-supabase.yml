@@ -85,7 +85,8 @@ permissions:
 
 jobs:
   kiosk-database:
-    runs-on: ubuntu-latest
+    # Playwright 1.58.2 supports Ubuntu 24.04, not ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       SUPABASE_CLI_VERSION: 2.117.0
