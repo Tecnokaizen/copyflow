@@ -1,8 +1,11 @@
 // SUR4 E4 (contract §6, N9, N12, N17): the customer receipt («Resguardo»).
 // Pure: closed select and model. Never notes, post-its, staff names, status,
-// priority, file names or status, payment detail or external_folder_url.
+// priority, file names or status, payment detail or external_folder_url (the
+// file location arrives already reduced to a safe label, see file-location).
 import { orderLabels, RECEIPT_DESCRIPTION_TITLE } from "@/lib/orders/labels";
 import { formatPrintTimestamp } from "@/lib/print/format";
+import { FILE_LOCATION_LABEL, NO_FILES_TEXT } from "@/lib/print/file-location";
+import { printInvoice } from "@/lib/print/invoice";
 import type { CustomerReceiptModel, PrintFact } from "@/lib/print/types";
 import {
   amountFacts,
@@ -18,6 +21,8 @@ export const CUSTOMER_RECEIPT_SELECT = `
   description,
   received_at,
   due_at,
+  invoice_required,
+  invoice_delivered,
   client:clients(name, company_name, email, phone),
   service:services(name),
   store:stores(name)
@@ -29,6 +34,8 @@ export type CustomerReceiptSource = {
   description?: string | null;
   received_at?: string | null;
   due_at?: string | null;
+  invoice_required?: boolean | null;
+  invoice_delivered?: boolean | null;
   client?: {
     name?: string | null;
     company_name?: string | null;
@@ -49,6 +56,8 @@ export type CustomerReceiptInput = {
   footer: string;
   timeZone: string;
   printedAt: Date;
+  /** customerFileLocation(): a safe label, never the location itself. */
+  fileLocation?: string;
 };
 
 function text(value: string | null | undefined): string | null {
@@ -106,10 +115,6 @@ export function customerReceiptModel(
     amounts: amountFacts(input.amounts, labels),
     dates: [
       {
-        label: "Fecha de recepción",
-        value: formatPrintTimestamp(order.received_at, input.timeZone) ?? "—",
-      },
-      {
         label: "Entrega prevista",
         value: formatPrintTimestamp(order.due_at, input.timeZone) ?? "—",
       },
@@ -120,5 +125,11 @@ export function customerReceiptModel(
       ...(serviceName && printableService(serviceName, order.description) ? [serviceName] : []),
       ...description,
     ],
+    receivedAt: {
+      label: "Fecha de recepción",
+      value: formatPrintTimestamp(order.received_at, input.timeZone) ?? "—",
+    },
+    fileLocation: { label: FILE_LOCATION_LABEL, value: text(input.fileLocation) ?? NO_FILES_TEXT },
+    invoice: printInvoice(order.invoice_required, order.invoice_delivered),
   };
 }
