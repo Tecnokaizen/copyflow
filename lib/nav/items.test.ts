@@ -224,7 +224,7 @@ describe("nav structure groups", () => {
     assert.ok(archivedItem && allOrdersItem);
     assert.equal(
       allOrdersItem.href,
-      "/orders?view=list&filter=all"
+      "/orders?view=calendar&filter=all"
     );
 
     assert.equal(navGroupIsActive(ordersGroup.group, "/counter"), true);
