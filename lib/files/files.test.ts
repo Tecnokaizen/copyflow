@@ -148,6 +148,30 @@ describe("DTO hardening", () => {
     assert.ok(PUBLIC_ORDER_SCALAR_KEYS.includes("external_folder_url"));
   });
 
+  it("keeps the invoice states («Requiere factura» / «Factura entregada»)", () => {
+    const dto = toPublicOrderDto({ id: "o1", row_version: 1, invoice_required: true, invoice_delivered: false });
+    assert.equal(dto.invoice_required, true);
+    assert.equal(dto.invoice_delivered, false);
+  });
+
+  it("every scalar column the order detail selects reaches the response", () => {
+    const route = readFileSync(path.join(process.cwd(), "app/api/orders/[id]/route.ts"), "utf8");
+    const select = route.match(/\.from\("orders"\)\s*\.select\(`([\s\S]*?)`\)/);
+    assert.ok(select, "order detail select");
+    const scalars = select[1]
+      .replace(/\([^)]*\)/g, "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => /^[a-z_]+$/.test(part) && part !== "row_version");
+    assert.ok(scalars.includes("invoice_required"));
+    for (const column of scalars) {
+      assert.ok(
+        (PUBLIC_ORDER_SCALAR_KEYS as readonly string[]).includes(column),
+        `${column} is selected but dropped by toPublicOrderDto`
+      );
+    }
+  });
+
   it("fails closed if Kiosk metadata would leak via spread", () => {
     const dto = toPublicOrderDto({
       id: "o1",

@@ -10,6 +10,11 @@ import {
   formatDate,
 } from "@/lib/orders/format";
 import type { OrderCollection as OrderCollectionData } from "@/lib/orders/collection";
+import {
+  formatInvoiceFlag,
+  invoiceFromSelectValue,
+  invoiceSelectValue,
+} from "@/lib/orders/invoice";
 import type { OrderLabels } from "@/lib/orders/labels";
 import type {
   ManagementOptionsResponse,
@@ -87,6 +92,37 @@ export function OrderFulfillment({
             <option value="notified_no_pickup">Avisado pero no viene</option>
           </DraftSelect>
         </FactRow>
+        <FactRow label="Requiere factura">
+          <DraftSelect
+            value={invoiceSelectValue(draft.invoice_required)}
+            onChange={(value) => {
+              const required = invoiceFromSelectValue(value);
+              // Sí → No / Sin indicar: delivery no longer applies.
+              onDraftChange({
+                invoice_required: required,
+                invoice_delivered: required === true ? draft.invoice_delivered : null,
+              });
+            }}
+          >
+            <option value="">— Sin indicar —</option>
+            <option value="yes">Sí</option>
+            <option value="no">No</option>
+          </DraftSelect>
+        </FactRow>
+        {draft.invoice_required === true ? (
+          <FactRow label="Factura entregada">
+            <DraftSelect
+              value={invoiceSelectValue(draft.invoice_delivered)}
+              onChange={(value) =>
+                onDraftChange({ invoice_delivered: invoiceFromSelectValue(value) })
+              }
+            >
+              <option value="">— Sin indicar —</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </DraftSelect>
+          </FactRow>
+        ) : null}
         <FactRow label="Fecha prevista" emphasis>
           <FactValue value={formatDate(draft.due_at)} />
         </FactRow>
@@ -125,6 +161,14 @@ export function OrderFulfillment({
           )}
         />
       </FactRow>
+      <FactRow label="Requiere factura">
+        <FactValue value={formatInvoiceFlag(order.invoice_required)} />
+      </FactRow>
+      {order.invoice_required === true ? (
+        <FactRow label="Factura entregada">
+          <FactValue value={formatInvoiceFlag(order.invoice_delivered)} />
+        </FactRow>
+      ) : null}
       <FactRow label="Terminado">
         <FactValue value={formatDate(order.ready_at)} />
       </FactRow>

@@ -26,6 +26,8 @@ export const PUBLIC_ORDER_SCALAR_KEYS = [
   "payment_status_id",
   "delivery_method_id",
   "external_folder_url",
+  "invoice_required",
+  "invoice_delivered",
 ] as const;
 
 export const PUBLIC_ORDER_RELATION_KEYS = [

@@ -12,6 +12,7 @@ import {
   countActiveStores,
   hasLegacyNotes,
   loadCollectionAmounts,
+  loadOrderFileLocation,
   loadOrderFileNames,
   loadPrintableNoteRows,
   loadWorkSheetSteps,
@@ -38,6 +39,8 @@ export const WORK_SHEET_SELECT = `
   ready_at,
   delivered_at,
   customer_notification_status,
+  invoice_required,
+  invoice_delivered,
   client:clients(name, contact_name, company_name, email, phone),
   service:services(name),
   status:order_statuses(name),
@@ -102,6 +105,7 @@ export const loadWorkSheet = cache(async function loadWorkSheet(
     amounts,
     activeStoreCount,
     legacyNotes,
+    fileLocation,
   ] = await Promise.all([
     supabase
       .from("tenant_settings")
@@ -114,6 +118,7 @@ export const loadWorkSheet = cache(async function loadWorkSheet(
     loadCollectionAmounts(supabase, id),
     profile === "ficha" && hasStore ? countActiveStores(supabase, tenantId) : Promise.resolve(0),
     hasLegacyNotes(supabase, tenantId, id),
+    loadOrderFileLocation(supabase, tenantId, id, "internal"),
   ]);
 
   const identity = publicOrganizationIdentity({
@@ -140,6 +145,7 @@ export const loadWorkSheet = cache(async function loadWorkSheet(
       amounts,
       activeStoreCount,
       printedAt: new Date(),
+      fileLocation,
     }),
   };
 });

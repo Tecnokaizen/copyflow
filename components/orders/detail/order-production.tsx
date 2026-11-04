@@ -20,6 +20,7 @@ import { assigneeOptionsWithCurrent } from "@/lib/team/assignee-eligibility";
 import { resolveOrderStatusId } from "@/lib/orders/draft";
 import { statusOptionsWithCurrent } from "@/lib/orders/status-options";
 import { resolveOrderQuoteSituation } from "@/lib/orders/quote-situation";
+import { externalLocationHref } from "@/lib/orders/external-folder-url";
 import {
   fromDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -163,11 +164,11 @@ export function OrderProduction({
             onChange={(value) => onDraftChange({ quote_status_id: value })}
           />
         </FactRow>
-        <FactRow label="Enlace a Drive">
+        <FactRow label="Ubicación externa de archivos">
           <DraftInput
-            type="url"
+            type="text"
             value={draft.external_folder_url}
-            placeholder="https://drive.google.com/..."
+            placeholder="Enlace de Drive, Dropbox o ruta de red..."
             onChange={(value) => onDraftChange({ external_folder_url: value })}
           />
         </FactRow>
@@ -205,6 +206,8 @@ export function OrderProduction({
   }
 
   const serviceName = order.service?.name;
+  // Network paths and plain references are shown as text, never as links.
+  const externalHref = externalLocationHref(order.external_folder_url);
 
   return (
     <SectionCard title="Trabajo" bodyClassName="px-5 py-2 sm:px-6">
@@ -238,23 +241,25 @@ export function OrderProduction({
       <FactRow label="Presupuesto">
         <OrderQuoteSituationValue situation={quoteSituation} />
       </FactRow>
-      <FactRow label="Enlace a Drive">
+      <FactRow label="Ubicación externa de archivos">
         {order.external_folder_url?.trim() ? (
           <div className="space-y-1">
-            <a
-              href={order.external_folder_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-foreground underline-offset-4 hover:underline"
-            >
-              Abrir carpeta externa
-            </a>
+            {externalHref ? (
+              <a
+                href={externalHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                Abrir carpeta externa
+              </a>
+            ) : null}
             <div className="break-all text-sm font-normal text-muted-foreground">
               {order.external_folder_url}
             </div>
           </div>
         ) : (
-          <FactValue value={null} empty="Sin enlace externo" />
+          <FactValue value={null} empty="Sin ubicación externa" />
         )}
       </FactRow>
     </SectionCard>

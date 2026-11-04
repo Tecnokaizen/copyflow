@@ -4,10 +4,10 @@
 // page numbering. Generated on demand and never stored in R2.
 import React from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { Document, Image, Link, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Image, Link, Page, Polyline, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { FOOTER_BOX_WIDTH, quoteFooterLines } from "@/lib/quotes/pdf/render";
 import type { RichTextRun } from "@/lib/rich-text/lines";
-import type { CustomerReceiptModel, PrintFact } from "@/lib/print/types";
+import type { CustomerReceiptModel, PrintFact, PrintInvoice } from "@/lib/print/types";
 
 const MUTED = "#62717d";
 
@@ -26,6 +26,13 @@ const s = StyleSheet.create({
   rowValue: { fontWeight: 700, textAlign: "right" },
   box: { borderWidth: 1, borderColor: "#25333e", borderRadius: 2, padding: 10, minHeight: 120 },
   paragraph: { marginBottom: 3 },
+  bottom: { marginTop: 10 },
+  bottomValue: { fontWeight: 700, textAlign: "right", maxWidth: 360 },
+  invoiceLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", paddingVertical: 4 },
+  invoiceGroup: { flexDirection: "row", alignItems: "center", marginRight: 26 },
+  invoiceLabel: { marginRight: 6 },
+  option: { flexDirection: "row", alignItems: "center", marginRight: 10 },
+  checkbox: { width: 9, height: 9, borderWidth: 0.9, borderColor: "#25333e", marginRight: 3 },
   footer: { position: "absolute", left: 40, right: 40, fontSize: 8, color: MUTED, lineHeight: 1.35 },
   footerLine: { fontSize: 8, color: MUTED },
 });
@@ -48,6 +55,40 @@ function Rows({ rows }: { rows: PrintFact[] }) {
       <Text>{row.label}</Text><Text style={s.rowValue}>{row.value}</Text>
     </View>
   ))}</>;
+}
+
+// Drawn boxes and a vector tick: no ☑/☐ glyph that a font could miss.
+function Checkbox({ checked }: { checked: boolean }) {
+  return (
+    <View style={s.checkbox}>
+      {checked ? (
+        <Svg width={7.2} height={7.2} viewBox="0 0 8 8">
+          <Polyline points="1.2,4.3 3.2,6.4 6.9,1.6" stroke="#25333e" strokeWidth={1.4} fill="none" />
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
+
+function YesNo({ label, value }: { label: string; value: boolean | null }) {
+  return (
+    <View style={s.invoiceGroup}>
+      <Text style={s.invoiceLabel}>{label}</Text>
+      <View style={s.option}><Checkbox checked={value === true} /><Text>Sí</Text></View>
+      <View style={s.option}><Checkbox checked={value === false} /><Text>No</Text></View>
+    </View>
+  );
+}
+
+/** «Requiere factura: ☐ Sí ☐ No   Entregada: ☐ Sí ☐ No» on one line when it fits. */
+export function InvoiceLine({ invoice }: { invoice: PrintInvoice }) {
+  return (
+    <View style={s.invoiceLine} wrap={false}>
+      <YesNo label="Requiere factura:" value={invoice.required} />
+      {/* Sin indicar keeps both groups empty so they can be ticked by hand; only «No» drops them. */}
+      {invoice.required !== false ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
+    </View>
+  );
 }
 
 export async function renderCustomerReceiptPdf(model: CustomerReceiptModel, logo?: Buffer, now: Date = new Date()): Promise<Buffer> {
@@ -85,6 +126,14 @@ export async function renderCustomerReceiptPdf(model: CustomerReceiptModel, logo
         {model.descriptionLines.length
           ? model.descriptionLines.map((line, index) => <Text key={index} style={s.paragraph}>{line}</Text>)
           : <Text>—</Text>}
+      </View>
+      <View style={s.bottom} wrap={false}>
+        {[model.receivedAt, model.fileLocation].map((row) => (
+          <View key={row.label} style={s.row}>
+            <Text>{row.label}</Text><Text style={s.bottomValue}>{row.value}</Text>
+          </View>
+        ))}
+        <InvoiceLine invoice={model.invoice} />
       </View>
       {footerLines.length ? (
         <View fixed style={[s.footer, { bottom: 40 }]}>

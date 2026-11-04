@@ -10,6 +10,7 @@ import { RichTextContent } from "@/components/rich-text/rich-text-content";
 import { LEGACY_NOTES_NOTICE } from "@/lib/print/work-sheet-rules";
 import type {
   PrintFact,
+  PrintInvoice,
   WorkSheetFicha,
   WorkSheetModel,
   WorkSheetNote,
@@ -58,6 +59,13 @@ export function WorkSheetDocument({ model, receiptHref, legacyNotes = false }: W
       <PrintFacts title="Pedido" rows={model.order} />
       <PrintFacts title="Fechas" rows={model.dates} />
       <PrintRichText title={model.descriptionTitle} value={model.description} textStyles />
+      <section className="print-block ws-after-description">
+        <FactList
+          rows={model.receivedAt ? [model.receivedAt, model.fileLocation] : [model.fileLocation]}
+          className="ws-facts ws-under-row"
+        />
+        <InvoiceLine invoice={model.invoice} />
+      </section>
       <PrintFacts title="Producción" rows={model.production} />
       <PrintFacts title="Cobro y entrega" rows={model.payment} />
       <PrintFiles countLabel={model.fileCountLabel} files={model.files} />
@@ -153,6 +161,8 @@ function FichaWorkSheet({
 
       <section className="print-block ws-bottom">
         <FactList rows={ficha.bottom} className="ws-facts ws-bottom-row" />
+        <FactList rows={[model.fileLocation]} className="ws-facts ws-under-row ws-under-ficha" />
+        <InvoiceLine invoice={model.invoice} />
       </section>
 
       <WorkSheetNotes notes={model.printableNotes} />
@@ -162,6 +172,36 @@ function FichaWorkSheet({
       </footer>
       <style>{pageFooterCss(ficha)}</style>
     </PrintFrame>
+  );
+}
+
+function PrintCheckbox({ checked }: { checked: boolean }) {
+  return (
+    <span className="ws-check ws-check-small" aria-hidden="true">
+      {checked ? <Check className="ws-check-mark" aria-hidden="true" /> : null}
+    </span>
+  );
+}
+
+function YesNo({ label, value }: { label: string; value: boolean | null }) {
+  const state = value === true ? "Sí" : value === false ? "No" : "Sin indicar";
+  return (
+    <span className="ws-yesno" role="group" aria-label={`${label} ${state}`}>
+      <span className="ws-yesno-label">{label}</span>
+      <span className="ws-option"><PrintCheckbox checked={value === true} />Sí</span>
+      <span className="ws-option"><PrintCheckbox checked={value === false} />No</span>
+    </span>
+  );
+}
+
+/** «Requiere factura: ☐ Sí ☐ No   Entregada: ☐ Sí ☐ No» on one line when it fits. */
+function InvoiceLine({ invoice }: { invoice: PrintInvoice }) {
+  return (
+    <div className="ws-invoice">
+      <YesNo label="Requiere factura:" value={invoice.required} />
+      {/* Sin indicar keeps both groups empty so they can be ticked by hand; only «No» drops them. */}
+      {invoice.required !== false ? <YesNo label="Entregada:" value={invoice.delivered} /> : null}
+    </div>
   );
 }
 

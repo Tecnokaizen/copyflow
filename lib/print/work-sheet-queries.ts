@@ -5,6 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isRichTextEmpty } from "@/lib/rich-text/html";
 import {
+  customerFileLocation,
+  internalFileLocation,
+} from "@/lib/print/file-location";
+import {
   collectionAmounts,
   type CollectionAmounts,
   type WorkSheetNoteRow,
@@ -127,4 +131,52 @@ export async function loadCollectionAmounts(
   });
   if (error) return null;
   return collectionAmounts(data);
+}
+
+/**
+ * How many files are really attached to the order: uploaded (status ready)
+ * and not deleted. Pending uploads and deleted files never count. Only the
+ * number leaves this function: no names, keys or URLs.
+ */
+export async function countAttachedOrderFiles(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("order_files")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("order_id", orderId)
+    .eq("status", "ready")
+    .is("deleted_at", null);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+/**
+ * Where the order files are, as printed. Separate read: the external location
+ * never joins a document select. The work sheet («internal») gets it as
+ * written; the customer receipt only gets a safe label (customerFileLocation),
+ * so a private URL or network path never leaves this function.
+ */
+export async function loadOrderFileLocation(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderId: string,
+  audience: "internal" | "customer"
+): Promise<string> {
+  const [{ data }, attachedFiles] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("external_folder_url")
+      .eq("id", orderId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle(),
+    countAttachedOrderFiles(supabase, tenantId, orderId),
+  ]);
+  const external = (data as { external_folder_url?: string | null } | null)?.external_folder_url;
+  return audience === "internal"
+    ? internalFileLocation(external, attachedFiles)
+    : customerFileLocation(external, attachedFiles);
 }

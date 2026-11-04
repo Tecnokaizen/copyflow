@@ -35,4 +35,54 @@ describe("customer receipt PDF (E4)", () => {
       assert.ok(lines.includes("RESGUARDO"), "the header repeats on every page");
     });
   });
+  it("prints reception date, file location and invoice boxes below the description, on one line", async () => {
+    const model = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: true, invoice_delivered: false } as CustomerReceiptSource,
+      { ...baseInput, fileLocation: "Ubicación externa (Google Drive)" }
+    );
+    const buffer = await renderCustomerReceiptPdf(model);
+    const pdf = await PDFDocument.load(buffer);
+    const lines = drawnLines(pdf, pdf.getPage(0));
+    const find = (text: string) => {
+      const line = lines.find((item) => item.text.includes(text));
+      assert.ok(line, text);
+      return line;
+    };
+    const description = find("Tapa dura, 25 ejemplares.");
+    const received = find("Fecha de recepción");
+    const delivery = find("Entrega prevista");
+    // PDF y grows upwards: below means a smaller y.
+    assert.ok(received.y < description.y, "reception date below the description");
+    assert.ok(delivery.y > description.y, "the delivery date stays in the top block");
+    assert.ok(find("15/10/2026, 10:30").y < description.y, "Europe/Madrid time of received_at");
+    assert.ok(find("Ubicación externa (Google Drive)").y < description.y);
+    const required = find("Requiere factura:");
+    const delivered = find("Entregada:");
+    assert.ok(Math.abs(required.y - delivered.y) < 1, "one line");
+    for (const line of lines) assert.ok(line.right <= pdf.getPage(0).getWidth() - 39, `inside the margin: ${line.text}`);
+    const raw = buffer.toString("latin1");
+    assert.equal(/[☐☑☒]/.test(raw), false, "boxes are drawn, not glyphs");
+    assert.equal(raw.includes("TESTIGO"), false);
+
+    const notRequired = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: false } as CustomerReceiptSource,
+      baseInput
+    );
+    const other = await PDFDocument.load(await renderCustomerReceiptPdf(notRequired));
+    const text = drawnLines(other, other.getPage(0)).map((line) => line.text).join("\n");
+    assert.ok(text.includes("Requiere factura:"));
+    assert.equal(text.includes("Entregada:"), false, "no delivery boxes when not required");
+    assert.ok(text.includes("Sin archivos registrados"));
+
+    const unset = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: null, invoice_delivered: null } as CustomerReceiptSource,
+      baseInput
+    );
+    const blank = await PDFDocument.load(await renderCustomerReceiptPdf(unset));
+    const blankLines = drawnLines(blank, blank.getPage(0));
+    const blankRequired = blankLines.find((line) => line.text.includes("Requiere factura:"));
+    const blankDelivered = blankLines.find((line) => line.text.includes("Entregada:"));
+    assert.ok(blankRequired && blankDelivered, "Sin indicar prints both groups, empty, to tick by hand");
+    assert.ok(Math.abs(blankRequired.y - blankDelivered.y) < 1, "one line");
+  });
 });

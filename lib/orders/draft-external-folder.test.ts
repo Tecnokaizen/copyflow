@@ -68,7 +68,7 @@ describe("external_folder_url draft steps", () => {
           kind: "content",
           field: "external_folder_url",
           value: "https://drive.google.com/b",
-          label: "Enlace a Drive",
+          label: "Ubicación externa de archivos",
         },
       ]
     );
@@ -107,7 +107,7 @@ describe("external_folder_url draft steps", () => {
           kind: "content",
           field: "external_folder_url",
           value: null,
-          label: "Enlace a Drive",
+          label: "Ubicación externa de archivos",
         },
       ]
     );

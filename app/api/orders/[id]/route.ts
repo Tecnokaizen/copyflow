@@ -56,6 +56,8 @@ export async function GET(
       payment_status_id,
       delivery_method_id,
       external_folder_url,
+      invoice_required,
+      invoice_delivered,
       row_version,
       client:clients(
         id,

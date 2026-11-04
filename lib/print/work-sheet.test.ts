@@ -57,6 +57,9 @@ const WITNESSES = [
   "TESTIGO-COBRO",
 ] as const;
 const PRINTABLE = "TESTIGO-IMPRIMIBLE";
+// Since the file-location change (11/2026) the internal work sheet prints the
+// external location as written, but only in its «Ubicación de archivos» row.
+const DRIVE_URL = "https://drive.google.com/TESTIGO-DRIVE";
 
 // ---------------------------------------------------------------------------
 // Frozen copy of the order print of today (main e218939 + #146, before E2):
@@ -226,12 +229,16 @@ function fakeSupabase(options: {
   const results = (table: string, selected: string) => {
     switch (table) {
       case "orders":
+        if (selected.trim() === "external_folder_url") {
+          return { data: { external_folder_url: witnessOrder().external_folder_url }, error: null };
+        }
         return selected.trim() === "notes"
           ? { data: { notes: witnessOrder().notes }, error: null }
           : { data: witnessOrder(), error: null };
       case "tenant_settings":
         return { data: { business_name: "Taller Norte", branding: null, timezone: "Europe/Madrid" }, error: null };
       case "order_files":
+        if (selected === "id") return { data: null, count: (options.files ?? []).length, error: null };
         return { data: (options.files ?? []).map((original_name) => ({ original_name, created_at: "2026-10-15T08:00:00Z" })), error: null };
       case "order_work_steps":
         return { data: witnessSteps, error: null };
@@ -344,13 +351,19 @@ describe("work sheet standard profile (N25)", () => {
 
     const { notes: legacyNotes, ...legacyRest } = legacy;
     assert.ok(legacyNotes, "today's print carries the notes");
+    // 11/2026: «Recepción» moved from «Fechas» to below the description.
+    const legacyReception = legacyRest.dates.find((row) => row.label === "Recepción");
+    assert.ok(legacyReception);
     for (const [key, value] of Object.entries(legacyRest)) {
-      assert.deepEqual(model[key as keyof WorkSheetModel], value, key);
+      const expected = key === "dates" ? legacyRest.dates.filter((row) => row.label !== "Recepción") : value;
+      assert.deepEqual(model[key as keyof WorkSheetModel], expected, key);
     }
+    assert.deepEqual(model.receivedAt, { label: "Fecha de recepción", value: legacyReception.value });
     assert.equal("notes" in model, false);
-    // The shared summary is the only change to the pre-existing print blocks.
+    // The shared summary and the block below the description are the only
+    // changes to the pre-existing print blocks.
     const added = Object.keys(model).filter((key) => !(key in legacy)).sort();
-    assert.deepEqual(added, ["amounts", "descriptionTitle", "ficha", "printableNotes", "profile", "steps"]);
+    assert.deepEqual(added, ["amounts", "descriptionTitle", "ficha", "fileLocation", "invoice", "printableNotes", "profile", "receivedAt", "steps"]);
     assert.equal(model.descriptionTitle, "Instrucciones");
     assert.deepEqual([model.profile, model.ficha, model.steps, model.printableNotes], ["standard", null, [], []]);
     // Payment receipts and pending uploads are listed, as today.
@@ -367,7 +380,12 @@ describe("work sheet standard profile (N25)", () => {
       "$1"
     );
     assert.notEqual(withoutSummary, html, "the new heading is present");
-    assert.equal(withoutSummary, legacyHtml.replace(notesHtml, ""));
+    const withoutUnder = withoutSummary.replace(/<section class="print-block ws-after-description">.*?<\/div><\/section>/, "");
+    assert.notEqual(withoutUnder, withoutSummary, "the block below the description is present");
+    const legacyWithoutReception = legacyHtml
+      .replace(notesHtml, "")
+      .replace(/<div class="print-fact"><dt>Recepción<\/dt><dd>[^<]*<\/dd><\/div>/, "");
+    assert.equal(withoutUnder, legacyWithoutReception);
   });
 
   it("adds steps and printable post-its after today's blocks, only with feature and data", () => {
@@ -482,8 +500,11 @@ describe("closed selects (contract §6)", () => {
     assert.match(String(of("order_work_steps", "select")[0][0]), /team_members!order_work_steps_executed_by_fk\(name\)/);
     assert.deepEqual(of("stores", "select"), [["id", { count: "exact", head: true }]]);
     assert.deepEqual(of("stores", "eq"), [["tenant_id", TENANT], ["active", true]]);
-    // The ficha profile never lists files.
-    assert.equal(h.supabase.calls.some((call) => call.table === "order_files"), false);
+    // The ficha profile never lists files: it only counts the attached ones.
+    const files = h.supabase.calls.filter((call) => call.table === "order_files");
+    assert.deepEqual(files.filter((call) => call.method === "select").map((call) => call.args), [["id", { count: "exact", head: true }]]);
+    assert.deepEqual(files.filter((call) => call.method === "eq").map((call) => call.args), [["tenant_id", TENANT], ["order_id", ORDER_ID], ["status", "ready"]]);
+    assert.deepEqual(files.filter((call) => call.method === "is").map((call) => call.args), [["deleted_at", null]]);
   });
 
   it("does not read post-its or steps without their feature", async () => {
@@ -494,9 +515,14 @@ describe("closed selects (contract §6)", () => {
       assert.equal(tables.has(table), false, table);
     }
     assert.ok(tables.has("order_files"));
+    // The list of names (standard profile) keeps today's filters: pending uploads stay listed.
     const files = h.supabase.calls.filter((call) => call.table === "order_files");
-    assert.ok(files.some((call) => call.method === "is" && call.args[0] === "deleted_at"));
-    assert.equal(files.some((call) => call.method === "eq" && call.args[0] === "status"), false, "pending uploads stay listed");
+    const listSelect = files.findIndex((call) => call.method === "select" && call.args[0] === "original_name, created_at");
+    const countSelect = files.findIndex((call) => call.method === "select" && call.args[0] === "id");
+    assert.ok(listSelect >= 0 && countSelect >= 0);
+    const listCalls = files.slice(listSelect, countSelect > listSelect ? countSelect : undefined);
+    assert.ok(listCalls.some((call) => call.method === "is" && call.args[0] === "deleted_at"));
+    assert.equal(listCalls.some((call) => call.method === "eq" && call.args[0] === "status"), false, "pending uploads stay listed");
   });
 });
 
@@ -512,8 +538,13 @@ describe("witness texts (contract §10)", () => {
         assert.equal(loaded.model.profile, profile);
         assert.equal(loaded.legacyNotes, true, "the notice knows there are notes");
 
-        const fromLoader = JSON.stringify(loaded);
+        // The external location reaches the internal sheet only as its file location.
+        assert.deepEqual(loaded.model.fileLocation, { label: "Ubicación de archivos", value: DRIVE_URL });
         const html = render(loaded.model, loaded.legacyNotes);
+        assert.equal(html.split(DRIVE_URL).length, 2, "printed once");
+        assert.match(html, new RegExp(`<dt>Ubicación de archivos</dt><dd>${DRIVE_URL}</dd>`));
+        const fromLoader = JSON.stringify({ ...loaded, model: { ...loaded.model, fileLocation: null } });
+        const htmlWithoutLocation = html.replace(DRIVE_URL, "");
         const pure = workSheetModel(witnessOrder() as WorkSheetSource, {
           profile,
           features,
@@ -528,7 +559,7 @@ describe("witness texts (contract §10)", () => {
         const pureJson = JSON.stringify(pure);
         const pureHtml = render(pure, true);
         for (const witness of WITNESSES) {
-          for (const [where, text] of [["loader", fromLoader], ["html", html], ["model", pureJson], ["pure html", pureHtml]]) {
+          for (const [where, text] of [["loader", fromLoader], ["html", htmlWithoutLocation], ["model", pureJson], ["pure html", pureHtml]]) {
             assert.equal(text.includes(witness), false, `${witness} in ${where}`);
           }
         }
