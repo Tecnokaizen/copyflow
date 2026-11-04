@@ -78,6 +78,11 @@ export type WorkSheetModel = {
   steps: WorkSheetStep[];
   printableNotes: WorkSheetNote[];
   ficha: WorkSheetFicha | null;
+  /** Below the description: reception date (standard profile only; the ficha keeps it in `ficha.bottom`). */
+  receivedAt: PrintFact | null;
+  /** Internal document: the external location as written, or attachments. */
+  fileLocation: PrintFact;
+  invoice: PrintInvoice;
 };
 
 /**
@@ -99,6 +104,11 @@ export type CustomerReceiptModel = {
   pickup: PrintFact | null;
   descriptionTitle: string;
   descriptionLines: string[];
+  /** Printed below the description (Tamara, 11/2026), not in the top block. */
+  receivedAt: PrintFact;
+  /** Safe label only: never a URL, network path or storage key. */
+  fileLocation: PrintFact;
+  invoice: PrintInvoice;
 };
 
 export type QuotePrintModel = {
@@ -113,4 +123,13 @@ export type QuotePrintModel = {
   description: string | null;
   files: string[];
   fileCountLabel: string;
+};
+
+/**
+ * «Requiere factura» / «Factura entregada» as printed: null = Sin indicar
+ * (no box ticked). `delivered` is printed only when `required` is true.
+ */
+export type PrintInvoice = {
+  required: boolean | null;
+  delivered: boolean | null;
 };

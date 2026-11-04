@@ -6,6 +6,8 @@ import {
 } from "@/lib/orders/format";
 import { orderLabels } from "@/lib/orders/labels";
 import type { OrderFeatures } from "@/lib/orders/order-features";
+import { FILE_LOCATION_LABEL, NO_FILES_TEXT } from "@/lib/print/file-location";
+import { printInvoice } from "@/lib/print/invoice";
 import {
   formatPrintTimestamp,
   printFileCountLabel,
@@ -33,7 +35,8 @@ import type {
 /**
  * What the work sheet reads from an order (WORK_SHEET_SELECT). There is no
  * field for orders.notes, clients.notes or external_folder_url: extra keys in
- * a row are never copied, every block is built field by field.
+ * a row are never copied, every block is built field by field. The file
+ * location arrives already resolved in WorkSheetInput.fileLocation.
  */
 export type WorkSheetSource = {
   reference: string;
@@ -45,6 +48,8 @@ export type WorkSheetSource = {
   ready_at?: string | null;
   delivered_at?: string | null;
   customer_notification_status?: string | null;
+  invoice_required?: boolean | null;
+  invoice_delivered?: boolean | null;
   client?: {
     name?: string | null;
     company_name?: string | null;
@@ -77,6 +82,8 @@ export type WorkSheetInput = {
   amounts?: CollectionAmounts | null;
   activeStoreCount?: number;
   printedAt?: Date | string;
+  /** internalFileLocation(): external location as written, or attachments. */
+  fileLocation?: string;
 };
 
 function text(value: string | null | undefined): string | null {
@@ -137,11 +144,8 @@ function standardBlocks(order: WorkSheetSource, input: WorkSheetInput) {
         order.assigned_team_member?.name ?? "Sin responsable"
       ),
     ]),
+    // «Recepción» moved below the description (receivedAt).
     dates: facts([
-      fact(
-        "Recepción",
-        formatPrintTimestamp(order.received_at, input.timeZone) ?? "—"
-      ),
       fact(
         "Entrega prevista",
         formatPrintTimestamp(order.due_at, input.timeZone) ?? "—"
@@ -233,5 +237,15 @@ export function workSheetModel(order: WorkSheetSource, input: WorkSheetInput): W
     steps: input.features.workSequence ? workSheetSteps(input.steps) : [],
     printableNotes: input.features.stickyNotes ? printableNotes(input.notes) : [],
     ficha: input.profile === "ficha" ? fichaBlocks(order, input) : null,
+    // The ficha already prints the reception date below the description, in ficha.bottom.
+    receivedAt:
+      input.profile === "standard"
+        ? {
+            label: "Fecha de recepción",
+            value: formatPrintTimestamp(order.received_at, input.timeZone) ?? "—",
+          }
+        : null,
+    fileLocation: { label: FILE_LOCATION_LABEL, value: text(input.fileLocation) ?? NO_FILES_TEXT },
+    invoice: printInvoice(order.invoice_required, order.invoice_delivered),
   };
 }

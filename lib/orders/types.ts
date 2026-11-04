@@ -49,8 +49,15 @@ export type Order = {
   version: string;
   customer_notification_status: string;
   notes: string | null;
-  /** Optional external folder link (Drive, Dropbox, …). Complements Files/R2. */
+  /**
+   * «Ubicación externa de archivos»: free text (Drive/Dropbox URL, network
+   * path, reference). Complements Files/R2. Link it only when it is http(s).
+   */
   external_folder_url: string | null;
+  /** «Requiere factura»: true/false, null = Sin indicar. Optional in older payloads. */
+  invoice_required?: boolean | null;
+  /** «Factura entregada»: only meaningful when invoice_required is true. */
+  invoice_delivered?: boolean | null;
   client_id: string | null;
   status_id: string | null;
 
@@ -244,4 +251,6 @@ export type OrderDraft = {
   payment_status_id: string | null;
   delivery_method_id: string | null;
   customer_notification_status: string;
+  invoice_required: boolean | null;
+  invoice_delivered: boolean | null;
 };

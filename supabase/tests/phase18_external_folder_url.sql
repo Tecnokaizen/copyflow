@@ -1,5 +1,6 @@
 -- A1 regression: external_folder_url via change_order_content_v2
--- URL validation aligned with API, tenant/archived/stale, activity, row_version.
+-- Validation aligned with API (free-text location since 20261104121000),
+-- tenant/archived/stale, activity, row_version.
 
 begin;
 
@@ -174,60 +175,61 @@ begin
     end if;
   end;
 
-  -- ftp:
+  -- javascript with spaces
   begin
     perform public.change_order_content_v2(
-      v_order_open, 'external_folder_url', 'ftp://example.com', v_tenant_a, 3
+      v_order_open, 'external_folder_url', ' JavaScript :alert(1)', v_tenant_a, 3
     );
-    raise exception 'FAIL ftp should reject';
+    raise exception 'FAIL javascript with spaces should reject';
   exception when others then
     get stacked diagnostics v_sqlstate = returned_sqlstate;
     if v_sqlstate is distinct from '22023' then
-      raise exception 'FAIL ftp expected 22023 got %', v_sqlstate;
+      raise exception 'FAIL javascript with spaces expected 22023 got %', v_sqlstate;
     end if;
   end;
 
-  -- plain text
+  -- data uri
   begin
     perform public.change_order_content_v2(
-      v_order_open, 'external_folder_url', 'not-a-url', v_tenant_a, 3
+      v_order_open, 'external_folder_url', 'data:text/html,x', v_tenant_a, 3
     );
-    raise exception 'FAIL plain text should reject';
+    raise exception 'FAIL data uri should reject';
   exception when others then
     get stacked diagnostics v_sqlstate = returned_sqlstate;
     if v_sqlstate is distinct from '22023' then
-      raise exception 'FAIL plain text expected 22023 got %', v_sqlstate;
+      raise exception 'FAIL data uri expected 22023 got %', v_sqlstate;
     end if;
   end;
 
-  -- malformed https://
+  -- vbscript
   begin
     perform public.change_order_content_v2(
-      v_order_open, 'external_folder_url', 'https://', v_tenant_a, 3
+      v_order_open, 'external_folder_url', 'vbscript:msgbox(1)', v_tenant_a, 3
     );
-    raise exception 'FAIL bare https:// should reject';
+    raise exception 'FAIL vbscript should reject';
   exception when others then
     get stacked diagnostics v_sqlstate = returned_sqlstate;
     if v_sqlstate is distinct from '22023' then
-      raise exception 'FAIL bare https:// expected 22023 got %', v_sqlstate;
+      raise exception 'FAIL vbscript expected 22023 got %', v_sqlstate;
     end if;
   end;
 
-  -- whitespace-only host
+  -- multi-line
   begin
     perform public.change_order_content_v2(
-      v_order_open, 'external_folder_url', 'https:// ', v_tenant_a, 3
+      v_order_open, 'external_folder_url', E'linea 1\nlinea 2', v_tenant_a, 3
     );
-    raise exception 'FAIL whitespace host should reject';
+    raise exception 'FAIL multi-line should reject';
   exception when others then
     get stacked diagnostics v_sqlstate = returned_sqlstate;
     if v_sqlstate is distinct from '22023' then
-      raise exception 'FAIL whitespace host expected 22023 got %', v_sqlstate;
+      raise exception 'FAIL multi-line expected 22023 got %', v_sqlstate;
     end if;
   end;
 
   -- >2048
   v_long := 'https://example.com/' || repeat('a', 2100);
+  -- >2048
   begin
     perform public.change_order_content_v2(
       v_order_open, 'external_folder_url', v_long, v_tenant_a, 3
@@ -246,6 +248,34 @@ begin
   if v_url is not null or v_version is distinct from 3 then
     raise exception 'FAIL rejected writes mutated state url=% version=%', v_url, v_version;
   end if;
+
+  -- 20261104121000: «Ubicación externa de archivos» admits any single-line
+  -- reference, not only http(s) URLs. Each accepted value bumps row_version.
+  v_version := 3;
+  foreach v_url in array array[
+    E'\\\\servidor\\trabajos\\2026\\S4C-0020',
+    'smb://nas.local/clientes/magerit',
+    'ftp://example.com/entrada',
+    'Clientes/Magerit/2026',
+    'Lo trae el cliente en USB',
+    'https://'
+  ] loop
+    perform public.change_order_content_v2(
+      v_order_open, 'external_folder_url', '  ' || v_url || '  ', v_tenant_a, v_version
+    );
+    select row_version into v_version_2 from public.orders where id = v_order_open;
+    if v_version_2 is distinct from v_version + 1
+       or (select external_folder_url from public.orders where id = v_order_open)
+          is distinct from v_url then
+      raise exception 'FAIL reference % not saved verbatim', v_url;
+    end if;
+    v_version := v_version_2;
+  end loop;
+
+  -- back to empty for the checks below
+  perform public.change_order_content_v2(
+    v_order_open, 'external_folder_url', null, v_tenant_a, v_version
+  );
 
   -- stale expected_version
   begin

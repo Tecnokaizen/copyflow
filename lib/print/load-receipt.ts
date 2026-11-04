@@ -8,7 +8,7 @@ import {
   type CustomerReceiptSource,
 } from "@/lib/print/receipt";
 import type { CustomerReceiptModel } from "@/lib/print/types";
-import { loadCollectionAmounts } from "@/lib/print/work-sheet-queries";
+import { loadCollectionAmounts, loadOrderFileLocation } from "@/lib/print/work-sheet-queries";
 import { isUuid } from "@/lib/team/payload";
 import {
   brandColorFromBranding,
@@ -46,7 +46,7 @@ export async function loadCustomerReceipt(
     .maybeSingle();
   if (error || !order) return { status: "not_found" };
 
-  const [{ data: settings }, customLabels, amounts] = await Promise.all([
+  const [{ data: settings }, customLabels, amounts, fileLocation] = await Promise.all([
     supabase
       .from("tenant_settings")
       .select("business_name, branding, timezone")
@@ -54,6 +54,7 @@ export async function loadCustomerReceipt(
       .maybeSingle(),
     tenantHasFeature(supabase, tenant.id, ORDER_FEATURE_CODES.customLabels),
     loadCollectionAmounts(supabase, id),
+    loadOrderFileLocation(supabase, tenant.id, id, "customer"),
   ]);
 
   const branding = settings?.branding;
@@ -73,6 +74,7 @@ export async function loadCustomerReceipt(
       footer: quoteFooterFromBranding(branding),
       timeZone: resolveTimeZone(settings?.timezone),
       printedAt: now,
+      fileLocation,
     }),
   };
 }

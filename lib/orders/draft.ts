@@ -39,6 +39,8 @@ export function createOrderDraft(
     payment_status_id: order.payment_status_id,
     delivery_method_id: order.delivery_method_id,
     customer_notification_status: order.customer_notification_status,
+    invoice_required: order.invoice_required ?? null,
+    invoice_delivered: order.invoice_delivered ?? null,
   };
 }
 
@@ -70,7 +72,28 @@ export type DraftSaveStep =
       kind: "notification";
       notification_status: string;
       label: string;
+    }
+  | {
+      kind: "invoice";
+      invoice_required: boolean | null;
+      invoice_delivered: boolean | null;
+      label: string;
     };
+
+/**
+ * «Factura entregada» only applies when «Requiere factura» is Sí; otherwise it
+ * is stored as null (same rule as change_order_invoice_v1).
+ */
+export function normalizeInvoiceState(
+  required: boolean | null | undefined,
+  delivered: boolean | null | undefined
+): { invoice_required: boolean | null; invoice_delivered: boolean | null } {
+  const invoiceRequired = required ?? null;
+  return {
+    invoice_required: invoiceRequired,
+    invoice_delivered: invoiceRequired === true ? delivered ?? null : null,
+  };
+}
 
 export function buildDraftSaveSteps(
   order: Order,
@@ -126,7 +149,7 @@ export function buildDraftSaveSteps(
       kind: "content",
       field: "external_folder_url",
       value: nullableText(draft.external_folder_url),
-      label: "Enlace a Drive",
+      label: "Ubicación externa de archivos",
     });
   }
 
@@ -245,6 +268,21 @@ export function buildDraftSaveSteps(
       notification_status: draft.customer_notification_status,
       label: "Aviso al cliente",
     });
+  }
+
+  const nextInvoice = normalizeInvoiceState(
+    draft.invoice_required,
+    draft.invoice_delivered
+  );
+  const prevInvoice = normalizeInvoiceState(
+    order.invoice_required,
+    order.invoice_delivered
+  );
+  if (
+    nextInvoice.invoice_required !== prevInvoice.invoice_required ||
+    nextInvoice.invoice_delivered !== prevInvoice.invoice_delivered
+  ) {
+    steps.push({ kind: "invoice", ...nextInvoice, label: "Factura" });
   }
 
   return steps;

@@ -49,7 +49,9 @@ const NAV_BY_ID: Record<AppNavItemId, AppNavItem> = {
   counter: { id: "counter", href: "/counter", label: "Mostrador" },
   orders: {
     id: "orders",
-    href: "/orders?view=list&filter=all",
+    // Opens Calendario (default view of Pedidos); filter=all is kept so
+    // switching to Lista shows every order, not only the active ones.
+    href: "/orders?view=calendar&filter=all",
     label: "Todos los pedidos",
   },
   mine: { id: "mine", href: "/orders/mine", label: "Mis pedidos" },

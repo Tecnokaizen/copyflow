@@ -272,8 +272,9 @@ begin
   perform pg_temp.boom(format($q$update public.orders set notes = 'x' where id = %L$q$, o1), '42501', blocked);
   reset role;
 
-  -- 11. Catalog: only the eight INVOKER RPCs (and the guard) know the marker;
-  --     every UPDATE they run is preceded by it and each clears it once.
+  -- 11. Catalog: only the eight INVOKER RPCs, change_order_invoice_v1
+  --     (20261104120000) and the guard know the marker; every UPDATE they run
+  --     is preceded by it and each clears it once.
   perform pg_temp.ok((
     select array_agg(p.proname::text order by p.proname)
     from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
@@ -281,10 +282,10 @@ begin
       and ns.nspname not like 'pg\_temp%'
   ) = array[
     'archive_order', 'assign_order_client_v2', 'change_order_content_v2',
-    'change_order_details_v2', 'change_order_management_v2',
+    'change_order_details_v2', 'change_order_invoice_v1', 'change_order_management_v2',
     'change_order_notification_status_v2', 'change_order_status_v2',
     'create_client_and_assign_order_v2', 'tg_orders_write_guard'
-  ]::text[], 'only the eight RPCs and the guard reference app.order_write');
+  ]::text[], 'only the order RPCs and the guard reference app.order_write');
   perform pg_temp.ok(not exists (
     select 1 from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
     where ns.nspname = 'public' and not p.prosecdef and p.prorettype <> 'trigger'::regtype

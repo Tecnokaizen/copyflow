@@ -37,7 +37,11 @@ describe("customer receipt model (E4)", () => {
       { label: "Pendiente de cobro", value: "1.000,00 €" },
     ]);
     assert.deepEqual(model.pickup, { label: "Lugar de recogida", value: "Tienda Centro" });
-    assert.deepEqual(model.dates.map((row) => row.label), ["Fecha de recepción", "Entrega prevista"]);
+    // 11/2026: the reception date moved below the description.
+    assert.deepEqual(model.dates.map((row) => row.label), ["Entrega prevista"]);
+    assert.deepEqual(model.receivedAt, { label: "Fecha de recepción", value: "15/10/2026, 10:30" });
+    assert.deepEqual(model.fileLocation, { label: "Ubicación de archivos", value: "Sin archivos registrados" });
+    assert.deepEqual(model.invoice, { required: null, delivered: null });
     assert.equal(model.descriptionTitle, "Descripción del trabajo");
     assert.deepEqual(model.descriptionLines, ["Encuadernación", "Tapa dura, 25 ejemplares.", "Estampación en dorado."]);
     assert.equal(model.filename, "Resguardo-S4C-0020.pdf");
@@ -67,6 +71,20 @@ describe("customer receipt model (E4)", () => {
     assert.equal(model.pickup, null);
   });
 
+  it("prints the invoice states and the safe file location it is given", () => {
+    const model = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: true, invoice_delivered: false } as CustomerReceiptSource,
+      { ...baseInput, fileLocation: "Ubicación externa (Google Drive)" }
+    );
+    assert.deepEqual(model.invoice, { required: true, delivered: false });
+    assert.equal(model.fileLocation.value, "Ubicación externa (Google Drive)");
+    const notRequired = customerReceiptModel(
+      { ...witnessOrder(), invoice_required: false, invoice_delivered: true } as CustomerReceiptSource,
+      baseInput
+    );
+    assert.deepEqual(notRequired.invoice, { required: false, delivered: null }, "delivery only when required");
+  });
+
   it("builds a safe file name from the reference only", () => {
     assert.equal(receiptFilename("S4C-0020"), "Resguardo-S4C-0020.pdf");
     assert.equal(receiptFilename('A/../"b"; x.pdf\r\n'), "Resguardo-A-b-x-pdf.pdf");
@@ -84,7 +102,7 @@ describe("customer receipt model (E4)", () => {
 });
 
 describe("customer receipt loader (E4)", () => {
-  function fake(options: { orderTenant?: string; customLabels?: boolean } = {}) {
+  function fake(options: { orderTenant?: string; customLabels?: boolean; attached?: number } = {}) {
     const calls: Array<{ table: string; method: string; args: unknown[] }> = [];
     const client = {
       calls,
@@ -96,17 +114,27 @@ describe("customer receipt loader (E4)", () => {
       },
       from(table: string) {
         const filters: Array<[string, unknown]> = [];
+        let selected = "";
         const chain: Record<string, unknown> = {};
-        for (const method of ["select", "eq"]) {
+        for (const method of ["select", "eq", "is"]) {
           chain[method] = (...args: unknown[]) => {
             calls.push({ table, method, args });
+            if (method === "select") selected = String(args[0]);
             if (method === "eq") filters.push([String(args[0]), args[1]]);
             return chain;
           };
         }
+        chain.then = (onFulfilled: (value: unknown) => unknown) => {
+          if (table !== "order_files") throw new Error(table);
+          return Promise.resolve({ data: null, count: options.attached ?? 0, error: null }).then(onFulfilled);
+        };
         chain.maybeSingle = async () => {
           const tenant = filters.find(([key]) => key === "tenant_id")?.[1];
-          if (table === "orders") return { data: tenant === (options.orderTenant ?? TENANT) ? witnessOrder() : null, error: null };
+          const own = tenant === (options.orderTenant ?? TENANT);
+          if (table === "orders" && selected === "external_folder_url") {
+            return { data: own ? { external_folder_url: witnessOrder().external_folder_url } : null, error: null };
+          }
+          if (table === "orders") return { data: own ? witnessOrder() : null, error: null };
           if (table === "tenant_settings") {
             return {
               data: {
@@ -138,12 +166,18 @@ describe("customer receipt loader (E4)", () => {
     assert.equal(loaded.model.amounts[0].label, "Total pedido");
     assert.equal(loaded.logo?.contentType, "image/png");
     const tables = new Set(supabase.calls.map((call) => call.table));
-    assert.deepEqual([...tables].sort(), ["orders", "rpc:order_collection_v1", "rpc:tenant_has_feature", "tenant_settings"]);
+    assert.deepEqual([...tables].sort(), ["order_files", "orders", "rpc:order_collection_v1", "rpc:tenant_has_feature", "tenant_settings"]);
     assert.deepEqual(
       supabase.calls.filter((call) => call.table === "orders" && call.method === "eq").map((call) => call.args),
-      [["id", ORDER_ID], ["tenant_id", TENANT]]
+      [["id", ORDER_ID], ["tenant_id", TENANT], ["id", ORDER_ID], ["tenant_id", TENANT]]
     );
     assert.deepEqual(supabase.calls.find((call) => call.table === "orders" && call.method === "select")?.args, [CUSTOMER_RECEIPT_SELECT]);
+    // The Drive URL of the witness order is reduced to the name of the service.
+    assert.equal(loaded.model.fileLocation.value, "Ubicación externa (Google Drive)");
+    assert.deepEqual(
+      supabase.calls.filter((call) => call.table === "order_files").map((call) => [call.method, ...call.args]),
+      [["select", "id", { count: "exact", head: true }], ["eq", "tenant_id", TENANT], ["eq", "order_id", ORDER_ID], ["eq", "status", "ready"], ["is", "deleted_at", null]]
+    );
   });
 
   it("answers not_found for another tenant or a malformed id", async () => {
