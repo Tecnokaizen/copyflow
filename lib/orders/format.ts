@@ -242,7 +242,19 @@ export function formatActivityText(item: ActivityItem) {
   if (item.action === "order.total_changed") {
     const from = activityMoney(item.previous_values?.total_amount);
     const to = activityMoney(item.new_values?.total_amount);
-    return `Total: ${from} → ${to}`;
+    // set_order_manual_total_v1: the total stopped coming from the lines.
+    const leftItems = item.previous_values?.total_mode === "items" && item.new_values?.total_mode === "manual";
+    return leftItems ? `Total: ${from} → ${to} (importe directo; las partidas quedan como referencia)` : `Total: ${from} → ${to}`;
+  }
+
+  if (item.action === "order.items_replaced") {
+    const count = Number(item.new_values?.items_count);
+    const lines = Number.isInteger(count) && count >= 0 ? `${count} ${count === 1 ? "partida" : "partidas"}` : "Partidas";
+    if (item.new_values?.total_mode !== "items") return `Partidas guardadas como referencia: ${lines}`;
+    const from = activityMoney(item.previous_values?.total_amount);
+    const to = activityMoney(item.new_values?.total_amount);
+    const vat = item.new_values?.prices_include_tax === true ? "IVA incluido" : "IVA añadido";
+    return `Total por partidas (${lines}, ${vat}): ${from} → ${to}`;
   }
 
   if (item.action === "order.payment_recorded") {

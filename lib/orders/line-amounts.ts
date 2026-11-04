@@ -19,7 +19,7 @@
  * Arithmetic is exact (BigInt fractions); no binary floating point is used.
  */
 
-const SCALE = 1_000_000n; // inputs carry at most 6 decimals
+const SCALE = BigInt(1_000_000); // inputs carry at most 6 decimals
 
 const QUANTITY = /^(0|[1-9]\d{0,11})(\.\d{1,6})?$/;
 const PRICE = /^(0|[1-9]\d{0,11})(\.\d{1,6})?$/;
@@ -56,7 +56,7 @@ function scaled(value: string): bigint {
 }
 
 export function isValidQuantity(value: string): boolean {
-  return QUANTITY.test(value) && scaled(value) > 0n;
+  return QUANTITY.test(value) && scaled(value) > BigInt(0);
 }
 
 export function isValidUnitPrice(value: string): boolean {
@@ -69,12 +69,12 @@ export function isValidPercent(value: string): boolean {
 
 /** Rounds num/den (both ≥ 0, den > 0) to cents, half away from zero. */
 function cents(num: bigint, den: bigint): bigint {
-  return (num * 200n + den) / (den * 2n);
+  return (num * BigInt(200) + den) / (den * BigInt(2));
 }
 
 function money(value: bigint): string {
-  const whole = value / 100n;
-  const fraction = (value % 100n).toString().padStart(2, "0");
+  const whole = value / BigInt(100);
+  const fraction = (value % BigInt(100)).toString().padStart(2, "0");
   return `${whole}.${fraction}`;
 }
 
@@ -86,7 +86,7 @@ function lineCents(input: LineAmountInput, inclusive: boolean) {
   if (!isValidQuantity(quantity) || !isValidUnitPrice(price) || !isValidPercent(discount) || !isValidPercent(rate)) {
     return null;
   }
-  const hundred = 100n * SCALE;
+  const hundred = BigInt(100) * SCALE;
   const q = scaled(quantity);
   const p = scaled(price);
   const d = scaled(discount);
@@ -127,9 +127,9 @@ export function canonicalRate(value: string | null | undefined): string {
 
 /** Per-line amounts, order totals and the per-rate breakdown (sorted by rate). */
 export function summarizeLines(items: LineAmountInput[], inclusive: boolean): LinesSummary {
-  let subtotal = 0n;
-  let tax = 0n;
-  let total = 0n;
+  let subtotal = BigInt(0);
+  let tax = BigInt(0);
+  let total = BigInt(0);
   const invalid: number[] = [];
   const byRate = new Map<string, { subtotal: bigint; tax: bigint; total: bigint; scaled: bigint }>();
   const lines = items.map((item, index) => {
@@ -142,7 +142,7 @@ export function summarizeLines(items: LineAmountInput[], inclusive: boolean): Li
     tax += result.tax;
     total += result.total;
     const rate = canonicalRate(item.tax_rate);
-    const row = byRate.get(rate) ?? { subtotal: 0n, tax: 0n, total: 0n, scaled: scaled(rate) };
+    const row = byRate.get(rate) ?? { subtotal: BigInt(0), tax: BigInt(0), total: BigInt(0), scaled: scaled(rate) };
     row.subtotal += result.subtotal;
     row.tax += result.tax;
     row.total += result.total;
