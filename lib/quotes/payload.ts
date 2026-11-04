@@ -279,6 +279,11 @@ function commercialItem(value: unknown): Ok<QuoteDraftItemInput> | Fail {
   };
 }
 
+/** Validates one commercial line with the quote draft rules. Order lines reuse it. */
+export function parseCommercialItem(value: unknown): Ok<QuoteDraftItemInput> | Fail {
+  return commercialItem(value);
+}
+
 function readWriteFields(payload: Record<string, unknown>): Ok<QuoteWriteInput> | Fail {
   const title = optionalText(payload.title);
   if (!title.ok) {
