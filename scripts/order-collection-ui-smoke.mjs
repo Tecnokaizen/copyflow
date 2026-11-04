@@ -91,6 +91,8 @@ async function setup(width) {
     if (pathname.endsWith("/activity")) return json({ activity: [] });
     if (pathname.endsWith("/files")) return json({ files: [], max_file_bytes: 1048576 });
     if (pathname === "/api/orders/order-1" && method === "GET") return json({ tenant: "demo", order });
+    // Order total calculator: the dialog reads the saved lines (none here).
+    if (pathname.endsWith("/items") && method === "GET") return json({ total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: collection.row_version, items: [] });
     if (pathname.endsWith("/payments") && method === "GET") return failRead ? json({ error: "Lectura de cobro interrumpida" }, 500) : json(collection);
     if (failWrite) { const fail = failWrite; failWrite = null; return json(fail.body, fail.status); }
     if (pathname === "/api/orders/order-1" && method === "PATCH") {

@@ -31,7 +31,7 @@ type Props = {
   onCancel: () => void;
 };
 
-const CONFLICT_MESSAGE = "El pedido ha cambiado mientras editabas. Hemos actualizado su versión y conservado tus datos; revísalos y vuelve a guardar.";
+const CONFLICT_MESSAGE = "El pedido ha cambiado. Hemos actualizado los importes y conservado tus datos; revísalos y vuelve a guardar.";
 
 /**
  * «Definir / Modificar total»: by concepts (lines, VAT included or added) or a
@@ -73,7 +73,7 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
     fetchState().then((loaded) => {
       if (cancelled) return;
       setState(loaded);
-      setMode(initialMode(loaded, initialCollection.total_amount));
+      setMode(initialMode(loaded));
       setInclusive(initialPricesIncludeTax(loaded));
       const loadedRows = loaded.items.map((item) => rowFromItem(item, nextKey()));
       setRows(loadedRows.length > 0 ? loadedRows : [emptyRow(nextKey())]);
@@ -110,7 +110,7 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
       setCollection(latest);
       setError(CONFLICT_MESSAGE);
     } catch {
-      setError("El pedido ha cambiado y no se pudo actualizar. Cierra el diálogo y vuelve a abrirlo antes de guardar.");
+      setError("El pedido ha cambiado. No se pudieron actualizar los importes; cierra el diálogo y vuelve a abrirlo antes de guardar.");
     }
   }
 

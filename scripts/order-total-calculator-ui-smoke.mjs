@@ -133,7 +133,7 @@ async function run() {
       await page.goto(url);
       await page.getByRole("button", { name: "Modificar total" }).click();
 
-      // A typed total exists: opens on «Importe directo»; concepts start empty, VAT included by default.
+      // Manual order: opens on «Importe directo»; concepts start empty, VAT included by default.
       check(await dialog.getByRole("tab", { name: "Importe directo" }).getAttribute("aria-selected"), "true", "opens on direct amount");
       await dialog.getByRole("tab", { name: "Por conceptos" }).click();
       check(await dialog.getByLabel("Precios con IVA incluido").isChecked(), true, "VAT included by default");
@@ -186,8 +186,8 @@ async function run() {
       // Conflict: someone else changed the order; edits stay, version refreshes, retry works.
       db.version += 1;
       await dialog.getByRole("button", { name: "Guardar partidas" }).click();
-      await dialog.getByText(/El pedido ha cambiado mientras editabas/).waitFor();
-      check(await dialog.getByText(/El pedido ha cambiado mientras editabas/).count(), 1, "conflict message");
+      await dialog.getByText(/Hemos actualizado los importes y conservado tus datos/).waitFor();
+      check(await dialog.getByText(/Hemos actualizado los importes y conservado tus datos/).count(), 1, "conflict message");
       check(await preview.textContent(), "21,84 €", "edits kept after conflict");
       await dialog.getByRole("button", { name: "Guardar partidas" }).click();
       await dialog.waitFor({ state: "detached" });

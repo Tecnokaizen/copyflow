@@ -38,10 +38,10 @@ describe("tax rates", () => {
 });
 
 describe("initial state", () => {
-  it("opens in concepts when lines drive the total or there is no total", () => {
-    assert.equal(initialMode(state({ total_mode: "items" }), "12.00"), "items");
-    assert.equal(initialMode(state(), null), "items");
-    assert.equal(initialMode(state(), "12.00"), "direct");
+  it("opens in concepts only when lines drive the total", () => {
+    assert.equal(initialMode(state({ total_mode: "items" })), "items");
+    assert.equal(initialMode(state()), "direct");
+    assert.equal(initialMode(state({ items: [item] })), "direct");
   });
 
   it("defaults to VAT included for a new calculation and keeps the saved choice", () => {

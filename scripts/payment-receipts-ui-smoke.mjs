@@ -47,6 +47,8 @@ async function setup(width=1280, theme='light', query='') {
     events.push({ path:url.pathname,method,body }); let result={};let status=200;
     if (url.pathname === '/api/context') result = { tenant: { id: actor.tenant }, user: { id: actor.user } };
     else if (url.pathname.endsWith('/payments') && method==='GET') result=snapshot();
+    // Order total calculator: the dialog reads the saved lines (none here).
+    else if (url.pathname.endsWith('/items') && method==='GET') result={total_mode:'manual',prices_include_tax:false,items_subtotal:'0.00',items_tax_total:'0.00',items_total:'0.00',row_version:String(version),items:[]};
     else if (url.pathname.endsWith('/payments') && method==='POST') {
       if (!storedKeys.has(body.idempotency_key)) {
         const payment={id:`payment-${payments.length}`,amount:body.amount,paid_at:body.paid_at,payment_method:body.payment_method,receipt:body.receipt_file_id?{id:body.receipt_file_id,original_name:'bizum.pdf'}:null};

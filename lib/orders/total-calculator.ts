@@ -45,10 +45,12 @@ export function rowFromItem(item: OrderItem, key: string): CalculatorRow {
   };
 }
 
-/** Mode the dialog opens in: lines drive the total, or a typed amount exists. */
-export function initialMode(state: OrderItemsState, totalAmount: string | null): CalculatorMode {
-  if (state.total_mode === "items") return "items";
-  return totalAmount ? "direct" : "items";
+/**
+ * Mode the dialog opens in: «Por conceptos» when the lines drive the total;
+ * otherwise «Importe directo», the usual flow (concepts are one click away).
+ */
+export function initialMode(state: OrderItemsState): CalculatorMode {
+  return state.total_mode === "items" ? "items" : "direct";
 }
 
 /** VAT included is the default for a new calculation; saved lines keep theirs. */
