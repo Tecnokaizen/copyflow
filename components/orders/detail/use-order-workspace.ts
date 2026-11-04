@@ -75,6 +75,8 @@ export function normalizeLoadedOrder(order: Order): Order {
     ...order,
     archived_at: order.archived_at ?? null,
     external_folder_url: order.external_folder_url ?? null,
+    invoice_required: order.invoice_required ?? null,
+    invoice_delivered: order.invoice_delivered ?? null,
     client:
       order.client_id && order.client?.id ? order.client : null,
   };
@@ -655,6 +657,26 @@ export function useOrderWorkspace() {
           ...current,
           delivery_method_id: result.order.delivery_method_id,
           delivery_method: nextValue,
+        },
+        result
+      );
+    }
+
+    if (step.kind === "invoice") {
+      const result = await requestSaveStep(
+        `/api/orders/${current.id}/invoice`,
+        {
+          invoice_required: step.invoice_required,
+          invoice_delivered: step.invoice_delivered,
+          expected_version: current.version,
+        },
+        "No se pudo actualizar la factura"
+      );
+      return applyReturnedVersion(
+        {
+          ...current,
+          invoice_required: result.order.invoice_required ?? null,
+          invoice_delivered: result.order.invoice_delivered ?? null,
         },
         result
       );
