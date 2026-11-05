@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { canEditWorkSteps } from "@/lib/orders/work-sequence/access";
 import { WORK_SEQUENCE_MESSAGES, workSequenceErrorResponse } from "@/lib/orders/work-sequence/errors";
-import { isUuidValue, parseStepDoneBody } from "@/lib/orders/work-sequence/payload";
+import { isUuidValue, parseStepDoneBody, parseStepOrderStatus } from "@/lib/orders/work-sequence/payload";
 import { loadOrderHead, loadWorkSequence, workSequenceEnabled } from "@/lib/orders/work-sequence/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentAccess } from "@/lib/tenant/access-response";
@@ -77,10 +77,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return operationalJson({ error: WORK_SEQUENCE_MESSAGES.saveSteps }, { status: 500 });
   }
 
-  const result = (data ?? {}) as { ok?: boolean; changed?: boolean; row_version?: unknown };
+  const result = (data ?? {}) as {
+    ok?: boolean;
+    changed?: boolean;
+    row_version?: unknown;
+    order_status?: unknown;
+    warning?: unknown;
+  };
   if (result.ok !== true) {
     return fail(result, "step");
   }
+  // Addendum 02: the last step moved the order to its ready status
+  // (automatic: true), or an undo left it ready (warning order_stays_ready).
+  const orderStatus = parseStepOrderStatus(result.order_status);
+  const warning = result.warning === "order_stays_ready" ? result.warning : null;
 
   const rowVersion = String(result.row_version);
   const head = await loadOrderHead(supabase, tenantId, id);
@@ -95,5 +105,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     step,
     ...(sequence ?? {}),
     row_version: rowVersion,
+    ...(orderStatus ? { order_status: orderStatus } : {}),
+    ...(warning ? { warning } : {}),
   });
 }

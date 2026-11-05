@@ -215,6 +215,7 @@ export function buildOrderDetailModules(
           ctl.setActivityTick((tick) => tick + 1);
         }}
         onOrderConflict={() => void ctl.loadOrder({ silent: true })}
+        onOrderStatusChange={() => void ctl.loadOrder({ silent: true })}
       />
     ) : null,
 

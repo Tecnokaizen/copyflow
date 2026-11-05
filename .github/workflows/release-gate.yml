@@ -153,6 +153,7 @@ jobs:
             phase62_order_work_sequence_v1 \
             phase63_order_features_isolation \
             phase66_order_invoice_tracking \
+            phase67_order_work_sequence_auto_finish \
             phase68_order_line_item_calculator \
             phase13_order_lifecycle \
             phase14_order_archived_immutability \

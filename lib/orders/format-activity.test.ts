@@ -49,6 +49,42 @@ describe("formatActivityText order.archived", () => {
       "En curso → Listo"
     );
   });
+
+  it("marks the automatic finish of the work sequence (Addendum 02)", () => {
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.status_changed",
+          previous_values: { status_name: "Recibido" },
+          new_values: { status_name: "Listo" },
+          metadata: { automatic: true, trigger: "work_sequence_completed", stage_name: "Impresión" },
+        })
+      ),
+      "Recibido → Listo · automático al completar la última etapa (Impresión)"
+    );
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.status_changed",
+          previous_values: { status_name: "Recibido" },
+          new_values: { status_name: "Terminado" },
+          metadata: { automatic: true },
+        })
+      ),
+      "Recibido → Terminado · automático al completar la secuencia de trabajo"
+    );
+    assert.equal(
+      formatActivityText(
+        item({
+          action: "order.status_changed",
+          previous_values: { status_name: "Recibido" },
+          new_values: { status_name: "Listo" },
+          metadata: { automatic: "true" },
+        })
+      ),
+      "Recibido → Listo"
+    );
+  });
 });
 
 describe("formatActivityText order.content_changed rich text", () => {

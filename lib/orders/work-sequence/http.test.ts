@@ -424,6 +424,54 @@ describe("POST /api/orders/[id]/work-steps/[stepId]/done", () => {
     assert.deepEqual(businessRpcs(undo.rpcCalls)[0].args, { p_step_id: STEP_A, p_done: false, p_executed_by: null });
   });
 
+  it("forwards the automatic finish and the stays-ready warning, dropping malformed values", async () => {
+    const status = { id: STAGE_A3, code: "ready", name: "Terminado", automatic: true };
+    const finished = harness({
+      rpc: { set_order_work_step_done_v1: { ok: true, changed: true, row_version: "9", step: {}, order_status: status } },
+    });
+    const finishedJson = await (
+      await finished.load(DONE_ROUTE).POST(request("POST", { done: true }), doneParams(ORDER_A, STEP_A2))
+    ).json();
+    assert.deepEqual(finishedJson.order_status, status);
+    assert.equal(finishedJson.warning, undefined);
+    assert.equal(finishedJson.row_version, "9");
+
+    const kept = { ...status, automatic: false };
+    const undo = harness({
+      rpc: {
+        set_order_work_step_done_v1: {
+          ok: true, changed: true, row_version: "10", step: {}, order_status: kept, warning: "order_stays_ready",
+        },
+      },
+    });
+    const undoJson = await (
+      await undo.load(DONE_ROUTE).POST(request("POST", { done: false }), doneParams(ORDER_A, STEP_A))
+    ).json();
+    assert.equal(undoJson.warning, "order_stays_ready");
+    assert.deepEqual(undoJson.order_status, kept);
+
+    const plain = harness();
+    const plainJson = await (
+      await plain.load(DONE_ROUTE).POST(request("POST", { done: true }), doneParams(ORDER_A, STEP_A2))
+    ).json();
+    assert.equal("order_status" in plainJson, false);
+    assert.equal("warning" in plainJson, false);
+
+    const odd = harness({
+      rpc: {
+        set_order_work_step_done_v1: {
+          ok: true, changed: true, row_version: "11", step: {},
+          order_status: { id: "x", code: 1, name: null, automatic: "yes", tenant_id: TENANT_B }, warning: "other",
+        },
+      },
+    });
+    const oddJson = await (
+      await odd.load(DONE_ROUTE).POST(request("POST", { done: true }), doneParams(ORDER_A, STEP_A2))
+    ).json();
+    assert.equal("order_status" in oddJson, false);
+    assert.equal("warning" in oddJson, false);
+  });
+
   it("maps every RPC error to its HTTP status", async () => {
     const cases: Array<[string, number]> = [
       ["not_found", 404],
