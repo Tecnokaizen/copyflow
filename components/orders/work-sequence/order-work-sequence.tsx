@@ -16,7 +16,13 @@ import {
   type WorkSequenceWrite,
 } from "@/lib/orders/work-sequence/client";
 import type { AssignableMember, WorkSequenceDto, WorkStepDto } from "@/lib/orders/work-sequence/types";
-import { sequenceProgress, sequenceWarnings, stageLabel } from "@/lib/orders/work-sequence/view";
+import {
+  autoFinishNotice,
+  sequenceProgress,
+  sequenceWarnings,
+  stageLabel,
+  stillReadyNotice,
+} from "@/lib/orders/work-sequence/view";
 import { cn } from "@/lib/utils";
 
 export type OrderWorkSequenceProps = {
@@ -32,6 +38,11 @@ export type OrderWorkSequenceProps = {
   assignableMembers?: readonly AssignableMember[] | null;
   /** Optional: a save hit 409 conflict; the page should reload the order. */
   onOrderConflict?: () => void;
+  /**
+   * Optional (Addendum 02): marking the last step moved the order to its ready
+   * status on the server; the page should reload the order to show it.
+   */
+  onOrderStatusChange?: () => void;
   className?: string;
 };
 
@@ -56,6 +67,7 @@ export function OrderWorkSequence({
   onOrderVersionChange,
   assignableMembers,
   onOrderConflict,
+  onOrderStatusChange,
   className,
 }: OrderWorkSequenceProps) {
   const headingId = useId();
@@ -151,8 +163,11 @@ export function OrderWorkSequence({
     setBusy(false);
     if (result.ok) {
       setMarking(null);
-      setNotice(null);
+      setNotice(autoFinishNotice(result.orderStatus));
       applyWrite(result);
+      if (result.orderStatus?.automatic) {
+        onOrderStatusChange?.();
+      }
       return;
     }
     if (result.error.status === 422) {
@@ -171,7 +186,7 @@ export function OrderWorkSequence({
     setBusy(false);
     setUndoing(null);
     if (result.ok) {
-      setNotice(null);
+      setNotice(stillReadyNotice(result.warning, result.orderStatus));
       applyWrite(result);
       return;
     }

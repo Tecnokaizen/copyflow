@@ -108,6 +108,19 @@ El Resguardo titula siempre el recuadro «Descripción del trabajo», si se apru
 
 El diseño es el de la sección 2 y el de F1·01/02: `work_stages` y `order_work_steps`, con `executed_by_team_member_id` y `completed_by` (FK compuesta a `memberships`, `ON DELETE RESTRICT`), y las RPC `replace_order_work_steps_v1`, `set_order_work_step_done_v1` y la de fases de F1·01/02. Errores: `step_unassigned`, `member_unassignable` y `step_done`. El contrato solo añade dos cosas: la función `order_work_sequence` se comprueba igual que en E5, y la FK nueva hacia `team_members` entra en la revisión de pistas de E1.
 
+### 8.1 Finalización automática (Addendum 02, 04/11/2026)
+
+Migración `20261104130000_order_work_sequence_auto_finish_v1`. Sustituye la regla D10 («terminar pasos nunca cambia el estado») solo en este punto:
+
+- Al **marcar** la última etapa pendiente con `set_order_work_step_done_v1`, la misma transacción pasa el pedido al único estado **activo** del tenant con `is_ready` («Listo», «Terminado»…, por la marca semántica, nunca por el nombre) (D-A). Con 0 o más de un estado así, el estado no cambia y la actividad del paso guarda el motivo (`ready_status_missing` o `ready_status_ambiguous`).
+- Nunca se tocan pedidos ya en un estado `is_ready`, «Entregado» (`is_closed`), «Cancelado» (`is_cancelled`) ni archivados.
+- Solo cambian `status_id` y `ready_at` (si estaba vacío), en el mismo `UPDATE` que ya sube `row_version`: un solo incremento. No cambian la fecha de entrega, los cobros, el aviso al cliente, presupuestos ni archivos, y no se envía nada.
+- `replace_order_work_steps_v1` nunca finaliza, aunque al quitar pasos pendientes queden todos hechos (D-C).
+- **Desmarcar una etapa después no revierte el estado (D-B).** El pedido sigue en «Listo»; la RPC responde `warning: order_stays_ready`, la ficha muestra «El pedido sigue en «Listo». Si vuelve a producción, cambia el estado a mano.» y la actividad `order.work_step_reopened` lleva `metadata.order_stays_ready`.
+- Actividad: un solo `order.status_changed`, con `metadata.automatic = true`, `trigger = work_sequence_completed`, `step_id` y `stage_name`, a nombre de quien marcó la etapa. `order.work_step_completed` lleva `metadata.auto_finish` (`finished` o `skipped` con su motivo).
+- Concurrencia: el pedido se bloquea `FOR UPDATE` al principio de la RPC; dos personas que completan a la vez las últimas etapas producen una sola transición.
+- Pruebas: `phase67_order_work_sequence_auto_finish` (`.sql`) y `phase67_order_work_sequence_auto_finish_concurrency` (`.sh`).
+
 ## 9. Rutas (E6 y E8)
 
 | Ruta | Método | RPC |

@@ -158,6 +158,16 @@ export function formatActivityText(item: ActivityItem) {
   if (item.action === "order.status_changed") {
     const from = item.previous_values?.status_name ?? "—";
     const to = item.new_values?.status_name ?? "—";
+    // Addendum 02: transition made by the backend when the work sequence ends.
+    if (item.metadata?.automatic === true) {
+      const stage =
+        typeof item.metadata.stage_name === "string" && item.metadata.stage_name.trim()
+          ? item.metadata.stage_name.trim()
+          : null;
+      return stage
+        ? `${from} → ${to} · automático al completar la última etapa (${stage})`
+        : `${from} → ${to} · automático al completar la secuencia de trabajo`;
+    }
     return `${from} → ${to}`;
   }
 

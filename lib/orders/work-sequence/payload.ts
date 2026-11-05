@@ -4,6 +4,7 @@ import {
   WORK_STAGE_NAME_MAX,
   WORK_STAGE_SORT_MAX,
   type WorkStepInput,
+  type WorkStepOrderStatusDto,
 } from "@/lib/orders/work-sequence/types";
 
 // SUR4 E8: request validation for the work-sequence routes. Mirrors the checks
@@ -245,4 +246,17 @@ export function parseUpdateStageBody(body: unknown): UpdateStageInput | PayloadE
   }
 
   return out;
+}
+
+/**
+ * Addendum 02: order_status of set_order_work_step_done_v1, kept only when it
+ * has the expected shape (anything else is dropped, never forwarded).
+ */
+export function parseStepOrderStatus(value: unknown): WorkStepOrderStatusDto | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!isUuidValue(record.id)) return null;
+  if (typeof record.code !== "string" || typeof record.name !== "string") return null;
+  if (typeof record.automatic !== "boolean") return null;
+  return { id: record.id, code: record.code, name: record.name, automatic: record.automatic };
 }

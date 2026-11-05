@@ -1,8 +1,11 @@
+import { parseStepOrderStatus } from "@/lib/orders/work-sequence/payload";
 import type {
   AssignableMember,
   WorkSequenceDto,
   WorkStageListDto,
+  WorkStepDoneWarning,
   WorkStepInput,
+  WorkStepOrderStatusDto,
 } from "@/lib/orders/work-sequence/types";
 
 // SUR4 E8: browser calls of the work-sequence API. Every write answers with
@@ -83,7 +86,15 @@ export async function fetchWorkSequence(orderId: string, signal?: AbortSignal): 
 }
 
 export type WorkSequenceWrite =
-  | { ok: true; rowVersion: string; changed: boolean; data: WorkSequenceDto | null }
+  | {
+      ok: true;
+      rowVersion: string;
+      changed: boolean;
+      data: WorkSequenceDto | null;
+      /** Addendum 02: status after marking/undoing a step (only …/done answers it). */
+      orderStatus: WorkStepOrderStatusDto | null;
+      warning: WorkStepDoneWarning | null;
+    }
   | { ok: false; error: WorkSequenceApiError };
 
 async function writeSequence(url: string, method: string, payload: unknown, fallback: string): Promise<WorkSequenceWrite> {
@@ -111,6 +122,8 @@ async function writeSequence(url: string, method: string, payload: unknown, fall
     rowVersion,
     changed: body?.changed === true,
     data: isWorkSequenceDto(body) ? body : null,
+    orderStatus: parseStepOrderStatus(body?.order_status),
+    warning: body?.warning === "order_stays_ready" ? "order_stays_ready" : null,
   };
 }
 
