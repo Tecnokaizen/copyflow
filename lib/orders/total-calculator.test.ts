@@ -156,6 +156,29 @@ describe("describeConflict", () => {
     assert.equal(c.overwrite.kind === "items" && c.overwrite.lost_discounts.length, 0);
   });
 
+  it("a draft line with the same concept and discount keeps it even if its price changed", () => {
+    // Staging 05/11: the draft raised the price of a 5 % line; only the other line's 10 % is lost.
+    const latest = state({
+      total_mode: "items", total_amount: "24.92", row_version: "4",
+      items: [saved({ id: "x1", discount_percent: "5" }), saved({ id: "x2", concept: "Grapado", discount_percent: "10" })],
+    });
+    const draft = [
+      { ...rowFromItem(saved({ discount_percent: "5" }), "a"), unit_price: "1,70" },
+      { ...rowFromItem(saved({ concept: "Grapado", discount_percent: "0" }), "b") },
+    ];
+    const c = describeConflict({ base, latest, mode: "items", rows: draft, inclusive: false, directAmount: null });
+    assert.equal(c.overwrite.kind === "items" && JSON.stringify(c.overwrite.lost_discounts), JSON.stringify([{ concept: "Grapado", discount_percent: "10" }]));
+  });
+
+  it("one draft line covers only one saved line with the same concept and discount", () => {
+    const latest = state({
+      total_mode: "items", total_amount: "19.96", row_version: "4",
+      items: [saved({ id: "x1", discount_percent: "5" }), saved({ id: "x2", discount_percent: "5" })],
+    });
+    const c = describeConflict({ base, latest, mode: "items", rows: [rowFromItem(saved({ discount_percent: "5" }), "a")], inclusive: false, directAmount: null });
+    assert.equal(c.overwrite.kind === "items" && c.overwrite.lost_discounts.length, 1);
+  });
+
   it("only a VAT treatment change also counts as changed lines", () => {
     const latest = { ...base, prices_include_tax: true, row_version: "4" };
     assert.equal(describeConflict({ base, latest, mode: "items", rows: [], inclusive: false, directAmount: null }).lines_changed, true);

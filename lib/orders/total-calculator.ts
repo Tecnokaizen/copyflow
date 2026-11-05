@@ -122,6 +122,10 @@ function lineKey(line: Pick<OrderItemInput, "concept" | "description" | "quantit
   ]);
 }
 
+function discountKey(line: Pick<OrderItemInput, "concept" | "discount_percent">): string {
+  return JSON.stringify([line.concept.trim(), canonicalDecimal(normalizeDecimalInput(line.discount_percent) || "0")]);
+}
+
 function sameLines(a: OrderItem[], b: OrderItem[]): boolean {
   return a.length === b.length && a.every((item, i) => lineKey(item) === lineKey(b[i]));
 }
@@ -145,7 +149,8 @@ export type ConflictSummary = {
 /**
  * Compares the snapshot the draft was based on with the one saved meanwhile,
  * and spells out what overwriting would replace. A discount saved by someone
- * else is "lost" when the draft does not carry that same line.
+ * else is "lost" when no draft line has the same concept with that discount
+ * (each draft line covers one saved line, so duplicates are counted).
  */
 export function describeConflict(input: {
   base: OrderItemsState;
@@ -156,7 +161,18 @@ export function describeConflict(input: {
   directAmount: string | null;
 }): ConflictSummary {
   const { base, latest, mode, rows, inclusive, directAmount } = input;
-  const draftKeys = new Set(rows.map((row) => lineKey(row)));
+  const draftDiscounts = new Map<string, number>();
+  for (const row of rows) {
+    const key = discountKey(row);
+    draftDiscounts.set(key, (draftDiscounts.get(key) ?? 0) + 1);
+  }
+  const keepsDiscount = (item: OrderItem) => {
+    const key = discountKey(item);
+    const left = draftDiscounts.get(key) ?? 0;
+    if (left === 0) return false;
+    draftDiscounts.set(key, left - 1);
+    return true;
+  };
   const overwrite: ConflictSummary["overwrite"] = mode === "items"
     ? {
       kind: "items",
@@ -164,7 +180,7 @@ export function describeConflict(input: {
       draft_lines: rows.length,
       draft_total: summarizeRows(rows, inclusive).total,
       lost_discounts: latest.items
-        .filter((item) => canonicalDecimal(item.discount_percent) !== "0" && !draftKeys.has(lineKey(item)))
+        .filter((item) => canonicalDecimal(item.discount_percent) !== "0" && !keepsDiscount(item))
         .map((item) => ({ concept: item.concept, discount_percent: canonicalDecimal(item.discount_percent) })),
     }
     : { kind: "direct", total_to: directAmount, lines_become_reference: latest.total_mode === "items" };
