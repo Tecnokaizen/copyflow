@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
   MAX_ORDER_ITEMS,
   canonicalDecimal,
+  ORDER_TOTAL_SNAPSHOT_SELECT,
   mapOrderItemsState,
+  mapOrderSnapshot,
   mapReplaceItemsResult,
   orderItemsError,
   parseOrderItemsPayload,
@@ -70,7 +72,7 @@ describe("canonicalDecimal", () => {
 });
 
 const order = {
-  id: "o", total_mode: "items", prices_include_tax: true,
+  id: "o", total_amount: "24.20", total_mode: "items", prices_include_tax: true,
   items_subtotal: "20.00", items_tax_total: "4.20", items_total: "24.20", row_version: "12",
 };
 const row = {
@@ -82,7 +84,7 @@ const row = {
 describe("mapOrderItemsState", () => {
   it("maps database text numerics exactly", () => {
     assert.deepEqual(mapOrderItemsState(order, [{ ...row, id: "i2", position: 2 }, row]), {
-      total_mode: "items", prices_include_tax: true,
+      total_amount: "24.20", total_mode: "items", prices_include_tax: true,
       items_subtotal: "20.00", items_tax_total: "4.20", items_total: "24.20", row_version: "12",
       items: [
         { id: "i1", position: 1, concept: "Copias", description: null, quantity: "100", unit: "ud", unit_price: "0.1", discount_percent: "0", tax_rate: "21", subtotal: "8.26", tax_amount: "1.74", total: "10.00" },
@@ -96,6 +98,11 @@ describe("mapOrderItemsState", () => {
     assert.equal(mapOrderItemsState({ ...order, items_total: 24.2 }, []), null);
     assert.equal(mapOrderItemsState({ ...order, total_mode: "other" }, []), null);
     assert.equal(mapOrderItemsState(order, null), null);
+    assert.equal(mapOrderItemsState({ ...order, total_amount: 24.2 }, []), null);
+  });
+
+  it("keeps an order without a total as null", () => {
+    assert.equal(mapOrderItemsState({ ...order, total_amount: null }, [])?.total_amount, null);
   });
 
   it("reads a manual order without lines", () => {
@@ -105,6 +112,20 @@ describe("mapOrderItemsState", () => {
   it("maps a replace_order_items_v1 response", () => {
     assert.equal(mapReplaceItemsResult({ ok: true, ...order, items: [row] })?.items.length, 1);
     assert.equal(mapReplaceItemsResult({ ok: false, error: "conflict" }), null);
+  });
+});
+
+describe("mapOrderSnapshot", () => {
+  it("reads order and lines from one embedded request", () => {
+    assert.equal(ORDER_TOTAL_SNAPSHOT_SELECT.includes("total_amount::text"), true);
+    assert.equal(ORDER_TOTAL_SNAPSHOT_SELECT.includes("row_version::text"), true);
+    assert.match(ORDER_TOTAL_SNAPSHOT_SELECT, /,order_items\(id,position,.*discount_percent::text.*\)$/);
+    const state = mapOrderSnapshot({ ...order, order_items: [row] });
+    assert.equal(state?.total_amount, "24.20");
+    assert.equal(state?.row_version, "12");
+    assert.equal(state?.items.length, 1);
+    assert.equal(mapOrderSnapshot({ ...order }), null, "missing embedded lines is an error, not an empty list");
+    assert.equal(mapOrderSnapshot(null), null);
   });
 });
 

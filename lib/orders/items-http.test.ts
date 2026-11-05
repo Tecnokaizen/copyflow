@@ -11,7 +11,7 @@ import { isUuid } from "../team/payload";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const order = {
-  id: ID, total_mode: "manual", prices_include_tax: false,
+  id: ID, total_amount: "40.00", total_mode: "manual", prices_include_tax: false,
   items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: "4",
 };
 const line = { concept: "Copias", description: null, quantity: "100", unit: "ud", unit_price: "0.10", discount_percent: "0", tax_rate: "21" };
@@ -29,14 +29,17 @@ function harness(route: "items" | "total", options: Options = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const filters: Array<[string, string, unknown]> = [];
   const selects: Array<[string, string]> = [];
+  const tables: string[] = [];
+  const orders: Array<[string, unknown]> = [];
   const supabase = {
     from(table: string) {
+      tables.push(table);
       const chain = {
         select(columns: string) { selects.push([table, columns]); return chain; },
         eq(key: string, value: unknown) { filters.push([table, key, value]); return chain; },
         in() { return chain; },
-        order() { return chain; },
-        maybeSingle: async () => ({ data: options.missing ? null : order, error: null }),
+        order(column: string, opts?: unknown) { orders.push([column, opts]); return chain; },
+        maybeSingle: async () => ({ data: options.missing ? null : { ...order, order_items: [savedLine] }, error: null }),
         then(resolve: (value: unknown) => unknown) {
           return Promise.resolve({ data: table === "order_items" ? [savedLine] : [], error: null }).then(resolve);
         },
@@ -73,7 +76,7 @@ function harness(route: "items" | "total", options: Options = {}) {
     (name: string) => dependencies[name] ?? nativeRequire(name), routeModule, routeModule.exports,
   );
   return {
-    calls, filters, selects,
+    calls, filters, selects, tables, orders,
     invoke: (method: string, body?: unknown, id = ID) => routeModule.exports[method](
       new Request(`http://a.local/api/orders/${id}/${route}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
       { params: Promise.resolve({ id }) },
@@ -84,17 +87,23 @@ function harness(route: "items" | "total", options: Options = {}) {
 const putBody = { expected_version: "4", prices_include_tax: true, items: [line] };
 
 describe("GET /api/orders/[id]/items", () => {
-  it("reads lines of the current tenant as exact text", async () => {
+  it("reads total, mode, version and lines of the current tenant in ONE request, as exact text", async () => {
     const h = harness("items");
     const response = await h.invoke("GET");
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.total_mode, "manual");
+    assert.equal(body.total_amount, "40.00");
+    assert.equal(body.row_version, "4");
     assert.equal(body.items[0].quantity, "100");
     assert.equal(body.items[0].total, "12.10");
+    // A single embedded read is a single SQL statement: one snapshot, so a
+    // write landing between "read the order" and "read the lines" cannot mix them.
+    assert.deepEqual(h.tables, ["orders"]);
+    assert.deepEqual(h.selects, [["orders", items.ORDER_TOTAL_SNAPSHOT_SELECT]]);
+    assert.deepEqual(h.orders, [["position", { referencedTable: "order_items" }]]);
     assert.ok(h.filters.some(([table, key, value]) => table === "orders" && key === "tenant_id" && value === "tenant-a"));
-    assert.ok(h.filters.some(([table, key, value]) => table === "order_items" && key === "tenant_id" && value === "tenant-a"));
-    assert.ok(h.selects.some(([table, columns]) => table === "order_items" && columns.includes("quantity::text")));
+    assert.ok(h.filters.some(([table, key, value]) => table === "orders" && key === "id" && value === ID));
   });
 
   it("requires a tenant session, a uuid and an order of the tenant", async () => {

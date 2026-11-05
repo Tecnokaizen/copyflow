@@ -6,9 +6,11 @@ import type { OrderCollection } from "@/lib/orders/collection";
 import type { OrderItemsState } from "@/lib/orders/items";
 import { canonicalMoney, formatOrderMoney } from "@/lib/orders/money";
 import { DEFAULT_ORDER_TAX_RATE, taxRateLabel, taxRateOptions } from "@/lib/orders/tax-rates";
+import type { ConflictSummary } from "@/lib/orders/total-calculator";
 import {
   applyRateToAll,
   compareMoney,
+  decimalForInput,
   duplicateRow,
   emptyRow,
   firstInvalidRow,
@@ -16,6 +18,8 @@ import {
   initialMode,
   initialPricesIncludeTax,
   itemsPayload,
+  describeConflict,
+  directInputFor,
   removeRow,
   rowFromItem,
   summarizeRows,
@@ -31,30 +35,41 @@ type Props = {
   onCancel: () => void;
 };
 
-const CONFLICT_MESSAGE = "El pedido ha cambiado. Hemos actualizado los importes y conservado tus datos; revísalos y vuelve a guardar.";
+const STALE_MESSAGE = "El pedido ha cambiado y no se pudo cargar la versión actual. Tus cambios no se han guardado; cierra el diálogo y vuelve a abrirlo.";
 
 /**
  * «Definir / Modificar total»: by concepts (lines, VAT included or added) or a
  * direct amount. Previews amounts while typing; the database calculates and
  * stores the real ones. Payments are never changed here.
+ *
+ * Concurrency: total, mode, lines and row_version come from one snapshot
+ * (GET /items). A save carries that row_version; after a conflict the draft is
+ * never attached silently to the new version: the user sees the current
+ * version and chooses to load it (dropping the draft) or to overwrite it.
  */
 export function OrderTotalDialog({ orderId, collection: initialCollection, title, onSaved, onCancel }: Props) {
   const [collection, setCollection] = useState(initialCollection);
+  // The snapshot the draft is based on; its row_version goes with every save.
   const [state, setState] = useState<OrderItemsState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<CalculatorMode>("items");
   const [rows, setRows] = useState<CalculatorRow[]>([]);
   const [inclusive, setInclusive] = useState(true);
   const [commonRate, setCommonRate] = useState(DEFAULT_ORDER_TAX_RATE);
-  const [direct, setDirect] = useState(initialCollection.total_amount?.replace(".", ",") ?? "");
+  const [direct, setDirect] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorRow, setErrorRow] = useState<number | null>(null);
   const [touched, setTouched] = useState(false);
+  // Version saved by someone else after a conflict, until the user decides.
+  const [latest, setLatest] = useState<OrderItemsState | null>(null);
+  const [confirmingOverwrite, setConfirmingOverwrite] = useState(false);
+  // The current version could not be loaded after a conflict: saving is blocked.
+  const [stale, setStale] = useState(false);
   const keySeed = useRef(0);
   const nextKey = () => `row-${++keySeed.current}`;
 
-  async function fetchState(): Promise<OrderItemsState> {
+  async function fetchSnapshot(): Promise<OrderItemsState> {
     const response = await fetch(`/api/orders/${orderId}/items`, { cache: "no-store" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "No se pudieron cargar las partidas");
@@ -68,22 +83,29 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
     return body as OrderCollection;
   }
 
+  /** Makes a snapshot the draft: lines, VAT treatment and direct amount. */
+  function applySnapshot(loaded: OrderItemsState, chooseMode: boolean) {
+    setState(loaded);
+    if (chooseMode) setMode(initialMode(loaded));
+    setInclusive(initialPricesIncludeTax(loaded));
+    setDirect(directInputFor(loaded));
+    const loadedRows = loaded.items.map((item) => rowFromItem(item, nextKey()));
+    setRows(loadedRows.length > 0 ? loadedRows : [emptyRow(nextKey())]);
+    const rates = [...new Set(loadedRows.map((row) => row.tax_rate))];
+    if (rates.length === 1) setCommonRate(rates[0]);
+    setTouched(false);
+    setErrorRow(null);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    fetchState().then((loaded) => {
-      if (cancelled) return;
-      setState(loaded);
-      setMode(initialMode(loaded));
-      setInclusive(initialPricesIncludeTax(loaded));
-      const loadedRows = loaded.items.map((item) => rowFromItem(item, nextKey()));
-      setRows(loadedRows.length > 0 ? loadedRows : [emptyRow(nextKey())]);
-      const rates = [...new Set(loadedRows.map((row) => row.tax_rate))];
-      if (rates.length === 1) setCommonRate(rates[0]);
+    fetchSnapshot().then((loaded) => {
+      if (!cancelled) applySnapshot(loaded, true);
     }).catch((err: unknown) => {
       if (!cancelled) setLoadError(err instanceof Error ? err.message : "No se pudieron cargar las partidas");
     });
     return () => { cancelled = true; };
-    // Load once per opening; later refreshes keep the user's edits.
+    // Load once per opening; a conflict loads the current version on demand.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
@@ -95,6 +117,9 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
   const paid = compareMoney(collection.paid_amount, "0.00") === 1;
   const savedLines = state?.items.length ?? 0;
   const itemsMode = state?.total_mode === "items";
+  const conflict = state && latest
+    ? describeConflict({ base: state, latest, mode, rows, inclusive, directAmount })
+    : null;
 
   function update(index: number, patch: Partial<CalculatorRow>) {
     setTouched(true);
@@ -102,20 +127,41 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  /** After a 409: refresh version and amounts, keep what the user typed. */
-  async function refreshAfterConflict() {
+  /** After a 409: load the current version and show it; the draft stays as is. */
+  async function showConflict() {
+    setConfirmingOverwrite(false);
     try {
-      const [loaded, latest] = await Promise.all([fetchState(), fetchCollection()]);
-      setState(loaded);
-      setCollection(latest);
-      setError(CONFLICT_MESSAGE);
+      const [loaded, current] = await Promise.all([fetchSnapshot(), fetchCollection()]);
+      setLatest(loaded);
+      setCollection(current);
+      setError(null);
     } catch {
-      setError("El pedido ha cambiado. No se pudieron actualizar los importes; cierra el diálogo y vuelve a abrirlo antes de guardar.");
+      setStale(true);
+      setError(STALE_MESSAGE);
     }
   }
 
-  async function saveItems() {
-    if (!state) return;
+  /** «Descartar mis cambios»: the current version becomes the draft. */
+  function loadLatest() {
+    if (!latest) return;
+    applySnapshot(latest, false);
+    setLatest(null);
+    setConfirmingOverwrite(false);
+    setError(null);
+  }
+
+  /** «Sí, reemplazar»: save the draft against the version the user has just seen. */
+  function overwriteWithDraft() {
+    if (!latest) return;
+    const basis = latest;
+    setState(basis);
+    setLatest(null);
+    setConfirmingOverwrite(false);
+    void (mode === "items" ? saveItems(basis) : saveDirect(basis));
+  }
+
+  async function saveItems(basis: OrderItemsState | null = state) {
+    if (!basis) return;
     if (invalidRow !== null) {
       setErrorRow(invalidRow);
       setError(`Revisa la partida ${invalidRow + 1}: concepto, cantidad, precio e IVA.`);
@@ -127,11 +173,11 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
       const response = await fetch(`/api/orders/${orderId}/items`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(itemsPayload(rows, inclusive, state.row_version)),
+        body: JSON.stringify(itemsPayload(rows, inclusive, basis.row_version)),
       });
       const body = await response.json();
       if (response.status === 409 && body.code === "conflict") {
-        await refreshAfterConflict();
+        await showConflict();
         return;
       }
       if (!response.ok) {
@@ -146,8 +192,8 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
     }
   }
 
-  async function saveDirect() {
-    if (!state || !directAmount) {
+  async function saveDirect(basis: OrderItemsState | null = state) {
+    if (!basis || !directAmount) {
       setError("El importe no es válido.");
       return;
     }
@@ -159,11 +205,11 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
         headers: { "Content-Type": "application/json" },
         // One atomic call: when the total came from lines, the database leaves
         // items mode and sets the amount together, or does nothing.
-        body: JSON.stringify({ total_amount: directAmount, expected_version: state.row_version, ...(itemsMode ? { leave_items: true } : {}) }),
+        body: JSON.stringify({ total_amount: directAmount, expected_version: basis.row_version, ...(basis.total_mode === "items" ? { leave_items: true } : {}) }),
       });
       const body = await response.json();
       if (response.status === 409 && body.code === "conflict") {
-        await refreshAfterConflict();
+        await showConflict();
         return;
       }
       if (!response.ok) throw new Error(body.error ?? "No se pudo guardar el total");
@@ -175,7 +221,7 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
     }
   }
 
-  const confirmDisabled = busy || !state || (mode === "items" ? belowPaid || rows.length === 0 : !directAmount || directBelowPaid);
+  const confirmDisabled = busy || !state || stale || latest !== null || (mode === "items" ? belowPaid || rows.length === 0 : !directAmount || directBelowPaid);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -330,6 +376,12 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
           </div>
         ) : null}
 
+        {latest && conflict ? (
+          <ConflictPanel latest={latest} conflict={conflict} confirming={confirmingOverwrite} busy={busy}
+            onLoadLatest={loadLatest} onAskOverwrite={() => setConfirmingOverwrite(true)}
+            onOverwrite={overwriteWithDraft} onBack={() => setConfirmingOverwrite(false)} />
+        ) : null}
+
         {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -341,5 +393,106 @@ export function OrderTotalDialog({ orderId, collection: initialCollection, title
         </div>
       </div>
     </div>
+  );
+}
+
+const MODE_LABEL = { items: "por partidas", manual: "importe directo" } as const;
+
+function percent(value: string) {
+  return `${decimalForInput(value)} %`;
+}
+
+type ConflictPanelProps = {
+  latest: OrderItemsState;
+  conflict: ConflictSummary;
+  confirming: boolean;
+  busy: boolean;
+  onLoadLatest: () => void;
+  onAskOverwrite: () => void;
+  onOverwrite: () => void;
+  onBack: () => void;
+};
+
+/** Shows the version saved meanwhile and asks for an explicit decision. */
+function ConflictPanel({ latest, conflict, confirming, busy, onLoadLatest, onAskOverwrite, onOverwrite, onBack }: ConflictPanelProps) {
+  const { overwrite } = conflict;
+  const totalChanged = conflict.total_before !== conflict.total_now;
+  return (
+    <section aria-labelledby="order-total-conflict-title" data-testid="order-total-conflict"
+      className="mt-4 grid gap-3 rounded-[var(--radius)] border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
+      <div role="alert" className="grid gap-1">
+        <h4 id="order-total-conflict-title" className="font-semibold">Otra persona ha guardado cambios en este pedido</h4>
+        <p>Tus cambios no se han guardado y siguen en pantalla. Revisa la versión actual y elige qué hacer.</p>
+      </div>
+      <dl className="grid gap-1">
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="text-muted-foreground">Total ahora:</dt>
+          <dd><strong>{latest.total_amount ? formatOrderMoney(latest.total_amount) : "sin definir"}</strong> ({MODE_LABEL[latest.total_mode]})</dd>
+        </div>
+        {totalChanged || conflict.mode_before !== conflict.mode_now ? (
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-muted-foreground">Cuando abriste el diálogo:</dt>
+            <dd>{conflict.total_before ? formatOrderMoney(conflict.total_before) : "sin definir"} ({MODE_LABEL[conflict.mode_before]})</dd>
+          </div>
+        ) : null}
+      </dl>
+      {latest.items.length > 0 ? (
+        <div className="grid gap-1">
+          <p className="font-medium">
+            Partidas guardadas ahora{conflict.lines_changed ? " (han cambiado)" : " (sin cambios)"} · precios con IVA {latest.prices_include_tax ? "incluido" : "añadido"}
+          </p>
+          <ul className="grid gap-1" data-testid="order-total-conflict-lines">
+            {latest.items.map((item) => (
+              <li key={item.id} className="flex flex-wrap justify-between gap-x-3 border-t border-border/60 pt-1">
+                <span className="min-w-0 break-words">
+                  {item.concept} · {decimalForInput(item.quantity)} × {decimalForInput(item.unit_price, 2)} € · IVA {percent(item.tax_rate)}
+                  {decimalForInput(item.discount_percent) !== "0" ? <strong> · Descuento {percent(item.discount_percent)}</strong> : null}
+                </span>
+                <span className="tabular-nums">{formatOrderMoney(item.total)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {confirming ? (
+        <div role="alert" className="grid gap-2 rounded-[var(--radius)] border border-destructive/60 bg-background p-3">
+          {overwrite.kind === "items" ? (
+            <>
+              <p>
+                {overwrite.replaced_lines > 0
+                  ? `Se reemplazarán las ${overwrite.replaced_lines} ${overwrite.replaced_lines === 1 ? "partida guardada" : "partidas guardadas"} ahora por tus ${overwrite.draft_lines} (total ${formatOrderMoney(overwrite.draft_total)}).`
+                  : `Se guardarán tus ${overwrite.draft_lines} ${overwrite.draft_lines === 1 ? "partida" : "partidas"} (total ${formatOrderMoney(overwrite.draft_total)}) y el total pasará a calcularse con ellas.`}
+              </p>
+              {overwrite.lost_discounts.length > 0 ? (
+                <p className="font-medium text-destructive">
+                  Se perderán estos descuentos: {overwrite.lost_discounts.map((line) => `«${line.concept}» (${percent(line.discount_percent)})`).join(", ")}.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p>El total pasará de {latest.total_amount ? formatOrderMoney(latest.total_amount) : "sin definir"} a {overwrite.total_to ? formatOrderMoney(overwrite.total_to) : "—"}.</p>
+              {overwrite.lines_become_reference ? (
+                <p>Las partidas actuales se conservarán como referencia y dejarán de determinar el total.</p>
+              ) : null}
+            </>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="min-h-10" disabled={busy} onClick={onBack}>Volver</Button>
+            <Button type="button" variant="destructive" className="min-h-10" disabled={busy} onClick={onOverwrite}>Sí, reemplazar con mis cambios</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button type="button" variant="outline" className="min-h-10 whitespace-normal" disabled={busy} onClick={onLoadLatest}>
+            Descartar mis cambios y cargar esta versión
+          </Button>
+          <Button type="button" variant="outline" className="min-h-10 whitespace-normal" disabled={busy} onClick={onAskOverwrite}>
+            Reemplazarla con mis cambios…
+          </Button>
+        </div>
+      )}
+    </section>
   );
 }

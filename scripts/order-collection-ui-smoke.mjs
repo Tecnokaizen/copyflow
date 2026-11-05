@@ -91,8 +91,8 @@ async function setup(width) {
     if (pathname.endsWith("/activity")) return json({ activity: [] });
     if (pathname.endsWith("/files")) return json({ files: [], max_file_bytes: 1048576 });
     if (pathname === "/api/orders/order-1" && method === "GET") return json({ tenant: "demo", order });
-    // Order total calculator: the dialog reads the saved lines (none here).
-    if (pathname.endsWith("/items") && method === "GET") return json({ total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: collection.row_version, items: [] });
+    // Order total calculator: one snapshot with total, version and saved lines (none here).
+    if (pathname.endsWith("/items") && method === "GET") return json({ total_amount: collection.total_amount, total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: collection.row_version, items: [] });
     if (pathname.endsWith("/payments") && method === "GET") return failRead ? json({ error: "Lectura de cobro interrumpida" }, 500) : json(collection);
     if (failWrite) { const fail = failWrite; failWrite = null; return json(fail.body, fail.status); }
     if (pathname === "/api/orders/order-1" && method === "PATCH") {
@@ -148,28 +148,32 @@ try {
     check(h.stored().total_amount, "120.00", "Total is saved after status change");
 
     // Another session changes the order after the dialog opens: reject, preserve draft,
-    // refresh snapshot, and send exactly one new write only on explicit confirmation.
+    // show the current version, and send exactly one new write only on explicit choice.
     await openTotal(h);
     h.bump();
     const conflictReads = reads(h);
     const conflictWrites = writes(h).length;
     await saveTotal(h, "130");
-    await page.getByRole("dialog").getByRole("alert").filter({ hasText: "Hemos actualizado los importes" }).waitFor();
+    await page.getByRole("dialog").getByRole("alert").filter({ hasText: "Otra persona ha guardado cambios en este pedido" }).waitFor();
     check(await page.getByRole("dialog").getByLabel("Importe").inputValue(), "130", "Conflict keeps entered total");
     check(reads(h), conflictReads + 1, "Actual conflict refreshes exactly once");
     check(writes(h).length, conflictWrites + 1, "No automatic monetary retry");
+    check(await page.getByRole("button", { name: "Guardar total", exact: true }).isDisabled(), true, "Saving waits for an explicit choice");
     await page.screenshot({ path: path.join(out, `conflict-${width}.png`), fullPage: true });
     const refreshedVersion = h.stored().row_version;
-    await page.getByRole("button", { name: "Guardar total", exact: true }).click();
+    await page.getByRole("button", { name: "Reemplazarla con mis cambios…", exact: true }).click();
+    await page.getByRole("dialog").getByText("El total pasará de 120,00 € a 130,00 €.").waitFor();
+    await page.getByRole("button", { name: "Sí, reemplazar con mis cambios", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "hidden" });
-    check(writes(h).at(-1).body.expected_version, refreshedVersion, "Explicit retry uses refreshed version");
+    check(writes(h).at(-1).body.expected_version, refreshedVersion, "Explicit overwrite uses the version the user has seen");
     check(h.stored().total_amount, "130.00", "Explicit confirmation succeeds");
 
-    // Failed refresh must not claim that data was refreshed.
+    // Failed refresh must not claim that data was refreshed, and blocks saving.
     await openTotal(h); h.bump(); h.setReadFail(true);
     await saveTotal(h, "140");
-    await page.getByRole("dialog").getByRole("alert").filter({ hasText: "No se pudieron actualizar los importes" }).waitFor();
+    await page.getByRole("dialog").getByRole("alert").filter({ hasText: "no se pudo cargar la versión actual" }).waitFor();
     check(await page.getByRole("dialog").getByLabel("Importe").inputValue(), "140", "Failed refresh keeps draft");
+    check(await page.getByRole("button", { name: "Guardar total", exact: true }).isDisabled(), true, "Stale draft cannot be saved");
     h.setReadFail(false);
     await page.getByRole("dialog").getByRole("button", { name: "Cancelar", exact: true }).click();
 

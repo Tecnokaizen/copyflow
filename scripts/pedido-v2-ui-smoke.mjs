@@ -103,7 +103,7 @@ try {
       }
       // Order total calculator: the dialog reads the saved lines (none here).
       if (pathname === "/api/orders/saved-order/items" && req.method() === "GET") return json({
-        total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00",
+        total_amount: collection.total_amount, total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00",
         items_total: "0.00", row_version: collection.row_version, items: [],
       });
       if (pathname === "/api/orders/saved-order/total") {

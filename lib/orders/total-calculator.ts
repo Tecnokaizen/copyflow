@@ -53,6 +53,11 @@ export function initialMode(state: OrderItemsState): CalculatorMode {
   return state.total_mode === "items" ? "items" : "direct";
 }
 
+/** Direct amount input for a snapshot: "12.30" → "12,30"; no total → "". */
+export function directInputFor(state: OrderItemsState): string {
+  return state.total_amount?.replace(".", ",") ?? "";
+}
+
 /** VAT included is the default for a new calculation; saved lines keep theirs. */
 export function initialPricesIncludeTax(state: OrderItemsState): boolean {
   return state.items.length > 0 ? state.prices_include_tax : true;
@@ -106,4 +111,69 @@ export function compareMoney(a: string | null | undefined, b: string | null | un
   const x = BigInt(a.replace(".", ""));
   const y = BigInt(b.replace(".", ""));
   return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** The editable content of a line (what a save would send), for comparisons. */
+function lineKey(line: Pick<OrderItemInput, "concept" | "description" | "quantity" | "unit" | "unit_price" | "discount_percent" | "tax_rate">): string {
+  const number = (value: string) => canonicalDecimal(normalizeDecimalInput(value) || "0");
+  return JSON.stringify([
+    line.concept.trim(), line.description ?? null, number(line.quantity), line.unit ?? null,
+    number(line.unit_price), number(line.discount_percent), number(line.tax_rate),
+  ]);
+}
+
+function sameLines(a: OrderItem[], b: OrderItem[]): boolean {
+  return a.length === b.length && a.every((item, i) => lineKey(item) === lineKey(b[i]));
+}
+
+export type ConflictLine = { concept: string; discount_percent: string };
+
+export type ConflictSummary = {
+  /** Total before (what the draft was based on) and now (saved by someone else). */
+  total_before: string | null;
+  total_now: string | null;
+  mode_before: OrderItemsState["total_mode"];
+  mode_now: OrderItemsState["total_mode"];
+  /** The saved lines or their VAT treatment changed since the draft was loaded. */
+  lines_changed: boolean;
+  /** What «overwrite with my draft» would do. */
+  overwrite:
+    | { kind: "items"; replaced_lines: number; draft_lines: number; draft_total: string | null; lost_discounts: ConflictLine[] }
+    | { kind: "direct"; total_to: string | null; lines_become_reference: boolean };
+};
+
+/**
+ * Compares the snapshot the draft was based on with the one saved meanwhile,
+ * and spells out what overwriting would replace. A discount saved by someone
+ * else is "lost" when the draft does not carry that same line.
+ */
+export function describeConflict(input: {
+  base: OrderItemsState;
+  latest: OrderItemsState;
+  mode: CalculatorMode;
+  rows: CalculatorRow[];
+  inclusive: boolean;
+  directAmount: string | null;
+}): ConflictSummary {
+  const { base, latest, mode, rows, inclusive, directAmount } = input;
+  const draftKeys = new Set(rows.map((row) => lineKey(row)));
+  const overwrite: ConflictSummary["overwrite"] = mode === "items"
+    ? {
+      kind: "items",
+      replaced_lines: latest.items.length,
+      draft_lines: rows.length,
+      draft_total: summarizeRows(rows, inclusive).total,
+      lost_discounts: latest.items
+        .filter((item) => canonicalDecimal(item.discount_percent) !== "0" && !draftKeys.has(lineKey(item)))
+        .map((item) => ({ concept: item.concept, discount_percent: canonicalDecimal(item.discount_percent) })),
+    }
+    : { kind: "direct", total_to: directAmount, lines_become_reference: latest.total_mode === "items" };
+  return {
+    total_before: base.total_amount,
+    total_now: latest.total_amount,
+    mode_before: base.total_mode,
+    mode_now: latest.total_mode,
+    lines_changed: base.prices_include_tax !== latest.prices_include_tax || !sameLines(base.items, latest.items),
+    overwrite,
+  };
 }

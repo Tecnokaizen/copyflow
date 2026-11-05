@@ -29,6 +29,8 @@ export type OrderItem = OrderItemInput & {
 };
 
 export type OrderItemsState = {
+  /** Order total at the same instant as the lines and row_version. */
+  total_amount: string | null;
   total_mode: OrderTotalMode;
   prices_include_tax: boolean;
   items_subtotal: string;
@@ -46,9 +48,15 @@ export type OrderItemsPayload = {
 
 /** PostgREST select lists that return numerics as exact text. */
 export const ORDER_ITEMS_ORDER_SELECT =
-  "id,total_mode,prices_include_tax,items_subtotal::text,items_tax_total::text,items_total::text,row_version::text";
+  "id,total_amount::text,total_mode,prices_include_tax,items_subtotal::text,items_tax_total::text,items_total::text,row_version::text";
 export const ORDER_ITEMS_SELECT =
   "id,position,concept,description,quantity::text,unit,unit_price::text,discount_percent::text,tax_rate::text,subtotal::text,tax_amount::text,total::text";
+/**
+ * The order and its lines embedded in ONE request: PostgREST runs it as a single
+ * SQL statement, so total, mode, lines and row_version come from the same
+ * snapshot. Two separate reads could mix two moments.
+ */
+export const ORDER_TOTAL_SNAPSHOT_SELECT = `${ORDER_ITEMS_ORDER_SELECT},order_items(${ORDER_ITEMS_SELECT})`;
 
 const MONEY = /^\d+\.\d{2}$/;
 const DECIMAL = /^\d+(\.\d+)?$/;
@@ -154,6 +162,8 @@ export function mapOrderItemsState(order: unknown, rows: unknown): OrderItemsSta
   const tax = money(row.items_tax_total);
   const total = money(row.items_total);
   const version = typeof row.row_version === "string" && /^[0-9]+$/.test(row.row_version) ? row.row_version : null;
+  const orderTotal = row.total_amount == null ? null : money(row.total_amount);
+  if (row.total_amount != null && !orderTotal) return null;
   if (!mode || typeof row.prices_include_tax !== "boolean" || !subtotal || !tax || !total || !version) return null;
   const items: OrderItem[] = [];
   for (const value of rows) {
@@ -163,6 +173,7 @@ export function mapOrderItemsState(order: unknown, rows: unknown): OrderItemsSta
   }
   items.sort((a, b) => a.position - b.position);
   return {
+    total_amount: orderTotal,
     total_mode: mode,
     prices_include_tax: row.prices_include_tax,
     items_subtotal: subtotal,
@@ -171,6 +182,12 @@ export function mapOrderItemsState(order: unknown, rows: unknown): OrderItemsSta
     row_version: version,
     items,
   };
+}
+
+/** Read model from the single-request snapshot (order row with embedded lines). */
+export function mapOrderSnapshot(value: unknown): OrderItemsState | null {
+  const row = record(value);
+  return row ? mapOrderItemsState(row, row.order_items) : null;
 }
 
 /** Read model from a successful replace_order_items_v1 response. */

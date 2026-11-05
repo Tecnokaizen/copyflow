@@ -6,6 +6,8 @@ import {
   applyRateToAll,
   compareMoney,
   decimalForInput,
+  describeConflict,
+  directInputFor,
   duplicateRow,
   emptyRow,
   firstInvalidRow,
@@ -19,7 +21,7 @@ import {
 } from "./total-calculator";
 
 const state = (overrides: Partial<OrderItemsState> = {}): OrderItemsState => ({
-  total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: "3", items: [],
+  total_amount: "50.00", total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00", items_total: "0.00", row_version: "3", items: [],
   ...overrides,
 });
 const item = {
@@ -42,6 +44,11 @@ describe("initial state", () => {
     assert.equal(initialMode(state({ total_mode: "items" })), "items");
     assert.equal(initialMode(state()), "direct");
     assert.equal(initialMode(state({ items: [item] })), "direct");
+  });
+
+  it("takes the direct amount from the same snapshot as the version", () => {
+    assert.equal(directInputFor(state({ total_amount: "12.30" })), "12,30");
+    assert.equal(directInputFor(state({ total_amount: null })), "");
   });
 
   it("defaults to VAT included for a new calculation and keeps the saved choice", () => {
@@ -111,5 +118,55 @@ describe("compareMoney", () => {
     assert.equal(compareMoney("100.00", "99.99"), 1);
     assert.equal(compareMoney(null, "1.00"), null);
     assert.equal(compareMoney("1", "1.00"), null);
+  });
+});
+
+describe("describeConflict", () => {
+  const saved = (overrides: Partial<typeof item> = {}) => ({ ...item, ...overrides });
+  const base = state({ total_mode: "items", total_amount: "10.50", items: [saved({ discount_percent: "0" })], row_version: "3" });
+
+  it("someone changed the direct amount: shows before and now, overwrite sets the typed total", () => {
+    const latest = state({ total_amount: "80.00", row_version: "4" });
+    const c = describeConflict({ base: state({ row_version: "3" }), latest, mode: "direct", rows: [], inclusive: true, directAmount: "60.00" });
+    assert.equal(c.total_before, "50.00");
+    assert.equal(c.total_now, "80.00");
+    assert.equal(c.lines_changed, false);
+    assert.deepEqual(c.overwrite, { kind: "direct", total_to: "60.00", lines_become_reference: false });
+  });
+
+  it("someone saved other lines with a hidden discount: overwrite names the discount that would be lost", () => {
+    const latest = state({
+      total_mode: "items", total_amount: "9.98", row_version: "4",
+      items: [saved({ id: "x1", discount_percent: "5", total: "9.98" }), saved({ id: "x2", concept: "Grapado", discount_percent: "0" })],
+    });
+    const draft = [rowFromItem(base.items[0], "a"), { ...emptyRow("b"), concept: "Plastificado", unit_price: "3" }];
+    const c = describeConflict({ base, latest, mode: "items", rows: draft, inclusive: false, directAmount: null });
+    assert.equal(c.lines_changed, true);
+    assert.equal(c.overwrite.kind, "items");
+    if (c.overwrite.kind !== "items") return;
+    assert.equal(c.overwrite.replaced_lines, 2);
+    assert.equal(c.overwrite.draft_lines, 2);
+    assert.deepEqual(c.overwrite.lost_discounts, [{ concept: "Copias", discount_percent: "5" }]);
+  });
+
+  it("a discount the draft already carries is not reported as lost", () => {
+    const withDiscount = saved({ discount_percent: "5" });
+    const latest = state({ total_mode: "items", total_amount: "9.98", row_version: "4", items: [withDiscount] });
+    const c = describeConflict({ base, latest, mode: "items", rows: [rowFromItem(withDiscount, "a")], inclusive: false, directAmount: null });
+    assert.equal(c.overwrite.kind === "items" && c.overwrite.lost_discounts.length, 0);
+  });
+
+  it("only a VAT treatment change also counts as changed lines", () => {
+    const latest = { ...base, prices_include_tax: true, row_version: "4" };
+    assert.equal(describeConflict({ base, latest, mode: "items", rows: [], inclusive: false, directAmount: null }).lines_changed, true);
+    assert.equal(describeConflict({ base, latest: { ...base, row_version: "4" }, mode: "items", rows: [], inclusive: false, directAmount: null }).lines_changed, false);
+  });
+
+  it("direct overwrite of an order that is now in items mode keeps the lines as reference", () => {
+    const latest = state({ total_mode: "items", total_amount: "10.50", row_version: "4", items: [saved()] });
+    const c = describeConflict({ base: state(), latest, mode: "direct", rows: [], inclusive: true, directAmount: "60.00" });
+    assert.deepEqual(c.overwrite, { kind: "direct", total_to: "60.00", lines_become_reference: true });
+    assert.equal(c.mode_before, "manual");
+    assert.equal(c.mode_now, "items");
   });
 });
