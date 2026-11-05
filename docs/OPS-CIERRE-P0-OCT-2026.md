@@ -144,7 +144,7 @@ En una recuperación real hay que reinyectarlos desde su fuente segura. En el si
 
 **3. Authentication → Rate Limits → «Rate limit for sending emails»:** 30 por hora.
 
-**4. Authentication → URL Configuration.** Es imprescindible, porque la recuperación redirige a `https://<tenant>.app.gestcopy.com/auth/update-password` (`window.location.origin`):
+**4. Authentication → URL Configuration.** Es imprescindible, porque la recuperación redirige a `https://<tenant>.app.gestcopy.com/auth/recovery?next=…` (`window.location.origin`), que abre la sesión y lleva a `/auth/update-password`:
 
 | Campo | Valor |
 | --- | --- |
@@ -170,7 +170,7 @@ Si falta el comodín, el enlace del correo cae en la Site URL, sin tenant, y el 
 
 1. Con un usuario del tenant de verificación (buzón del propietario), pedir «He olvidado mi contraseña» en su subdominio.
 2. Debe llegar el correo de `no-reply@gestcopy.com`.
-3. El enlace debe abrir `/auth/update-password` en ese subdominio.
+3. El enlace debe pasar por `/auth/recovery` y abrir `/auth/update-password` en ese subdominio, en el mismo navegador y antes de 5 minutos (plantilla por defecto, flujo PKCE). Desde otro navegador o pasado ese tiempo, debe volver a «Recupera tu contraseña» con el motivo en español.
 4. Fijar una contraseña nueva e iniciar sesión.
 5. Ver la entrega en Resend → Emails.
 

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import {
   Card,
@@ -7,6 +8,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getSafeNextPath } from "@/lib/auth/safe-next-path";
+
+export const metadata: Metadata = {
+  title: "Revisa tu correo",
+};
 
 async function SuccessContent({
   searchParams,
@@ -19,11 +24,11 @@ async function SuccessContent({
 
   return (
     <p className="text-sm text-muted-foreground">
-      You&apos;ve successfully signed up. Please check your email to confirm
-      your account
+      Hemos creado tu cuenta. Abre el enlace que te hemos enviado por correo
+      para confirmarla
       {continuesToInvitation
-        ? " and you will continue with the invitation."
-        : " before signing in."}
+        ? " y seguir con la invitación."
+        : " antes de iniciar sesión."}
     </p>
   );
 }
@@ -40,16 +45,16 @@ export default function Page({
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">
-                Thank you for signing up!
+                Gracias por registrarte
               </CardTitle>
-              <CardDescription>Check your email to confirm</CardDescription>
+              <CardDescription>Confirma tu correo para continuar</CardDescription>
             </CardHeader>
             <CardContent>
               <Suspense
                 fallback={
                   <p className="text-sm text-muted-foreground">
-                    You&apos;ve successfully signed up. Please check your email
-                    to confirm your account before signing in.
+                    Hemos creado tu cuenta. Abre el enlace que te hemos enviado
+                    por correo para confirmarla antes de iniciar sesión.
                   </p>
                 }
               >

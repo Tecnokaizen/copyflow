@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
 import {
-  getSafeNextPath,
+  getPostAuthRedirectPath,
   isInvitationAcceptNext,
 } from "@/lib/auth/safe-next-path";
 import { isTenantHostRequest } from "@/lib/tenant/request-host";
@@ -18,7 +18,7 @@ async function LoginContent({
   searchParams: Promise<{ next?: string }>;
 }) {
   const params = await searchParams;
-  const nextPath = getSafeNextPath(params.next);
+  const nextPath = getPostAuthRedirectPath(params.next);
   if (isInvitationAcceptNext(params.next)) {
     redirect(nextPath);
   }

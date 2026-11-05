@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { SignUpForm } from "@/components/sign-up-form";
@@ -15,6 +16,10 @@ import {
   isInvitationAcceptNext,
 } from "@/lib/auth/safe-next-path";
 import { isTenantHostRequest } from "@/lib/tenant/request-host";
+
+export const metadata: Metadata = {
+  title: "Crear cuenta",
+};
 
 async function SignUpContent({
   searchParams,

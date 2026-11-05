@@ -77,7 +77,7 @@ async function login(h: Harness, account: Account) {
     await page.locator("#password").fill(account.password);
     await Promise.all([
       page.waitForURL((url: URL) => url.origin === target.baseUrl && !url.pathname.startsWith("/auth/")),
-      page.getByRole("button", { name: "Login", exact: true }).click(),
+      page.getByRole("button", { name: /^(Login|Iniciar sesión)$/ }).click(),
     ]);
   });
 }

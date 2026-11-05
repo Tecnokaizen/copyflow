@@ -3,6 +3,10 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
+  PASSWORDS_DO_NOT_MATCH,
+  authErrorMessage,
+} from "@/lib/auth/auth-messages";
+import {
   authHrefWithNext,
   buildAuthConfirmUrl,
   getSafeNextPath,
@@ -55,7 +59,7 @@ export function SignUpForm({
     setError(null);
 
     if (password !== repeatPassword) {
-      setError("Passwords do not match");
+      setError(PASSWORDS_DO_NOT_MATCH);
       setIsLoading(false);
       return;
     }
@@ -78,7 +82,7 @@ export function SignUpForm({
       }
       window.location.assign(authHrefWithNext("/auth/sign-up-success", safeNext));
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(authErrorMessage(error, "sign_up"));
       setIsLoading(false);
     }
   };
@@ -87,24 +91,23 @@ export function SignUpForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">
-            {invitationNext ? "Crear cuenta" : "Sign up"}
-          </CardTitle>
+          <CardTitle className="text-2xl">Crear cuenta</CardTitle>
           <CardDescription>
             {invitationNext
               ? "Usa el mismo correo de la invitación para continuar."
-              : "Create a new account"}
+              : "Crea tu cuenta para empezar a usar Gestcopy."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Correo electrónico</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="m@example.com"
+                  autoComplete="email"
+                  placeholder="nombre@empresa.com"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -112,11 +115,12 @@ export function SignUpForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">Contraseña</Label>
                 </div>
                 <Input
                   id="password"
                   type="password"
+                  autoComplete="new-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -124,23 +128,28 @@ export function SignUpForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="repeat-password">Repeat Password</Label>
+                  <Label htmlFor="repeat-password">Repite la contraseña</Label>
                 </div>
                 <Input
                   id="repeat-password"
                   type="password"
+                  autoComplete="new-password"
                   required
                   value={repeatPassword}
                   onChange={(e) => setRepeatPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && (
+                <p className="text-sm text-[hsl(var(--gc-danger))]" role="alert">
+                  {error}
+                </p>
+              )}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Creating an account..." : "Sign up"}
+                {isLoading ? "Creando la cuenta…" : "Crear cuenta"}
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
-              Already have an account?{" "}
+              ¿Ya tienes cuenta?{" "}
               <Link
                 href={authHrefWithNext(
                   "/auth/login",
@@ -148,7 +157,7 @@ export function SignUpForm({
                 )}
                 className="underline underline-offset-4"
               >
-                Login
+                Iniciar sesión
               </Link>
             </div>
           </form>
