@@ -113,6 +113,7 @@ jobs:
             phase55_billing_checkout_resubscribe \
             phase56_billing_storage_capacity \
             phase57_billing_internal_subscription_guard \
+            phase65_offer_contracting_path \
             phase60_commercial_plans_pro
           do
             echo "::group::${suite}"
