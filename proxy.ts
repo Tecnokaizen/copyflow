@@ -13,6 +13,14 @@ import {
   isTenantAppExemptPath,
   resolveInactiveTenantState,
 } from "@/lib/tenant/inactive-gate";
+import {
+  BILLING_SUSPENDED_CODE,
+  BILLING_SUSPENDED_PATH,
+  decideBillingGate,
+  isBillingGateExemptPath,
+  isBillingGateProxyEnabled,
+} from "@/lib/billing/access-gate";
+import { readMemberBillingAccess } from "@/lib/billing/access-gate-server";
 import { type NextRequest, NextResponse } from "next/server";
 
 function isKioskPagePath(pathname: string) {
@@ -89,6 +97,76 @@ export async function proxy(request: NextRequest) {
       } catch (error) {
         console.error("[proxy] inactive tenant gate failed", { error });
       }
+    }
+  }
+
+  // Billing Access Gate V1: commercial suspension (separate from
+  // tenants.active). Pages → suspension page; API mutations → 402. The DB
+  // trigger enforces writes even if this check is skipped or fails.
+  if (
+    hasEnvVars &&
+    isBillingGateProxyEnabled(process.env) &&
+    hostClassification.status === "tenant" &&
+    !isBillingGateExemptPath(request.nextUrl.pathname) &&
+    session.response.status >= 200 &&
+    session.response.status < 400
+  ) {
+    try {
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return session.getAll();
+            },
+            setAll(cookiesToSet, headers) {
+              session.setAll(cookiesToSet, headers);
+            },
+          },
+        }
+      );
+      const access = await readMemberBillingAccess(
+        supabase,
+        hostClassification.slug
+      );
+      const decision = decideBillingGate({
+        access,
+        pathname: request.nextUrl.pathname,
+        method: request.method,
+      });
+      if (decision.action === "observe") {
+        console.warn("[billing.access-gate] observe", {
+          tenant: hostClassification.slug,
+          state: decision.state,
+          wouldBlock: decision.wouldBlock,
+          method: request.method,
+          path: request.nextUrl.pathname,
+        });
+      } else if (decision.action === "redirect") {
+        const url = request.nextUrl.clone();
+        url.pathname = BILLING_SUSPENDED_PATH;
+        url.search = "";
+        const redirect = NextResponse.redirect(url);
+        session.applyTo(redirect);
+        return redirect;
+      } else if (decision.action === "block") {
+        const blocked = NextResponse.json(
+          {
+            error: "La operativa está suspendida por el estado de facturación.",
+            code: BILLING_SUSPENDED_CODE,
+            state: decision.state,
+          },
+          {
+            status: 402,
+            headers: { "Cache-Control": "private, no-store, max-age=0" },
+          }
+        );
+        session.applyTo(blocked);
+        return blocked;
+      }
+    } catch (error) {
+      console.error("[proxy] billing access gate failed", { error });
     }
   }
 

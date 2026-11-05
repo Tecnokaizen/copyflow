@@ -464,6 +464,6 @@ describe("migration and rollback", () => {
 
   it("runs phase60 in the always-on release gate", () => {
     const workflow = read(".github/workflows/release-gate.yml");
-    assert.match(workflow, /^\s+phase60_commercial_plans_pro$/m);
+    assert.match(workflow, /^\s+phase60_commercial_plans_pro(?: \\)?$/m);
   });
 });
