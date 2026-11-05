@@ -209,3 +209,46 @@ describe("formatActivityText order file events", () => {
     );
   });
 });
+
+describe("formatActivityText order line-item calculator", () => {
+  it("describes a total derived from lines", () => {
+    assert.equal(
+      formatActivityText(item({
+        action: "order.items_replaced",
+        previous_values: { total_mode: "manual", prices_include_tax: false, items_total: "0.00", total_amount: "20.00" },
+        new_values: { total_mode: "items", prices_include_tax: true, items_count: 3, items_total: "24.20", total_amount: "24.20" },
+      })),
+      "Total por partidas (3 partidas, IVA incluido): 20,00 € → 24,20 €",
+    );
+    assert.equal(
+      formatActivityText(item({
+        action: "order.items_replaced",
+        previous_values: { total_mode: "manual", total_amount: null },
+        new_values: { total_mode: "items", prices_include_tax: false, items_count: 1, total_amount: "12.10" },
+      })),
+      "Total por partidas (1 partida, IVA añadido): Sin definir → 12,10 €",
+    );
+  });
+
+  it("describes lines saved as reference in manual mode", () => {
+    assert.equal(
+      formatActivityText(item({ action: "order.items_replaced", new_values: { total_mode: "manual", items_count: 2 } })),
+      "Partidas guardadas como referencia: 2 partidas",
+    );
+  });
+
+  it("marks the switch to a direct amount", () => {
+    assert.equal(
+      formatActivityText(item({
+        action: "order.total_changed",
+        previous_values: { total_amount: "24.20", total_mode: "items" },
+        new_values: { total_amount: "30.00", total_mode: "manual" },
+      })),
+      "Total: 24,20 € → 30,00 € (importe directo; las partidas quedan como referencia)",
+    );
+    assert.equal(
+      formatActivityText(item({ action: "order.total_changed", previous_values: { total_amount: "1.00" }, new_values: { total_amount: "2.00" } })),
+      "Total: 1,00 € → 2,00 €",
+    );
+  });
+});

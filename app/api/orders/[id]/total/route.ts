@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { operationalJson } from "@/lib/http/operational-cache";
 import { collectionError, mapOrderCollection, withActorNames } from "@/lib/orders/collection";
 import { loadProfileNames } from "@/lib/orders/profile-names";
+import { orderItemsError } from "@/lib/orders/items";
 import { canonicalMoney } from "@/lib/orders/money";
 import { parseExpectedVersion } from "@/lib/orders/concurrency";
 import { createClient } from "@/lib/supabase/server";
@@ -41,8 +42,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   } else {
     return operationalJson({ error: "El importe no es válido." }, { status: 422 });
   }
+  // leave_items: the order total came from its lines; set the typed amount and
+  // leave items mode in one transaction (lines are kept as reference).
+  const leaveItems = record?.leave_items === true;
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("set_order_total_amount", {
+  const { data, error } = await supabase.rpc(leaveItems ? "set_order_manual_total_v1" : "set_order_total_amount", {
     p_order_id: id,
     p_total: total,
     p_expected_row_version: version,
@@ -52,7 +56,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   const payload = data as { ok?: boolean; error?: string };
   if (!payload?.ok) {
-    const mapped = collectionError(payload.error);
+    const mapped = payload.error === "total_mode_items" ? orderItemsError(payload.error) : collectionError(payload.error);
     return operationalJson({ error: mapped.error, ...(payload.error === "conflict" ? { code: "conflict" } : {}) }, { status: mapped.status });
   }
   const collection = mapOrderCollection(data);

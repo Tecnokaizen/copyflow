@@ -1,0 +1,280 @@
+{
+    "source": "public.quote_line_amounts_v1 (supabase/migrations/20261005171000_quote_commercial_invariants.sql)",
+    "vectors": [
+        {
+            "note": "Copias con descuento, IVA excluido",
+            "total": "32.67",
+            "quantity": "3",
+            "subtotal": "27.00",
+            "tax_rate": "21",
+            "tax_amount": "5.67",
+            "unit_price": "10",
+            "discount_percent": "10",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Encuadernación 10 %",
+            "total": "12.10",
+            "quantity": "2",
+            "subtotal": "11.00",
+            "tax_rate": "10",
+            "tax_amount": "1.10",
+            "unit_price": "5.50",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "10 € con IVA incluido",
+            "total": "10.00",
+            "quantity": "1",
+            "subtotal": "8.26",
+            "tax_rate": "21",
+            "tax_amount": "1.74",
+            "unit_price": "10",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "10 € + 21 %",
+            "total": "12.10",
+            "quantity": "1",
+            "subtotal": "10.00",
+            "tax_rate": "21",
+            "tax_amount": "2.10",
+            "unit_price": "10",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Base + IVA difiere 0,01 del importe",
+            "total": "0.13",
+            "quantity": "1",
+            "subtotal": "0.13",
+            "tax_rate": "4",
+            "tax_amount": "0.01",
+            "unit_price": "0.13",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Base exactamente en ,xx5 (empate)",
+            "total": "0.15",
+            "quantity": "1",
+            "subtotal": "0.13",
+            "tax_rate": "21",
+            "tax_amount": "0.03",
+            "unit_price": "0.15125",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Empate: redondeo alejándose de cero",
+            "total": "0.13",
+            "quantity": "1",
+            "subtotal": "0.13",
+            "tax_rate": "0",
+            "tax_amount": "0.00",
+            "unit_price": "0.125",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Medio céntimo sube",
+            "total": "0.01",
+            "quantity": "1",
+            "subtotal": "0.01",
+            "tax_rate": "0",
+            "tax_amount": "0.00",
+            "unit_price": "0.005",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Por debajo de medio céntimo baja",
+            "total": "0.00",
+            "quantity": "1",
+            "subtotal": "0.00",
+            "tax_rate": "0",
+            "tax_amount": "0.00",
+            "unit_price": "0.004999",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Cantidad mínima y precio máximo",
+            "total": "1210000.00",
+            "quantity": "0.000001",
+            "subtotal": "1000000.00",
+            "tax_rate": "21",
+            "tax_amount": "210000.00",
+            "unit_price": "999999999999.999999",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Seis decimales en el precio, IVA excluido",
+            "total": "1493827.15",
+            "quantity": "1000",
+            "subtotal": "1234567.89",
+            "tax_rate": "21",
+            "tax_amount": "259259.26",
+            "unit_price": "1234.567891",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Seis decimales en el precio, IVA incluido",
+            "total": "1234567.89",
+            "quantity": "1000",
+            "subtotal": "1020304.04",
+            "tax_rate": "21",
+            "tax_amount": "214263.85",
+            "unit_price": "1234.567891",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Decimales en todo, IVA incluido",
+            "total": "7.71",
+            "quantity": "2.5",
+            "subtotal": "7.01",
+            "tax_rate": "10",
+            "tax_amount": "0.70",
+            "unit_price": "3.3333",
+            "discount_percent": "7.5",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Decimales en todo, IVA excluido",
+            "total": "8.48",
+            "quantity": "2.5",
+            "subtotal": "7.71",
+            "tax_rate": "10",
+            "tax_amount": "0.77",
+            "unit_price": "3.3333",
+            "discount_percent": "7.5",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Descuento del 100 %",
+            "total": "0.00",
+            "quantity": "1",
+            "subtotal": "0.00",
+            "tax_rate": "21",
+            "tax_amount": "0.00",
+            "unit_price": "100",
+            "discount_percent": "100",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Precio 0",
+            "total": "0.00",
+            "quantity": "1",
+            "subtotal": "0.00",
+            "tax_rate": "21",
+            "tax_amount": "0.00",
+            "unit_price": "0",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Céntimos por unidad, IVA incluido",
+            "total": "0.84",
+            "quantity": "12",
+            "subtotal": "0.69",
+            "tax_rate": "21",
+            "tax_amount": "0.15",
+            "unit_price": "0.07",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Céntimos por unidad, 4 %",
+            "total": "0.87",
+            "quantity": "12",
+            "subtotal": "0.84",
+            "tax_rate": "4",
+            "tax_amount": "0.03",
+            "unit_price": "0.07",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Tipo no estándar",
+            "total": "19.99",
+            "quantity": "1",
+            "subtotal": "18.09",
+            "tax_rate": "10.5",
+            "tax_amount": "1.90",
+            "unit_price": "19.99",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Descuento periódico",
+            "total": "2.35",
+            "quantity": "1.5",
+            "subtotal": "1.94",
+            "tax_rate": "21",
+            "tax_amount": "0.41",
+            "unit_price": "2.345",
+            "discount_percent": "33.333333",
+            "prices_include_tax": true
+        },
+        {
+            "note": "IVA 100 %: empate en base e IVA",
+            "total": "0.01",
+            "quantity": "1",
+            "subtotal": "0.01",
+            "tax_rate": "100",
+            "tax_amount": "0.01",
+            "unit_price": "0.01",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "Caso típico de copistería",
+            "total": "10.01",
+            "quantity": "7",
+            "subtotal": "8.27",
+            "tax_rate": "21",
+            "tax_amount": "1.74",
+            "unit_price": "1.43",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "IVA 0 % incluido",
+            "total": "25.00",
+            "quantity": "1",
+            "subtotal": "25.00",
+            "tax_rate": "0",
+            "tax_amount": "0.00",
+            "unit_price": "25",
+            "discount_percent": "0",
+            "prices_include_tax": true
+        },
+        {
+            "note": "IVA 0 % excluido",
+            "total": "25.00",
+            "quantity": "1",
+            "subtotal": "25.00",
+            "tax_rate": "0",
+            "tax_amount": "0.00",
+            "unit_price": "25",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        },
+        {
+            "note": "Muchas unidades baratas",
+            "total": "13.30",
+            "quantity": "333",
+            "subtotal": "10.99",
+            "tax_rate": "21",
+            "tax_amount": "2.31",
+            "unit_price": "0.033",
+            "discount_percent": "0",
+            "prices_include_tax": false
+        }
+    ]
+}

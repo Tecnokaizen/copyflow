@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/gestcopy/confirm-dialog";
 import { DateTimePicker } from "@/components/gestcopy/date-time-picker";
 import { LoadingState } from "@/components/gestcopy/loading-state";
 import { FactRow, FactValue } from "@/components/orders/detail/order-field";
+import { OrderTotalDialog } from "@/components/orders/detail/order-total-dialog";
 import type { OrderCollection, OrderPayment } from "@/lib/orders/collection";
 import { formatDate, fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/orders/format";
 import { paymentPendingStorageKey } from "@/lib/orders/payment-pending";
@@ -47,7 +48,6 @@ export function OrderCollection({
   const [amount, setAmount] = useState("");
   const [paidAt, setPaidAt] = useState("");
   const [paidAtInvalid, setPaidAtInvalid] = useState(false);
-  const [totalDraft, setTotalDraft] = useState("");
   const [reason, setReason] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [method, setMethod] = useState<PaymentMethod | "">("");
@@ -121,7 +121,6 @@ export function OrderCollection({
       // Refresh the server row_version before opening an optimistic-concurrency form.
       const latest = await loadLatestCollection();
       setCollection(latest);
-      setTotalDraft(latest.total_amount ?? "");
       setTotalOpen(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar el cobro");
@@ -135,26 +134,12 @@ export function OrderCollection({
     setError(null);
     try {
       const response = await fetch(url, {
-        method: url.endsWith("/total") ? "PATCH" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const body = await response.json();
       if (!response.ok) {
-        if (url.endsWith("/total") && response.status === 409 && body.code === "conflict") {
-          // Never retry a monetary write automatically: the user must verify
-          // the latest total and decide whether to submit again.
-          let refreshed = false;
-          try {
-            setCollection(await loadLatestCollection());
-            refreshed = true;
-          } catch {
-            // Preserve the original conflict rather than obscuring it.
-          }
-          throw new Error(refreshed
-            ? "El pedido ha cambiado. Hemos actualizado los importes; revisa el total y vuelve a confirmar."
-            : "El pedido ha cambiado. No se pudieron actualizar los importes; cierra el diálogo y vuelve a abrirlo antes de confirmar.");
-        }
         throw new Error(body.error ?? "No se pudo guardar");
       }
       setCollection(body as OrderCollection);
@@ -453,25 +438,18 @@ export function OrderCollection({
       ) : null}
 
       {actionsEnabled && totalOpen && collection ? (
-        <ConfirmDialog
+        <OrderTotalDialog
+          orderId={orderId}
+          collection={collection}
           title={labels.total}
-          description="El total no puede quedar por debajo de lo ya entregado a cuenta."
-          confirmLabel="Guardar total"
-          busy={busy}
-          onCancel={() => { if (!busy) setTotalOpen(false); }}
-          onConfirm={() => {
-            void submit(`/api/orders/${orderId}/total`, {
-              total_amount: totalDraft,
-              expected_version: collection.row_version,
-            });
+          onCancel={() => setTotalOpen(false)}
+          onSaved={(saved) => {
+            // Never retried automatically: conflicts are resolved inside the dialog.
+            setCollection(saved);
+            setTotalOpen(false);
+            onChanged();
           }}
-        >
-          <label className="grid gap-1 text-sm">
-            Importe
-            <input className="gc-field-control" inputMode="decimal" value={totalDraft} onChange={(event) => setTotalDraft(event.target.value)} />
-          </label>
-          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
-        </ConfirmDialog>
+        />
       ) : null}
 
       {actionsEnabled && voiding ? (

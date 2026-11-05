@@ -101,6 +101,11 @@ try {
         collection = { ...collection, paid_amount: "30.00", pending_amount: "55.00", collection_state: "partial", row_version: "3", payments: [{ id: "payment-1", amount: "30.00", paid_at: payment.paid_at, created_at: payment.paid_at, actor_name: "Personal", voided_at: null }] };
         return json(collection);
       }
+      // Order total calculator: the dialog reads the saved lines (none here).
+      if (pathname === "/api/orders/saved-order/items" && req.method() === "GET") return json({
+        total_amount: collection.total_amount, total_mode: "manual", prices_include_tax: false, items_subtotal: "0.00", items_tax_total: "0.00",
+        items_total: "0.00", row_version: collection.row_version, items: [],
+      });
       if (pathname === "/api/orders/saved-order/total") {
         const payload = req.postDataJSON(); assert.equal(payload.expected_version, "1"); assert.ok(["85", "85.00"].includes(payload.total_amount));
         collection = { ...collection, total_amount: "85.00", pending_amount: "85.00", collection_state: "unpaid", row_version: "2" };

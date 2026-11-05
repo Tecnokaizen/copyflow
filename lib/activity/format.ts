@@ -447,6 +447,13 @@ function extractChanges(event: ActivityEvent): FormattedChange[] {
         asString(next.total_amount) || "Sin definir"
       );
 
+    case "order.items_replaced":
+      return singleChange(
+        "Total",
+        asString(prev.total_amount) || "Sin definir",
+        asString(next.total_amount) || "Sin definir"
+      );
+
     case "order.payment_recorded":
       return singleChange("Entrega", "—", asString(next.amount) || "—");
 
@@ -555,6 +562,8 @@ function headlineFor(event: ActivityEvent, entity: string) {
       return "Actualizó las notas internas";
     case "order.total_changed":
       return `Actualizó el total de ${entity}`;
+    case "order.items_replaced":
+      return `Actualizó las partidas de ${entity}`;
     case "order.payment_recorded":
       return `Registró una entrega a cuenta en ${entity}`;
     case "order.payment_voided":
@@ -719,6 +728,7 @@ export function formatActivityEvent(event: ActivityEvent): FormattedActivity {
     "quote.file_deleted",
     "quote.internal_notes_updated",
     "order.total_changed",
+    "order.items_replaced",
     "order.payment_recorded",
     "order.payment_voided",
   ].includes(event.action) || isOrderWorkActivityAction(event.action);
